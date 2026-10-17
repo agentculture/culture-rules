@@ -1,0 +1,244 @@
+{
+  "source": "web/src/fold/model.ts foldModel over docs/rules (web/src/fold/parity.test.ts)",
+  "entries": [
+    {
+      "rule": "daily-newspaper",
+      "workflow": "daily-newspaper",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-checks",
+      "workflow": "queue-add",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-comment",
+      "workflow": "queue-add",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-conflict",
+      "workflow": "queue-add",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-dispatch",
+      "workflow": "pr-fix",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-publish",
+      "workflow": "publish-fix",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "review-commit"
+      },
+      "from": "review-commit"
+    },
+    {
+      "rule": "pr-fixer-queue-progress-cancelled",
+      "workflow": "queue-progress",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "pr-fix"
+      },
+      "from": "pr-fix"
+    },
+    {
+      "rule": "pr-fixer-queue-progress-capacity",
+      "workflow": "queue-progress",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "queue-add-capacity"
+      },
+      "from": "queue-add-capacity"
+    },
+    {
+      "rule": "pr-fixer-queue-progress-failed",
+      "workflow": "queue-progress",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "pr-fix"
+      },
+      "from": "pr-fix"
+    },
+    {
+      "rule": "pr-fixer-queue-progress-fixed",
+      "workflow": "queue-progress",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "pr-fix"
+      },
+      "from": "pr-fix"
+    },
+    {
+      "rule": "pr-fixer-queue-progress-stopped",
+      "workflow": "queue-progress",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "queue-stop"
+      },
+      "from": "queue-stop"
+    },
+    {
+      "rule": "pr-fixer-queue-progress-superseded",
+      "workflow": "queue-progress",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "pr-fix"
+      },
+      "from": "pr-fix"
+    },
+    {
+      "rule": "pr-fixer-queue-progress",
+      "workflow": "queue-progress",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "queue-add"
+      },
+      "from": "queue-add"
+    },
+    {
+      "rule": "pr-fixer-queue-sweep",
+      "workflow": "queue-progress",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-refix",
+      "workflow": "queue-add",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "review-commit"
+      },
+      "from": "review-commit"
+    },
+    {
+      "rule": "pr-fixer-retry-capacity",
+      "workflow": "queue-add-capacity",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "pr-fix"
+      },
+      "from": "pr-fix"
+    },
+    {
+      "rule": "pr-fixer-retry-failed",
+      "workflow": "queue-add",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "pr-fix"
+      },
+      "from": "pr-fix"
+    },
+    {
+      "rule": "pr-fixer-retry",
+      "workflow": "queue-add",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "pr-fix"
+      },
+      "from": "pr-fix"
+    },
+    {
+      "rule": "pr-fixer-review-comment",
+      "workflow": "queue-add",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-review-commit",
+      "workflow": "review-commit",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "linked",
+        "workflow_id": "pr-fix"
+      },
+      "from": "pr-fix"
+    },
+    {
+      "rule": "pr-fixer-review",
+      "workflow": "queue-add",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-secrets-late",
+      "workflow": "report-secrets",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-secrets",
+      "workflow": "report-secrets",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-stop-reaction",
+      "workflow": "queue-stop",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
+      "rule": "pr-fixer-stop",
+      "workflow": "queue-stop",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    }
+  ]
+}
