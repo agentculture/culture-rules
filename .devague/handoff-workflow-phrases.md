@@ -19,21 +19,19 @@ d14 (Simple opens the step panel and the rule pane), d15 quiet-inline design. Ga
 
 ## In flight when this was written
 
-- t19 (docs, four prompt files, CHANGELOG, version 0.21.0, closeout table in the evidence
-  log) on worktree `../.worktrees.culture-rules/wp-t19`, branch `rules/wp-t19`. Merge with
-  the full gate when it reports.
+- t19 is merged (version 0.21.0, CHANGELOG, the four prompt files, READMEs, the closeout
+  table in the evidence log); all gates green after the merge (pytest 6696, vitest 765,
+  Playwright 116, teken 26/26, harness-smoke, markdownlint, scan-secrets).
 - Qwen review 1 of 2 (trusted.py, service.py, store/revision.py, io/exchange.py), output in
   the session scratchpad `review1.txt`. Then review 2: culture_rules/model/paragraph.py. One
   Qwen job at a time. Verify every finding before acting.
 
 ## Next
 
-1. Merge t19, rerun all gates (pytest, vitest, `npm run build` then Playwright, lint, teken,
-   markdownlint, scan-secrets).
-2. Fold in verified Qwen findings (deviate if they change the plan).
-3. `/validate-delivery`: evidence for plan obligations o1-o13 (+ frame o1-o14).
-4. PR through the cicd skill (body signed by the cicd script), then `/summarize-delivery`.
-5. t20 live rollout from the operator's shell: idle, pause, upgrade every host,
+1. Fold in verified Qwen findings (deviate if they change the plan).
+2. `/validate-delivery`: evidence for plan obligations o1-o13 (+ frame o1-o14).
+3. PR through the cicd skill (body signed by the cicd script), then `/summarize-delivery`.
+4. t20 live rollout from the operator's shell: idle, pause, upgrade every host,
    `workflows migrate-notes` (dry run, --apply, dry run = 0), seed, import,
    `rules migrate-orphans` (dry run, --apply, dry run = 0), enable, resume, verify.
 
