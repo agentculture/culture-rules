@@ -2538,10 +2538,21 @@ through its own hand-off steps ([The hand-off](#the-hand-off)), and
 
 **0.20.0 ships this level disabled.** The seeded level-1 string says
 `enabled=false`, and a rollout never changes the live `fixer_levels`
-anyway. Everything below is *operator* hand-turns, in this order; none of
-it is done live yet, and nothing here is done by an agent. Steps 1-7 change
-nothing the live fixer does; step 8 turns the level on. No secret value
-appears below: grant **names** only.
+anyway. Everything below is *operator* hand-turns, in this order, and
+nothing here is done by an agent. Steps 1-7 change nothing the live fixer
+does; step 8 turns the level on. No secret value appears below: grant
+**names** only.
+
+**Live since 2026-10-12.** On spark the operator ran these steps as two
+scripts: the account's bridge, unit and token (steps 2-5), then the
+hand-off's sudoers line and the node drop-in that carries
+`CULTURE_RULES_HANDOFF_RUN_AS`, `NoNewPrivileges=false` and the
+`RULES_CLAUDE_FIXER_TOKEN` inject (step 6). Run them in your own terminal:
+sudo needs a password prompt, which a non-interactive shell does not have.
+The actors are registered, and `fixer_levels` has level 1 on (v4). The live
+check passed on culture-rules-tester#9: try 1 ran on `claude-fixer`, the
+gate passed, `qwen-reviewer` approved, and the App pushed. See
+`docs/deliveries/2026-10-12-claude-fixer-level.md`.
 
 ### 1. The account (operator, root)
 
@@ -2734,15 +2745,16 @@ Three prerequisites:
   other endpoints hash differently and the verdict step refuses them
   (`actor_not_trusted`).
 - **spark2's Qwen bridge removes the shell from a plan-mode session**
-  (*planned*: cultureagent's qwen bridge starts a plan-mode `qwen --acp`
-  with `--exclude-tools run_shell_command`). Without it the first live try
+  (cultureagent 0.15.1 or later: the qwen bridge starts a plan-mode
+  `qwen --acp` with `--exclude-tools run_shell_command`). Without it the
+  first live try
   on 2026-10-12 failed: Qwen asked to run a shell command while reviewing,
   the bridge answers every permission request `cancelled`, and the review
   ended `permission_blocked` with no verdict (`review_invalid`). Qwen Code
   0.25.0 treats its only reject option exactly like `cancelled`, so a
   different answer does not help. 0.20.1's reviewer brief also steers a
   reviewer to its read and search tools (plan `claude-fixer-level` d1).
-  Until both are live, level 1 stays `enabled=false`.
+  Both have been live on spark2 since 2026-10-12.
 
 Only then set
 `fixer_levels` live with level 1 enabled and the other two strings
@@ -2800,9 +2812,9 @@ next enabled level.
 | Account (#39) | `culture-codex-fixer` (planned; created by the operator) |
 | Bridge (#39) | a second codex bridge on 8097 (8095 is the climate stack's weather-web), loopback only, sandbox `workspace-write` (planned) |
 | Actor (#39) | `codex-fixer` (level 3, not pinned; committed digest `sha256:35c050a2…7e8e`) |
-| Account (#56) | `culture-claude-fixer` (planned; created by the operator) |
-| Bridge (#56) | the cultureagent claude bridge on 8096, loopback only, fixer role (`workspace-write`) (planned) |
-| Actor (#56) | `claude-fixer` (level 1, seeded disabled, not pinned; committed digest `sha256:2d03fa30…3c1d`) |
+| Account (#56) | `culture-claude-fixer` (created by the operator, own Claude login) |
+| Bridge (#56) | the cultureagent claude bridge on 8096, loopback only, fixer role (`workspace-write`) (deployed) |
+| Actor (#56) | `claude-fixer` (level 1, live and enabled since 2026-10-12, not pinned; committed digest `sha256:2d03fa30…3c1d`) |
 
 ## Disabling the fixer mid-run (d17)
 

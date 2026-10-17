@@ -2,7 +2,7 @@
   "plan_slug": "claude-fixer-level",
   "schema_version": 2,
   "created": "2026-10-12T20:25:38Z",
-  "updated": "2026-10-12T20:25:38Z",
+  "updated": "2026-10-12T22:28:33Z",
   "deviations": [
     {
       "id": "d1",
@@ -16,7 +16,46 @@
       "seq": 1
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "live: tester#5 /fix 2026-10-12 18:30Z, dispatch run-30ab94e4, review run-f3776c74",
+      "behavior_text": "agent_claude, handoff_export_claude (as culture-claude-fixer), handoff_import_claude and the gate passed; review_qwen ended permission_blocked, verdict review_invalid, nothing pushed",
+      "contract_text": "a /fix on a tester PR runs try 1 on claude-fixer, the hand-off carries its commit to spark2's gate, qwen-reviewer reviews it against the original task, and the App pushes",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the live engine ran the chain on 0.20.0; outcomes read from the run records and the PR status comment",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-12T18:39:00Z",
+        "commit": "e795347"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 2
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o1",
+      "test_ref": "live: tester#9 /fix 2026-10-12 22:11Z, dispatch run-4a009593, review run-a141c582, publish run-8cb46638",
+      "behavior_text": "try 1 on claude-fixer (level 1) fixed mathx.median, the hand-off carried 3251117 to spark2's gate (verdict pass), qwen-reviewer approved with 0 findings, and the App pushed e8d8e19",
+      "contract_text": "a /fix on a tester PR runs try 1 on claude-fixer, the hand-off carries its commit to spark2's gate, qwen-reviewer reviews it against the original task, and the App pushes",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the live engine ran the whole chain on 0.20.1 with cultureagent 0.15.1 on spark2; outcomes read from the run records and the PR status comment",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-12T22:20:46Z",
+        "commit": "9023caf"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 3
+    }
+  ],
   "deltas": [],
   "supersessions": []
 }

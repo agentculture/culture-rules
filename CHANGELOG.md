@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2] - 2026-10-13
+
+Docs and records only: no code, rule or variable changes.
+
+### Changed
+
+- `docs/operations/pr-fixer.md`: the Claude level is live (section 10 and the spark table). The operator ran the setup as two scripts in their own terminal. The reviewer-shell prerequisite needs cultureagent 0.15.1 or later, which has been live on spark2 since 2026-10-12
+- `docs/rules/pr-fixer/release.json` is 0.20.2, with no new rules or variables
+- Records: `claude-fixer-level` obligation `o1` on `c14` and its live evidence. `e1` failed (tester#5: `review_qwen` `permission_blocked`) and `e2` passed (tester#9: Claude fixed it, the gate passed, Qwen approved, the App pushed `e8d8e19`); both are proposed until the operator confirms them. The delivery summary is `docs/deliveries/2026-10-12-claude-fixer-level.md`
+
 ## [0.20.1] - 2026-10-12
 
 **The Claude level stays off after this release.** Its first live try (plan `claude-fixer-level` t7, tester#5) passed the agent, the hand-off and the gate, but `review_qwen` ended `permission_blocked` and nothing was pushed, so the operator set level 1 back to `enabled=false` (`fixer_levels` v3, deviation d1). It is turned on again only after this release and the cultureagent qwen bridge's plan-mode shell exclusion are live and t7 passes on a re-run.
