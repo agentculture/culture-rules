@@ -822,13 +822,14 @@ def test_pr_fix_with_no_descriptions_reads_as_the_approved_mock():
             "First quiet period, waiting 5 minutes, and the run stops if the PR head moves;"
             " then hold while GitGuardian fails; then trusted review threads.",
             "At the same time failing SonarCloud conditions.",
-            "Once both are done, agent and gate (up to 3 tries), until verdict is set, at most"
+            "Once both are done, fix and test, one try, until verdict is set, at most"
             ' once; each time, if fixer is not set or fixer is one of "", qwen-fixer, fix the PR'
             " (Qwen bridge agent).",
-            "Then, if fixer is claude-fixer, fix the PR (Claude bridge agent); then hand-off:"
-            " export the Claude commits; then hand-off: import the Claude commits into spark2.",
-            "Then, if fixer is codex-fixer, fix the PR (Codex bridge agent); then hand-off:"
-            " export the Codex commits; then hand-off: import into spark2.",
+            "Then, if fixer is claude-fixer, fix the PR (Claude bridge agent); then pack the"
+            " Claude commits for the hand-off; then hand off to spark2"
+            " to import the Claude commits.",
+            "Then, if fixer is codex-fixer, fix the PR (Codex bridge agent); then pack the"
+            " Codex commits for the hand-off; then hand off to spark2 to import the Codex commits.",
             "Then the path that ran; then test gate and diff guard.",
         ]
     )

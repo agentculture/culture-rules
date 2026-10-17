@@ -608,7 +608,7 @@
             "keys": [
               "once_both"
             ],
-            "name": "Agent and gate (up to 3 tries)",
+            "name": "Fix and test, one try",
             "part": "step",
             "phrase": "Once both are done,",
             "sentence": 3,
@@ -669,7 +669,7 @@
             "keys": [
               "then_grouped"
             ],
-            "name": "Hand-off: export the Claude commits",
+            "name": "Pack the Claude commits for the hand-off",
             "part": "step",
             "phrase": "; then",
             "sentence": 4,
@@ -688,7 +688,7 @@
             "keys": [
               "then_grouped"
             ],
-            "name": "Hand-off: import the Claude commits into spark2",
+            "name": "Hand off to spark2 to import the Claude commits",
             "part": "step",
             "phrase": "; then",
             "sentence": 4,
@@ -727,7 +727,7 @@
             "keys": [
               "then_grouped"
             ],
-            "name": "Hand-off: export the Codex commits",
+            "name": "Pack the Codex commits for the hand-off",
             "part": "step",
             "phrase": "; then",
             "sentence": 5,
@@ -746,7 +746,7 @@
             "keys": [
               "then_grouped"
             ],
-            "name": "Hand-off: import into spark2",
+            "name": "Hand off to spark2 to import the Codex commits",
             "part": "step",
             "phrase": "; then",
             "sentence": 5,
@@ -6966,7 +6966,7 @@
               ],
               "kind": "code",
               "max_iterations": null,
-              "name": "Hand-off: export the Claude commits",
+              "name": "Pack the Claude commits for the hand-off",
               "notes": "#56: packs the Claude fixer's commits (head_before..head_after) out of its worktree on spark, as its account (run_as culture-claude-fixer), into one size-capped store document (handoff_too_large over the cap: the try fails).",
               "outputs": [
                 {
@@ -7054,7 +7054,7 @@
               ],
               "kind": "code",
               "max_iterations": null,
-              "name": "Hand-off: import the Claude commits into spark2",
+              "name": "Hand off to spark2 to import the Claude commits",
               "notes": "#56: as handoff_import, as the gate's account: rebuilds a fixer-owned worktree on spark2 from that pack (the trusted clone_url and base fetched by SHA, the pack verified with index-pack --strict) whose HEAD is exactly the Claude fixer's commit; any refusal leaves no worktree.",
               "outputs": [
                 {
@@ -7268,7 +7268,7 @@
               ],
               "kind": "code",
               "max_iterations": null,
-              "name": "Hand-off: export the Codex commits",
+              "name": "Pack the Codex commits for the hand-off",
               "notes": "#39: packs the Codex fixer's commits (head_before..head_after) out of its worktree on spark, as its account (#56: run_as culture-codex-fixer), into one size-capped store document (handoff_too_large over the cap: the try fails).",
               "outputs": [
                 {
@@ -7356,7 +7356,7 @@
               ],
               "kind": "code",
               "max_iterations": null,
-              "name": "Hand-off: import into spark2",
+              "name": "Hand off to spark2 to import the Codex commits",
               "notes": "#39: rebuilds a fixer-owned worktree on spark2 from that pack (the trusted clone_url and base fetched by SHA, the pack verified with index-pack --strict) whose HEAD is exactly the Codex fixer's commit; any refusal leaves no worktree.",
               "outputs": [
                 {
@@ -7759,7 +7759,7 @@
           ],
           "kind": "retry_until",
           "max_iterations": 1,
-          "name": "Agent and gate (up to 3 tries)",
+          "name": "Fix and test, one try",
           "notes": "One try (d30): the agent of the try's level (#39, #56: agent_qwen, or agent_claude or agent_codex and its own hand-off), then the gate. The try ends when the gate has given its verdict, whatever it is; a try that does not pass waits in the queue for the next one.",
           "outputs": [
             {

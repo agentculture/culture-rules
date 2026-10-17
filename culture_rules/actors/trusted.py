@@ -125,7 +125,13 @@ TRUSTED_WORKFLOWS_V2: dict[str, frozenset[str]] = {
     ROLE_SINGLE: frozenset(),
     # docs/rules/pr-fixer/workflows/pr-fix.json (#56's, v1 sha256:2255b082...)
     ROLE_FIX: frozenset(
-        {"sha256:4a92df7e0b127246fe668c8ea2233169088f1d9ee06df0bad33ebe2036dad769"}
+        {
+            # the pre-rename definition (d12): stays while runs pinned to it may still push;
+            # remove in a later release
+            "sha256:4a92df7e0b127246fe668c8ea2233169088f1d9ee06df0bad33ebe2036dad769",
+            # the committed definition with the plain stand-in step names (d12)
+            "sha256:aaa5f90e2a391abcdebe93962dd697b173c5e7691bb6ad66763b82d6d670af47",
+        }
     ),
     # docs/rules/pr-fixer/workflows/review-commit.json (#39's, v1 sha256:0653ba8c...)
     ROLE_REVIEW: frozenset(
