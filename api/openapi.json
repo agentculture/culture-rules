@@ -413,6 +413,18 @@
             "title": "Code",
             "type": "string"
           },
+          "current_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "revision_conflict only: the workflow's stored revision, to reload at",
+            "title": "Current Revision"
+          },
           "message": {
             "title": "Message",
             "type": "string"
@@ -7596,6 +7608,7 @@
     },
     "/workflows": {
       "get": {
+        "description": "Each workflow carries `revision` beside its definition: server-owned metadata, bumped on every write (create 1, then stored + 1). Send it back as `expected_revision` on `PUT /workflows/{id}`; never inside the definition.",
         "operationId": "list_workflows",
         "parameters": [
           {
@@ -7838,6 +7851,7 @@
         ]
       },
       "get": {
+        "description": "Each workflow carries `revision` beside its definition: server-owned metadata, bumped on every write (create 1, then stored + 1). Send it back as `expected_revision` on `PUT /workflows/{id}`; never inside the definition.",
         "operationId": "get_workflow",
         "parameters": [
           {
@@ -7918,6 +7932,7 @@
         ]
       },
       "put": {
+        "description": "Replace the workflow. The body is the definition plus `expected_revision`: the `revision` the workflow had when it was read (a document stored before revisions existed reads as 0). The update writes only when it equals the stored revision, checked inside the write's transaction, and the stored revision becomes that plus one. A missing or stale `expected_revision` is 409 `revision_conflict`, whose one error entry carries `current_revision`; nothing is written. `revision` itself is server-owned: a body carrying it is 422.",
         "operationId": "update_workflow",
         "parameters": [
           {

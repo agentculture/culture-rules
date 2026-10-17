@@ -600,6 +600,22 @@ class StoragePortContract:
         again = migrate(new, self._registry(), backup=lambda: True, target_major=2)
         assert again.migrated == {"rules": 0}
 
+    def test_migration_bumps_a_workflows_revision_only(self):
+        """A migrated workflow is a new revision (c34): a tab read before the migration
+        cannot write over it. Other collections carry no revision."""
+        old = self.make_store(node_schema_version="1.0")
+        old.put("workflows", {"id": "w", "name": "alpha", "revision": 4})
+        old.put("workflows", {"id": "legacy", "name": "beta"})
+        old.put("rules", {"id": "a", "name": "alpha"})
+        new = self.open_peer(old, node_schema_version="2.0")
+        registry = MigrationRegistry()
+        registry.register("workflows", from_major=1, to_major=2, fn=lambda d: d)
+        registry.register("rules", from_major=1, to_major=2, fn=lambda d: d)
+        migrate(new, registry, backup=lambda: True)
+        assert new.get("workflows", "w")["revision"] == 5
+        assert new.get("workflows", "legacy")["revision"] == 1
+        assert "revision" not in new.get("rules", "a")
+
     def test_migration_gap_fails_before_backup(self):
         registry = MigrationRegistry()
         registry.register("rules", from_major=2, to_major=3, fn=lambda d: d)

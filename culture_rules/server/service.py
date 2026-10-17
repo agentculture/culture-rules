@@ -8,6 +8,10 @@ that references a shared variable is also refused when the variable is undefined
 (``variables_unsupported_nodes``, deviation d7). Every
 mutating verb writes its change and exactly one audit entry in one transaction. Nothing is
 cached in the process: each call reads the store.
+
+Workflows carry a server-owned ``revision`` (:mod:`culture_rules.store.revision`, spec c34):
+every write bumps it, and an update writes only when its ``expected_revision`` equals the
+stored one, compared inside the write's transaction (else :class:`RevisionConflict`, 409).
 """
 
 from __future__ import annotations
@@ -31,13 +35,16 @@ from culture_rules.model.validate import validate, validate_data, variable_ref_e
 from culture_rules.model.variable import validate_variable_name
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
+from culture_rules.store import revision as rev
 from culture_rules.store.port import Document, StoragePort, VariableVersionConflict
+from culture_rules.store.retry import run_transaction
 
 __all__ = [
     "DEFINITION_KINDS",
     "Conflict",
     "Definitions",
     "Invalid",
+    "RevisionConflict",
     "RuleReferenced",
     "NotFound",
     "ServiceError",
@@ -84,6 +91,60 @@ class Conflict(ServiceError):
     """The target is in the wrong state for this verb (HTTP 409)."""
 
     code = "conflict"
+
+
+class RevisionConflict(Conflict):
+    """A workflow update named a missing or stale ``expected_revision`` (HTTP 409); the one
+    error entry carries ``current_revision`` so the client can reload and apply again."""
+
+    code = "revision_conflict"
+
+
+def _revision_conflict(kind: str, ident: str, expected: Any, current: int) -> RevisionConflict:
+    if expected is None:
+        message = (
+            f"{kind}/{ident} is at revision {current}; an update must name the revision it "
+            f"was read at in `{rev.EXPECTED_REVISION}`"
+        )
+    else:
+        message = (
+            f"{kind}/{ident} is at revision {current}, not {expected}; it changed since it "
+            "was read: reload it and apply the change again"
+        )
+    return RevisionConflict(
+        message,
+        [
+            {
+                "path": rev.EXPECTED_REVISION,
+                "code": RevisionConflict.code,
+                "message": message,
+                "current_revision": current,
+            }
+        ],
+    )
+
+
+def _expected_revision(body: Any) -> tuple[Any, Any]:
+    """``(body without expected_revision, expected_revision or None)``; 422 when it is not a
+    non-negative integer."""
+    if not isinstance(body, Mapping) or rev.EXPECTED_REVISION not in body:
+        return body, None
+    rest = {k: v for k, v in body.items() if k != rev.EXPECTED_REVISION}
+    value = body[rev.EXPECTED_REVISION]
+    if value is None:
+        return rest, None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise Invalid(
+            f"{rev.EXPECTED_REVISION} must be a non-negative integer",
+            [
+                {
+                    "path": rev.EXPECTED_REVISION,
+                    "code": "type",
+                    "message": f"{value!r} is not a non-negative integer",
+                }
+            ],
+        )
+    return rest, value
 
 
 class RuleReferenced(Conflict):
@@ -265,13 +326,18 @@ class Definitions:
         check: SaveCheck | None = None,
     ) -> Document:
         require_identity(identity)
+        revisioned = rev.is_revisioned(kind) and expect_id is not None
+        expected = None
+        if revisioned:
+            body, expected = _expected_revision(body)
         obj, ident = self._parse(kind, body)
         if expect_id is not None and ident != expect_id:
             raise Invalid(
                 "body id does not match the URL",
                 [{"path": "id", "code": "id_mismatch", "message": f"{ident!r} != {expect_id!r}"}],
             )
-        with self._store.transaction() as tx:
+
+        def write(tx: Any) -> Document:
             before = tx.get(kind, ident)
             if expect_id is None and before is not None:
                 raise Conflict(f"{kind}/{ident} already exists")
@@ -280,12 +346,19 @@ class Definitions:
                     raise NotFound(f"{kind}/{ident} does not exist")
                 if not _is_live(before):
                     raise Conflict(f"{kind}/{ident} is deleted; restore it first")
+            if revisioned:
+                # compare inside the transaction: the put below replaces exactly the document
+                # read here, so a concurrent writer makes this attempt lose (and the retry
+                # re-reads and refuses with the revision it finds)
+                current = rev.current_revision(before)
+                if expected is None or expected != current:
+                    raise _revision_conflict(kind, ident, expected, current)
             if isinstance(obj, Rule):
                 self._check_rule_set(tx, obj)
             doc = self._stored(obj, ident)
             if check is not None:
                 check(kind, before, doc)
-            after = tx.put(kind, doc)
+            after = tx.put(kind, {**doc, **rev.bump(kind, before)})
             self._audit.write(
                 tx,
                 identity=identity,
@@ -295,7 +368,12 @@ class Definitions:
                 before=before,
                 after=after,
             )
-        return after
+            return after
+
+        if rev.is_revisioned(kind):
+            return run_transaction(self._store, write)
+        with self._store.transaction() as tx:
+            return write(tx)
 
     @mutating_verb("definitions.create", "Create a rule, workflow, actor or machine")
     def create(
@@ -307,6 +385,9 @@ class Definitions:
     def update(
         self, kind: str, id: str, body: Any, identity: str, *, check: SaveCheck | None = None
     ) -> Document:
+        """Replace a definition. For a workflow, ``body`` also carries ``expected_revision``
+        (the revision it was read at); a missing or stale one raises :class:`RevisionConflict`
+        and nothing is written."""
         return self._save(kind, body, identity, "definitions.update", id, check)
 
     @mutating_verb("definitions.set_enabled", "Enable or disable a definition")
@@ -328,7 +409,12 @@ class Definitions:
                 )
                 if errors:
                     raise Invalid("rule cannot be enabled yet", errors)
-            res = tx.update_if(kind, id, {"enabled": before.get("enabled")}, {"enabled": enabled})
+            res = tx.update_if(
+                kind,
+                id,
+                {"enabled": before.get("enabled"), **rev.guard(kind, before)},
+                {"enabled": enabled, **rev.bump(kind, before)},
+            )
             if not res.won:
                 raise Conflict(f"{kind}/{id} changed concurrently")
             self._audit.write(
@@ -563,6 +649,10 @@ class Definitions:
             if not apply:
                 return plan
             for kind, doc in writes:
+                # an import change is a write like any other: the stored revision plus one
+                # (never the bundle's; it carries none)
+                if rev.is_revisioned(kind):
+                    doc = {**doc, **rev.bump(kind, tx.get(kind, doc["id"]))}
                 tx.put(kind, doc)
             self._audit.write(
                 tx,

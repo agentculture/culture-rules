@@ -60,6 +60,7 @@ from culture_rules.server.service import (
     Definitions,
     Invalid,
     NotFound,
+    RevisionConflict,
     RuleReferenced,
     ServiceError,
     Variables,
@@ -118,6 +119,10 @@ class ErrorItem(BaseModel):
     path: str = ""
     code: str
     message: str
+    current_revision: int | None = Field(
+        default=None,
+        description="revision_conflict only: the workflow's stored revision, to reload at",
+    )
 
 
 class ErrorBody(BaseModel):
@@ -502,6 +507,7 @@ def _envelope(status: int, code: str, message: str, errors: Any = ()) -> JSONRes
             "path": str(e.get("path", "")),
             "code": str(e.get("code", code)),
             "message": str(e.get("message", "")),
+            **({"current_revision": e["current_revision"]} if "current_revision" in e else {}),
         }
         for e in errors
     ]
@@ -518,7 +524,13 @@ def _run_status(code: str) -> int:
 
 
 def _install_errors(app: FastAPI) -> None:
-    status = {Invalid: 422, NotFound: 404, Conflict: 409, RuleReferenced: 409}
+    status = {
+        Invalid: 422,
+        NotFound: 404,
+        Conflict: 409,
+        RuleReferenced: 409,
+        RevisionConflict: 409,
+    }
 
     @app.exception_handler(ServiceError)
     async def _service(request: Request, exc: ServiceError) -> JSONResponse:
@@ -1609,6 +1621,26 @@ _UPDATE_RULE_NOTE = (
 )
 
 
+_WORKFLOW_REVISION_NOTE = (
+    "Replace the workflow. The body is the definition plus `expected_revision`: the "
+    "`revision` the workflow had when it was read (a document stored before revisions "
+    "existed reads as 0). The update writes only when it equals the stored revision, "
+    "checked inside the write's transaction, and the stored revision becomes that plus "
+    "one. A missing or stale `expected_revision` is 409 `revision_conflict`, whose one "
+    "error entry carries `current_revision`; nothing is written. `revision` itself is "
+    "server-owned: a body carrying it is 422."
+)
+_WORKFLOW_READ_NOTE = (
+    "Each workflow carries `revision` beside its definition: server-owned metadata, "
+    "bumped on every write (create 1, then stored + 1). Send it back as "
+    "`expected_revision` on `PUT /workflows/{id}`; never inside the definition."
+)
+
+
+def _update_note(kind: str) -> str | None:
+    return {"rules": _UPDATE_RULE_NOTE, "workflows": _WORKFLOW_REVISION_NOTE}.get(kind)
+
+
 def _with_active_runs(store: StoragePort, doc: dict[str, Any]) -> dict[str, Any]:
     """The stored rule plus its active runs: what a disable offers to stop (d17).
 
@@ -1631,7 +1663,15 @@ def _register_kind(
     one = kind[:-1]
     path = f"/{kind}/{{id}}"
 
-    @app.get(f"/{kind}", response_model=ItemList, tags=tag, operation_id=f"list_{kind}")
+    read_note = _WORKFLOW_READ_NOTE if kind == "workflows" else None
+
+    @app.get(
+        f"/{kind}",
+        response_model=ItemList,
+        tags=tag,
+        operation_id=f"list_{kind}",
+        description=read_note,
+    )
     def list_items(include_deleted: bool = False):
         return {"items": defs.list(kind, include_deleted=include_deleted)}
 
@@ -1653,6 +1693,7 @@ def _register_kind(
         operation_id=f"get_{one}",
         responses={404: ERRORS[404]},
         response_model=dict[str, Any],
+        description=read_note,
     )
     def get_item(id: str):
         return defs.get(kind, id)
@@ -1663,7 +1704,7 @@ def _register_kind(
         operation_id=f"update_{one}",
         responses=ERRORS,
         response_model=dict[str, Any],
-        description=_UPDATE_RULE_NOTE if kind == "rules" else None,
+        description=_update_note(kind),
     )
     def update(id: str, body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)

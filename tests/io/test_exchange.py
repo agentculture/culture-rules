@@ -295,3 +295,24 @@ def test_import_committed_only_step_has_nothing_to_merge(tmp_path):
     got = {s.id: s.description for s in bundle_from_store(store).workflows[0].steps}
     assert got["approve"] == ""
     assert got["fetch"] == "Stored words step"
+
+
+def test_library_import_owns_the_workflow_revision(tmp_path):
+    """c34 / d7: the revision is server-owned store metadata. An import writes stored + 1 for
+    a workflow it adds or changes, leaves an unchanged one alone, never exports it, and other
+    kinds carry none."""
+    store = MemoryStore()
+    export_bundle(_bundle(), tmp_path / "src", apply=True)
+    import_bundle(tmp_path / "src", store, apply=True)
+    assert store.get("workflows", "wf-summary")["revision"] == 1
+    assert "revision" not in store.get("rules", "r-review")
+    again = import_bundle(tmp_path / "src", store, apply=True)
+    assert {c.action for c in again.changes} == {"unchanged"}
+    assert store.get("workflows", "wf-summary")["revision"] == 1
+    changed = replace(_bundle().workflows[0], name="Renamed")
+    export_bundle(Bundle(workflows=(changed,)), tmp_path / "src", apply=True)
+    import_bundle(tmp_path / "src", store, apply=True)
+    assert store.get("workflows", "wf-summary")["revision"] == 2
+    export_bundle(bundle_from_store(store), tmp_path / "out", fmt="json", apply=True)
+    text = (tmp_path / "out" / "workflows" / "wf-summary.json").read_text()
+    assert "revision" not in json.loads(text)
