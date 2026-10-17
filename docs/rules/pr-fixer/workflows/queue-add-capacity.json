@@ -133,6 +133,7 @@
     }
   ],
   "name": "Back in the fixer queue after capacity_exhausted",
+  "notes": "",
   "outputs": [
     {
       "name": "queued",
@@ -214,6 +215,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Rest the level that ran out of capacity",
+      "notes": "",
       "outputs": [
         {
           "description": "always true: the request added next is a retry",
@@ -332,6 +334,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Add to the queue",
+      "notes": "",
       "outputs": [
         {
           "description": "",

@@ -193,3 +193,23 @@ def test_the_digest_helper_prints_what_the_checks_compute(capsys):
     # a path argument is refused: the helper never opens a file it is told to
     assert main(["actor", "/etc/passwd"], stdin=io.StringIO("{}")) == 1
     assert main(["actor"], stdin=io.StringIO("not json")) == 1
+
+
+def test_every_committed_pr_fixer_workflow_hashes_to_a_trusted_digest():
+    root = Path(__file__).resolve().parents[2]
+    # The queue and report-secrets workflows never push, so they are not in the trusted set.
+    for name in ("pr-fix", "review-commit", "publish-fix"):
+        path = root / "docs" / "rules" / "pr-fixer" / "workflows" / f"{name}.json"
+        digest = workflow_digest(json.loads(path.read_text()))
+        assert digest in TRUSTED_WORKFLOW_DIGESTS, name
+    assert workflow_digest(workflow_doc()) in TRUSTED_WORKFLOW_DIGESTS
+
+
+def test_notes_do_not_change_the_v1_digest():
+    wf = workflow_doc()
+    noted = copy.deepcopy(wf)
+    noted["notes"] = "workflow level"
+    fix = next(s for s in noted["steps"] if s["id"] == "fix")
+    fix["notes"] = "step level"
+    next(b for b in fix["body"] if b["id"] == "gate")["notes"] = "loop body step"
+    assert workflow_digest(noted) == workflow_digest(wf)

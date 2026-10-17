@@ -5,6 +5,7 @@
   "id": "queue-progress",
   "inputs": [],
   "name": "Progress the fixer queue",
+  "notes": "",
   "outputs": [
     {
       "name": "dispatched",
@@ -54,6 +55,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Progress the queue",
+      "notes": "",
       "outputs": [
         {
           "description": "",

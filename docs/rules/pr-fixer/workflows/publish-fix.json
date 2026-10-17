@@ -169,6 +169,7 @@
     }
   ],
   "name": "Publish the approved fix",
+  "notes": "",
   "outputs": [
     {
       "name": "pushed",
@@ -251,6 +252,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Push as the App",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -311,6 +313,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Trusted review threads",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -370,6 +373,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Threads to answer",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -433,6 +437,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Reply and resolve",
+          "notes": "",
           "outputs": [],
           "placement": null,
           "retry": null,
@@ -466,6 +471,7 @@
       "kind": "for_each",
       "max_iterations": 200,
       "name": "One reply per addressed thread",
+      "notes": "",
       "outputs": [],
       "placement": null,
       "retry": null,

@@ -14,7 +14,8 @@ role of every run in its chain. An edited workflow still runs; it can never push
 
 The digest (:func:`workflow_digest`) is sha256 over the definition the run pinned, put
 through the workflow model (so field order and defaults do not matter) without
-``version`` (which every save bumps), as compact sorted JSON. It is recomputed from the
+``version`` (which every save bumps) and ``notes`` (free text, on the workflow and every
+step, loop bodies included), as compact sorted JSON. It is recomputed from the
 run's pinned definition, never read from a stored digest.
 
 Rolling out a legitimate change: edit the workflow in ``docs/rules/pr-fixer/workflows/``;
@@ -105,9 +106,17 @@ commit a review approves, push an approved commit - and the push verifies the WH
 by role (:mod:`culture_rules.actors.lineage`)."""
 
 
+def _drop_notes(node: dict[str, Any]) -> None:
+    """Remove ``notes`` from a workflow doc and from every step, recursing into loop bodies."""
+    node.pop("notes", None)
+    for step in node.get("steps") or node.get("body") or ():
+        _drop_notes(step)
+
+
 def workflow_digest(definition: Any) -> str | None:
     """The trust digest of a workflow definition (dict or model), or ``None`` if it does
-    not parse as a workflow."""
+    not parse as a workflow. ``version`` and ``notes`` (workflow and every step, loop
+    bodies included) are left out of the hash."""
     from culture_rules.model.workflow import Workflow  # noqa: PLC0415 - model import is cheap
 
     try:
@@ -120,6 +129,7 @@ def workflow_digest(definition: Any) -> str | None:
     except Exception:  # noqa: BLE001 - anything unparseable is simply not trusted
         return None
     doc.pop("version", None)
+    _drop_notes(doc)
     text = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 

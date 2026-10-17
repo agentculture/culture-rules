@@ -265,6 +265,7 @@
     }
   ],
   "name": "PR fixer",
+  "notes": "",
   "outputs": [
     {
       "name": "verdict",
@@ -311,6 +312,7 @@
       "kind": "wait",
       "max_iterations": null,
       "name": "Quiet period",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -361,6 +363,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Trusted review threads",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -428,6 +431,7 @@
           "kind": "ai",
           "max_iterations": null,
           "name": "Fix the PR (bridge agent)",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -517,6 +521,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Test gate and diff guard",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -693,6 +698,7 @@
           "kind": "ai",
           "max_iterations": null,
           "name": "Review the fix (independent agent, read-only)",
+          "notes": "",
           "outputs": [
             {
               "description": "the verdict object, as a JSON string",
@@ -764,6 +770,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Review verdict",
+          "notes": "",
           "outputs": [
             {
               "description": "the gate's verdict",
@@ -884,6 +891,7 @@
       "kind": "retry_until",
       "max_iterations": 3,
       "name": "Agent, gate, review (up to 3 tries)",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -970,6 +978,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Push as the App",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -1029,6 +1038,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Threads to answer",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -1092,6 +1102,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Reply and resolve",
+          "notes": "",
           "outputs": [],
           "placement": null,
           "retry": null,
@@ -1125,6 +1136,7 @@
       "kind": "for_each",
       "max_iterations": 200,
       "name": "One reply per addressed thread",
+      "notes": "",
       "outputs": [],
       "placement": null,
       "retry": null,

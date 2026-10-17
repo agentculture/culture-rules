@@ -385,6 +385,7 @@
     }
   ],
   "name": "PR fix",
+  "notes": "",
   "outputs": [
     {
       "name": "verdict",
@@ -496,6 +497,7 @@
       "kind": "wait",
       "max_iterations": null,
       "name": "Quiet period",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -540,6 +542,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Hold while GitGuardian fails",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -600,6 +603,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Trusted review threads",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -653,6 +657,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Failing SonarCloud conditions",
+      "notes": "",
       "outputs": [
         {
           "description": "",
@@ -785,6 +790,7 @@
           "kind": "ai",
           "max_iterations": null,
           "name": "Fix the PR (Qwen bridge agent)",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -909,6 +915,7 @@
           "kind": "ai",
           "max_iterations": null,
           "name": "Fix the PR (Claude bridge agent)",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -1009,6 +1016,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Hand-off: export the Claude commits",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -1096,6 +1104,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Hand-off: import the Claude commits into spark2",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -1208,6 +1217,7 @@
           "kind": "ai",
           "max_iterations": null,
           "name": "Fix the PR (Codex bridge agent)",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -1308,6 +1318,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Hand-off: export the Codex commits",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -1395,6 +1406,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Hand-off: import into spark2",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -1552,6 +1564,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "The path that ran",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -1635,6 +1648,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Test gate and diff guard",
+          "notes": "",
           "outputs": [
             {
               "description": "",
@@ -1795,6 +1809,7 @@
       "kind": "retry_until",
       "max_iterations": 1,
       "name": "Agent and gate (up to 3 tries)",
+      "notes": "",
       "outputs": [
         {
           "description": "",
