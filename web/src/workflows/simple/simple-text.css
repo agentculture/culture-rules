@@ -4,6 +4,9 @@
 .sv-text {
   all: unset;
   display: inline;
+  /* Without a positioned box, Chromium hit-tests these unset inline buttons over the whole
+     page above them (the view switch could not be clicked once the paragraph had loaded). */
+  position: relative;
   cursor: text;
   border-radius: 4px;
 }

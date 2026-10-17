@@ -222,7 +222,8 @@ function Steps({
     if (Number(view.seg.depth ?? 0) > 0) {
       body.push(
         <span key={i} className="sv-body__line">
-          {sentence}{" "}
+          {sentence}
+          {views[i + 1]?.joined ? "" : " "}
         </span>,
       );
     } else {

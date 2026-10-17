@@ -347,3 +347,10 @@ describe("bundle handles", () => {
     expect(bundleHandle("in", ["diff", "__in"])).toBe("__in_");
   });
 });
+
+describe("toDefinition keeps the workflow's notes", () => {
+  it("does not drop `notes` from a save body (t18)", () => {
+    const def = toDefinition({ ...REVIEW_PR, notes: "Why it is built this way." });
+    expect(def.notes).toBe("Why it is built this way.");
+  });
+});

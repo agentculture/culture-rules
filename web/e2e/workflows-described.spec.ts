@@ -1,0 +1,142 @@
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { withView } from "./fixtures/view";
+import { DESCRIBED, DESCRIBED_WORKFLOWS, mockDescribedApi, stepIds } from "./fixtures/described";
+
+/**
+ * Behavioural check of the workflow descriptions and the joined paragraph (plan t18; c21/h18,
+ * c22/h19, c9): the committed nine workflows, served with the REAL API's describe paragraphs
+ * (e2e/fixtures/describe-paragraphs.json, regenerated and compared by
+ * tests/model/test_describe_paragraphs_fixture.py). Fails if a description, the paragraph, a
+ * step, or the Notes is missing, or if the page shows a phrase the API did not send.
+ */
+async function agentState(page: Page) {
+  return JSON.parse((await page.locator("#agent-state").textContent()) ?? "{}");
+}
+
+async function open(page: Page, path: string, view?: "detailed") {
+  if (view) await withView(page, view);
+  await mockDescribedApi(page);
+  await page.goto(path);
+  await expect.poll(async () => (await agentState(page)).status).toBe("ready");
+}
+
+const norm = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/** The text a reader sees: visually-hidden cues (.sv-sr) left out, whitespace normalised. */
+async function visibleText(el: Locator): Promise<string> {
+  return norm(
+    await el.evaluate((node) => {
+      const copy = node.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll(".sv-sr").forEach((n) => n.remove());
+      return copy.textContent ?? "";
+    }),
+  );
+}
+
+const paragraph = (page: Page) => page.getByTestId("paragraph");
+const WORKFLOWS = DESCRIBED_WORKFLOWS.map((w) => w.id);
+
+test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
+  test("the fixture has the nine committed workflows, one with no description and a step with none", () => {
+    expect(WORKFLOWS).toHaveLength(9);
+    expect(DESCRIBED_WORKFLOWS.filter((w) => !w.description?.trim()).map((w) => w.id)).toEqual(["daily-newspaper"]);
+    const gaps = Object.values(DESCRIBED).flatMap((d) => d.paragraph.segments.filter((s) => s.gap));
+    expect(gaps.length).toBeGreaterThan(0);
+  });
+
+  test("/workflows: one card per workflow with its description (or the gap) and no pane", async ({ page }) => {
+    await open(page, "/workflows");
+    await expect(page.locator("aside.wf-pane")).toHaveCount(0);
+    const cards = page.getByRole("list", { name: "All workflows" }).getByRole("listitem");
+    await expect(cards).toHaveCount(9);
+    for (const wf of DESCRIBED_WORKFLOWS) {
+      const card = page.getByRole("link", { name: new RegExp(`^${wf.name}`) }).first();
+      const expected = wf.description?.trim() || "No description yet";
+      await expect(card.locator(".wf-card__desc")).toHaveText(expected);
+    }
+  });
+
+  test("pr-fix: Simple shows the description and the joined paragraph, Detailed the notes", async ({ page }) => {
+    await open(page, "/workflows?id=pr-fix");
+    const pr = DESCRIBED["pr-fix"];
+    // The compact pane (a search box and names), the open workflow current.
+    await expect(page.locator("aside.wf-pane").getByRole("searchbox", { name: "Search workflows" })).toBeVisible();
+    await expect(page.locator("aside.wf-pane").getByRole("link", { name: DESCRIBED_WORKFLOWS.find((w) => w.id === "pr-fix")!.name, exact: true })).toHaveAttribute("aria-current", "page");
+    // The workflow's own description, then How it runs.
+    await expect(page.getByRole("region", { name: "Simple view" })).toBeVisible();
+    await expect(page.getByLabel("Workflow description")).toHaveText(pr.description);
+    await expect(page.getByRole("heading", { level: 2, name: "How it runs" })).toBeVisible();
+    expect(await visibleText(paragraph(page))).toBe(norm(pr.paragraph.text));
+    // Simple is text only: no canvas, no entry-point editors.
+    await expect(page.locator(".wf-canvas")).toHaveCount(0);
+    await expect(page.getByRole("group", { name: /^Entry point:/ })).toHaveCount(0);
+
+    // Detailed: the workflow's Notes (in the inputs editor) and a step's Notes.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.getByRole("group", { name: "Canvas view" }).getByRole("button", { name: "Detailed" }).click();
+    const wf = DESCRIBED_WORKFLOWS.find((w) => w.id === "pr-fix")!;
+    expect(wf.notes).toBeTruthy();
+    await page.getByRole("group", { name: "Inputs", exact: true }).locator(".wf-card__io-title").click();
+    await expect(page.getByRole("dialog", { name: "Edit inputs" }).getByRole("textbox", { name: "Workflow notes" })).toHaveValue(wf.notes!);
+    await page.keyboard.press("Escape");
+    const quiet = wf.steps!.find((s) => s.id === "quiet")!;
+    expect(quiet.notes).toBeTruthy();
+    await page.getByRole("group", { name: quiet.name ?? "quiet", exact: true }).locator(".wf-card__name").click();
+    await page.getByRole("button", { name: `Edit ${quiet.name ?? "quiet"}`, exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: `Edit ${quiet.name ?? "quiet"}` });
+    await expect(dialog.getByRole("textbox", { name: "Notes" })).toHaveValue(quiet.notes!);
+    await expect(dialog.getByRole("textbox", { name: "One-line description" })).toHaveValue(quiet.description!);
+  });
+
+  for (const id of WORKFLOWS) {
+    test(`${id}: Simple text equals the API paragraph; every step in order; no invented phrase`, async ({ page }) => {
+      await open(page, `/workflows?id=${id}`);
+      const { paragraph: p, description } = DESCRIBED[id];
+      const wf = DESCRIBED_WORKFLOWS.find((w) => w.id === id)!;
+      await expect(paragraph(page)).toBeVisible();
+
+      // The editor's text equals the API describe paragraph.
+      expect(await visibleText(paragraph(page))).toBe(norm(p.text));
+      // The workflow description, or the dashed gap when it has none.
+      const lede = page.getByLabel("Workflow description");
+      await expect(lede).toHaveText(description || "No description yet");
+      if (!description) await expect(lede.locator(".sv-gap")).toHaveCount(1);
+
+      // 100% of the steps appear, in the order the API sent them (a loop's body after the loop).
+      const sent = p.segments.filter((s) => s.part === "step").map((s) => s.step);
+      expect(sent).toEqual(stepIds(wf.steps));
+      expect(await paragraph(page).locator("[data-step]").evaluateAll((els) => els.map((e) => e.getAttribute("data-step")))).toEqual(sent);
+
+      // 0 invented phrases: every highlighted phrase is one of the segments' own words.
+      const allowed = new Set(p.segments.flatMap((s) => [s.phrase, s.text].filter(Boolean).map((t) => norm(String(t)))));
+      const shown = (await paragraph(page).locator(".sv-phrase").evaluateAll((els) => els.map((e) => e.textContent ?? ""))).map(norm);
+      expect(shown.length).toBeGreaterThan(0);
+      for (const phrase of shown) {
+        expect(allowed.has(phrase) || [...allowed].some((a) => a.includes(phrase)), `invented phrase: ${phrase}`).toBe(true);
+      }
+
+      // c9: no committed workflow reads a fallback line.
+      await expect(paragraph(page).locator(".sv-fallback")).toHaveCount(0);
+      expect(p.segments.filter((s) => s.fallback)).toEqual([]);
+    });
+  }
+
+  test("a step with no description is a dashed gap naming it, never an invented sentence", async ({ page }) => {
+    await open(page, "/workflows?id=publish-fix");
+    const gap = paragraph(page).locator('[data-step="reply"] .sv-gap');
+    // It names the step (by its name), as the API's own gap segment does.
+    const seg = DESCRIBED["publish-fix"].paragraph.segments.find((s) => s.step === "reply")!;
+    expect(seg.gap).toBe(true);
+    expect(seg.text).toBe("");
+    await expect(gap).toHaveText(`[${seg.name} has no description yet]`);
+    // ... and it is the very text the API's paragraph.text reads for that step.
+    expect(DESCRIBED["publish-fix"].paragraph.text).toContain(`[${seg.name} has no description yet]`);
+    expect((await gap.evaluate((el) => getComputedStyle(el).borderTopStyle))).toBe("dashed");
+  });
+
+  test("a workflow with no description shows the gap on its card and in Simple", async ({ page }) => {
+    await open(page, "/workflows?id=daily-newspaper");
+    await expect(page.getByLabel("Workflow description").locator(".sv-gap")).toHaveText("No description yet");
+    await expect(paragraph(page)).toBeVisible();
+  });
+});

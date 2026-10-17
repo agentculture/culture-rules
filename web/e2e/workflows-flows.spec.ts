@@ -25,7 +25,8 @@ async function open(
   const calls = await mockWorkflowsApi(page, WORKFLOW_DOCS, gone);
   await page.goto(path);
   await expect.poll(async () => (await agentState(page)).status).toBe("ready");
-  await expect(step(page, "Decide")).toBeVisible();
+  // The overview (nothing open) has no canvas.
+  if (path !== "/workflows") await expect(step(page, "Decide")).toBeVisible();
   return calls;
 }
 
@@ -88,7 +89,7 @@ test.describe("Workflows: step panel", () => {
   test("an invalid timeout is a guided error that blocks Done; a valid one is saved", async ({ page }) => {
     const calls = await open(page);
     await step(page, "Review").locator(".wf-card__name").click();
-    await page.getByRole("button", { name: "Edit Review" }).click();
+    await page.getByRole("button", { name: "Edit Review", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Edit Review" });
     await expect(dialog).toBeVisible();
     await noSeriousAxe(page, "step panel");
@@ -166,7 +167,7 @@ test.describe("Workflows: deleted and purge", () => {
   };
 
   test("an admin sees Purge; it dry-runs, then Confirm purge sends {apply:true}", async ({ page }) => {
-    const calls = await open(page, { gone: [GONE_WORKFLOW] });
+    const calls = await open(page, { gone: [GONE_WORKFLOW], path: "/workflows" });
     await expect(page.getByText("Old flow")).toHaveCount(0);
     await showDeleted(page);
     expect(calls.some((c) => c.path === "/api/workflows" && c.search.includes("include_deleted=true"))).toBe(true);
@@ -188,7 +189,7 @@ test.describe("Workflows: deleted and purge", () => {
   });
 
   test("Cancel leaves the workflow unpurged", async ({ page }) => {
-    const calls = await open(page, { gone: [GONE_WORKFLOW] });
+    const calls = await open(page, { gone: [GONE_WORKFLOW], path: "/workflows" });
     await showDeleted(page);
     await page.getByRole("button", { name: "Purge Old flow" }).click();
     await page.getByRole("region", { name: "Purge Old flow" }).getByRole("button", { name: "Cancel" }).click();
@@ -197,7 +198,7 @@ test.describe("Workflows: deleted and purge", () => {
   });
 
   test("a non-admin sees the deleted workflow and Restore, but no Purge", async ({ page }) => {
-    await open(page, { roles: ["viewer", "editor"], gone: [GONE_WORKFLOW] });
+    await open(page, { roles: ["viewer", "editor"], gone: [GONE_WORKFLOW], path: "/workflows" });
     await showDeleted(page);
     await expect(page.getByRole("button", { name: /^Purge/ })).toHaveCount(0);
     await noSeriousAxe(page, "deleted view, non-admin");
