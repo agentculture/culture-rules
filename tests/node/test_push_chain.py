@@ -129,7 +129,7 @@ def test_a_publish_started_straight_from_a_fix_is_the_wrong_role(chain):
 def test_an_untrusted_upstream_is_refused(chain):
     w, fix, _review, publish, params = chain
     edited = copy.deepcopy(fix)
-    edited["workflow"]["definition"]["description"] = "tweaked"
+    edited["workflow"]["definition"]["name"] = "tweaked"  # a non-prose edit (v2 digest)
     w.c.base.put(RUNS_COLLECTION, edited)
     assert refused(w.c.base, publish, params) == "workflow_not_trusted"
 
@@ -147,6 +147,6 @@ def test_a_gate_that_did_not_pass_is_refused_whatever_the_params_say(chain):
 def test_a_run_of_an_untrusted_workflow_cannot_push(chain):
     w, _fix, _review, publish, params = chain
     edited = copy.deepcopy(publish)
-    edited["workflow"]["definition"]["description"] = "tweaked"
+    edited["workflow"]["definition"]["name"] = "tweaked"  # a non-prose edit (v2 digest)
     assert refused(w.c.base, edited, params) == "workflow_not_trusted"
     assert refused(w.c.base, None, params) == "run_not_found"
