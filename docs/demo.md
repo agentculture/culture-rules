@@ -300,21 +300,17 @@ shows its ports only while selected), and the Rules screenshot shows the
 old Rules tab. In the folded
 editor the same objects read as follows:
 
-- **Workflows** lists `greet-flow` on its own chain card: "Starts when"
-  names `greet-on-event` (its one entry point), "Continues into" reads
-  "Nothing. The chain ends here.", and the card reads "1 workflow linked
-  by continuations · 1 entry point · was 1 rule" (the list's own counts
-  above it read "1 workflow · 1 entry point · was 1 rule").
+- **Workflows** opens on an overview with one card for `greet-flow`: its
+  name, its description (or "No description yet") and its step count.
 - Opening it (`/workflows?id=greet-flow`) shows the **Simple** view by
-  default: When holds the entry point `greet-on-event` with its trigger
-  (`demo.greet`), its placement (spark) and its workflow inputs; Then holds
-  the `noop` action. The fields the Rules tab edited are edited there
-  (trigger, condition, action, placement, run order, enabled, plus the
-  failure action, run key and budget), and saving writes the rule
-  (`PUT /rules/greet-on-event`). The workflow inputs mapping is shown
-  read-only, and `priority` and `exclusive_group` have no editor yet.
-- The view switch also offers **Detailed** (the steps and edges, below:
-  compact cards, one edge per connected pair labelled with its wire count,
+  default: the description and "How it runs", the paragraph `culture-rules
+  workflows describe greet-flow` prints, starting with the sentence for
+  its entry point `greet-on-event`. Selecting that sentence opens the
+  rule's entry-point editor (trigger `demo.greet`, placement spark, the
+  `noop` action, enable switch); saving writes the rule
+  (`PUT /rules/greet-on-event`).
+- The view switch also offers **Detailed** (the workflow's notes, the
+  steps and edges below with the entry-point editors: compact cards, one edge per connected pair labelled with its wire count,
   the selected step's ports and wires in full) and **Debug** (every port,
   type and reference). The choice is kept per
   viewer in the browser.

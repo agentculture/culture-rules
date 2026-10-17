@@ -47,32 +47,39 @@ Rules are still rules in the engine, API, CLI and MCP; only the editor shows
 them differently. Runs, history, ledger and inbox are not tabs; they appear
 in context, inside a workflow or one of its entry points.
 
-- **Workflows** lists workflows as chain cards: workflows linked by
-  continuations sit on one card, each with what starts it, what it continues
-  into, how it runs and what it ends with, and the number of rules it was.
-  "See it as one chain" draws the chain. "Rules without a workflow" lists
-  rules that have none yet; each can get a stored workflow with no steps.
-  "New workflow" and "New rule" start new ones ("New rule" asks "When does
-  this happen?" and gives the rule its own workflow at once). A workflow
-  opens in one of three views, kept per viewer in the browser:
-  - **Simple** (the default): When / Then. Each rule that starts the
-    workflow is an entry point under When (trigger, condition, placement,
+- **Workflows** opens on an overview: one full-width card per workflow
+  with its name, its description (or "No description yet"), its step count
+  (loop bodies included) and the apps it touches. "New workflow" and "New
+  rule" start new ones ("New rule" asks "When does this happen?" and gives
+  the rule its own workflow at once). An open workflow has a compact pane
+  of workflow names with a search box, which collapses to a rail; its
+  header holds the enable switch and, when continuations link it, "See it
+  as one chain". Deleted workflows are restored or purged from the CLI or
+  MCP. A workflow opens in one of three views, kept per viewer in the
+  browser:
+  - **Simple** (the default): the workflow's description and "How it
+    runs", the plain-language paragraph `workflows describe` returns: what
+    starts it, its steps one sentence per line, and what happens after.
+    Selecting a step opens its panel, where its one-line description and
+    its notes are edited; selecting a rule's sentence opens that rule's
+    entry-point editor with its enable switch.
+  - **Detailed**: the workflow's notes on top, then the steps and edges on
+    the React Flow canvas with its legend, compact: each node shows its
+    machine, enable switch and name, and one edge joins two connected
+    nodes, labelled with how many wires it carries. Selecting a node shows
+    its typed ports and wires, to drag new ones. A run lights up its path.
+    Below it are the entry-point editors (trigger, condition, placement,
     attempt counting, exclusive group and priority, history, About,
-    enable). Then shows what it continues
-    into, "Ends here" (the chain-end action), "On failure" and "Runs" (key
-    and budget). A value every entry point holds identically shows once;
-    editing it saves rule by rule and reports each result, with a retry for
-    any that failed.
-  - **Detailed**: the steps and edges on the React Flow canvas, compact:
-    each node shows its machine, enable switch and name, and one edge joins
-    two connected nodes, labelled with how many wires it carries. Selecting
-    a node shows its typed ports and wires, to drag new ones. A run lights
-    up its path.
+    enable) and the Then editors. A value every entry point holds
+    identically shows once; editing it saves rule by rule and reports each
+    result, with a retry for any that failed.
   - **Debug**: every port, type and reference; picking a port highlights
     what feeds it and what it feeds.
 
-  Old `/rules` and `/rules/<id>` links redirect to the workflow that shows
-  the rule.
+  A save sends the revision the editor read; if the workflow changed
+  meanwhile it says "This workflow changed since you opened it" and offers
+  Reload. Old `/rules` and `/rules/<id>` links redirect to the workflow
+  that shows the rule.
 - **Actors** is a large-type roster that expands inline.
 - **Variables** holds the shared values rules read as `vars.<name>`.
 - **Statistics** has one lane per enrolled machine: online state, CPU, GPU
