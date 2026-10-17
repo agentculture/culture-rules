@@ -1,5 +1,5 @@
 {
-  "description": "#40 d34: ends a PR's fixer story on a trusted /stop or thumbs-down, with the built-in queue.stop: records the stop on the PR's key, removes its queued request and retries, revokes a dispatch no run claimed yet, cancels its running fixer runs (no push, no hand-back) and ends the story's status comment ('stopped by @user'). Two minutes later a sweep cancels a run of the story that started just after (a chain's next stage). Non-agentic: no actor, no agent.",
+  "description": "",
   "edges": [
     {
       "source": "inputs",
@@ -91,7 +91,7 @@
     }
   ],
   "name": "Stop the PR fixer",
-  "notes": "",
+  "notes": "#40 d34: ends a PR's fixer story on a trusted /stop or thumbs-down, with the built-in queue.stop: records the stop on the PR's key, removes its queued request and retries, revokes a dispatch no run claimed yet, cancels its running fixer runs (no push, no hand-back) and ends the story's status comment ('stopped by @user'). Two minutes later a sweep cancels a run of the story that started just after (a chain's next stage). Non-agentic: no actor, no agent.",
   "outputs": [
     {
       "name": "stopped",
@@ -130,7 +130,7 @@
         "lookup_actor": "github-app",
         "queue": "pr-fixer"
       },
-      "description": "The built-in queue.stop: records the stop, unqueues the PR from queues/pr-fixer and every level's queue in vars.fixer_levels, cancels its running fixer runs and ends the story's status comment.",
+      "description": "",
       "enabled": true,
       "id": "stop",
       "inputs": [
@@ -168,7 +168,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Stop the story",
-      "notes": "",
+      "notes": "The built-in queue.stop: records the stop, unqueues the PR from queues/pr-fixer and every level's queue in vars.fixer_levels, cancels its running fixer runs and ends the story's status comment.",
       "outputs": [
         {
           "description": "",
@@ -204,7 +204,7 @@
       "config": {
         "seconds": 120
       },
-      "description": "Wait 2 minutes: a stage of the chain that was about to start when the story was stopped has started by then.",
+      "description": "",
       "enabled": true,
       "id": "settle",
       "inputs": [
@@ -218,7 +218,7 @@
       "kind": "wait",
       "max_iterations": null,
       "name": "Let the chain settle",
-      "notes": "",
+      "notes": "Wait 2 minutes: a stage of the chain that was about to start when the story was stopped has started by then.",
       "outputs": [
         {
           "description": "",
@@ -241,7 +241,7 @@
         "queue": "pr-fixer",
         "sweep": true
       },
-      "description": "queue.stop again as a sweep: records nothing, cancels a run of the stopped story that started after the first pass.",
+      "description": "",
       "enabled": true,
       "id": "sweep",
       "inputs": [
@@ -267,7 +267,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Sweep",
-      "notes": "",
+      "notes": "queue.stop again as a sweep: records nothing, cancels a run of the stopped story that started after the first pass.",
       "outputs": [
         {
           "description": "",

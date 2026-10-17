@@ -27,7 +27,10 @@ def test_every_role_has_a_trusted_source():
 
 
 def test_each_trusted_definition_is_stored_under_its_role_name():
+    """t12: each source is trusted in its role (v1 or v2), and its id is the role's name."""
     for role, path in SOURCES.items():
         doc = json.loads(path.read_text(encoding="utf-8"))
         assert doc["id"] == role, path
-        assert trusted.workflow_digest(doc) in trusted.TRUSTED_WORKFLOWS[role], path
+        assert trusted.workflow_role({"workflow": {"definition": doc}}) == role, path
+        if "docs/rules" in str(path):  # committed definitions: v2 pins, prose left out
+            assert trusted.workflow_digest_v2(doc) in trusted.TRUSTED_WORKFLOWS_V2[role], path

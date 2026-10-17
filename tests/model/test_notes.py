@@ -45,5 +45,7 @@ def test_committed_workflows_load_unchanged(path: Path) -> None:
 
     data = json.loads(path.read_text())
     wf = Workflow.from_dict(data)
-    assert wf.notes == ""
+    # t12: the committed text was migrated from description to notes (description is "")
+    assert wf.description == ""
+    assert wf.notes
     assert Workflow.from_dict(wf.to_dict()) == wf

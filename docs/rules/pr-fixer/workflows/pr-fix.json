@@ -1,5 +1,5 @@
 {
-  "description": "d21, d30: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> one try: the fixer of its level -> test gate. #39, #56: the try's fixer (the dispatch's level; none: qwen-fixer) picks the agent step: agent_claude (level 1) or agent_codex (level 3) on spark, each with its own hand-off carrying its commits to spark2, or agent_qwen (level 2) on spark2; select hands the one that ran to the single gate. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success with a passing gate and has it reviewed; a gate that does not pass ends the run with its verdict and instruction (gate_instruction), and pr-fixer-retry puts the PR back in the queue (#35).",
+  "description": "",
   "edges": [
     {
       "source": "quiet",
@@ -385,7 +385,7 @@
     }
   ],
   "name": "PR fix",
-  "notes": "",
+  "notes": "d21, d30: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> one try: the fixer of its level -> test gate. #39, #56: the try's fixer (the dispatch's level; none: qwen-fixer) picks the agent step: agent_claude (level 1) or agent_codex (level 3) on spark, each with its own hand-off carrying its commits to spark2, or agent_qwen (level 2) on spark2; select hands the one that ran to the single gate. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success with a passing gate and has it reviewed; a gate that does not pass ends the run with its verdict and instruction (gate_instruction), and pr-fixer-retry puts the PR back in the queue (#35).",
   "outputs": [
     {
       "name": "verdict",
@@ -490,14 +490,14 @@
         },
         "seconds": 300
       },
-      "description": "Wait 5 minutes; if the PR head moved meanwhile the run ends superseded.",
+      "description": "",
       "enabled": true,
       "id": "quiet",
       "inputs": [],
       "kind": "wait",
       "max_iterations": null,
       "name": "Quiet period",
-      "notes": "",
+      "notes": "Wait 5 minutes; if the PR head moved meanwhile the run ends superseded.",
       "outputs": [
         {
           "description": "",
@@ -516,7 +516,7 @@
         "actor": "github-app",
         "builtin": "gitguardian.hold"
       },
-      "description": "d25: reads the GitGuardian check of the PR head as the App and fails the run (secrets_found) while it fails: a leaked secret is revoked and rotated by a human, never edited by the agent. pr-fixer-secrets posts the findings. Fails closed on a lookup error.",
+      "description": "",
       "enabled": true,
       "id": "secrets",
       "inputs": [
@@ -542,7 +542,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Hold while GitGuardian fails",
-      "notes": "",
+      "notes": "d25: reads the GitGuardian check of the PR head as the App and fails the run (secrets_found) while it fails: a leaked secret is revoked and rotated by a human, never edited by the agent. pr-fixer-secrets posts the findings. Fails closed on a lookup error.",
       "outputs": [
         {
           "description": "",
@@ -571,7 +571,7 @@
         "actor": "github-app",
         "builtin": "github.threads"
       },
-      "description": "Lists the PR's unresolved review threads as the App and keeps those opened by an author in trusted_authors. Fails the run on any lookup error (no list is handed on).",
+      "description": "",
       "enabled": true,
       "id": "threads",
       "inputs": [
@@ -603,7 +603,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Trusted review threads",
-      "notes": "",
+      "notes": "Lists the PR's unresolved review threads as the App and keeps those opened by an author in trusted_authors. Fails the run on any lookup error (no list is handed on).",
       "outputs": [
         {
           "description": "",
@@ -631,7 +631,7 @@
       "config": {
         "builtin": "sonar.gate_issues"
       },
-      "description": "The built-in sonar.gate_issues: the PR's SonarCloud quality gate and only the issues behind its failing conditions (never the project's backlog), with a note for the agent. Advisory: a failed lookup is available false, never a failed run.",
+      "description": "",
       "enabled": true,
       "id": "sonar",
       "inputs": [
@@ -657,7 +657,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Failing SonarCloud conditions",
-      "notes": "",
+      "notes": "The built-in sonar.gate_issues: the PR's SonarCloud quality gate and only the issues behind its failing conditions (never the project's backlog), with a note for the agent. Advisory: a failed lookup is available false, never a failed run.",
       "outputs": [
         {
           "description": "",
@@ -734,7 +734,7 @@
               "op": "or"
             }
           },
-          "description": "Level 2 (#56; #39: when the try's fixer is qwen-fixer, or none is given: without fixer_levels every try is Qwen's). The cultureagent bridge checks out head_sha in a fresh worktree on spark2 and runs the agent with the instruction and the bound inputs: the trusted, unresolved threads and the issues behind the PR's failing SonarCloud conditions. The agent commits locally and never pushes. require_commit: a turn that leaves no commit fails the step at once (no_changes), so the attempt ends before any gate or review and hands back once.",
+          "description": "",
           "enabled": true,
           "id": "agent_qwen",
           "inputs": [
@@ -790,7 +790,7 @@
           "kind": "ai",
           "max_iterations": null,
           "name": "Fix the PR (Qwen bridge agent)",
-          "notes": "",
+          "notes": "Level 2 (#56; #39: when the try's fixer is qwen-fixer, or none is given: without fixer_levels every try is Qwen's). The cultureagent bridge checks out head_sha in a fresh worktree on spark2 and runs the agent with the instruction and the bound inputs: the trusted, unresolved threads and the issues behind the PR's failing SonarCloud conditions. The agent commits locally and never pushes. require_commit: a turn that leaves no commit fails the step at once (no_changes), so the attempt ends before any gate or review and hands back once.",
           "outputs": [
             {
               "description": "",
@@ -859,7 +859,7 @@
               }
             }
           },
-          "description": "Level 1 (#56: when the try's fixer is claude-fixer). The cultureagent claude bridge on spark, as its own unprivileged account (culture-claude-fixer, its own claude login), checks out head_sha in a fresh worktree and runs Claude Code with the instruction and the same bound inputs; it commits locally and never pushes. require_commit as for agent_qwen. Its commits reach spark2's gate only through its own hand-off (handoff_export_claude, handoff_import_claude), so select labels them claude-fixer.",
+          "description": "",
           "enabled": true,
           "id": "agent_claude",
           "inputs": [
@@ -915,7 +915,7 @@
           "kind": "ai",
           "max_iterations": null,
           "name": "Fix the PR (Claude bridge agent)",
-          "notes": "",
+          "notes": "Level 1 (#56: when the try's fixer is claude-fixer). The cultureagent claude bridge on spark, as its own unprivileged account (culture-claude-fixer, its own claude login), checks out head_sha in a fresh worktree and runs Claude Code with the instruction and the same bound inputs; it commits locally and never pushes. require_commit as for agent_qwen. Its commits reach spark2's gate only through its own hand-off (handoff_export_claude, handoff_import_claude), so select labels them claude-fixer.",
           "outputs": [
             {
               "description": "",
@@ -984,7 +984,7 @@
               }
             }
           },
-          "description": "#56: packs the Claude fixer's commits (head_before..head_after) out of its worktree on spark, as its account (run_as culture-claude-fixer), into one size-capped store document (handoff_too_large over the cap: the try fails).",
+          "description": "",
           "enabled": true,
           "id": "handoff_export_claude",
           "inputs": [
@@ -1016,7 +1016,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Hand-off: export the Claude commits",
-          "notes": "",
+          "notes": "#56: packs the Claude fixer's commits (head_before..head_after) out of its worktree on spark, as its account (run_as culture-claude-fixer), into one size-capped store document (handoff_too_large over the cap: the try fails).",
           "outputs": [
             {
               "description": "",
@@ -1060,7 +1060,7 @@
               }
             }
           },
-          "description": "#56: as handoff_import, as the gate's account: rebuilds a fixer-owned worktree on spark2 from that pack (the trusted clone_url and base fetched by SHA, the pack verified with index-pack --strict) whose HEAD is exactly the Claude fixer's commit; any refusal leaves no worktree.",
+          "description": "",
           "enabled": true,
           "id": "handoff_import_claude",
           "inputs": [
@@ -1104,7 +1104,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Hand-off: import the Claude commits into spark2",
-          "notes": "",
+          "notes": "#56: as handoff_import, as the gate's account: rebuilds a fixer-owned worktree on spark2 from that pack (the trusted clone_url and base fetched by SHA, the pack verified with index-pack --strict) whose HEAD is exactly the Claude fixer's commit; any refusal leaves no worktree.",
           "outputs": [
             {
               "description": "",
@@ -1161,7 +1161,7 @@
               }
             }
           },
-          "description": "Level 3 (#56; #39: when the try's fixer is codex-fixer). The cultureagent Codex bridge on spark, as its own unprivileged account (culture-codex-fixer), checks out head_sha in a fresh worktree and runs Codex with the instruction and the same bound inputs; it commits locally and never pushes. require_commit as for agent_qwen. Its commits reach spark2's gate only through its hand-off (handoff_export, handoff_import).",
+          "description": "",
           "enabled": true,
           "id": "agent_codex",
           "inputs": [
@@ -1217,7 +1217,7 @@
           "kind": "ai",
           "max_iterations": null,
           "name": "Fix the PR (Codex bridge agent)",
-          "notes": "",
+          "notes": "Level 3 (#56; #39: when the try's fixer is codex-fixer). The cultureagent Codex bridge on spark, as its own unprivileged account (culture-codex-fixer), checks out head_sha in a fresh worktree and runs Codex with the instruction and the same bound inputs; it commits locally and never pushes. require_commit as for agent_qwen. Its commits reach spark2's gate only through its hand-off (handoff_export, handoff_import).",
           "outputs": [
             {
               "description": "",
@@ -1286,7 +1286,7 @@
               }
             }
           },
-          "description": "#39: packs the Codex fixer's commits (head_before..head_after) out of its worktree on spark, as its account (#56: run_as culture-codex-fixer), into one size-capped store document (handoff_too_large over the cap: the try fails).",
+          "description": "",
           "enabled": true,
           "id": "handoff_export",
           "inputs": [
@@ -1318,7 +1318,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Hand-off: export the Codex commits",
-          "notes": "",
+          "notes": "#39: packs the Codex fixer's commits (head_before..head_after) out of its worktree on spark, as its account (#56: run_as culture-codex-fixer), into one size-capped store document (handoff_too_large over the cap: the try fails).",
           "outputs": [
             {
               "description": "",
@@ -1362,7 +1362,7 @@
               }
             }
           },
-          "description": "#39: rebuilds a fixer-owned worktree on spark2 from that pack (the trusted clone_url and base fetched by SHA, the pack verified with index-pack --strict) whose HEAD is exactly the Codex fixer's commit; any refusal leaves no worktree.",
+          "description": "",
           "enabled": true,
           "id": "handoff_import",
           "inputs": [
@@ -1406,7 +1406,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Hand-off: import into spark2",
-          "notes": "",
+          "notes": "#39: rebuilds a fixer-owned worktree on spark2 from that pack (the trusted clone_url and base fetched by SHA, the pack verified with index-pack --strict) whose HEAD is exactly the Codex fixer's commit; any refusal leaves no worktree.",
           "outputs": [
             {
               "description": "",
@@ -1466,7 +1466,7 @@
               "qwen": "qwen-fixer"
             }
           },
-          "description": "#39: the gate's one source: the worktree, start and commit of the agent path that ran (agent_qwen, or agent_claude or agent_codex through its own hand-off) and which fixer that was; none or more than one fails closed.",
+          "description": "",
           "enabled": true,
           "id": "select",
           "inputs": [
@@ -1564,7 +1564,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "The path that ran",
-          "notes": "",
+          "notes": "#39: the gate's one source: the worktree, start and commit of the agent path that ran (agent_qwen, or agent_claude or agent_codex through its own hand-off) and which fixer that was; none or more than one fails closed.",
           "outputs": [
             {
               "description": "",
@@ -1616,7 +1616,7 @@
           "config": {
             "builtin": "gate"
           },
-          "description": "Reads gate: from culture.yaml at base_sha, guards start_sha..commit_sha and runs the declared tests in a fresh checkout as culture-fixer; on pass writes the bundle. On pass and no_gate it also reports the verified diff for the reviewer.",
+          "description": "",
           "enabled": true,
           "id": "gate",
           "inputs": [
@@ -1648,7 +1648,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Test gate and diff guard",
-          "notes": "",
+          "notes": "Reads gate: from culture.yaml at base_sha, guards start_sha..commit_sha and runs the declared tests in a fresh checkout as culture-fixer; on pass writes the bundle. On pass and no_gate it also reports the verified diff for the reviewer.",
           "outputs": [
             {
               "description": "",
@@ -1735,7 +1735,7 @@
           "op": "exists"
         }
       },
-      "description": "One try (d30): the agent of the try's level (#39, #56: agent_qwen, or agent_claude or agent_codex and its own hand-off), then the gate. The try ends when the gate has given its verdict, whatever it is; a try that does not pass waits in the queue for the next one.",
+      "description": "",
       "enabled": true,
       "id": "fix",
       "inputs": [
@@ -1809,7 +1809,7 @@
       "kind": "retry_until",
       "max_iterations": 1,
       "name": "Agent and gate (up to 3 tries)",
-      "notes": "",
+      "notes": "One try (d30): the agent of the try's level (#39, #56: agent_qwen, or agent_claude or agent_codex and its own hand-off), then the gate. The try ends when the gate has given its verdict, whatever it is; a try that does not pass waits in the queue for the next one.",
       "outputs": [
         {
           "description": "",
