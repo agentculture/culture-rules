@@ -247,6 +247,7 @@
     }
   ],
   "name": "Review the fix",
+  "notes": "",
   "outputs": [
     {
       "name": "review",
@@ -449,6 +450,7 @@
       "kind": "ai",
       "max_iterations": null,
       "name": "Review the fix (Codex, read-only)",
+      "notes": "",
       "outputs": [
         {
           "description": "the verdict object, as a JSON string",
@@ -617,6 +619,7 @@
       "kind": "ai",
       "max_iterations": null,
       "name": "Review the fix (Qwen, plan mode)",
+      "notes": "",
       "outputs": [
         {
           "description": "the verdict object, as a JSON string",
@@ -698,6 +701,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Review verdict",
+      "notes": "",
       "outputs": [
         {
           "description": "the gate's verdict",

@@ -139,6 +139,7 @@
     }
   ],
   "name": "Add to the fixer queue",
+  "notes": "",
   "outputs": [
     {
       "name": "queued",
@@ -265,6 +266,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Add to the queue",
+      "notes": "",
       "outputs": [
         {
           "description": "",
