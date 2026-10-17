@@ -80,3 +80,43 @@ def test_mcp_workflows_describe_carries_description_and_paragraph(wire, seeded):
     assert got["description"]
     assert got["paragraph"]["text"]
     assert got["lines"] == PR_FIX_WORKFLOW
+
+
+NEWSPAPER = Path(__file__).resolve().parents[2] / "docs" / "rules" / "newspaper"
+
+
+@pytest.fixture
+def newspaper(store):  # noqa: F811
+    store.put(
+        "workflows", json.loads((NEWSPAPER / "workflows" / "daily-newspaper.json").read_text())
+    )
+    store.put("rules", json.loads((NEWSPAPER / "rules" / "daily-newspaper.json").read_text()))
+    return store
+
+
+def test_describe_strikes_a_disabled_rule_out_without_a_tty(wire, newspaper, capsys):  # noqa: F811
+    para = jrun(capsys, "workflows", "describe", "daily-newspaper")["paragraph"]
+    assert para["segments"][0]["disabled"] is True
+    rc, out, err = run(capsys, "workflows", "describe", "daily-newspaper")
+    assert rc == 0, err
+    body = out.split("\n\n")[1]
+    assert body.startswith("~~It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.~~ First: ")
+    assert "\x1b" not in out and "isabled" not in body
+    assert body.replace("~~", "") == para["text"]
+
+
+def test_describe_strikes_with_ansi_on_a_tty(wire, newspaper, capsys, monkeypatch):  # noqa: F811
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+    para = jrun(capsys, "workflows", "describe", "daily-newspaper")["paragraph"]
+    rc, out, err = run(capsys, "workflows", "describe", "daily-newspaper")
+    assert rc == 0, err
+    body = out.split("\n\n")[1]
+    assert body.startswith("\x1b[9mIt starts on cron")
+    assert "~~" not in body
+    assert body.replace("\x1b[9m", "").replace("\x1b[29m", "") == para["text"]
+
+
+def test_describe_json_is_the_raw_payload_with_the_flag(wire, newspaper, capsys):  # noqa: F811
+    out = jrun(capsys, "workflows", "describe", "daily-newspaper")
+    assert out["paragraph"]["segments"][0]["disabled"] is True
+    assert "~~" not in out["paragraph"]["text"] and "\x1b" not in out["paragraph"]["text"]

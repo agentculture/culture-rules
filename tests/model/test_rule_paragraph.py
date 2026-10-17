@@ -275,9 +275,8 @@ def test_rule_sentence_condition_placement_and_disabled():
         enabled=False,
     )
     seg = rule_sentence(rule)
-    assert seg["text"] == (
-        "It starts when github.pr.opened arrives, if draft is false, on spark2, but it is disabled."
-    )
+    assert seg["text"] == ("It starts when github.pr.opened arrives, if draft is false, on spark2.")
+    assert seg["disabled"] is True and "disabled" not in rule_sentence(_rule())
     assert seg["rule"] == "r" and seg["enabled"] is False and seg["kind"] == "entry"
     _assert_from_table(seg)
 
@@ -489,8 +488,8 @@ def test_pr_fix_paragraph_opens_with_its_starting_rule_and_ends_with_then():
     starts = [s for s in out["segments"] if s["part"] == "start"]
     assert [s["rule"] for s in starts] == ["pr-fixer-dispatch"]
     assert out["text"].startswith(
-        "It starts when rules.queue.dispatch arrives, if its condition holds, on spark2,"
-        " but it is disabled. First, it waits 5 minutes"
+        "It starts when rules.queue.dispatch arrives, if its condition holds, on spark2."
+        " First, it waits 5 minutes"
     )
     steps = step_paragraph(wf)["text"]
     head, sep, tail = out["text"].partition(steps)
@@ -513,9 +512,7 @@ def test_pr_fix_paragraph_opens_with_its_starting_rule_and_ends_with_then():
 
 def test_daily_newspaper_paragraph():
     out = workflow_paragraph(_committed_workflow("daily-newspaper"), _committed_rules())
-    assert out["text"].startswith(
-        "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark, but it is disabled. First: "
-    )
+    assert out["text"].startswith("It starts on cron 0 5 * * * (Asia/Jerusalem), on spark. First: ")
     assert out["text"].endswith(
         " Nothing continues from here. When it is done, nothing else happens."
     )

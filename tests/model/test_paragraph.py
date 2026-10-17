@@ -288,9 +288,39 @@ def test_a_shared_condition_in_a_loop_body_is_said_once_there():
     assert p["y"] == "Then:"
 
 
-def test_disabled():
+def test_disabled_step_has_its_normal_phrase_and_a_flag_not_words():
     wf = _wf([_step("a", enabled=False)])
-    assert _phrases(wf)["a"] == "First, disabled, so it never runs:"
+    out = step_paragraph(wf)
+    assert _phrases(wf)["a"] == "First:"
+    assert out["segments"][0]["disabled"] is True
+    assert "isabled" not in out["text"]
+    assert "disabled" not in PHRASES and "rule_disabled" not in PHRASES
+    on = step_paragraph(_wf([_step("a")]))
+    assert "disabled" not in on["segments"][0]
+    assert on["text"] == out["text"]
+
+
+def test_a_disabled_step_never_joins_a_then_group():
+    def make(*on: bool):
+        c = _cmp("fixer", "claude")
+        steps = [
+            _step(sid, config={"when": c}, description=f"Step {sid}.", enabled=flag)
+            for sid, flag in zip("bcd", on)
+        ]
+        return step_paragraph(_chain(_step("a", description="Starts."), *steps))
+
+    control = make(True, True, True)
+    assert [s["grouped"] for s in control["segments"][1:4]] == [False, True, True]
+    for flags in ((True, False, True), (False, True, True), (True, True, False), (False,) * 3):
+        out = make(*flags)
+        for s, flag in zip(out["segments"][1:4], flags):
+            assert s.get("disabled", False) is (not flag)
+            assert not (s["grouped"] and (not flag))
+        # a disabled step breaks the run: nothing after it joins a group that began before it
+        for i, flag in enumerate(flags[:-1]):
+            if not flag:
+                assert not out["segments"][i + 2]["grouped"]
+        assert "isabled" not in out["text"]
 
 
 def test_a_workflow_model_reads_like_its_dict_form():

@@ -78,6 +78,20 @@ def _render_variables(items: list) -> str:
     return "\n".join(lines)
 
 
+def _paragraph_text(paragraph: dict) -> str:
+    """The paragraph with disabled segments struck through (d8): ANSI on a terminal, else
+    ``~~ ~~``. Stripped of the marks it is exactly ``paragraph["text"]``."""
+    text = str(paragraph.get("text") or "")
+    if not any(isinstance(s, dict) and s.get("disabled") for s in paragraph.get("segments") or []):
+        return text
+    from culture_rules.model.paragraph import render_marked  # noqa: PLC0415
+
+    tty = sys.stdout.isatty()
+    return render_marked(
+        paragraph, (lambda c: f"\x1b[9m{c}\x1b[29m") if tty else (lambda c: f"~~{c}~~")
+    )
+
+
 def render_text(result: Any, noun: str | None = None) -> str:
     text = _render_dict(result, noun) if isinstance(result, dict) else None
     if text is not None:
@@ -93,7 +107,7 @@ def _render_dict(result: dict, noun: str | None) -> str | None:
         return render(result["subject"], result["sections"])
     if isinstance(result.get("lines"), list) and isinstance(result.get("paragraph"), dict):
         # workflows describe: the description, the paragraph, then the numbered lines
-        parts = [str(result.get("description") or ""), str(result["paragraph"].get("text") or "")]
+        parts = [str(result.get("description") or ""), _paragraph_text(result["paragraph"])]
         parts.append("\n".join(str(x) for x in result["lines"]))
         return "\n\n".join(p for p in parts if p)
     if isinstance(result.get("lines"), list):

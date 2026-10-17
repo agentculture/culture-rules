@@ -39,7 +39,7 @@ editor's fold (web/src/fold/model.ts ``foldModel``): :func:`fold_rules`.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from culture_rules.model import condition as cond
@@ -64,6 +64,7 @@ __all__ = [
     "compose_sentence",
     "fold_rules",
     "onward_of",
+    "render_marked",
     "rule_sentence",
     "step_paragraph",
     "then_sentence",
@@ -99,7 +100,6 @@ PHRASES: dict[str, str] = {
     "retry_until_unspoken": "It tries until its condition holds, at most {times}:",
     "retry": "Trying up to {n} times:",
     "on_error_skip": "Carrying on even if it fails:",
-    "disabled": "Disabled, so it never runs:",
     # d5: the one connector inside a sentence, not followed by a colon - a step whose phrase
     # would be exactly ``Then, if <the previous step's condition>:`` joins its sentence
     "then_grouped": "; then",
@@ -122,7 +122,6 @@ PHRASES: dict[str, str] = {
     "rule_supersedes": "instead of {rules} for the same event.",
     "rule_group": "only if no higher-priority rule of group {group} matches (priority {priority}).",
     "rule_where": "{where}.",
-    "rule_disabled": "but it is disabled.",
     # the Then side
     "continues": "Then it continues into {workflows}.",
     "continues_none": "Nothing continues from here.",
@@ -378,8 +377,6 @@ def _own_parts(s: Mapping[str, Any], shared: bool, said_if: bool) -> list[Part]:
         parts.append(("retry", {"n": retry["max_attempts"]}))
     if config.get("on_error") == "skip":
         parts.append(("on_error_skip", {}))
-    if s.get("enabled") is False:
-        parts.append(("disabled", {}))
     return parts
 
 
@@ -465,7 +462,7 @@ def _d19(s: Mapping[str, Any]) -> str:
 def _seg(
     s: Mapping[str, Any], phrase: str, keys: list[str], text: str, depth: int, *, fallback: bool
 ) -> dict[str, Any]:
-    return {
+    seg = {
         "phrase": phrase,
         "step": _sid(s),
         "text": text,
@@ -476,6 +473,9 @@ def _seg(
         "grouped": keys == ["then_grouped"],
         "name": _label(s),
     }
+    if s.get("enabled") is False:
+        seg["disabled"] = True  # d8: shown struck through, no words
+    return seg
 
 
 def _level_parts(
@@ -518,6 +518,7 @@ def _grouped(
         joins = (
             open_when is not None
             and ok[i]
+            and s.get("enabled") is not False
             and len(keys) == 2
             and keys[0] == "then"
             and keys[1] in _IF_KEYS
@@ -527,7 +528,7 @@ def _grouped(
         )
         if joins:
             parts[i] = [("then_grouped", {})]
-        elif ok[i] and any(k in _IF_KEYS for k in keys):
+        elif ok[i] and s.get("enabled") is not False and any(k in _IF_KEYS for k in keys):
             open_when = _when(s)
         else:
             open_when = None
@@ -550,7 +551,9 @@ def step_paragraph(workflow: Any) -> dict[str, Any]:
     Returns ``{"segments", "text"}``: one segment per step, top level in a stable
     topological order (declared order where it is one) and each loop's body right after its
     loop, in declared order. A segment is ``{"phrase", "step", "text", "keys", "depth",
-    "gap", "fallback", "grouped", "name"}``: ``keys`` names the :data:`PHRASES` entries its
+    "gap", "fallback", "grouped", "name"}`` (plus ``"disabled": True`` for a disabled step, d8:
+    it keeps its normal phrase and is never ``grouped``): ``keys`` names the
+    :data:`PHRASES` entries its
     phrase is composed from, ``text`` is the step's description unchanged (``gap`` when it
     is empty), and a step the table has no phrase for has no phrase and its d19 line as ``text``
     (``fallback``). ``text`` joins the segments: the phrase, then the description or
@@ -592,18 +595,36 @@ def _lower_first(text: str) -> str:
     return text[0].lower() + text[1:]
 
 
-def _render(segments: list[dict[str, Any]]) -> str:
+def _render(segments: list[dict[str, Any]], mark: Callable[[str], str] | None = None) -> str:
+    """The segments as text; ``mark`` wraps a disabled segment's chunk (d8), if given."""
     chunks: list[str] = []
     for seg in segments:
         if seg["grouped"] and chunks and chunks[-1].endswith("."):
             chunks[-1] = f"{chunks[-1][:-1]}{seg['phrase']} {_lower_first(seg['text'])}"
             continue
         if seg["fallback"]:
-            chunks.append(seg["text"])
-            continue
-        shown = seg["text"] or GAP.format(step=seg["name"])
-        chunks.append(f"{seg['phrase']} {shown}")
+            chunk = seg["text"]
+        else:
+            shown = seg["text"] or GAP.format(step=seg["name"])
+            chunk = f"{seg['phrase']} {shown}"
+        chunks.append(mark(chunk) if mark and seg.get("disabled") else chunk)
     return " ".join(chunks)
+
+
+def render_marked(paragraph: Mapping[str, Any], mark: Callable[[str], str]) -> str:
+    """A workflow paragraph's text (``workflow_paragraph``'s payload, or its JSON form) with
+    every disabled segment wrapped by ``mark``; without the marks it equals ``text``."""
+    segs = [s for s in paragraph.get("segments") or [] if isinstance(s, Mapping)]
+    steps = _render([s for s in segs if s.get("part") == "step"], mark)
+    out: list[str] = []
+    for part in ("start", "step", "then"):
+        if part == "step":
+            out.append(steps)
+            continue
+        for s in segs:
+            if s.get("part") == part and s.get("text"):
+                out.append(mark(s["text"]) if s.get("disabled") else s["text"])
+    return " ".join(x for x in out if x)
 
 
 # --------------------------------------------------------------------------- the rules (t7)
@@ -777,7 +798,9 @@ def rule_sentence(rule: Any) -> dict[str, Any]:
     workflow whose run it follows), its condition in words (a continuation's predecessor term
     is already said), its relationships, its placement and whether it is disabled.
 
-    Returns ``{"part": "start", "rule", "kind", "enabled", "keys", "text"}``; ``keys`` names
+    Returns ``{"part": "start", "rule", "kind", "enabled", "keys", "text"}`` (plus
+    ``"disabled": True`` for a disabled rule, d8: no words, the editor strikes it out);
+    ``keys`` names
     the :data:`PHRASES` entries the sentence is composed from. Never raises."""
     r = _plain(rule)
     entry = _entry(r, str(_plain(r.get("workflow")).get("id") or ""))
@@ -793,11 +816,12 @@ def rule_sentence(rule: Any) -> dict[str, Any]:
     where = placement_text(r.get("placement"), as_actor=False)
     if where:
         parts.append(("rule_where", {"where": where}))
-    if r.get("enabled") is False:
-        parts.append(("rule_disabled", {}))
-    return _sentence(
+    sentence = _sentence(
         "start", parts, rule=str(r.get("id") or "?"), kind=entry["kind"], enabled=entry["enabled"]
     )
+    if r.get("enabled") is False:
+        sentence["disabled"] = True  # d8: shown struck through, no words
+    return sentence
 
 
 def _distinct(values: list[str]) -> list[str]:

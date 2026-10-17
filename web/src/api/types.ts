@@ -220,6 +220,8 @@ export interface DescribeEntry {
 export interface ParagraphSegment {
   part: string;
   text: string;
+  /** a disabled rule's or step's segment (d8): shown struck through, no words */
+  disabled?: boolean;
   [key: string]: unknown;
 }
 
