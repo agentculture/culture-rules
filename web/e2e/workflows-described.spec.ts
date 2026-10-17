@@ -24,13 +24,11 @@ const norm = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /** The text a reader sees: visually-hidden cues (.sv-sr) left out, whitespace normalised. */
 async function visibleText(el: Locator): Promise<string> {
-  return norm(
-    await el.evaluate((node) => {
-      const copy = node.cloneNode(true) as HTMLElement;
-      copy.querySelectorAll(".sv-sr").forEach((n) => n.remove());
-      return copy.textContent ?? "";
-    }),
-  );
+  return el.evaluate((node) => {
+    const copy = node.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll(".sv-sr").forEach((n) => n.remove());
+    return Array.from(copy.querySelectorAll(".sv-line"), (l) => (l.textContent ?? "").replace(/\s+/g, " ").trim()).join("\n");
+  });
 }
 
 const paragraph = (page: Page) => page.getByTestId("paragraph");
@@ -66,7 +64,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     await expect(page.getByRole("region", { name: "Simple view" })).toBeVisible();
     await expect(page.getByLabel("Workflow description")).toHaveText(pr.description);
     await expect(page.getByRole("heading", { level: 2, name: "How it runs" })).toBeVisible();
-    expect(await visibleText(paragraph(page))).toBe(norm(pr.paragraph.text));
+    expect(await visibleText(paragraph(page))).toBe(pr.paragraph.text);
     // Simple is text only: no canvas, no entry-point editors.
     await expect(page.locator(".wf-canvas")).toHaveCount(0);
     await expect(page.getByRole("group", { name: /^Entry point:/ })).toHaveCount(0);
@@ -96,7 +94,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
       await expect(paragraph(page)).toBeVisible();
 
       // The editor's text equals the API describe paragraph.
-      expect(await visibleText(paragraph(page))).toBe(norm(p.text));
+      expect(await visibleText(paragraph(page))).toBe(p.text);
       // The workflow description, or the dashed gap when it has none.
       const lede = page.getByLabel("Workflow description");
       await expect(lede).toHaveText(description || "No description yet");
@@ -121,17 +119,18 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     });
   }
 
-  test("a step with no description is a dashed gap naming it, never an invented sentence", async ({ page }) => {
+  test("a step with no description shows its stand-in, marked not written yet", async ({ page }) => {
     await open(page, "/workflows?id=publish-fix");
-    const gap = paragraph(page).locator('[data-step="reply"] .sv-gap');
-    // It names the step (by its name), as the API's own gap segment does.
-    const seg = DESCRIBED["publish-fix"].paragraph.segments.find((s) => s.step === "reply")!;
-    expect(seg.gap).toBe(true);
-    expect(seg.text).toBe("");
-    await expect(gap).toHaveText(`[${seg.name} has no description yet]`);
-    // ... and it is the very text the API's paragraph.text reads for that step.
-    expect(DESCRIBED["publish-fix"].paragraph.text).toContain(`[${seg.name} has no description yet]`);
-    expect((await gap.evaluate((el) => getComputedStyle(el).borderTopStyle))).toBe("dashed");
+    const seg = DESCRIBED["publish-fix"].paragraph.segments.find((s) => s.standin && s.part === "step")!;
+    expect(seg).toBeTruthy();
+    const stand = paragraph(page).locator(`[data-step="${seg.step}"] .sv-standin`);
+    // The words are the API's own stand-in, as paragraph.text reads them.
+    await expect(stand).toHaveText(`${seg.shown} (not written yet)`);
+    expect(DESCRIBED["publish-fix"].paragraph.text).toContain(String(seg.shown));
+    expect(await stand.evaluate((el) => getComputedStyle(el).fontStyle)).toBe("italic");
+    // Clicking it opens an empty field for the author to write fresh.
+    await stand.click();
+    await expect(page.getByRole("textbox", { name: /^Edit the description of / })).toHaveValue("");
   });
 
   test("a workflow with no description shows the gap on its card and in Simple", async ({ page }) => {

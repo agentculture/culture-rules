@@ -10,7 +10,7 @@
   cursor: text;
   border-radius: 4px;
 }
-.sv-text:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.sv-text:hover:not([aria-disabled]) { background: color-mix(in srgb, var(--ink) 6%, transparent); }
 .sv-text:focus-visible, .sv-field:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sv-lede { display: block; font: var(--ac-type-lede) / var(--ac-leading-lede) var(--font-display); }
 .sv-gap {
@@ -21,7 +21,6 @@
   font-style: italic;
 }
 .sv-heading { font: 600 var(--ac-type-section-title) / var(--ac-leading-heading) var(--font-display); margin: 0 0 8px; }
-.sv-p { font: var(--ac-type-body) / 1.8 var(--font-body); margin: 0 0 14px; }
 .sv-phrase {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent-strong);
@@ -29,8 +28,10 @@
   padding: 0 4px;
   font-weight: 600;
 }
-.sv-body { display: block; margin: 6px 0 6px 6px; padding-left: 14px; border-left: 2px solid var(--line); }
-.sv-body__line { display: block; }
+/* One sentence per line (d11). A line inside a loop keeps a quiet rule at its left. */
+.sv-line { font: var(--ac-type-body) / 1.8 var(--font-body); margin: 0 0 10px; max-width: 78ch; overflow-wrap: anywhere; }
+.sv-line--in { margin-left: 6px; padding-left: 14px; border-left: 2px solid var(--line); }
+.sv-standin { font-style: italic; color: var(--ink-soft); }
 .sv-field {
   font: inherit;
   width: 100%;

@@ -84,7 +84,7 @@ describe("StepEditor: every Step field", () => {
   it("labels description as the one-line description and edits notes apart from it", async () => {
     const { last } = renderEditor({ id: "s", kind: "actor_task", description: "Fix it." });
     const d = screen.getByLabelText("One-line description");
-    expect(d).toHaveAccessibleDescription(/Plain language.*Simple reads it/);
+    expect(d).toHaveAccessibleDescription(/Start with a verb, one line/);
     await userEvent.type(screen.getByLabelText("Notes"), "d30: quiet");
     expect(last()).toEqual({ id: "s", kind: "actor_task", description: "Fix it.", notes: "d30: quiet" });
   });
