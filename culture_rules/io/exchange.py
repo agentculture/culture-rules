@@ -20,6 +20,7 @@ from culture_rules.io.bundle import KINDS, Bundle, SecretRef, check_name
 from culture_rules.model import serde
 from culture_rules.model.validate import validate
 from culture_rules.store.port import StoreOps
+from culture_rules.store.revision import REVISION, bump, is_revisioned
 
 __all__ = [
     "Change",
@@ -36,7 +37,9 @@ __all__ = [
 ]
 
 SECRETS_DIR = "secrets"
-_ENVELOPE = ("updated_at",)  # store-owned fields that are not part of a definition
+# store-owned fields that are not part of a definition (a workflow's revision: never
+# exported, never compared, never taken from a bundle)
+_ENVELOPE = ("updated_at", REVISION)
 Action = Literal["add", "change", "unchanged"]
 
 
@@ -373,11 +376,18 @@ def _pretty(data: Mapping[str, Any]) -> str:
 
 
 def _write_all(store: Any, writes: list[tuple[str, dict[str, Any]]]) -> None:
+    """Put every changed document; a workflow's revision becomes the stored one plus one."""
     transaction = getattr(store, "transaction", None)
     if transaction is None:
         for kind, doc in writes:
-            store.put(kind, doc)
+            store.put(kind, _revised(store, kind, doc))
         return
     with transaction() as tx:
         for kind, doc in writes:
-            tx.put(kind, doc)
+            tx.put(kind, _revised(tx, kind, doc))
+
+
+def _revised(ops: Any, kind: str, doc: dict[str, Any]) -> dict[str, Any]:
+    if not is_revisioned(kind):
+        return doc
+    return {**doc, **bump(kind, ops.get(kind, doc["id"]))}
