@@ -141,16 +141,15 @@ afterEach(() => {
 });
 
 describe("Workflows tab: New workflow (empty state)", () => {
-  it("offers New workflow atop the (empty) list and as the empty state's primary action", async () => {
+  it("offers New workflow as the empty state's primary action, with no list pane", async () => {
     fakeApi([]);
     renderWorkflows();
     expect(await screen.findByRole("heading", { level: 1, name: "No workflows yet" })).toBeInTheDocument();
     await ready();
     const cta = within(emptyState()).getByRole("button", { name: "New workflow" });
     expect(cta).toHaveClass("wf-button--primary");
-    // The list is there with no workflows: its New button, no rows.
-    expect(listNew()).toHaveClass("rule-list__new");
-    expect(storedRows()).toHaveLength(0);
+    // Nothing is open: the overview, with no list pane.
+    expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
     // The header's "+ New" is gone: the io group is Import / Export / repository.
     const io = screen.getByRole("button", { name: "Import" }).closest(".wf-head__end")!;
     expect(within(io as HTMLElement).queryByRole("button", { name: "New workflow" })).toBeNull();
@@ -213,7 +212,7 @@ describe("Workflows tab: New workflow (empty state)", () => {
     });
     renderWorkflows();
     await ready();
-    await user.click(listNew());
+    await user.click(within(emptyState()).getByRole("button", { name: "New workflow" }));
     await user.type(within(nameForm()).getByRole("textbox", { name: "Name" }), "Too long{Enter}");
     const alert = await within(nameForm()).findByRole("alert");
     expect(alert).toHaveTextContent("name: must be at most 80 characters");
@@ -226,7 +225,7 @@ describe("Workflows tab: New workflow (empty state)", () => {
     const api = fakeApi([]);
     renderWorkflows();
     await ready();
-    await user.click(listNew());
+    await user.click(within(emptyState()).getByRole("button", { name: "New workflow" }));
     await user.type(within(nameForm()).getByRole("textbox", { name: "Name" }), "   {Enter}");
     expect(api.writes()).toEqual([]);
     expect(nameForm()).toBeInTheDocument();
@@ -237,7 +236,7 @@ describe("Workflows tab: New workflow (empty state)", () => {
     const api = fakeApi([], { deleted: ["triage"] });
     renderWorkflows();
     await ready();
-    await user.click(listNew());
+    await user.click(within(emptyState()).getByRole("button", { name: "New workflow" }));
     await user.type(within(nameForm()).getByRole("textbox", { name: "Name" }), "Triage{Enter}");
     expect(await screen.findByRole("heading", { level: 1, name: "Triage" })).toBeInTheDocument();
     const ids = api.calls
@@ -415,7 +414,7 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
   it("deleting the last workflow lands on the empty state", async () => {
     const user = userEvent.setup();
     fakeApi([SPARE]);
-    renderWorkflows();
+    renderWorkflows("/workflows?id=nightly-report");
     await screen.findByRole("heading", { level: 1, name: "Nightly report" });
     await ready();
     // One workflow: the list still shows, with its one row current.
@@ -423,7 +422,7 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
     await user.click(screen.getByRole("button", { name: "Delete workflow" }));
     expect(await screen.findByRole("heading", { level: 1, name: "No workflows yet" })).toBeInTheDocument();
     expect(within(emptyState()).getByRole("button", { name: "New workflow" })).toBeInTheDocument();
-    expect(storedRows()).toHaveLength(0);
+    expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
   });
 });
 
