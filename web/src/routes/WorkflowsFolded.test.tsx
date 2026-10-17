@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Workflows from "./Workflows";
+import { PANE_KEY } from "../workflows/list/pane";
 import { getAgentState, resetAgentState } from "../agent-state/store";
 import * as client from "../api/client";
 import { defaultRoutes } from "../test/mockApi";
@@ -107,18 +108,12 @@ describe("Workflows, folded (t8)", () => {
     renderAt("/workflows?entry=clean-caches");
     const place = await screen.findByRole("region", { name: "Rule without a workflow: Clean caches" });
     expect(within(place).getByRole("button", { name: /create its workflow/i })).toBeInTheDocument();
-    // The list names it under rules without a workflow too, linking back here.
-    const list = screen.getByRole("navigation", { name: "Workflows" });
-    expect(within(list).getByRole("link", { name: "Clean caches" })).toHaveAttribute(
-      "href",
-      "/workflows?entry=clean-caches",
-    );
     await waitFor(() => expect(getAgentState().workflows?.without_workflow).toContain("clean-caches"));
   });
 
   it("New rule opens the rule form in place of the Rules tab's", async () => {
     renderAt(`/workflows?id=${REVIEW_PR_ID}`);
-    const list = await screen.findByRole("navigation", { name: "Workflows" });
+    const list = await screen.findByRole("complementary");
     await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
     expect(await screen.findByText(/When does this happen\?/)).toBeInTheDocument();
     expect(where).toBe(`/workflows?id=${REVIEW_PR_ID}`);
@@ -126,7 +121,7 @@ describe("Workflows, folded (t8)", () => {
 
   it("while New rule or the D7 place is shown, the head names it and offers no workflow's delete or run", async () => {
     renderAt(`/workflows?id=${REVIEW_PR_ID}`);
-    const list = await screen.findByRole("navigation", { name: "Workflows" });
+    const list = await screen.findByRole("complementary");
     await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
     expect(await screen.findByRole("heading", { level: 1, name: "New rule" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete workflow" })).toBeNull();
@@ -233,8 +228,6 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
       await new Promise((r) => setTimeout(r, LIVE_DEBOUNCE_MS + 30));
     });
     expect(await screen.findByRole("group", { name: "Entry point: Late reviewer" })).toBeInTheDocument();
-    const list = screen.getByRole("navigation", { name: "Workflows" });
-    await waitFor(() => expect(within(list).getAllByRole("link", { name: "Late reviewer" }).length).toBeGreaterThan(0));
     expect(FakeEventSource.instances.filter((s) => !s.closed)).toHaveLength(1);
   });
 
@@ -243,14 +236,18 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
     const group = await screen.findByRole("group", { name: "Canvas view" });
     await userEvent.click(within(group).getByRole("button", { name: "Debug" }));
     await waitFor(() => expect(getAgentState().workflows?.view).toBe("debug"));
-    const list = screen.getByRole("navigation", { name: "Workflows" });
+    const list = screen.getByRole("complementary");
     await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
     await screen.findByRole("heading", { level: 1, name: "New rule" });
     await waitFor(() => expect(getAgentState().workflows?.view).toBeNull());
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(getAgentState().workflows?.view).toBe("debug"));
+  });
 
-    await userEvent.click(within(list).getByRole("link", { name: "Clean caches" }));
+  it("a rule without a workflow is reached from the overview's list, and reports no view", async () => {
+    renderAt("/workflows");
+    const without = await screen.findByRole("region", { name: "Rules without a workflow" });
+    await userEvent.click(within(without).getByRole("link", { name: "Clean caches" }));
     await screen.findByRole("heading", { level: 1, name: "Clean caches" });
     await waitFor(() => expect(getAgentState().workflows?.view).toBeNull());
   });
@@ -319,11 +316,12 @@ describe("Workflows, folded: the Rules board's page scenarios (t9)", () => {
     vi.restoreAllMocks();
   });
 
-  it("every rule is listed, as an entry point or under rules without a workflow, the first affordance New workflow / New rule", async () => {
-    renderAt("/workflows?id=build-image");
-    const list = await screen.findByRole("navigation", { name: "Workflows" });
-    const buttons = within(list).getAllByRole("button");
+  it("every rule is listed in the overview, as an entry point or under rules without a workflow, the first affordance New workflow / New rule", async () => {
+    renderAt("/workflows");
+    const overview = await screen.findByRole("region", { name: "Workflows overview" });
+    const buttons = within(overview).getAllByRole("button");
     expect(buttons.slice(0, 2).map((b) => b.textContent)).toEqual(["New workflow", "New rule"]);
+    const list = within(overview).getByRole("navigation", { name: "Chains and housekeeping" });
     await waitFor(() => expect(within(list).getByRole("link", { name: "Build and publish" })).toHaveAttribute(
       "href",
       "/workflows?id=build-image&entry=build-and-publish",
@@ -395,6 +393,7 @@ describe("Workflows overview and pane toggle (t13)", () => {
     expect(within(cards).getAllByRole("listitem").length).toBeGreaterThan(0);
     expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hide workflows" })).toBeNull();
+    expect(screen.queryByRole("complementary")).toBeNull();
   });
 
   it("opening a card shows the workflow with its pane", async () => {
@@ -422,5 +421,39 @@ describe("Workflows overview and pane toggle (t13)", () => {
     expect(screen.getByRole("button", { name: "Hide workflows" })).toHaveAttribute("aria-expanded", "true");
     await user.click(screen.getByRole("link", { name: "← All workflows" }));
     expect(await screen.findByRole("list", { name: "All workflows" })).toBeInTheDocument();
+  });
+
+  it("t21: the collapsed choice is remembered, and the open workflow remains with only the rail beside it", async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem(PANE_KEY);
+    const first = renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    await user.click(await screen.findByRole("button", { name: "Hide workflows" }));
+    expect(localStorage.getItem(PANE_KEY)).toBe("collapsed");
+    expect(screen.getByRole("complementary")).toHaveClass("wf-pane--rail");
+    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
+    first.unmount();
+    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    expect(await screen.findByRole("button", { name: "Show workflows" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Show workflows" }));
+    expect(localStorage.getItem(PANE_KEY)).toBe("expanded");
+  });
+
+  it("t21: the compact pane has no chain cards, counts or show-deleted; the overview keeps them (criterion 3)", async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem(PANE_KEY);
+    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    const pane = await screen.findByRole("complementary");
+    expect(within(pane).queryByRole("button", { name: "Show deleted" })).toBeNull();
+    expect(within(pane).queryByRole("button", { name: "See it as one chain" })).toBeNull();
+    expect(within(pane).queryByRole("region", { name: "Rules without a workflow" })).toBeNull();
+    expect(pane).not.toHaveTextContent(/entry point|was \d+ rule/);
+    await user.click(screen.getByRole("link", { name: "← All workflows" }));
+    const housekeeping = await screen.findByRole("navigation", { name: "Chains and housekeeping" });
+    expect(within(housekeeping).getAllByRole("button", { name: "See it as one chain" }).length).toBeGreaterThan(0);
+    expect(within(housekeeping).getByRole("region", { name: "Rules without a workflow" })).toBeInTheDocument();
+    expect(within(housekeeping).getByRole("button", { name: "Show deleted" })).toBeInTheDocument();
+    await user.click(within(housekeeping).getAllByRole("button", { name: "See it as one chain" })[0]);
+    expect(await screen.findByRole("button", { name: "Chain" })).toHaveAttribute("aria-pressed", "true");
   });
 });

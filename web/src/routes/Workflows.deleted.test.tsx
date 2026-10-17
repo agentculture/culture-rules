@@ -37,9 +37,10 @@ function routes(overrides: ApiRoutes = {}, whoami: unknown = WHOAMI): ApiRoutes 
   };
 }
 
+// t21: deleted workflows, restore and purge live in the overview at /workflows, not the open-workflow pane.
 function renderBoard() {
   return render(
-    <MemoryRouter initialEntries={["/workflows?id=review-pr"]}>
+    <MemoryRouter initialEntries={["/workflows"]}>
       <Routes>
         <Route path="/workflows" element={<Workflows />} />
       </Routes>
@@ -62,7 +63,7 @@ function start(overrides: ApiRoutes = {}, whoami: unknown = WHOAMI) {
   renderBoard();
 }
 const showDeleted = async () => {
-  await screen.findByRole("heading", { level: 1, name: "Review PR" });
+  await screen.findByRole("heading", { level: 1, name: "Workflows" });
   await userEvent.click(screen.getByRole("button", { name: "Show deleted" }));
   return screen.findByText("Old flow");
 };
@@ -83,7 +84,7 @@ describe("Workflows: soft-deleted view and admin purge", () => {
 
   it("hides deleted workflows by default and toggles include_deleted", async () => {
     start();
-    await screen.findByRole("heading", { level: 1, name: "Review PR" });
+    await screen.findByRole("heading", { level: 1, name: "Workflows" });
     expect(screen.queryByText("Old flow")).not.toBeInTheDocument();
     expect((fetchMock.mock.calls as unknown as Call[]).some(([u]) => u.includes("include_deleted"))).toBe(false);
     await userEvent.click(screen.getByRole("button", { name: "Show deleted" }));

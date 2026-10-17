@@ -52,7 +52,7 @@ import PlacementEditor from "../workflows/PlacementEditor";
 import StepEditor from "../workflows/StepEditor";
 import { useWhoami } from "../hooks/useWhoami";
 import PurgePanel, { type PurgeState } from "../workflows/PurgePanel";
-import { Overview, WorkflowList } from "../workflows/list";
+import { Overview, WorkflowList, WorkflowPane, readPaneCollapsed, writePaneCollapsed } from "../workflows/list";
 import { SimpleView } from "../workflows/simple/SimpleView";
 import { NewRule } from "../workflows/simple/NewRule";
 import { D7Offer } from "../workflows/simple/D7Offer";
@@ -1345,9 +1345,14 @@ export function Workflows() {
     }
     return null;
   };
-  // Nothing open (no ?id=, no form): the overview cards, and no list pane.
+  // Nothing open (no ?id=, no form): the overview cards (with chains, deleted and rules without a workflow), and no pane.
   const overviewing = !wantedId && !creating && !creatingRule && d7Rule === null && !awaiting;
-  const [paneOpen, setPaneOpen] = useState(true);
+  const [paneCollapsed, setPaneCollapsed] = useState(readPaneCollapsed);
+  const togglePane = () =>
+    setPaneCollapsed((c) => {
+      writePaneCollapsed(!c);
+      return !c;
+    });
   const body = overviewing ? null : renderBody();
   const trustDraft = trustAskDraft(askTrust, draft, aside);
   // No workflow's head (rename, delete, run) while naming a new one, an aside, or nothing open.
@@ -1355,40 +1360,24 @@ export function Workflows() {
 
   return (
     <div className="rules-board wf-layout">
-      {!overviewing && paneOpen ? (
-      <WorkflowList
-        model={model}
-        workflows={workflows}
-        selectedId={headless ? null : (current?.id ?? null)}
-        slotOf={slotOf}
-        onToggle={(wf) => void toggleWorkflow(wf)}
-        pending={togglePending}
-        onNew={openNew}
-        newRuleRef={newRuleButton}
-        onNewRule={() => {
-          setCreating(false);
-          setCreatingRule(true);
-        }}
-        onOpen={() => {
-          setCreatingRule(false);
-          openRow();
-        }}
-        newRef={newButton}
-        showDeleted={showDeleted}
-        onShowDeleted={(on) => {
-          setShowDeleted(on);
-          if (!on) setPurge(null);
-        }}
-        deleted={deletedDefs}
-        restoring={restorePending}
-        onRestore={(wf) => void restoreFromList(wf)}
-        onPurge={isAdmin ? (wf) => void startPurge(wf) : undefined}
-        purgePanel={
-          isAdmin && purge ? (
-            <PurgePanel state={purge} onConfirm={() => void confirmPurge()} onCancel={() => setPurge(null)} />
-          ) : null
-        }
-      />
+      {!overviewing ? (
+        <WorkflowPane
+          workflows={workflows}
+          selectedId={headless ? null : (current?.id ?? null)}
+          collapsed={paneCollapsed}
+          onToggle={togglePane}
+          onNew={openNew}
+          newRef={newButton}
+          onNewRule={() => {
+            setCreating(false);
+            setCreatingRule(true);
+          }}
+          newRuleRef={newRuleButton}
+          onOpen={() => {
+            setCreatingRule(false);
+            openRow();
+          }}
+        />
       ) : null}
       <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
         <RedirectNotices missingRule={missingRule} unreadRule={unreadRule} missingWorkflow={missingWorkflow} />
@@ -1401,14 +1390,6 @@ export function Workflows() {
         {overviewing ? null : (
           <div className="wf-pane-bar">
             <Link to="/workflows">← All workflows</Link>
-            <button
-              type="button"
-              className="wf-pane-toggle"
-              aria-expanded={paneOpen}
-              onClick={() => setPaneOpen((open) => !open)}
-            >
-              {paneOpen ? "Hide workflows" : "Show workflows"}
-            </button>
           </div>
         )}
         <div className="wf-head">
@@ -1477,6 +1458,42 @@ export function Workflows() {
                 setCreatingRule(true);
               }}
               newRuleRef={newRuleButton}
+              more={
+                <WorkflowList
+                inOverview
+                model={model}
+                workflows={workflows}
+                selectedId={headless ? null : (current?.id ?? null)}
+                slotOf={slotOf}
+                onToggle={(wf) => void toggleWorkflow(wf)}
+                pending={togglePending}
+                onNew={openNew}
+                newRuleRef={newRuleButton}
+                onNewRule={() => {
+                  setCreating(false);
+                  setCreatingRule(true);
+                }}
+                onOpen={() => {
+                  setCreatingRule(false);
+                  openRow();
+                }}
+                newRef={newButton}
+                showDeleted={showDeleted}
+                onShowDeleted={(on) => {
+                  setShowDeleted(on);
+                  if (!on) setPurge(null);
+                }}
+                deleted={deletedDefs}
+                restoring={restorePending}
+                onRestore={(wf) => void restoreFromList(wf)}
+                onPurge={isAdmin ? (wf) => void startPurge(wf) : undefined}
+                purgePanel={
+                  isAdmin && purge ? (
+                    <PurgePanel state={purge} onConfirm={() => void confirmPurge()} onCancel={() => setPurge(null)} />
+                  ) : null
+                }
+                />
+              }
             />
           )
         ) : (

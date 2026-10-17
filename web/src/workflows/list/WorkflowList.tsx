@@ -38,6 +38,8 @@ export interface WorkflowListProps {
   restoring?: ReadonlySet<string>;
   /** The open purge confirmation panel, below the rows. */
   purgePanel?: ReactNode;
+  /** In the overview: no New buttons or counts (the overview has its own), a heading instead. */
+  inOverview?: boolean;
 }
 
 export function WorkflowList(props: Readonly<WorkflowListProps>) {
@@ -63,11 +65,12 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
       </fieldset>
     </header><ChainView model={model} chain={chain} onOpen={onOpen} selectedId={selectedId} />
   </section>;
-  return <nav className="fold-list" aria-label="Workflows">
+  return <nav className="fold-list" aria-label={props.inOverview ? "Chains and housekeeping" : "Workflows"}>
+    {props.inOverview ? <h2>Chains, rules without a workflow, deleted</h2> : <>
     <button ref={newRef} type="button" className="rule-list__new" onClick={onNew}>New workflow</button>
     {props.onNewRule ? <button ref={props.newRuleRef} type="button" className="wf-button" onClick={props.onNewRule}>New rule</button> : null}
-    <p>{count(model.workflows.length, "workflow")} · {count(model.entryPoints.length, "entry point")} · was {count(model.entryPoints.length + model.continuations.length + model.d7Candidates.length, "rule")}</p>
-    {!model.chains.length && <p>No workflows yet.</p>}
+    <p>{count(model.workflows.length, "workflow")} · {count(model.entryPoints.length, "entry point")} · was {count(model.entryPoints.length + model.continuations.length + model.d7Candidates.length, "rule")}</p></>}
+    {!model.chains.length && !props.inOverview && <p>No workflows yet.</p>}
     {model.chains.map((item) => <article className="fold-card" key={item.workflowIds[0]} aria-label={`Chain: ${chainName(model, item)}`}>
       <header className="fold-card__header"><div><h2>{chainName(model, item)}</h2>
         <p>{count(item.workflowIds.length, "workflow")} linked by continuations · {count(item.entryPoints.length, "entry point")} · was {count(item.entryPoints.length + item.continuations.length, "rule")}</p>

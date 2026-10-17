@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { Link } from "react-router-dom";
 import type { AppSurface } from "../../api/actors";
 import type { Step, WorkflowDef } from "../../api/workflows";
@@ -79,6 +79,8 @@ export interface OverviewProps {
   onNewRule?: () => void;
   newRef?: RefObject<HTMLButtonElement>;
   newRuleRef?: RefObject<HTMLButtonElement>;
+  /** Below the cards: chain view, rules without a workflow, deleted workflows. */
+  more?: ReactNode;
 }
 
 function Card({ wf, model, actors }: Readonly<{ wf: WorkflowDef; model: FoldModel; actors: readonly ActorRef[] }>) {
@@ -108,7 +110,7 @@ function Card({ wf, model, actors }: Readonly<{ wf: WorkflowDef; model: FoldMode
 }
 
 /** The Workflows tab with nothing open: one card per workflow, no list pane. */
-export function Overview({ workflows, model, actors, error, onNew, onNewRule, newRef, newRuleRef }: Readonly<OverviewProps>) {
+export function Overview({ workflows, model, actors, error, onNew, onNewRule, newRef, newRuleRef, more }: Readonly<OverviewProps>) {
   return (
     <section className="wf-overview" aria-label="Workflows overview">
       <header className="wf-overview__head">
@@ -147,6 +149,7 @@ export function Overview({ workflows, model, actors, error, onNew, onNewRule, ne
           ))}
         </ul>
       )}
+      {more}
     </section>
   );
 }
