@@ -1,0 +1,28 @@
+{
+  "plan_slug": "workflow-connecting-phrases",
+  "schema_version": 2,
+  "created": "2026-10-17T19:24:42Z",
+  "updated": "2026-10-17T19:24:42Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "The plan's 'React Flow canvas' wording for today's Simple view becomes 'the fold layout: When entry cards, the fold-steps column, the Then column' in t1's criterion, h16/c19 and t14/h10/c13; Simple still ends up text only",
+      "task_ref": "t1",
+      "reason": "On main b146956 web/src/workflows/simple/SimpleView.tsx renders the fold three-column layout (lines 2-10, steps column at 76-94); React Flow is used only by Detailed and Debug",
+      "affects": [
+        "t14",
+        "c19",
+        "h16",
+        "c13",
+        "h10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
