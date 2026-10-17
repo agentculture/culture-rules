@@ -6,7 +6,6 @@
   display: grid;
   gap: 24px;
   width: 100%;
-  max-width: 1200px;
 }
 .wf-overview__head {
   display: flex;
@@ -28,7 +27,8 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  /* d13: the cards fill the main width (no cap, no empty right edge). */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 16px;
 }
 .wf-card {

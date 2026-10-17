@@ -340,12 +340,11 @@ describe("Workflows tab: rename (update)", () => {
 });
 
 describe("Workflows tab: enable / disable and delete (parity with Rules)", () => {
-  it("the list row's switch posts disable then enable; the header has none (as Rules)", async () => {
+  it("the head's switch posts disable then enable, for the open workflow (d13: moved from the chain cards)", async () => {
     const user = userEvent.setup();
     const api = fakeApi(WORKFLOW_DOCS);
-    // t21: the enable switches live in the overview (chain cards), not the compact pane.
-    renderWorkflows("/workflows");
-    await screen.findByRole("heading", { level: 1, name: "Workflows" });
+    renderWorkflows("/workflows?id=build-image");
+    await screen.findByRole("heading", { level: 1, name: "Build image" });
     await ready();
     expect(screen.queryByRole("switch", { name: "Workflow enabled" })).toBeNull();
     const toggle = screen.getByRole("switch", { name: "Build image enabled" });
@@ -359,22 +358,19 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
       "POST /api/workflows/build-image/enable",
     ]);
     expect(workflowsState()?.dirty).toBe(false);
-    expect(toggle.closest(".fold-workflow")).not.toHaveClass("is-disabled");
   });
 
-  it("a row's switch toggles that workflow, not only the selected one", async () => {
+  it("the switch toggles the open workflow and opens nothing else", async () => {
     const user = userEvent.setup();
     const api = fakeApi(WORKFLOW_DOCS);
-    renderWorkflows("/workflows");
-    await screen.findByRole("heading", { level: 1, name: "Workflows" });
+    renderWorkflows("/workflows?id=build-image");
+    await screen.findByRole("heading", { level: 1, name: "Build image" });
     await ready();
     const toggle = screen.getByRole("switch", { name: "Build image enabled" });
     await user.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
-    expect(toggle.closest(".fold-workflow")).toHaveClass("is-disabled");
     expect(api.writes().map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/workflows/build-image/disable"]);
-    // Nothing gets opened by toggling.
-    expect(where).toBe("/workflows");
+    expect(where).toBe("/workflows?id=build-image");
   });
 
   it("Delete soft-deletes, moves on, and Undo restores", async () => {
@@ -435,8 +431,8 @@ describe("Workflows toggle in flight (#7)", () => {
       if (/\/workflows\/build-image\/(enable|disable)$/.test(String(input))) await gate;
       return inner(input, init);
     }) as typeof fetch);
-    renderWorkflows("/workflows");
-    await screen.findByRole("heading", { level: 1, name: "Workflows" });
+    renderWorkflows("/workflows?id=build-image");
+    await screen.findByRole("heading", { level: 1, name: "Build image" });
     await ready();
     const toggle = screen.getByRole("switch", { name: "Build image enabled" });
     act(() => {

@@ -7,11 +7,10 @@ import { REVIEW_PR, WORKFLOW_DOCS } from "../src/workflows/fixture";
 import type { WorkflowDef } from "../src/api/workflows";
 
 /**
- * The Workflows tab's left pane, folded (t7, t8): chain cards, one section
- * per workflow (its machine dot, its name linking to it, its (i) and its
- * enable switch) with what starts it, what it continues into, how it runs and
- * ends; then the rules without a workflow. The Rules list it used to mirror is
- * gone. Screenshots land where WORKFLOWS_LIST_SCREENSHOTS points (default
+ * The Workflows tab's compact pane and its overview (d13): the pane is names
+ * only; the overview is one card per workflow across the full width, with no
+ * chain or housekeeping section (restore / purge are CLI / MCP only; the
+ * enable switch is in the open workflow's head). Screenshots land where WORKFLOWS_LIST_SCREENSHOTS points (default
  * test-results/).
  */
 const SHOTS = process.env.WORKFLOWS_LIST_SCREENSHOTS ?? "test-results";
@@ -41,11 +40,6 @@ async function open(page: Page, start: WorkflowDef[], path = "/workflows?id=revi
 /** The compact pane while a workflow is open (d6): a search box and workflow names only. */
 const pane = (page: Page) => page.locator("aside.wf-pane");
 const paneLinks = (page: Page) => pane(page).getByRole("navigation", { name: "Workflows" }).getByRole("link");
-/** The overview's "Chains and housekeeping" section: chain cards, one fieldset per workflow. */
-const list = (page: Page) => page.getByRole("navigation", { name: "Chains and housekeeping" });
-const section = (page: Page, id: string) => page.locator(`.fold-workflow[data-workflow-id="${id}"]`);
-/** The workflow name links, in list order (entry-point and D7 links are not workflow links). */
-const workflowLinks = (page: Page) => list(page).locator(".fold-workflow h3").getByRole("link");
 const box = async (l: Locator) => (await l.boundingBox())!;
 
 async function noSeriousAxe(page: Page, label: string) {
@@ -62,7 +56,6 @@ test.describe("Workflows tab: the workflow list", () => {
     await expect(pane(page).locator("a[aria-current]")).toHaveCount(1);
     // Names only: no chain cards, switches or dots in the pane (they live in the overview).
     await expect(pane(page).getByRole("switch")).toHaveCount(0);
-    await expect(page.locator(".fold-workflow")).toHaveCount(0);
     await expect(pane(page).getByRole("searchbox", { name: "Search workflows" })).toBeVisible();
 
     // Two columns: the pane, then the board (head, canvas) to its right, 28px apart (the board's gap).
@@ -91,44 +84,36 @@ test.describe("Workflows tab: the workflow list", () => {
     await expect(paneLinks(page)).toHaveCount(3);
   });
 
-  test("the overview's chain section: one fieldset per workflow with its dot, switch and entry points (screenshot)", async ({ page }) => {
+  test("the overview is one card per workflow across the full main width (screenshot)", async ({ page }) => {
     await open(page, [...WORKFLOW_DOCS, NIGHTLY], "/workflows");
-    await expect(workflowLinks(page)).toHaveText(["Review PR", "Build image", "Nightly report"]);
-    await expect(list(page).getByRole("switch")).toHaveCount(3);
-    // Nothing is open: no pane, no selection.
+    const cards = page.getByRole("list", { name: "All workflows" }).getByRole("listitem");
+    await expect(cards).toHaveCount(3);
+    await expect(cards.getByRole("link")).toHaveText([/Review PR/, /Build image/, /Nightly report/]);
+    // Nothing is open: no pane, no selection, and no chains / housekeeping section (d13).
     await expect(pane(page)).toHaveCount(0);
-    await expect(list(page).locator("a[aria-current]")).toHaveCount(0);
-    // Dots: Nightly report runs only on spark2 (slot 2); the others span or defer machines.
-    const dot = (id: string) => section(page, id).locator(".machine-dot");
-    await expect(dot("nightly-report")).toHaveAttribute("data-machine-slot", "2");
-    await expect(dot("review-pr")).toHaveAttribute("data-machine-slot", "none");
-    await expect(dot("build-image")).toHaveAttribute("data-machine-slot", "none");
-    // The rules that start each workflow are named on it, linking to the entry point.
-    await expect(section(page, "build-image").getByRole("link", { name: "Build and publish" })).toHaveAttribute(
-      "href",
-      "/workflows?id=build-image&entry=build-and-publish",
-    );
+    await expect(page.getByRole("navigation", { name: "Chains and housekeeping" })).toHaveCount(0);
+    await expect(page.getByText("Rules without a workflow")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Show deleted" })).toHaveCount(0);
+    // The cards fill the row: the last card ends where the main column ends.
+    const main = await box(page.getByRole("region", { name: "Workflows overview" }));
+    const last = await box(cards.last());
+    expect(Math.round(main.x + main.width - (last.x + last.width))).toBeLessThanOrEqual(1);
     await page.screenshot({ path: `${SHOTS}/workflows-list-overview.png`, fullPage: true });
   });
 
   test("shows with one workflow (screenshot) and with none", async ({ page }) => {
     await open(page, [REVIEW_PR], "/workflows");
-    // Build and publish still names build-image, which is not stored: listed, and said to be missing.
-    await expect(workflowLinks(page)).toHaveText(["Review PR", "build-image"]);
-    await expect(section(page, "build-image")).toContainText("Workflow definition missing");
-    await expect(section(page, "build-image").getByRole("switch")).toHaveCount(0);
+    await expect(page.getByRole("list", { name: "All workflows" }).getByRole("listitem")).toHaveCount(1);
     await expect(page.getByRole("combobox", { name: "Workflow" })).toHaveCount(0);
     await page.screenshot({ path: `${SHOTS}/workflows-list-1.png`, fullPage: true });
 
     await page.unrouteAll({ behavior: "ignoreErrors" });
     await open(page, [], "/workflows");
     await expect(page.getByRole("region", { name: "No workflows yet" }).getByRole("button", { name: "New workflow" })).toBeVisible();
-    // No stored workflow: no switch. The fixture's two rules still name theirs, shown as missing.
-    await expect(list(page).getByRole("switch")).toHaveCount(0);
-    await expect(list(page).getByText("Workflow definition missing")).toHaveCount(2);
+    await expect(page.getByRole("switch")).toHaveCount(0);
   });
 
-  test("a workflow's link opens it; its switch (in the overview) enables / disables it", async ({ page }) => {
+  test("a workflow's link opens it; its switch (in the head) enables / disables it", async ({ page }) => {
     const calls = await open(page, [...WORKFLOW_DOCS, NIGHTLY], "/workflows?id=review-pr&run=run-7");
     await paneLinks(page).filter({ hasText: "Build image" }).click();
     await expect(page).toHaveURL(/\/workflows\?id=build-image$/);
@@ -136,40 +121,30 @@ test.describe("Workflows tab: the workflow list", () => {
     await expect(paneLinks(page).filter({ hasText: "Build image" })).toHaveAttribute("aria-current", "page");
     await expect.poll(async () => (await agentState(page)).workflows.selected).toBe("build-image");
 
-    // The enable switches live in the overview's chain section.
-    await page.getByRole("link", { name: "← All workflows" }).click();
-    const toggle = list(page).getByRole("switch", { name: "Nightly report enabled" });
+    // The enable switch lives in the open workflow's head (it was on the chain cards).
+    await paneLinks(page).filter({ hasText: "Nightly report" }).click();
+    const toggle = page.locator(".wf-head").getByRole("switch", { name: "Nightly report enabled" });
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
-    await expect(section(page, "nightly-report")).toHaveClass(/is-disabled/);
+    await expect(paneLinks(page).filter({ hasText: "Nightly report" })).toHaveClass(/is-disabled/);
     expect(calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual([
       "/api/workflows/nightly-report/disable",
     ]);
     // The overview's card links open a workflow again.
+    await page.getByRole("link", { name: "← All workflows" }).click();
     await page.getByRole("link", { name: /^Build image/ }).first().click();
     await expect(page.getByRole("heading", { level: 1, name: "Build image" })).toBeVisible();
   });
 
-  test("keyboard: Tab reaches every workflow's link, (i) and switch; Enter opens it; Escape still closes the name form", async ({ page }) => {
+  test("keyboard: Tab reaches every card, Enter opens it; Escape still closes the name form", async ({ page }) => {
     await open(page, [...WORKFLOW_DOCS, NIGHTLY], "/workflows");
-    const wf = list(page);
-    const newButton = page.getByRole("button", { name: "New workflow" }).first();
-    await newButton.focus();
-    /** Tab until `target` holds focus (within a bound: every stop is a real control). */
-    const tabTo = async (target: Locator) => {
-      for (let i = 0; i < 60 && !(await target.evaluate((el) => el === document.activeElement)); i++) {
-        await page.keyboard.press("Tab");
-      }
-      await expect(target).toBeFocused();
-    };
-    for (const [id, name] of [["review-pr", "Review PR"], ["build-image", "Build image"], ["nightly-report", "Nightly report"]]) {
-      await tabTo(section(page, id).locator("h3").getByRole("link", { name }));
+    const cards = page.getByRole("list", { name: "All workflows" }).getByRole("link");
+    await cards.first().focus();
+    for (const name of [/Review PR/, /Build image/, /Nightly report/]) {
+      await expect(cards.filter({ hasText: name })).toBeFocused();
       await page.keyboard.press("Tab");
-      await expect(wf.getByRole("button", { name: `About ${name}` })).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(wf.getByRole("switch", { name: `${name} enabled` })).toBeFocused();
     }
-    await workflowLinks(page).filter({ hasText: "Nightly report" }).focus();
+    await cards.filter({ hasText: /Nightly report/ }).focus();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/workflows\?id=nightly-report$/);
     await expect(page.getByRole("heading", { level: 1, name: "Nightly report" })).toBeVisible();
@@ -187,10 +162,11 @@ test.describe("Workflows tab: the workflow list", () => {
     await open(page, [...WORKFLOW_DOCS, NIGHTLY]);
     await noSeriousAxe(page, "board");
     await page.goto("/workflows");
-    await expect(list(page)).toBeVisible();
+    await expect(page.getByRole("region", { name: "Workflows overview" })).toBeVisible();
     await noSeriousAxe(page, "overview");
-    await list(page).getByRole("switch", { name: "Build image enabled" }).click();
-    await expect(section(page, "build-image")).toHaveClass(/is-disabled/);
+    await page.goto("/workflows?id=build-image");
+    await page.locator(".wf-head").getByRole("switch", { name: "Build image enabled" }).click();
+    await expect(paneLinks(page).filter({ hasText: "Build image" })).toHaveClass(/is-disabled/);
     await noSeriousAxe(page, "a disabled workflow");
   });
 });

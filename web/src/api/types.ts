@@ -220,7 +220,7 @@ export interface DescribeEntry {
 export interface ParagraphSegment {
   part: string;
   text: string;
-  /** a disabled rule's or step's segment (d8): shown struck through, no words */
+  /** a disabled rule's or step's segment (d13): shown muted with a small "disabled" tag, no words in `text` */
   disabled?: boolean;
   /** Segments of one sentence share a number; the Simple view shows one line per sentence (d11). */
   sentence?: number;

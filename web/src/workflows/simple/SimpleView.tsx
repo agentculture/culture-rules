@@ -7,10 +7,12 @@
  *     a step with no description shown as its stand-in, italic and marked not written
  *     yet. Nothing is composed here (o4): a segment reads `phrase shown tail`.
  *
- * A step's one-line description (and the workflow's) is edited in place: click the
- * text, type, Enter or leave the field to save, Escape to cancel. A save is the
- * existing workflow save (PUT /workflows/{id}); the paragraph is read again after it,
- * and after a rule or workflow change reaches the page's live feed.
+ * The workflow's own description is edited in place: click the text, type, Enter or leave
+ * the field to save, Escape to cancel. A step's text opens the same side panel Detailed opens
+ * for it (d14), and a rule's sentence opens that rule's editor; both are mounted by the page
+ * (routes/Workflows.tsx). A save is the existing workflow save (PUT /workflows/{id}); the
+ * paragraph is read again after it, and after a rule or workflow change reaches the page's
+ * live feed.
  *
  * The entry points and the Then side (the old When / Then board) live in Detailed
  * (../views/EntryEditors.tsx); a rule without a workflow is offered its D7 workflow
@@ -25,7 +27,6 @@ import {
   getWorkflowDef,
   isRevisionConflict,
   putWorkflowDef,
-  type Step,
   type WorkflowDef,
 } from "../../api/workflows";
 import { toDefinition } from "../model";
@@ -39,25 +40,22 @@ export interface SimpleViewProps {
   live?: LiveFeed;
   /** A save stored this definition (the page replaces its copy). */
   onSaved?: (saved: WorkflowDef) => void;
+  /** The step whose panel is open: its words are highlighted. */
+  selectedStep?: string | null;
+  /** The rule whose editor is open: its sentence is highlighted. */
+  selectedRule?: string | null;
+  /** A step's text was chosen: the page opens its panel (and returns focus to `trigger`). */
+  onOpenStep?: (id: string, trigger: HTMLElement) => void;
+  /** A rule's sentence was chosen: the page opens its editor. */
+  onOpenRule?: (id: string, trigger: HTMLElement) => void;
 }
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** `steps` with one step's description replaced, in its loop bodies too. */
-function withStepDescription(steps: readonly Step[], id: string, description: string): Step[] {
-  return steps.map((s) => {
-    if (s.id === id) {
-      const { description: _old, ...rest } = s;
-      return description ? { ...rest, description } : rest;
-    }
-    return s.body ? { ...s, body: withStepDescription(s.body, id, description) } : s;
-  });
-}
-
 /** The same hint the Detailed editor gives (d11). */
 const HINT = "Start with a verb, one line: 'Packs the commits for the hand-off.'";
 
-type Target = { kind: "workflow" } | { kind: "step"; id: string } | null;
+type Target = { kind: "workflow" } | null;
 
 /** Text that turns into a field when clicked; `placeholder` is the visible gap when it is empty. */
 function EditableText({
@@ -148,50 +146,123 @@ function EditableText({
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
-type StepEditing = Readonly<{
-  target: Target;
-  busy: boolean;
-  onEdit: (id: string) => void;
-  onSave: (id: string, next: string) => void;
-  onCancel: () => void;
+type Opening = Readonly<{
+  selectedStep?: string | null;
+  selectedRule?: string | null;
+  onOpenStep?: (id: string, trigger: HTMLElement) => void;
+  onOpenRule?: (id: string, trigger: HTMLElement) => void;
 }>;
 
+/** The small "disabled" tag after a disabled rule's or step's words (d13, amends d8). */
+const Pill = () => (
+  <span className="sv-pill" aria-hidden="true">
+    disabled
+  </span>
+);
+
+/** Words that open something when chosen: a span with a button role, so it wraps with the text. */
+function Opener({
+  label,
+  className,
+  selected,
+  onOpen,
+  children,
+}: Readonly<{
+  label: string;
+  className: string;
+  selected: boolean;
+  onOpen?: (trigger: HTMLElement) => void;
+  children: React.ReactNode;
+}>) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      className={`${className}${selected ? " sv-selected" : ""}`}
+      aria-pressed={selected}
+      title={label}
+      data-open-label={label}
+      onClick={(e) => onOpen?.(e.currentTarget)}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onOpen?.(e.currentTarget);
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 /** One step's words in its sentence: `phrase shown tail`, nothing composed here (o4). */
-function StepPart({ seg, ...rest }: Readonly<{ seg: ParagraphSegment } & StepEditing>) {
+function StepPart({ seg, selectedStep, onOpenStep }: Readonly<{ seg: ParagraphSegment } & Opening>) {
   const id = str(seg.step);
   const phrase = str(seg.phrase);
   const shown = str(seg.shown) || str(seg.text);
   const tail = str(seg.tail);
   const name = str(seg.name) || id;
   const standin = seg.standin === true;
-  const editing = rest.target?.kind === "step" && rest.target.id === id;
+  const selected = selectedStep === id;
   return (
     <span className={seg.disabled ? "sv-step sv-disabled" : "sv-step"} data-step={id}>
       {seg.disabled ? <span className="sv-sr">Disabled step: </span> : null}
-      {phrase ? <span className="sv-phrase">{phrase}</span> : null}
+      {phrase ? (
+        // A leading space (" and") stays outside the highlight: it reads the same, the text is unchanged.
+        <>
+          {phrase.slice(0, phrase.length - phrase.trimStart().length)}
+          <span className="sv-phrase">{phrase.trim()}</span>
+        </>
+      ) : null}
       {phrase ? " " : ""}
       {seg.fallback === true ? (
         <span className="sv-fallback">{shown}</span>
       ) : (
-        <EditableText
-          value={standin ? "" : str(seg.text)}
-          display={shown}
-          standin={standin}
-          label={`Edit the description of ${name}`}
-          editing={editing}
-          busy={rest.busy}
-          onEdit={() => rest.onEdit(id)}
-          onSave={(next) => rest.onSave(id, next)}
-          onCancel={rest.onCancel}
-        />
+        <Opener
+          label={`Open the step ${name}`}
+          className={standin ? "sv-text sv-standin" : "sv-text"}
+          selected={selected}
+          onOpen={(el) => onOpenStep?.(id, el)}
+        >
+          {shown}
+          {standin ? <span className="sv-sr"> (not written yet)</span> : null}
+        </Opener>
       )}
       {tail}
+      {seg.disabled ? <Pill /> : null}
+    </span>
+  );
+}
+
+/** A sentence that starts the workflow: it carries its rule's id and opens the rule's editor. */
+function RulePart({ seg, selectedRule, onOpenRule }: Readonly<{ seg: ParagraphSegment } & Opening>) {
+  const rule = str(seg.rule);
+  const text = (
+    <>
+      {seg.disabled ? <span className="sv-sr">Disabled: </span> : null}
+      {seg.text}
+    </>
+  );
+  return (
+    <span className={seg.disabled ? "sv-text-part sv-disabled" : "sv-text-part"} data-rule={rule || undefined}>
+      {rule ? (
+        <Opener
+          label={`Open the rule ${rule}`}
+          className="sv-text"
+          selected={selectedRule === rule}
+          onOpen={(el) => onOpenRule?.(rule, el)}
+        >
+          {text}
+        </Opener>
+      ) : (
+        text
+      )}
+      {seg.disabled ? <Pill /> : null}
     </span>
   );
 }
 
 /** The paragraph, one line per sentence (d11): the API's segments, grouped by `sentence`. */
-function Lines({ segments, ...rest }: Readonly<{ segments: ParagraphSegment[] } & StepEditing>) {
+function Lines({ segments, ...rest }: Readonly<{ segments: ParagraphSegment[] } & Opening>) {
   const lines: ParagraphSegment[][] = [];
   let last: unknown;
   segments.forEach((seg, i) => {
@@ -210,10 +281,7 @@ function Lines({ segments, ...rest }: Readonly<{ segments: ParagraphSegment[] } 
               seg.part === "step" ? (
                 <StepPart key={j} seg={seg} {...rest} />
               ) : (
-                <span key={j} className={seg.disabled ? "sv-text-part sv-disabled" : "sv-text-part"}>
-                  {seg.disabled ? <span className="sv-sr">Disabled: </span> : null}
-                  {seg.text}
-                </span>
+                <RulePart key={j} seg={seg} {...rest} />
               ),
             )}
             {"\n"}
@@ -224,7 +292,7 @@ function Lines({ segments, ...rest }: Readonly<{ segments: ParagraphSegment[] } 
   );
 }
 
-export function SimpleView({ def, live, onSaved }: Readonly<SimpleViewProps>) {
+export function SimpleView({ def, live, onSaved, ...opening }: Readonly<SimpleViewProps>) {
   const workflowId = def.id;
   const [paragraph, setParagraph] = useState<Paragraph | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -289,8 +357,6 @@ export function SimpleView({ def, live, onSaved }: Readonly<SimpleViewProps>) {
       setBusy(false);
     }
   };
-  const saveStep = (id: string, description: string) =>
-    void save({ ...def, steps: withStepDescription(def.steps ?? [], id, description) });
   const saveWorkflow = (description: string) => {
     const { description: _old, ...rest } = def;
     void save(description ? { ...rest, description } : rest);
@@ -335,14 +401,7 @@ export function SimpleView({ def, live, onSaved }: Readonly<SimpleViewProps>) {
       ) : null}
       {paragraph ? (
         <div className="sv-para" data-testid="paragraph">
-          <Lines
-            segments={segments}
-            target={target}
-            busy={busy}
-            onEdit={(id) => setTarget({ kind: "step", id })}
-            onSave={saveStep}
-            onCancel={() => setTarget(null)}
-          />
+          <Lines segments={segments} {...opening} />
         </div>
       ) : problem ? null : (
         <p className="sv-loading" role="status">
