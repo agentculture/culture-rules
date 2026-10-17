@@ -503,8 +503,8 @@ class Definitions:
         steps and no edges; the rule then gets ``workflow: {id}`` and nothing else. Workflow and
         rule are written in one transaction per rule, with one audit entry (on the rule); the
         workflow starts at revision 1. Dry-run unless ``apply``: it lists
-        ``{rule_id, rule_name, workflow_id}``. Rules whose reference names a missing or soft-deleted workflow are only listed (``not_adopted``),
-        never written; nothing is ever deleted. A second apply finds none.
+        ``{rule_id, rule_name, workflow_id}``. Rules whose reference names a missing or soft-deleted
+        workflow are only listed (``not_adopted``), never written; nothing is ever deleted. A second apply finds none.
         """
         require_identity(identity)
         docs = self._store.find("workflows")
