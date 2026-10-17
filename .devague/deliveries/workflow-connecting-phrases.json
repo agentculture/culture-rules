@@ -2,7 +2,7 @@
   "plan_slug": "workflow-connecting-phrases",
   "schema_version": 2,
   "created": "2026-10-17T19:24:42Z",
-  "updated": "2026-10-17T19:24:42Z",
+  "updated": "2026-10-17T22:13:51Z",
   "deviations": [
     {
       "id": "d1",
@@ -20,6 +20,180 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t2 also changes culture_rules/actors/trusted.py: the v1 workflow_digest drops notes at the workflow and every step level (loop bodies included), as pre-notes code did by ignoring the unknown field",
+      "task_ref": "t2",
+      "reason": "Adding notes to the model changes to_dict, so every v1 digest changed and all trusted pins broke (177 failing tests); dropping notes restores every pinned digest (checked: pr-fix, publish-fix, review-commit, pr-fixer-single)",
+      "affects": [
+        "t4",
+        "c16",
+        "h33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t2's criterion 3 is met by schemas/workflow.schema.json, schemas/step.schema.json and web/src/api/workflows.ts; api/openapi.json and web/src/api/types.ts are untouched",
+      "task_ref": "t2",
+      "reason": "api/openapi.json carries no Workflow or Step schema (workflow bodies are free-form objects) and web/src/api/types.ts has only a summary type; the real definitions live in the schema files and web/src/api/workflows.ts",
+      "affects": [
+        "c11",
+        "h8"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Tests that used a description edit as their 'untrusted edit' example edit a non-prose field (name) instead; the pr-fixer-single fixture gets no v2 pin and stays trusted through v1",
+      "task_ref": "t4",
+      "reason": "Under confirmed c16 the v2 digest ignores description, so a description-only edit keeps trust by design; t4's 'tests/rules pass unchanged' cannot hold for those tests. The brief's v2 pin for the single fixture contradicted h33 (historical fixtures keep their role through v1)",
+      "affects": [
+        "c16",
+        "h13",
+        "h33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Consecutive steps that share the same config.when say it once: the group reads '<lead-in>: <sentence>; then <sentence>; then <sentence>.' where each grouped step after the first has its first letter lowercased and the previous step's final period dropped; h25 becomes 'no condition is repeated on consecutive steps that share it'. Cap stays 120; the t6 phrase table wording is approved",
+      "task_ref": "t6",
+      "reason": "Operator, 2026-10-17, after the demo and t6's output: the same condition repeated on consecutive steps ('Then, if fixer is claude-fixer:' x3) is noise; '; then' keeps a fixer's steps visibly together. h25's 'deliver at most twice' cannot hold honestly (email runs on send alone)",
+      "affects": [
+        "c28",
+        "h25",
+        "c30",
+        "h27"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "New work t21 (after t13): the workflows pane is compact (a search box on top, then workflow names only in short rows, easy to scroll; chain cards and counts leave the pane) and collapses to a button-width rail that toggles back, so the open workflow gets the width; t14's Simple text uses the full main width instead of a narrow column",
+      "task_ref": "t13",
+      "reason": "Operator, 2026-10-17, reviewing the demo at /workflows?id=pr-fix: the pane is narrow and long, it should be compact with a search box and toggle to button width; the paragraphs use half the screen",
+      "affects": [
+        "t14",
+        "t18",
+        "c12",
+        "h9",
+        "c13"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "Stale saves are detected with a server-stamped revision counter, not version: the stored workflow document carries 'revision' metadata outside the Workflow model, bumped by the server on every save; PUT /workflows/{id} sends the expected revision in a body field (expected_revision) and gets 409 naming the current revision on a mismatch or when it is missing. version, rule pins, import/export comparison and both trust digests are unchanged; o13 and h34 read 'revision' for 'version'",
+      "task_ref": "t9",
+      "reason": "Nothing bumps a workflow's version today (an ordinary model field the client sends; every committed workflow is still version 1), so an expected-version check protects nothing; version is also a rule-pinnable field the engine compares (engine/runs.py:1029) and import writes the bundle's version, so bumping it would break pins and let import reset it",
+      "affects": [
+        "c34",
+        "h34",
+        "t16",
+        "t11"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "Disabled rules and steps are shown with strike-through instead of words: the PHRASES entries 'disabled' and 'rule_disabled' go; a disabled step's or rule's segment carries disabled: true and keeps its normal phrase; paragraph.text carries no marker; the editor strikes those segments through; the CLI's human output strikes them through (ANSI on a terminal, ~~ ~~ otherwise); a disabled step never joins a '; then' group",
+      "task_ref": "t7",
+      "reason": "Operator, 2026-10-17: 'We can put strike-through on disabled rules/steps' (instead of 'but it is disabled' on every committed rule sentence)",
+      "affects": [
+        "t6",
+        "t8",
+        "t14",
+        "c37"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "New work t22 ports the deleted web/src/workflows/simple/SimpleView.test.tsx and EntryPoints.test.tsx (~2,500 lines) onto the entry-point and Then editors in Detailed (views/EntryEditors.tsx); t14 merges only together with t22, so the gate is never made green by deleting tests; t16 starts after them",
+      "task_ref": "t14",
+      "reason": "t14 removed the old When/Then board from Simple and deleted its two test files after 75 tests failed on DOM differences; the editors they covered still exist in Detailed (t15), so the coverage must move with them (operator: port before merge)",
+      "affects": [
+        "t15",
+        "t16",
+        "t18",
+        "c13",
+        "h10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "New work t23 restores in Detailed's entry editors (views/EntryEditors.tsx) the 8 behaviours the old Simple had and the test port (d9) found missing: live updates, the 'Stop N current runs?' offer, the delete-the-stepless-workflow offer, focus after delete and undo, an open entry after deleting the open one, the override count, state reset when the workflow changes, and ?entry=<rule> opening that entry; every REGRESSION it.fails/it.todo from the port becomes a plain passing test; the PR does not open while any remains. t14 and the port merge now together, with those sentinels",
+      "task_ref": "t15",
+      "reason": "The port of the 129 deleted Simple tests (d9): 106 pass, 22 fail on behaviours t15's EntryEditors dropped; operator, 2026-10-18: fix all before the PR",
+      "affects": [
+        "t14",
+        "c13",
+        "h10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "The paragraph reads one sentence per line with no colon after a lead-in: the step's text follows the lead-in with its first letter lowercased (all-caps and mixed-case first words such as PR, GitGuardian, EPUB kept); plain consecutive steps join one sentence with '; then' (with or without a shared condition); a new sentence starts at siblings ('At the same time'), a join ('Once both are done'), a condition change, a loop, a wait or a retry; a loop body continues the loop's sentence with '; each time,'; waits, retries and loop bounds become trailing clauses after the text. A missing description is stood in for by the step's name, else a generic line from the d19 vocabulary, marked as not written yet (italic/muted in the editor, [ ] in the CLI), and stays inside its group. The Then side says what happens directly: 'Where the chain ends here, it updates the chain's status comment on GitHub (as github-app).' / 'If it fails, it updates that comment with the failure.' The editor's description hint asks authors to start with a verb",
+      "task_ref": "t6",
+      "reason": "Operator, 2026-10-18, reviewing the paragraph: easier to read with a new line after each period and fewer ':'; use the step name (else a generic line) for a missing description; status comment option C",
+      "affects": [
+        "t7",
+        "t8",
+        "t14",
+        "c14",
+        "c30",
+        "c37"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "Rename steps in the committed docs/rules/pr-fixer/workflows/pr-fix.json so their names read as plain stand-ins: handoff_export_claude 'Pack the Claude commits for the hand-off', handoff_import_claude 'Hand off to spark2 to import the Claude commits', handoff_export 'Pack the Codex commits for the hand-off', handoff_import 'Hand off to spark2 to import the Codex commits', and the stale fix 'Agent and gate (up to 3 tries)' -> 'Fix and test, one try'; names are in the v2 trust digest, so pr-fix gains a new v2 pin and the old one stays while pinned runs may still push",
+      "task_ref": "t12",
+      "reason": "Operator, 2026-10-18: 'hand-off:' can be simpler without ':', like 'hand off to <actor> to ...'; chose renaming the steps (over generating from config); the fix step's name predates the one-try change",
+      "affects": [
+        "t4",
+        "c16",
+        "h33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 12
     }
   ],
   "evidence": [],

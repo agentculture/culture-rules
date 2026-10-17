@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-17T18:44:28Z",
-  "updated": "2026-10-17T18:55:53Z",
+  "updated": "2026-10-17T22:10:00Z",
   "targets": [
     {
       "id": "c1",
@@ -899,6 +899,38 @@
       "text": "Wave 4: t9 changes api/openapi.json while t14 may regenerate web/src/api/types.ts from it; if types are generated, t14 rebases on t9 before merge",
       "kind": "unknown_nonblocking",
       "task_id": "t14",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "describe.step_text raises TypeError when retry.max_attempts is not a number (_step_extras compares '\"three\" > 1'); paragraph.py guards it, describe.py itself is not fixed in this plan",
+      "kind": "follow_up",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "web StepKind type (web/src/api/workflows.ts) has no \"wait\" although the model has wait steps (found by the demo build)",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "t13 and t21 change the Workflows tab's default view and pane; Playwright specs that assume the old list (web/e2e/fold.spec.ts:81, workflows-list.spec.ts, and possibly workflows*.spec.ts, entry-points, entry-pickers, live, shell, hit-area) must be updated in t18 before CI's web job passes",
+      "kind": "unknown_nonblocking",
+      "task_id": "t18",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "Playwright: 1 of 7 local runs of the merged suite had 4 failures (the first run after merge, likely a cold dev-server start); 6 consecutive reruns passed 116/116. Watch CI's web job for flakes before the PR merges",
+      "kind": "unknown_nonblocking",
+      "task_id": "t18",
       "resolved": false,
       "resolution": ""
     }

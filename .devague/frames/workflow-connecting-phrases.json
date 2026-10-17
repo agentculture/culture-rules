@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-17T18:14:31Z",
-  "updated": "2026-10-17T18:43:19Z",
+  "updated": "2026-10-17T20:23:53Z",
   "claims": [
     {
       "id": "c1",
@@ -1059,6 +1059,17 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "t4's agent wrote workflow_digest_v2 before its tests (TDD inverted for that function); the pins and role logic were tested before they were finalised",
+      "skipped_check": "write a failing test for workflow_digest_v2 first",
+      "refs": [
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [

@@ -29,7 +29,7 @@
   font-weight: 600;
 }
 /* One sentence per line (d11). A line inside a loop keeps a quiet rule at its left. */
-.sv-line { font: var(--ac-type-body) / 1.8 var(--font-body); margin: 0 0 10px; max-width: 78ch; overflow-wrap: anywhere; }
+.sv-line { font: var(--ac-type-body) / 1.8 var(--font-body); margin: 0 0 10px; overflow-wrap: anywhere; }
 .sv-line--in { margin-left: 6px; padding-left: 14px; border-left: 2px solid var(--line); }
 .sv-standin { font-style: italic; color: var(--ink-soft); }
 .sv-field {
