@@ -70,15 +70,23 @@ describe("StepEditor: every Step field", () => {
 
   it("keeps every other field (unknown config keys included) when one field is edited", async () => {
     const { last } = renderEditor();
-    const d = screen.getByLabelText("Description");
+    const d = screen.getByLabelText("One-line description");
     await userEvent.type(d, "!");
     expect(last()).toEqual({ ...FULL, description: "Builds the image and tags it.!" });
   });
 
   it("edits description", async () => {
     const { last } = renderEditor({ id: "s", kind: "actor_task" });
-    await userEvent.type(screen.getByLabelText("Description"), "hi");
+    await userEvent.type(screen.getByLabelText("One-line description"), "hi");
     expect(last().description).toBe("hi");
+  });
+
+  it("labels description as the one-line description and edits notes apart from it", async () => {
+    const { last } = renderEditor({ id: "s", kind: "actor_task", description: "Fix it." });
+    const d = screen.getByLabelText("One-line description");
+    expect(d).toHaveAccessibleDescription(/Plain language.*Simple reads it/);
+    await userEvent.type(screen.getByLabelText("Notes"), "d30: quiet");
+    expect(last()).toEqual({ id: "s", kind: "actor_task", description: "Fix it.", notes: "d30: quiet" });
   });
 
   it("edits timeout and clears it to unset", async () => {

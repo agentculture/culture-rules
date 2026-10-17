@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import WorkflowCanvas, { type CanvasProps } from "../Canvas";
 import DebugView from "./DebugView";
+import EntryEditors from "./EntryEditors";
 import { readViewMode, writeViewMode, type ViewMode } from "./mode";
 import ViewSwitch from "./ViewSwitch";
 import "./views.css";
@@ -48,7 +49,13 @@ export function WorkflowViews({ simple, toolbar, onModeChange, ...canvas }: Read
   }, []);
 
   let view: ReactNode;
-  if (mode === "detailed") view = <WorkflowCanvas {...canvas} />;
+  if (mode === "detailed")
+    view = (
+      <>
+        <WorkflowCanvas {...canvas} />
+        <EntryEditors workflow={canvas.workflow} />
+      </>
+    );
   else if (mode === "debug") view = <DebugView workflow={canvas.workflow} />;
   else view = simple ?? <SimplePlaceholder />;
 
