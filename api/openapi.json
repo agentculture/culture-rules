@@ -820,6 +820,60 @@
         "title": "MigrateRequest",
         "type": "object"
       },
+      "NotesChange": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "nodes": {
+            "description": "'workflow' and/or the ids of the steps changed",
+            "items": {
+              "type": "string"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "nodes"
+        ],
+        "title": "NotesChange",
+        "type": "object"
+      },
+      "NotesMigration": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "workflows": {
+            "items": {
+              "$ref": "#/components/schemas/NotesChange"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workflows",
+          "applied"
+        ],
+        "title": "NotesMigration",
+        "type": "object"
+      },
       "Paragraph": {
         "description": "A workflow's rules and steps as one paragraph of fixed phrases (#69, no AI).",
         "properties": {
@@ -7754,6 +7808,83 @@
           }
         ],
         "summary": "Create",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/workflows/migrate-notes": {
+      "post": {
+        "description": "List workflows whose description moves to notes; ``apply`` moves it, audited.",
+        "operationId": "migrate_workflow_notes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MigrateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotesMigration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Migrate Notes",
         "tags": [
           "workflows"
         ]

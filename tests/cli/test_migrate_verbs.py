@@ -47,3 +47,31 @@ def test_backfill_ids_dry_run_then_apply(wire, store, capsys):  # noqa: F811
     assert out["applied"] is True
     assert out["result"]["count"] == 1
     assert store.get("runs", "a")["rule_id"] == "r1"
+
+
+def _seed_notes(store):  # noqa: F811
+    store.put(
+        "workflows",
+        {
+            "id": "w",
+            "name": "W",
+            "description": "why",
+            "notes": "",
+            "steps": [{"id": "s", "kind": "logic", "description": "", "notes": ""}],
+        },
+    )
+
+
+def test_workflows_migrate_notes_dry_run_then_apply(wire, store, capsys):  # noqa: F811
+    _seed_notes(store)
+    before = snapshot(store)
+    out = jrun(capsys, "workflows", "migrate-notes")
+    assert out["dry_run"] is True and out["applied"] is False
+    assert out["result"]["workflows"] == [{"id": "w", "name": "W", "nodes": ["workflow"]}]
+    assert snapshot(store) == before
+    out = jrun(capsys, "workflows", "migrate-notes", "--apply")
+    assert out["applied"] is True
+    assert store.get("workflows", "w")["notes"] == "why"
+    assert store.get("workflows", "w")["description"] == ""
+    out = jrun(capsys, "workflows", "migrate-notes", "--apply")
+    assert out["result"]["workflows"] == []

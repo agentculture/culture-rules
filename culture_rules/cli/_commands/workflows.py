@@ -8,7 +8,7 @@ from typing import Any
 
 from culture_rules.cli._build import register_noun
 from culture_rules.cli._errors import EXIT_USER_ERROR, CliError
-from culture_rules.cli._nounlib import ID, definition_verbs, describe_verb, seg, write
+from culture_rules.cli._nounlib import ID, definition_verbs, describe_verb, migration, seg, write
 from culture_rules.cli.registry import Context, Param, Verb
 
 NOUN = "workflows"
@@ -64,6 +64,23 @@ VERBS.append(
         ),
         True,
         "editor",
+    )
+)
+
+
+def _migrate_notes(ctx: Context) -> Any:
+    return migration(ctx, "workflows migrate-notes", "/workflows/migrate-notes")
+
+
+VERBS.append(
+    Verb(
+        NOUN,
+        "migrate-notes",
+        "List workflows whose description moves to notes; --apply moves it (audited)",
+        _migrate_notes,
+        (),
+        True,
+        "admin",
     )
 )
 

@@ -86,3 +86,74 @@ def test_backfill_ids_dry_run_and_apply(client, store):
 def test_both_routes_are_admin_only():
     assert required_role("POST", "/rules/migrate-typeless") == "admin"
     assert required_role("POST", "/runs/backfill-ids") == "admin"
+
+
+# ------------------------------------------------------------- t11: workflows/migrate-notes
+
+WORKFLOWS = "workflows"
+
+
+def _wf(id, description="", notes="", step_desc="", **extra):
+    return {
+        "id": id,
+        "name": f"WF {id}",
+        "description": description,
+        "notes": notes,
+        "steps": [{"id": "s1", "kind": "logic", "description": step_desc, "notes": ""}],
+        "revision": 3,
+        **extra,
+    }
+
+
+def _seed_notes(store):
+    store.put(WORKFLOWS, _wf("old", description=" Keep\nme ", step_desc="step"))
+    store.put(WORKFLOWS, _wf("set", description="stays", notes="mine"))
+    store.put(WORKFLOWS, _wf("clean"))
+    store.put(WORKFLOWS, _wf("gone", description="x", deleted_at="2026-01-01T00:00:00Z"))
+
+
+def _audits(store, wid):
+    return [a for a in store.find("audit") if (a.get("target") or {}).get("id") == wid]
+
+
+def test_notes_dry_run_lists_and_writes_nothing(client, store):
+    _seed_notes(store)
+    before = [dict(d) for d in store.find(WORKFLOWS)] + [dict(d) for d in store.find("audit")]
+    r = client.post("/workflows/migrate-notes", json={}, headers=ALICE)
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "workflows": [{"id": "old", "name": "WF old", "nodes": ["workflow", "s1"]}],
+        "applied": False,
+    }
+    assert [dict(d) for d in store.find(WORKFLOWS)] + [
+        dict(d) for d in store.find("audit")
+    ] == before
+
+
+def test_notes_apply_moves_audits_once_and_bumps_revision(client, store):
+    _seed_notes(store)
+    r = client.post("/workflows/migrate-notes", json={"apply": True}, headers=ALICE)
+    assert r.status_code == 200, r.text
+    assert [w["id"] for w in r.json()["workflows"]] == ["old"] and r.json()["applied"] is True
+    doc = store.get(WORKFLOWS, "old")
+    assert doc["notes"] == " Keep\nme " and doc["description"] == ""
+    assert doc["steps"][0]["notes"] == "step" and doc["steps"][0]["description"] == ""
+    assert doc["revision"] == 4
+    assert len(_audits(store, "old")) == 1
+    for other in ("set", "clean", "gone"):
+        assert _audits(store, other) == []
+        assert store.get(WORKFLOWS, other)["revision"] == 3
+    assert store.get(WORKFLOWS, "set")["description"] == "stays"
+
+
+def test_notes_second_apply_changes_nothing(client, store):
+    _seed_notes(store)
+    client.post("/workflows/migrate-notes", json={"apply": True}, headers=ALICE)
+    snap = [dict(d) for d in store.find(WORKFLOWS)] + [dict(d) for d in store.find("audit")]
+    r = client.post("/workflows/migrate-notes", json={"apply": True}, headers=ALICE)
+    assert r.json() == {"workflows": [], "applied": True}
+    assert [dict(d) for d in store.find(WORKFLOWS)] + [dict(d) for d in store.find("audit")] == snap
+
+
+def test_notes_migration_is_admin():
+    assert required_role("POST", "/workflows/migrate-notes") == "admin"
