@@ -186,7 +186,9 @@ describe("How it runs: the API paragraph", () => {
     const para = await screen.findByTestId("paragraph");
     expect(para.querySelectorAll(".sv-line")).toHaveLength(7);
     expect(within(para).getByText("First")).toHaveClass("sv-phrase");
-    expect(within(para).getByText("; then")).toHaveClass("sv-phrase");
+    // d15: a join inside a sentence is plain text, only the lead-in is coloured.
+    expect(para.querySelector(".sv-phrase")?.textContent).not.toMatch(/^;/);
+    expect(within(para).queryByText("; then", { selector: ".sv-phrase" })).toBeNull();
     const standin = within(para).getByRole("button", { name: /ship/ });
     expect(standin).toHaveClass("sv-standin");
     expect(standin.querySelector(".sv-sr")?.textContent).toMatch(/not written yet/);

@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-17T18:44:28Z",
-  "updated": "2026-10-17T22:10:00Z",
+  "updated": "2026-10-17T23:15:09Z",
   "targets": [
     {
       "id": "c1",
@@ -931,6 +931,14 @@
       "text": "Playwright: 1 of 7 local runs of the merged suite had 4 failures (the first run after merge, likely a cold dev-server start); 6 consecutive reruns passed 116/116. Watch CI's web job for flakes before the PR merges",
       "kind": "unknown_nonblocking",
       "task_id": "t18",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r8",
+      "text": "Each open editor tab holds one live-update EventSource; over a plain HTTP/1.1 listener (local dev, a LAN listener) the browser's 6-connections-per-host limit is shared by all tabs, so with ~6 tabs open new API requests stall until the 15 s client timeout ('did not answer'). HTTP/2 behind Cloudflare is unaffected. Follow-up: share one stream across tabs (BroadcastChannel/SharedWorker) or close it in hidden tabs",
+      "kind": "follow_up",
+      "task_id": null,
       "resolved": false,
       "resolution": ""
     }

@@ -194,24 +194,28 @@ function Opener({
   );
 }
 
+/** Splits a disabled sentence's closing period off, so the tag sits before it (d15). */
+function beforePeriod(text: string, disabled: boolean): [string, string] {
+  return disabled && text.endsWith(".") ? [text.slice(0, -1), "."] : [text, ""];
+}
+
 /** One step's words in its sentence: `phrase shown tail`, nothing composed here (o4). */
 function StepPart({ seg, selectedStep, onOpenStep }: Readonly<{ seg: ParagraphSegment } & Opening>) {
   const id = str(seg.step);
   const phrase = str(seg.phrase);
   const shown = str(seg.shown) || str(seg.text);
-  const tail = str(seg.tail);
+  const [tail, period] = beforePeriod(str(seg.tail), seg.disabled === true);
   const name = str(seg.name) || id;
   const standin = seg.standin === true;
   const selected = selectedStep === id;
   return (
     <span className={seg.disabled ? "sv-step sv-disabled" : "sv-step"} data-step={id}>
       {seg.disabled ? <span className="sv-sr">Disabled step: </span> : null}
-      {phrase ? (
-        // A leading space (" and") stays outside the highlight: it reads the same, the text is unchanged.
-        <>
-          {phrase.slice(0, phrase.length - phrase.trimStart().length)}
-          <span className="sv-phrase">{phrase.trim()}</span>
-        </>
+      {phrase && seg.grouped === true ? (
+        // A join inside a sentence ("; then", " and", ",") reads as plain text (d15).
+        phrase
+      ) : phrase ? (
+        <span className="sv-phrase">{phrase}</span>
       ) : null}
       {phrase ? " " : ""}
       {seg.fallback === true ? (
@@ -229,6 +233,7 @@ function StepPart({ seg, selectedStep, onOpenStep }: Readonly<{ seg: ParagraphSe
       )}
       {tail}
       {seg.disabled ? <Pill /> : null}
+      {period}
     </span>
   );
 }
@@ -236,10 +241,11 @@ function StepPart({ seg, selectedStep, onOpenStep }: Readonly<{ seg: ParagraphSe
 /** A sentence that starts the workflow: it carries its rule's id and opens the rule's editor. */
 function RulePart({ seg, selectedRule, onOpenRule }: Readonly<{ seg: ParagraphSegment } & Opening>) {
   const rule = str(seg.rule);
+  const [words, period] = beforePeriod(str(seg.text), seg.disabled === true);
   const text = (
     <>
       {seg.disabled ? <span className="sv-sr">Disabled: </span> : null}
-      {seg.text}
+      {words}
     </>
   );
   return (
@@ -257,6 +263,7 @@ function RulePart({ seg, selectedRule, onOpenRule }: Readonly<{ seg: ParagraphSe
         text
       )}
       {seg.disabled ? <Pill /> : null}
+      {period}
     </span>
   );
 }
@@ -275,8 +282,12 @@ function Lines({ segments, ...rest }: Readonly<{ segments: ParagraphSegment[] } 
     <>
       {lines.map((line, i) => {
         const depth = Number(line[0].depth ?? 0);
+        // A little space where the paragraph moves from what starts it to its steps, and
+        // from its steps to what happens afterwards (d15).
+        const part = String(line[0].part ?? "step");
+        const band = i > 0 && part !== String(lines[i - 1][0].part ?? "step") ? " sv-line--band" : "";
         return (
-          <p key={i} className={depth > 0 ? "sv-line sv-line--in" : "sv-line"}>
+          <p key={i} className={`${depth > 0 ? "sv-line sv-line--in" : "sv-line"}${band}`}>
             {line.map((seg, j) =>
               seg.part === "step" ? (
                 <StepPart key={j} seg={seg} {...rest} />
