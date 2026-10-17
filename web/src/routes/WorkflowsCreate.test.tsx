@@ -417,7 +417,7 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
     await screen.findByRole("heading", { level: 1, name: "Nightly report" });
     await ready();
     // One workflow: the list still shows, with its one row current.
-    expect(rowLink("Nightly report")).toHaveAttribute("aria-current", "page");
+    await waitFor(() => expect(rowLink("Nightly report")).toHaveAttribute("aria-current", "page"));
     await user.click(screen.getByRole("button", { name: "Delete workflow" }));
     expect(await screen.findByRole("heading", { level: 1, name: "No workflows yet" })).toBeInTheDocument();
     expect(within(emptyState()).getByRole("button", { name: "New workflow" })).toBeInTheDocument();
