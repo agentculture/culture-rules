@@ -9,7 +9,10 @@ import type { Machine, Placement, Rule, RunSummary } from "../api/types";
 import {
   createWorkflowDef,
   deleteWorkflowDef,
+  REVISION_CONFLICT_MESSAGE,
   getRun,
+  getWorkflowDef,
+  isRevisionConflict,
   listActors,
   listWorkflowDefs,
   listWorkflowRuns,
@@ -90,7 +93,8 @@ const LIVE_COLLECTIONS = ["workflows", "runs", "rules", "asks", "rule_decisions"
 
 /** The open floating editor: a step's placement or fields, or the `in` / `out` node's. */
 type Editing = { kind: "placement" | "step" | "io"; id: string; trigger: HTMLElement | null } | null;
-type Draft = { id: string; def: WorkflowDef; dirty: boolean };
+/** `revision`: the one the draft was read at; a save sends it back as `expected_revision`. */
+type Draft = { id: string; def: WorkflowDef; dirty: boolean; revision: number };
 type OverlaidRun = { id: string; doc: RunDoc | null; error: string | null };
 
 /** The draft with `fn` applied, marked dirty (no draft stays none). */
@@ -516,11 +520,28 @@ function boardErrors(loaded: Loaded | null, run: OverlaidRun | null, actionError
 function BoardNotices({
   errors,
   deleted,
+  conflict = false,
+  onReload,
   onUndo,
   onDismiss,
-}: Readonly<{ errors: string[]; deleted: WorkflowDef | null; onUndo: () => void; onDismiss: () => void }>) {
+}: Readonly<{
+  errors: string[];
+  deleted: WorkflowDef | null;
+  conflict?: boolean;
+  onReload?: () => void;
+  onUndo: () => void;
+  onDismiss: () => void;
+}>) {
   return (
     <>
+      {conflict ? (
+        <p className="notice notice--error wf-notice" role="alert">
+          {REVISION_CONFLICT_MESSAGE}.{" "}
+          <button type="button" className="wf-button" onClick={onReload}>
+            Reload
+          </button>
+        </p>
+      ) : null}
       {errors.length > 0 ? (
         <p className="notice notice--error wf-notice" role="alert">
           {errors.join(" · ")}
@@ -681,7 +702,7 @@ function useSyncedDraft(current: WorkflowDef | undefined | null) {
       return;
     }
     setDraft((d) =>
-      d?.id === current.id && d.dirty ? d : { id: current.id, def: toDefinition(current), dirty: false },
+      d?.id === current.id && d.dirty ? d : { id: current.id, def: toDefinition(current), dirty: false, revision: current.revision ?? 0 },
     );
   }, [current]);
   return [draft, setDraft] as const;
@@ -904,6 +925,8 @@ export function Workflows() {
   const [editing, setEditing] = useState<Editing>(null);
   const [status, setStatus] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  /** The id of the workflow whose save was refused because it changed since it was read. */
+  const [conflict, setConflict] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
@@ -1065,17 +1088,32 @@ export function Workflows() {
     setSelectedStep(res.id);
   }, [workflow]);
 
+  // The unsaved draft is kept; Reload replaces it with the stored workflow, only on click.
+  const reloadConflict = async () => {
+    if (!conflict) return;
+    try {
+      const fresh = await getWorkflowDef(conflict);
+      setLoaded((l) => replaceIn(l, fresh));
+      setDraft({ id: fresh.id, def: toDefinition(fresh), dirty: false, revision: fresh.revision ?? 0 });
+      setConflict(null);
+    } catch (err) {
+      setActionError(`Reload failed: ${message(err)}`);
+    }
+  };
+
   const save = async () => {
     if (!draft) return;
     setSaving(true);
     setActionError(null);
+    setConflict(null);
     try {
-      const saved = await putWorkflowDef(toDefinition(draft.def));
-      setDraft({ id: saved.id, def: toDefinition(saved), dirty: false });
+      const saved = await putWorkflowDef(toDefinition(draft.def), draft.revision);
+      setDraft({ id: saved.id, def: toDefinition(saved), dirty: false, revision: saved.revision ?? draft.revision + 1 });
       setLoaded((l) => replaceIn(l, saved));
       setStatus(`Saved ${saved.name}`);
     } catch (err) {
-      setActionError(`Save failed: ${message(err)}`);
+      if (isRevisionConflict(err)) setConflict(draft.id);
+      else setActionError(`Save failed: ${message(err)}`);
     } finally {
       setSaving(false);
     }
@@ -1152,7 +1190,9 @@ export function Workflows() {
       const doc = await setWorkflowEnabled(wf.id, enabled);
       setLoaded((l) => replaceIn(l, storedOr(doc, { ...wf, enabled })));
       // Unsaved edits survive; they carry the new state so Save does not undo it.
-      setDraft((d) => (d?.id === wf.id && d.dirty ? { ...d, def: { ...d.def, enabled } } : d));
+      setDraft((d) =>
+        d?.id === wf.id && d.dirty ? { ...d, def: { ...d.def, enabled }, revision: doc.revision ?? d.revision } : d,
+      );
       setStatus(`${enabled ? "Enabled" : "Disabled"} ${wf.name}`);
     } catch (err) {
       setActionError(`${enabled ? "Enable" : "Disable"} failed: ${message(err)}`);
@@ -1370,6 +1410,8 @@ export function Workflows() {
         <BoardNotices
           errors={errors}
           deleted={deleted}
+          conflict={conflict !== null && conflict === draft?.id}
+          onReload={() => void reloadConflict()}
           onUndo={() => void undoDelete()}
           onDismiss={() => setDeleted(null)}
         />

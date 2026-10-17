@@ -108,6 +108,59 @@ describe("the workflow description", () => {
   });
 });
 
+describe("Simple view: saves send the revision read (t16)", () => {
+  it("two tabs on revision 3: the first saves (sending 3), the second gets the conflict and keeps its typed text until Reload", async () => {
+    stubApi();
+    let stored = 3;
+    const base = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
+      if (init?.method === "PUT") {
+        const sent = JSON.parse(String(init.body));
+        if (sent.expected_revision !== stored) {
+          const errors = [{ path: "expected_revision", code: "revision_conflict", message: "stale", current_revision: stored }];
+          return json({ error: { code: "revision_conflict", message: "stale", errors } }, 409);
+        }
+        stored += 1;
+        const { expected_revision: _e, ...doc } = sent;
+        return json({ ...doc, revision: stored });
+      }
+      if (String(url).endsWith("/workflows/pr-fix")) return json({ ...WF, description: "Tab one wrote this.", revision: stored });
+      return base(url, init);
+    });
+    const def = { ...WF, revision: 3 };
+    const savedOne = vi.fn();
+    const savedTwo = vi.fn();
+    const one = render(<SimpleView def={def} onSaved={savedOne} />);
+    const two = render(<SimpleView def={def} onSaved={savedTwo} />);
+    const userOne = userEvent.setup();
+    const userTwo = userEvent.setup();
+    const edit = async (view: typeof one, user: typeof userOne, text: string) => {
+      await within(view.container).findByTestId("paragraph");
+      await user.click(within(view.container).getByText("Fixes a pull request."));
+      const field = within(view.container).getByRole("textbox", { name: /description of this workflow/ });
+      await user.clear(field);
+      await user.type(field, text);
+      return field;
+    };
+    await edit(one, userOne, "Tab one wrote this.");
+    const fieldTwo = await edit(two, userTwo, "Tab two wrote this.");
+    await userOne.tab();
+    await waitFor(() => expect(savedOne).toHaveBeenCalled());
+    expect(savedOne.mock.calls[0][0].revision).toBe(4);
+
+    await userTwo.tab();
+    expect(await within(two.container).findByText("This workflow changed since you opened it.", { exact: false })).toBeInTheDocument();
+    expect(fieldTwo).toHaveValue("Tab two wrote this.");
+    expect(savedTwo).not.toHaveBeenCalled();
+
+    await userTwo.click(within(two.container).getByRole("button", { name: "Reload" }));
+    await waitFor(() => expect(savedTwo).toHaveBeenCalledWith(expect.objectContaining({ revision: 4 })));
+    expect(within(two.container).queryByText("This workflow changed since you opened it.", { exact: false })).toBeNull();
+  });
+});
+
 describe("How it runs: the API paragraph", () => {
   it("the visible text equals the API's paragraph.text", async () => {
     stubApi();
