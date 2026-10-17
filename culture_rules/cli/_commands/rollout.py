@@ -505,9 +505,15 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
         "       culture-rules workflows migrate-notes          (dry run again: reports 0)",
         "  5. culture-rules rollout seed --apply",
         "  6. culture-rules rollout import --apply",
-        "  7. culture-rules rollout enable --apply",
-        "  8. culture-rules rollout resume --apply",
-        "  9. culture-rules rollout verify",
+        "  7. give each workflow-less rule its own stepless workflow, after import (import may"
+        " add rules) and before enable; a rule pointing at a missing or deleted workflow is only"
+        " listed as not adopted:",
+        "       culture-rules rules migrate-orphans            (dry run: lists rule, workflow)",
+        "       culture-rules rules migrate-orphans --apply",
+        "       culture-rules rules migrate-orphans            (dry run again: reports 0)",
+        "  8. culture-rules rollout enable --apply",
+        "  9. culture-rules rollout resume --apply",
+        " 10. culture-rules rollout verify",
         f"snapshot ({len(snapshot)} rule(s), from {source}): {', '.join(snapshot) or '-'}",
         f"new rules: {', '.join(new_rules) or '-'}",
         f"new variables: {', '.join(map(str, new_vars)) or '-'}",

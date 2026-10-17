@@ -436,6 +436,25 @@ class NotesMigration(BaseModel):
     applied: bool
 
 
+class OrphanAdoption(BaseModel):
+    rule_id: str
+    rule_name: str | None = None
+    workflow_id: str = Field(description="the stepless workflow it gets (or would get)")
+
+
+class NotAdopted(BaseModel):
+    rule_id: str
+    rule_name: str | None = None
+    workflow_id: str = Field(description="the workflow the rule points at")
+    reason: str = Field(description="'missing' or 'deleted'; never written")
+
+
+class OrphanMigration(BaseModel):
+    rules: list[OrphanAdoption]
+    not_adopted: list[NotAdopted]
+    applied: bool
+
+
 class BackfillResult(BaseModel):
     count: int = Field(description="run documents updated (or that would be, in a dry-run)")
     applied: bool
@@ -1071,6 +1090,21 @@ def _register_migrations(app: FastAPI, store: StoragePort, defs: Definitions) ->
             store, lambda rid: defs.set_enabled("rules", rid, False, identity), dry_run=not apply
         )
         return {"rules": rules, "applied": apply}
+
+    @app.post(
+        "/rules/migrate-orphans",
+        response_model=OrphanMigration,
+        tags=["rules"],
+        operation_id="migrate_orphan_rules",
+    )
+    def migrate_orphans(identity: Identity, body: MigrateRequest | None = None):
+        """List rules with no workflow; ``apply`` gives each a stepless workflow (D7, audited).
+
+        Rules pointing at a missing or deleted workflow are listed under ``not_adopted`` and
+        never written; nothing is deleted.
+        """
+        apply = (body or MigrateRequest()).apply
+        return {**defs.migrate_orphans(identity, apply=apply), "applied": apply}
 
     @app.post(
         "/workflows/migrate-notes",

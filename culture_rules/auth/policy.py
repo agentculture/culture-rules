@@ -33,6 +33,7 @@ _ADMIN_PATTERNS = (
     re.compile(r"^/machines/[^/]+/(drain|undrain)$"),
     re.compile(r"^/controls/(pause|resume)$"),
     re.compile(r"^/rules/migrate-typeless$"),
+    re.compile(r"^/rules/migrate-orphans$"),
     re.compile(r"^/workflows/migrate-notes$"),
     re.compile(r"^/runs/backfill-ids$"),
 )

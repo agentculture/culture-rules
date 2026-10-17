@@ -75,3 +75,22 @@ def test_workflows_migrate_notes_dry_run_then_apply(wire, store, capsys):  # noq
     assert store.get("workflows", "w")["description"] == ""
     out = jrun(capsys, "workflows", "migrate-notes", "--apply")
     assert out["result"]["workflows"] == []
+
+
+def test_migrate_orphans_dry_run_then_apply(wire, store, capsys):  # noqa: F811
+    trig = {"kind": "event", "params": {"type": "x.y"}}
+    store.put("rules", {"id": "lone", "name": "Lone", "trigger": trig, "enabled": True})
+    store.put(
+        "rules",
+        {"id": "dang", "name": "Dang", "trigger": trig, "enabled": True, "workflow": {"id": "zz"}},
+    )
+    before = snapshot(store)
+    out = jrun(capsys, "rules", "migrate-orphans")
+    assert out["dry_run"] is True
+    assert [r["workflow_id"] for r in out["result"]["rules"]] == ["lone"]
+    assert [r["reason"] for r in out["result"]["not_adopted"]] == ["missing"]
+    assert snapshot(store) == before
+    out = jrun(capsys, "rules", "migrate-orphans", "--apply")
+    assert out["applied"] is True
+    assert store.get("rules", "lone")["workflow"] == {"id": "lone"}
+    assert jrun(capsys, "rules", "migrate-orphans")["result"]["rules"] == []

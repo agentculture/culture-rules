@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
@@ -218,6 +219,23 @@ def _old_node_errors(rules: Iterable[Any], lacking: list[str]) -> list[dict[str,
 def _rule_set_errors(rules: Iterable[Rule], workflows: Iterable[Workflow]) -> list[dict[str, str]]:
     found = validate_rule_set(list(rules), {w.id: w for w in workflows})
     return [e.to_dict() for e in found]
+
+
+def _slug_for(name: str, taken: Iterable[str], fallback: str = "workflow") -> str:
+    """The editor's ``slugFor`` (web/src/routes/rules-view.ts): a slug of ``name`` not taken."""
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or fallback
+    used = set(taken)
+    slug, n = base, 2
+    while slug in used:
+        slug = f"{base}-{n}"
+        n += 1
+    return slug
+
+
+def _has_no_workflow(doc: Mapping[str, Any]) -> bool:
+    """The fold's ``d7Candidates`` test (web/src/fold/model.ts): ``!rule.workflow?.id``."""
+    ref = doc.get("workflow")
+    return not (isinstance(ref, Mapping) and ref.get("id"))
 
 
 def _notes_entry(doc: Mapping[str, Any]) -> dict[str, Any]:
@@ -474,6 +492,72 @@ class Definitions:
             if entry is not None:
                 found.append(entry)
         return found
+
+    @mutating_verb("definitions.migrate_orphans", "Give each workflow-less rule its own workflow")
+    def migrate_orphans(self, identity: str, *, apply: bool = False) -> dict[str, Any]:
+        """Give every live rule with no workflow reference a stepless workflow of its own (D7).
+
+        The orphan test is the editor's ``d7Candidates`` (a null, absent or empty workflow id).
+        The workflow is what ``createD7Workflow`` makes: the id is the rule name's slug avoiding
+        every workflow id in the store (soft-deleted included), the name is the rule's name, no
+        steps and no edges; the rule then gets ``workflow: {id}`` and nothing else. Workflow and
+        rule are written in one transaction per rule, with one audit entry (on the rule); the
+        workflow starts at revision 1. Dry-run unless ``apply``: it lists
+        ``{rule_id, rule_name, workflow_id}``. Rules whose reference names a missing or soft-deleted workflow are only listed (``not_adopted``),
+        never written; nothing is ever deleted. A second apply finds none.
+        """
+        require_identity(identity)
+        docs = self._store.find("workflows")
+        live = {d["id"] for d in docs if _is_live(d)}
+        taken = {d["id"] for d in docs}
+        stranded = [
+            {
+                "rule_id": r["id"],
+                "rule_name": r.get("name"),
+                "workflow_id": r["workflow"]["id"],
+                "reason": "deleted" if r["workflow"]["id"] in taken else "missing",
+            }
+            for r in self.list("rules")
+            if not _has_no_workflow(r) and r["workflow"]["id"] not in live
+        ]
+        found: list[dict[str, Any]] = []
+        for doc in self.list("rules"):
+            if not _has_no_workflow(doc):
+                continue
+            if not apply:
+                wid = _slug_for(doc.get("name") or "", taken)
+                taken.add(wid)
+                found.append(
+                    {"rule_id": doc["id"], "rule_name": doc.get("name"), "workflow_id": wid}
+                )
+                continue
+
+            def write(tx: Any, rid: str = doc["id"]) -> dict[str, Any] | None:
+                before = tx.get("rules", rid)
+                if before is None or not _is_live(before) or not _has_no_workflow(before):
+                    return None
+                wid = _slug_for(before.get("name") or "", {d["id"] for d in tx.find("workflows")})
+                obj, ident = self._parse(
+                    "workflows",
+                    {"id": wid, "name": before.get("name") or wid, "steps": [], "edges": []},
+                )
+                tx.put("workflows", {**self._stored(obj, ident), **rev.bump("workflows", None)})
+                after = tx.put("rules", {**before, "workflow": {"id": wid}})
+                self._audit.write(
+                    tx,
+                    identity=identity,
+                    verb="definitions.migrate_orphans",
+                    collection="rules",
+                    target_id=rid,
+                    before=before,
+                    after=after,
+                )
+                return {"rule_id": rid, "rule_name": before.get("name"), "workflow_id": wid}
+
+            entry = run_transaction(self._store, write)
+            if entry is not None:
+                found.append(entry)
+        return {"rules": found, "not_adopted": stranded}
 
     def restore(self, kind: str, id: str, identity: str, life: Lifecycle) -> Document:
         """Restore a tombstoned definition through ``life`` (audited there), refusing an

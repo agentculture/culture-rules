@@ -820,6 +820,42 @@
         "title": "MigrateRequest",
         "type": "object"
       },
+      "NotAdopted": {
+        "properties": {
+          "reason": {
+            "description": "'missing' or 'deleted'; never written",
+            "title": "Reason",
+            "type": "string"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "rule_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Name"
+          },
+          "workflow_id": {
+            "description": "the workflow the rule points at",
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "workflow_id",
+          "reason"
+        ],
+        "title": "NotAdopted",
+        "type": "object"
+      },
       "NotesChange": {
         "properties": {
           "id": {
@@ -872,6 +908,65 @@
           "applied"
         ],
         "title": "NotesMigration",
+        "type": "object"
+      },
+      "OrphanAdoption": {
+        "properties": {
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "rule_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Name"
+          },
+          "workflow_id": {
+            "description": "the stepless workflow it gets (or would get)",
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "workflow_id"
+        ],
+        "title": "OrphanAdoption",
+        "type": "object"
+      },
+      "OrphanMigration": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "not_adopted": {
+            "items": {
+              "$ref": "#/components/schemas/NotAdopted"
+            },
+            "title": "Not Adopted",
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/OrphanAdoption"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules",
+          "not_adopted",
+          "applied"
+        ],
+        "title": "OrphanMigration",
         "type": "object"
       },
       "Paragraph": {
@@ -5261,6 +5356,83 @@
           }
         ],
         "summary": "Create",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/rules/migrate-orphans": {
+      "post": {
+        "description": "List rules with no workflow; ``apply`` gives each a stepless workflow (D7, audited).\n\nRules pointing at a missing or deleted workflow are listed under ``not_adopted`` and\nnever written; nothing is deleted.",
+        "operationId": "migrate_orphan_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MigrateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrphanMigration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Migrate Orphans",
         "tags": [
           "rules"
         ]
