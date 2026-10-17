@@ -35,13 +35,19 @@ def test_rules_describe_prints_the_lines(wire, seeded, capsys):  # noqa: F811
 def test_workflows_describe_prints_the_lines(wire, seeded, capsys):  # noqa: F811
     rc, out, err = run(capsys, "workflows", "describe", "pr-fix")
     assert rc == 0, err
-    assert out.splitlines() == PR_FIX_WORKFLOW
+    # description, blank, paragraph, blank, then the d19 numbered lines
+    head, para, lines = out.rstrip("\n").split("\n\n", 2)
+    assert head == seeded.get("workflows", "pr-fix")["description"]
+    assert para == jrun(capsys, "workflows", "describe", "pr-fix")["paragraph"]["text"]
+    assert lines.splitlines() == PR_FIX_WORKFLOW
 
 
 def test_describe_json_has_lines_and_entries(wire, seeded, capsys):  # noqa: F811
     out = jrun(capsys, "workflows", "describe", "pr-fix")
     assert out["lines"] == PR_FIX_WORKFLOW
     assert out["entries"][0]["step"] == "quiet"
+    assert out["description"]
+    assert out["paragraph"]["text"] and out["paragraph"]["segments"]
 
 
 def test_describe_unknown_id_is_a_user_error(wire, seeded, capsys):  # noqa: F811
@@ -65,3 +71,12 @@ def test_describe_is_a_read_only_viewer_verb_and_an_mcp_tool(wire, seeded):  # n
         PR_FIXER_CHECKS
     )
     assert call_tool("workflows_describe", {"id": "pr-fix"}, client)["lines"] == (PR_FIX_WORKFLOW)
+
+
+def test_mcp_workflows_describe_carries_description_and_paragraph(wire, seeded):  # noqa: F811
+    from culture_rules.cli import _api
+
+    got = call_tool("workflows_describe", {"id": "pr-fix"}, _api.make_client())
+    assert got["description"]
+    assert got["paragraph"]["text"]
+    assert got["lines"] == PR_FIX_WORKFLOW

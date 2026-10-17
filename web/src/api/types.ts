@@ -217,9 +217,24 @@ export interface DescribeEntry {
  * `GET /rules/{id}/describe` and `GET /workflows/{id}/describe` — the
  * Description schema: a plain description generated from the config only.
  */
+export interface ParagraphSegment {
+  part: string;
+  text: string;
+  [key: string]: unknown;
+}
+
+export interface Paragraph {
+  segments: ParagraphSegment[];
+  text: string;
+}
+
 export interface Description {
   id: string;
   kind: "rule" | "workflow";
+  /** Workflow only: its own plain description, empty when none. */
+  description?: string;
+  /** Workflow only: its rules and steps as one paragraph. */
+  paragraph?: Paragraph;
   lines: string[];
   entries: DescribeEntry[];
 }
