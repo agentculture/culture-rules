@@ -26,10 +26,17 @@ How the steps make sentences (d11):
   supplies its own);
 * a plain step (its join is ``Then``, no wait, retry or loop) whose condition is the
   previous step's (or both have none) joins that step's sentence with ``; then``; any other
-  step - siblings (``At the same time``), a join (``Once both are done``), a condition
-  change, a loop, a wait, a retry - starts a new sentence, and so does the step after a
-  loop's body, after a disabled step and after a step the table has no phrase for;
-* a loop's first body step continues the loop's sentence with ``; each time``.
+  step - a join (``Once both are done``), a condition change, a loop, a wait, a retry -
+  starts a new sentence, and so does the step after a loop's body, after a disabled step,
+  after a step the table has no phrase for and after a group of siblings;
+* siblings read together in one sentence (d13): ``Then, at the same time, a and b`` (three
+  or more: ``a, b and c``), each later sibling opening with a connector (``,`` or `` and``,
+  followed by its own condition if it has one); alternatives keep their reading in the same
+  shape (``Depending on the conditions, if x, a and, if y, b``). A disabled sibling, one the
+  table has no phrase for, one where a shared condition starts and the one after a loop
+  sibling's body read as their own sentence (``At the same time``);
+* a loop's body always starts its own sentence (d13), ``Each time``, a line the editor
+  indents.
 
 A step with no description is stood in for by its name, else by a generic line built only
 from the d19 vocabulary (:func:`generic_line`); the segment is marked ``standin`` (italic in
@@ -76,8 +83,10 @@ __all__ = [
     "BARE_LEADS",
     "JOIN_KEYS",
     "LEAD_KEYS",
+    "MARK_KEYS",
     "PHRASES",
     "SENTENCE_KEYS",
+    "SIBLING_KEYS",
     "STANDIN_KEYS",
     "TAIL_KEYS",
     "compose",
@@ -85,6 +94,7 @@ __all__ = [
     "fold_rules",
     "generic_line",
     "lower_first",
+    "mark_disabled",
     "onward_of",
     "render_marked",
     "rule_sentence",
@@ -118,9 +128,11 @@ PHRASES: dict[str, str] = {
     "from_here_on_unspoken": "From here on, only if their shared condition holds",
     "if": "If {condition}",
     "if_unspoken": "If its condition holds",
-    # connectors: a step continuing the sentence before it (d11)
+    # connectors: a step continuing the sentence before it (d11), or a sibling read with the
+    # ones before it (d13: ``a, b and c``)
     "then_grouped": "; then",
-    "each_time_grouped": "; each time",
+    "list_grouped": ",",
+    "and_grouped": " and",
     # trailing clauses after the step's text
     "wait": "waiting {duration}",
     "wait_guard": "and the run stops if the PR head moves",
@@ -174,6 +186,8 @@ PHRASES: dict[str, str] = {
     "runs_differs": "How it runs differs per rule that starts it.",
     # how a status-comment sentence names who writes it (its ``{by}``, after a space)
     "by": "({words})",
+    # the CLI's mark on a disabled rule or step (d13), never part of ``text``
+    "disabled_mark": "(disabled)",
 }
 
 #: The :data:`PHRASES` entries that build the rule and Then sentences (each ends with a
@@ -184,7 +198,9 @@ SENTENCE_KEYS: frozenset[str] = frozenset(
     if k.startswith(("starts_", "rule_", "continues", "ends", "on_failure", "runs_"))
 )
 #: Connectors: a step that continues the sentence before it opens with one of these.
-JOIN_KEYS: frozenset[str] = frozenset({"then_grouped", "each_time_grouped"})
+JOIN_KEYS: frozenset[str] = frozenset({"then_grouped", "list_grouped", "and_grouped"})
+#: The connectors of a sibling read with the ones before it (d13).
+SIBLING_KEYS: frozenset[str] = frozenset({"list_grouped", "and_grouped"})
 #: Trailing clauses, after a step's text.
 TAIL_KEYS: frozenset[str] = frozenset(
     {
@@ -199,13 +215,17 @@ TAIL_KEYS: frozenset[str] = frozenset(
 )
 #: Generic stand-in words.
 STANDIN_KEYS: frozenset[str] = frozenset({"standin_wait", "standin_loop"})
+#: Marks a renderer adds around the text, never in it.
+MARK_KEYS: frozenset[str] = frozenset({"disabled_mark"})
 #: Lead-ins: a step that starts a sentence opens with one or more of these.
 LEAD_KEYS: frozenset[str] = frozenset(
-    set(PHRASES) - SENTENCE_KEYS - JOIN_KEYS - TAIL_KEYS - STANDIN_KEYS - {"by"}
+    set(PHRASES) - SENTENCE_KEYS - JOIN_KEYS - TAIL_KEYS - STANDIN_KEYS - MARK_KEYS - {"by"}
 )
 #: A lead-in that is only one of these is followed by the text directly (``First quiet
 #: period``); any other is followed by a comma (``Then, if x is 1, quiet period``).
-BARE_LEADS: frozenset[str] = frozenset({"first", "then", "same_time", "then_grouped"})
+BARE_LEADS: frozenset[str] = frozenset(
+    {"first", "then", "same_time", "then_grouped", "list_grouped", "and_grouped"}
+)
 
 _WAIT_GUARDS = ("head_unchanged",)
 _TIMES = {1: "once", 2: "twice"}
@@ -281,16 +301,17 @@ def _names(labels: list[str]) -> str:
 
 def compose(parts: list[Part]) -> str:
     """One lead-in from table entries, in order: the first as it stands, the later ones
-    starting lower-case, joined by commas (``Then, if x is 1``; ``; each time, if x is 1``).
-    A step's ``phrase`` is this, followed by a comma unless it is one bare lead
-    (:data:`BARE_LEADS`)."""
-    texts = []
+    starting lower-case, joined by commas (``Then, if x is 1``; `` and, if x is 1``; after
+    an entry that is itself a comma, by a space: ``, if x is 1``). A step's ``phrase`` is
+    this, followed by a comma unless it is one bare lead (:data:`BARE_LEADS`)."""
+    out = ""
     for i, (key, params) in enumerate(parts):
         template = PHRASES[key]
         if i:
             template = template[0].lower() + template[1:]
-        texts.append(template.format(**params))
-    return ", ".join(texts)
+            out += " " if out.endswith(",") else ", "
+        out += template.format(**params)
+    return out
 
 
 def _lead_phrase(parts: list[Part]) -> str:
@@ -583,9 +604,17 @@ def _d19(s: Mapping[str, Any]) -> str:
 
 
 def _item(
-    s: dict[str, Any], lead: list[Part], ok: bool, label: str, depth: int, level: str, k: int
+    s: dict[str, Any],
+    lead: list[Part],
+    ok: bool,
+    label: str,
+    depth: int,
+    level: str,
+    k: int,
+    sib: tuple[int, int, int, bool] | None = None,
 ) -> dict[str, Any]:
-    """A step before its sentence is settled."""
+    """A step before its sentence is settled; ``sib`` is a top-level step's group of
+    siblings: ``(group, position in it, its size, whether they are alternatives)``."""
     return {
         "s": s,
         "lead": lead,
@@ -595,6 +624,7 @@ def _item(
         "depth": depth,
         "level": level,
         "k": k,
+        "sib": sib,
     }
 
 
@@ -610,38 +640,65 @@ def _plain_step(it: Mapping[str, Any]) -> bool:
     )
 
 
+def _usable(it: Mapping[str, Any]) -> bool:
+    return bool(it["ok"]) and it["s"].get("enabled") is not False
+
+
+def _in_group(it: Mapping[str, Any]) -> bool:
+    """A top-level step with siblings."""
+    return it["sib"] is not None and it["sib"][2] > 1
+
+
 def _continues(prev: Mapping[str, Any] | None, it: Mapping[str, Any]) -> bool:
-    """Whether ``it`` continues the sentence ``prev`` is in (d11)."""
-    if prev is None or not it["ok"] or not prev["ok"]:
+    """Whether ``it`` continues the sentence ``prev`` is in with ``; then`` (d11)."""
+    if prev is None or not _usable(it) or not _usable(prev):
         return False
-    if it["s"].get("enabled") is False or prev["s"].get("enabled") is False:
-        return False
-    if it["depth"] > 0 and it["k"] == 0:  # a loop's first body step: "; each time"
-        return True
+    if it["depth"] > 0 and it["k"] == 0:
+        return False  # a loop's body starts its own sentence (d13)
     if prev["level"] != it["level"] or prev["s"].get("kind") in _LOOPS:
         return False  # the step after a loop's body, or after a loop with none
+    if _in_group(it) or _in_group(prev):
+        return False  # siblings read in a sentence of their own (d13)
     keys = [k for k, _ in it["lead"]]
     if not _plain_step(it) or keys[0] != "then" or any(k.startswith("from_here") for k in keys):
         return False
     return _when(it["s"]) == _when(prev["s"])
 
 
+def _with_sibling(prev: Mapping[str, Any] | None, it: Mapping[str, Any]) -> bool:
+    """Whether ``it`` is read in the sentence of the sibling just before it (d13)."""
+    if prev is None or not _in_group(it) or prev["sib"] is None:
+        return False
+    same = prev["sib"][0] == it["sib"][0] and prev["sib"][1] == it["sib"][1] - 1
+    if not same or not _usable(it) or not _usable(prev) or prev["s"].get("kind") in _LOOPS:
+        return False
+    return not any(k.startswith("from_here") for k, _ in it["lead"])
+
+
 def _settle(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Each step's sentence (0-based) and whether it continues the one before (d11); the
-    lead-in of a continuing step becomes its connector."""
+    """Each step's sentence (0-based) and whether it continues the one before (d11, d13);
+    the lead-in of a continuing step becomes its connector (``; then``, ``,``, `` and``),
+    and the first of siblings read together says ``at the same time`` after its join."""
     sentence, prev = -1, None
     for it in items:
-        joined = _continues(prev, it)
-        if joined:
-            rest = [p for p in it["lead"][1:] if p[0] in _IF_KEYS]
-            if it["depth"] > 0 and it["k"] == 0:
-                it["lead"] = [("each_time_grouped", {}), *rest]
-            else:
-                it["lead"] = [("then_grouped", {})]
-        else:
+        it["with_sibling"] = _with_sibling(prev, it)
+        joined = it["with_sibling"] or _continues(prev, it)
+        if not joined:
             sentence += 1
         it["joined"], it["sentence"] = joined, sentence
         prev = it
+    for n, it in enumerate(items):
+        nxt = items[n + 1] if n + 1 < len(items) else None
+        if it["with_sibling"]:
+            key = "list_grouped" if nxt is not None and nxt["with_sibling"] else "and_grouped"
+            rest = [p for p in it["lead"] if p[0] in (*_IF_KEYS, "in_any_case")]
+            it["lead"] = [(key, {}), *rest]
+        elif it["joined"]:
+            it["lead"] = [("then_grouped", {})]
+        elif nxt is not None and nxt["with_sibling"] and not it["sib"][3]:
+            lead = it["lead"]
+            if lead[0][0] != "same_time":  # its join, then "at the same time"
+                it["lead"] = [lead[0], ("same_time", {}), *lead[1:]]
     return items
 
 
@@ -692,7 +749,7 @@ def _seg(
         "name": _label(s),
     }
     if s.get("enabled") is False:
-        seg["disabled"] = True  # d8: shown struck through, no words
+        seg["disabled"] = True  # d8, d13: no words; the CLI marks it, the editor tags it
     return seg
 
 
@@ -716,8 +773,8 @@ def step_paragraph(workflow: Any) -> dict[str, Any]:
     "name"}`` (plus ``"disabled": True`` for a disabled step, d8):
 
     * ``phrase`` is the lead-in (composed from the :data:`PHRASES` entries named in
-      ``keys``), or a connector (``; then``, ``; each time, if x``) for a ``grouped`` step
-      that continues the sentence before it;
+      ``keys``), or a connector (``; then``; for a sibling ``,`` or `` and``, ``, if x,``)
+      for a ``grouped`` step that continues the sentence before it;
     * ``text`` is the step's description unchanged, or, for a ``standin`` (no description:
       ``gap`` too), its stand-in (:func:`standin_text`); ``shown`` is ``text`` as the sentence
       reads it (:func:`lower_first`, final period dropped);
@@ -740,9 +797,12 @@ def _segments(wf: dict[str, Any]) -> list[dict[str, Any]]:
     order = graph.order()
     groups = _groups(graph, steps, order)
     leads: dict[int, list[Part]] = {}
+    sibs: dict[int, tuple[int, int, int, bool]] = {}
     for g, group in enumerate(groups):
+        alternatives = _alternatives(steps, group)
         for k, i in enumerate(group):
             leads[i] = _lead_parts(graph, steps, groups, g, k)
+            sibs[i] = (g, k, len(group), alternatives)
     # the shared-condition run is read in reading order, so re-index by position in it
     ordered = [steps[i] for i in order]
     ok = [_recognised(s) for s in ordered]
@@ -750,7 +810,7 @@ def _segments(wf: dict[str, Any]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for n, i in enumerate(order):
         s = steps[i]
-        items.append(_item(s, full[n], ok[n], str(i + 1), 0, "", n))
+        items.append(_item(s, full[n], ok[n], str(i + 1), 0, "", n, sibs[i]))
         if s.get("kind") in _LOOPS:
             items += _body_items(s, str(i + 1))
     _settle(items)
@@ -792,6 +852,17 @@ def _render(
             lines.append(chunk)
         last = seg.get("sentence")
     return "\n".join(lines)
+
+
+def mark_disabled(chunk: str) -> str:
+    """A disabled segment's chunk as the CLI shows it (d13): :data:`PHRASES`
+    ``disabled_mark`` after its words, before the sentence's closing period
+    (``It starts on cron 0 5 * * *, on spark2 (disabled).``)."""
+    mark = " " + PHRASES["disabled_mark"]
+    body = chunk.rstrip()
+    if body.endswith((".", "?", "!")):
+        return body[:-1] + mark + body[-1] + chunk[len(body) :]
+    return body + mark + chunk[len(body) :]
 
 
 def render_marked(
@@ -978,7 +1049,8 @@ def rule_sentence(rule: Any) -> dict[str, Any]:
     is already said), its relationships, its placement and whether it is disabled.
 
     Returns ``{"part": "start", "rule", "kind", "enabled", "keys", "text"}`` (plus
-    ``"disabled": True`` for a disabled rule, d8: no words, the editor strikes it out);
+    ``"disabled": True`` for a disabled rule, d8, d13: no words in ``text``; the CLI marks it
+    ``(disabled)``, the editor tags it);
     ``keys`` names
     the :data:`PHRASES` entries the sentence is composed from. Never raises."""
     r = _plain(rule)
@@ -999,7 +1071,7 @@ def rule_sentence(rule: Any) -> dict[str, Any]:
         "start", parts, rule=str(r.get("id") or "?"), kind=entry["kind"], enabled=entry["enabled"]
     )
     if r.get("enabled") is False:
-        sentence["disabled"] = True  # d8: shown struck through, no words
+        sentence["disabled"] = True  # d8, d13: no words; the CLI marks it, the editor tags it
     return sentence
 
 

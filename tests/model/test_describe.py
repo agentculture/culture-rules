@@ -681,10 +681,37 @@ def test_condition_words_compare(cmp, words):
 
 
 def test_condition_words_in_literal_and_var():
-    lit = {"op": "in", "value": _F, "items": {"literal": ["", "qwen-fixer"]}}
-    assert condition_words(lit) == 'fixer is one of "", qwen-fixer'
+    lit = {"op": "in", "value": _F, "items": {"literal": ["a", "qwen-fixer"]}}
+    assert condition_words(lit) == "fixer is one of a, qwen-fixer"
     var = {"op": "in", "value": _F, "items": {"var": "fixers"}}
     assert condition_words(var) == "fixer is one of vars.fixers"
+    none = {"op": "in", "value": _F, "items": {"literal": []}}
+    assert condition_words(none) == "fixer is one of nothing"
+
+
+@pytest.mark.parametrize(
+    ("items", "words"),
+    [
+        (["", "qwen-fixer"], "fixer is empty or qwen-fixer"),
+        (["qwen-fixer", ""], "fixer is empty or qwen-fixer"),
+        (["", "a", "b"], "fixer is empty or one of a, b"),
+        ([""], "fixer is empty"),
+    ],
+)
+def test_condition_words_say_the_empty_string_first_in_a_list(items, words):
+    """d13: an ``in`` list holding the empty string says ``empty`` first."""
+    assert condition_words({"op": "in", "value": _F, "items": {"literal": items}}) == words
+
+
+def test_condition_words_read_the_empty_string_as_empty_but_symbols_keep_it():
+    """d13: ``empty`` in words only; d19's condition_text keeps ``""``."""
+    eq = {"op": "compare", "cmp": "==", "left": _F, "right": {"literal": ""}}
+    ne = {**eq, "cmp": "!="}
+    assert condition_words(eq) == "fixer is empty"
+    assert condition_words(ne) == "fixer is not empty"
+    assert condition_text(eq) == 'fixer = ""'
+    lit = {"op": "in", "value": _F, "items": {"literal": ["", "qwen-fixer"]}}
+    assert condition_text(lit) == 'fixer ∈ {"", qwen-fixer}'
 
 
 def test_condition_words_exists_and_not_exists():
@@ -740,7 +767,7 @@ def test_condition_words_review_commit_reviewer():
 def test_condition_words_pr_fix_fixer():
     body = _load("workflows/pr-fix.json")["steps"][4]["body"]
     assert condition_words(body[0]["config"]["when"]) == (
-        'fixer is not set or fixer is one of "", qwen-fixer'
+        "fixer is not set or fixer is empty or qwen-fixer"
     )
     assert condition_words(body[1]["config"]["when"]) == "fixer is claude-fixer"
 

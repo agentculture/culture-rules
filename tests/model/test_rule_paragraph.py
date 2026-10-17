@@ -21,6 +21,7 @@ from culture_rules.model.paragraph import (
     PHRASES,
     SENTENCE_KEYS,
     fold_rules,
+    mark_disabled,
     onward_of,
     rule_sentence,
     step_paragraph,
@@ -279,6 +280,18 @@ def test_rule_sentence_condition_placement_and_disabled():
     assert seg["disabled"] is True and "disabled" not in rule_sentence(_rule())
     assert seg["rule"] == "r" and seg["enabled"] is False and seg["kind"] == "entry"
     _assert_from_table(seg)
+    # d13: the CLI's mark, after the words and before the period
+    assert mark_disabled(seg["text"]) == (
+        "It starts when github.pr.opened arrives, if draft is false, on spark2 (disabled)."
+    )
+
+
+def test_rule_sentence_reads_the_empty_string_as_empty():
+    """d13: ``empty``, never ``""``, in a rule's condition words."""
+    rule = _rule(condition=_cmp("data.fixer", ""))
+    assert (
+        rule_sentence(rule)["text"] == "It starts when github.pr.opened arrives, if fixer is empty."
+    )
 
 
 @pytest.mark.parametrize(
