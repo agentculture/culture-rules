@@ -24,7 +24,7 @@ import {
 import { setWorkflowsState } from "../workflows/agentState";
 import { setAgentState } from "../agent-state/store";
 import { type CanvasProps } from "../workflows/Canvas";
-import { WorkflowViews } from "../workflows/views/WorkflowViews";
+import { WorkflowViews, type WorkflowViewsProps } from "../workflows/views/WorkflowViews";
 import EntryEditors from "../workflows/views/EntryEditors";
 import type { ViewMode } from "../workflows/views/mode";
 import { foldModel, type FoldModel } from "../fold/model";
@@ -616,6 +616,7 @@ function WorkflowStage({
   runForm,
   simple,
   onModeChange,
+  entryEditors,
 }: Readonly<{
   workflow: WorkflowDef;
   loaded: Loaded | null;
@@ -633,6 +634,8 @@ function WorkflowStage({
   /** The Simple (When / Then) view of this workflow. */
   simple: ReactNode;
   onModeChange: (mode: ViewMode) => void;
+  /** Detailed's entry editors: ?entry=, the live feed, links, and what a workflow delete does. */
+  entryEditors: Pick<WorkflowViewsProps, "entry" | "live" | "hrefFor" | "onWorkflowDeleted">;
 }>) {
   return (
     <div className="wf-stage" ref={stageRef}>
@@ -658,6 +661,7 @@ function WorkflowStage({
         {...handlers}
         simple={simple}
         onModeChange={onModeChange}
+        {...entryEditors}
       />
       <StepPanels
         editing={editing}
@@ -1305,6 +1309,15 @@ export function Workflows() {
           onCloseEditor={closeEditor}
           simple={renderSimpleView()}
           onModeChange={setView}
+          entryEditors={{
+            entry: entryId,
+            live: simpleFeed,
+            hrefFor,
+            onWorkflowDeleted: () => {
+              setReload((n) => n + 1);
+              setQuery({ id: null, entry: null, run: null });
+            },
+          }}
           runForm={
             runFormOpen && current ? (
               <RunForm
@@ -1322,7 +1335,7 @@ export function Workflows() {
     if (missingWorkflow && strandedRules > 0) {
       return (
         <section className="wf-missing-place" aria-label={`Rules of the missing workflow ${missingWorkflow}`}>
-          <EntryEditors workflow={{ id: missingWorkflow, name: missingWorkflow }} hrefFor={hrefFor} />
+          <EntryEditors workflow={{ id: missingWorkflow, name: missingWorkflow }} hrefFor={hrefFor} entry={entryId} live={simpleFeed} />
         </section>
       );
     }

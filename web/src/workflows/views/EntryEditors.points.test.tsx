@@ -14,7 +14,7 @@ import { openEntry, renderEditors, type User } from "./entryHarness";
  * StopRuns.test.tsx and the board's Rules.test.tsx), which moved to the Simple view's entry points
  * (EntryPoints.test.tsx, t9) and now run on the entry-point editors in Detailed (t22, deviation d9).
  * Every fixture rule starts build-image, so each is one of its entry points. Detailed opens the
- * first entry point by itself; `opened` opens the one a scenario is about.
+ * first entry point (or the `entry` asked for) by itself; `opened` opens the one a scenario is about.
  */
 let api: FakeApi;
 
@@ -27,9 +27,9 @@ function foldedApi(): FakeApi {
   return fake;
 }
 
-/** Detailed has no `entry` prop: the scenario opens its entry point with `opened`. */
-function renderEntry(_entry?: string) {
-  return renderEditors({ workflowId: "build-image" });
+/** The build-image entry editors, with `entry` (?entry=) open when given. */
+function renderEntry(entry?: string) {
+  return renderEditors({ workflowId: "build-image", entry });
 }
 
 const sent = (method: string, path: string) => api.calls.filter((c) => c.method === method && c.path === path);
@@ -72,7 +72,7 @@ describe("toggle (was RulesEditor › toggle)", () => {
     await findEntry("Train batch");
     api.failNext["POST /rules/train-batch/disable"] = { status: 503, code: "store_down", message: "store unreachable" };
     await user.click(switchOf("Train batch"));
-    expect(await screen.findByRole("status")).toHaveTextContent("store unreachable");
+    expect(await screen.findByRole("alert")).toHaveTextContent("store unreachable");
     expect(switchOf("Train batch")).toHaveAttribute("aria-checked", "true");
     await user.click(switchOf("Train batch"));
     await waitFor(() => expect(switchOf("Train batch")).toHaveAttribute("aria-checked", "false"));
@@ -150,8 +150,7 @@ describe("edit (was RulesEditor › edit)", () => {
     await user.click(within(card).getByRole("button", { name: "Edit Build and publish" }));
     api.failNext[`PUT /rules/${SELECTED_RULE_ID}`] = { status: 422, code: "invalid_rule", message: "name must not be empty" };
     await user.click(screen.getByRole("button", { name: "Save" }));
-    // the refusal is announced twice now: in the form and in the editors' notice (role status, not alert)
-    await waitFor(() => expect(screen.getAllByRole("status").some((n) => n.textContent?.includes("name must not be empty"))).toBe(true));
+    expect(await screen.findByRole("alert")).toHaveTextContent("name must not be empty");
     expect(screen.getByRole("form", { name: "Edit rule" })).toBeInTheDocument();
   });
 });
@@ -175,10 +174,8 @@ describe("delete with undo (was RulesEditor › delete with undo)", () => {
   });
 });
 
-// REGRESSION (t22): when the open entry point was opened by a click and is then deleted, EntryEditors
-// keeps that id as the open one, so no entry point is open afterwards (Simple opened the next one).
 describe("delete opens the next entry point", () => {
-  it.fails("REGRESSION: deleting the open entry point opens another in its place", async () => {
+  it("deleting the open entry point opens another in its place", async () => {
     const user = userEvent.setup();
     renderEntry();
     const card = await opened("Build and publish");
@@ -254,7 +251,7 @@ describe("relationships on both ends (was RulesEditor › relationships on both 
     renderEntry("review-on-approve");
     const card = await opened("Review on approve");
     await user.selectOptions(within(card).getByLabelText("Add must run after"), "build-and-publish");
-    expect(await screen.findByRole("status")).toHaveTextContent(/cycle/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/cycle/);
     expect(sent("PUT", "/rules/review-on-approve")).toHaveLength(0);
   });
 });
@@ -450,7 +447,7 @@ describe("create, progressively (was RulesEditor › create, progressively)", ()
     await waitFor(() => expect(within(picker).getByRole("option", { name: "vars.trusted_authors" })).toBeInTheDocument());
     await user.selectOptions(picker, "trusted_authors");
     await user.click(within(form).getByRole("button", { name: "Add" }));
-    const alert = await screen.findByRole("status");
+    const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(words);
     expect(alert).not.toHaveTextContent("raw server text");
   });
@@ -502,7 +499,7 @@ describe("pending human asks, in context (was RulesEditor › pending human asks
     const panel = await screen.findByRole("region", { name: "Waiting on you" });
     await user.type(within(panel).getByLabelText("Answer"), "yes");
     await user.click(within(panel).getByRole("button", { name: "Send answer" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("ask passed its deadline");
+    expect(await screen.findByRole("alert")).toHaveTextContent("ask passed its deadline");
   });
 
   it("shows no panel and no error when the entry point has nothing waiting", async () => {
@@ -510,7 +507,7 @@ describe("pending human asks, in context (was RulesEditor › pending human asks
     await opened("Build and publish");
     await waitFor(() => expect(sent("GET", "/runs")).not.toHaveLength(0));
     expect(screen.queryByRole("region", { name: "Waiting on you" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
@@ -601,14 +598,13 @@ async function emit(collection: string, id: string) {
   });
 }
 
-// REGRESSION (t22): EntryEditors is passed no live feed and opens no stream (useRulesData refetches only after its own writes), so a rule, ask or decision changed elsewhere appears only after a write or reload.
-describe("REGRESSION: live updates (was RulesLive › Rules tab live updates, h61 / c80)", { timeout: 2500 }, () => {
+describe("live updates (was RulesLive › Rules tab live updates, h61 / c80)", { timeout: 2500 }, () => {
   beforeEach(() => {
     FakeEventSource.reset();
     setLiveSourceFactory(FakeEventSource.factory);
   });
 
-  it.fails("on its own, the Simple view subscribes to rules, runs, asks and rule decisions", async () => {
+  it("on its own, the Simple view subscribes to rules, runs, asks and rule decisions", async () => {
     renderEntry();
     await findEntry("Train batch");
     const url = new URL(FakeEventSource.latest().url, "http://x");
@@ -616,7 +612,7 @@ describe("REGRESSION: live updates (was RulesLive › Rules tab live updates, h6
     expect(url.searchParams.get("collections")?.split(",").sort()).toEqual(["asks", "rule_decisions", "rules", "runs"]);
   });
 
-  it.fails("an entry point toggled elsewhere shows here without a reload", async () => {
+  it("an entry point toggled elsewhere shows here without a reload", async () => {
     renderEntry();
     await findEntry("Train batch");
     expect(switchOf("Train batch")).toHaveAttribute("aria-checked", "true");
@@ -625,7 +621,7 @@ describe("REGRESSION: live updates (was RulesLive › Rules tab live updates, h6
     await waitFor(() => expect(switchOf("Train batch")).toHaveAttribute("aria-checked", "false"));
   });
 
-  it.fails("a new ask on a run of this entry point appears when runs/asks change", async () => {
+  it("a new ask on a run of this entry point appears when runs/asks change", async () => {
     renderEntry();
     await opened("Build and publish");
     expect(screen.queryByRole("region", { name: "Waiting on you" })).toBeNull();
@@ -662,8 +658,7 @@ describe("last runs show the entry point's history (was RulesLive › h78 / c97)
     expect(api.calls.some((c) => c.path === `/rules/${SELECTED_RULE_ID}/history`)).toBe(true);
   });
 
-  // REGRESSION (t22): no live feed in EntryEditors (see the live updates block above).
-  it.fails("REGRESSION: a decision record arriving live is shown without a reload", async () => {
+  it("a decision record arriving live is shown without a reload", async () => {
     FakeEventSource.reset();
     setLiveSourceFactory(FakeEventSource.factory);
     const user = userEvent.setup();
@@ -718,9 +713,8 @@ async function disableTrainBatch(user: User) {
   return switchOf("Train batch");
 }
 
-// REGRESSION (t22): EntryEditors never renders useRulesData's StopRunsNotice, so disabling with runs going shows no "Stop N current runs?" question.
-describe("REGRESSION: stop current runs on disable (was StopRuns › stop current runs on disable)", { timeout: 2500 }, () => {
-  it.fails("asks 'Stop N current runs?' without taking focus, and Approve stops them", async () => {
+describe("stop current runs on disable (was StopRuns › stop current runs on disable)", { timeout: 2500 }, () => {
+  it("asks 'Stop N current runs?' without taking focus, and Approve stops them", async () => {
     withActiveRuns(api, "train-batch", 2);
     const user = userEvent.setup();
     renderEntry("train-batch");
@@ -742,7 +736,7 @@ describe("REGRESSION: stop current runs on disable (was StopRuns › stop curren
     expect(screen.queryByText(/Stopped 2 runs/)).not.toBeInTheDocument();
   });
 
-  it.fails("Keep running dismisses it and stops nothing", async () => {
+  it("Keep running dismisses it and stops nothing", async () => {
     withActiveRuns(api, "train-batch", 1);
     const user = userEvent.setup();
     renderEntry("train-batch");
@@ -755,7 +749,7 @@ describe("REGRESSION: stop current runs on disable (was StopRuns › stop curren
     expect(api.rules.find((r) => r.id === "train-batch")?.enabled).toBe(false);
   });
 
-  it.fails("is reachable and operable from the keyboard alone", async () => {
+  it("is reachable and operable from the keyboard alone", async () => {
     withActiveRuns(api, "train-batch", 3);
     const user = userEvent.setup();
     renderEntry("train-batch");
@@ -768,19 +762,19 @@ describe("REGRESSION: stop current runs on disable (was StopRuns › stop curren
     expect(await screen.findByText("Stopped 3 runs of Train batch.")).toBeInTheDocument();
   });
 
-  it.fails("a refused stop keeps the question open with the failure shown", async () => {
+  it("a refused stop keeps the question open with the failure shown", async () => {
     withActiveRuns(api, "train-batch", 2);
     api.failNext["POST /rules/train-batch/stop-runs"] = { status: 409, code: "rule_enabled", message: "rule train-batch is enabled" };
     const user = userEvent.setup();
     renderEntry("train-batch");
     await disableTrainBatch(user);
     await user.click(await screen.findByRole("button", { name: /^Approve/ }));
-    expect(await screen.findByRole("status")).toHaveTextContent("rule train-batch is enabled");
+    expect(await screen.findByRole("alert")).toHaveTextContent("rule train-batch is enabled");
     expect(screen.getByText(/Stop 2 current runs\?/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Approve/ })).toBeEnabled();
   });
 
-  it.fails("re-enabling the entry point withdraws the question", async () => {
+  it("re-enabling the entry point withdraws the question", async () => {
     withActiveRuns(api, "train-batch", 2);
     const user = userEvent.setup();
     renderEntry("train-batch");
@@ -804,9 +798,8 @@ function holdStops(base: FakeApi) {
   return { fetchFn, releaseAll: () => held.splice(0).forEach((go) => go()), held };
 }
 
-// REGRESSION (t22): EntryEditors never renders useRulesData's StopRunsNotice.
-describe("REGRESSION: a stop in flight never clobbers a newer offer (was StopRuns)", { timeout: 2500 }, () => {
-  it.fails("disabling another entry point while a stop is pending keeps the new question", async () => {
+describe("a stop in flight never clobbers a newer offer (was StopRuns)", { timeout: 2500 }, () => {
+  it("disabling another entry point while a stop is pending keeps the new question", async () => {
     withActiveRuns(api, "train-batch", 2);
     withActiveRuns(api, "review-on-approve", 1);
     const hold = holdStops(api);
@@ -828,7 +821,7 @@ describe("REGRESSION: a stop in flight never clobbers a newer offer (was StopRun
     expect(screen.queryByText(/Stopped 2 runs/)).not.toBeInTheDocument();
   });
 
-  it.fails("a failed stop does not bring back an offer withdrawn by re-enabling", async () => {
+  it("a failed stop does not bring back an offer withdrawn by re-enabling", async () => {
     withActiveRuns(api, "train-batch", 2);
     api.failNext["POST /rules/train-batch/stop-runs"] = { status: 409, code: "rule_enabled", message: "rule train-batch is enabled" };
     const hold = holdStops(api);
@@ -843,7 +836,7 @@ describe("REGRESSION: a stop in flight never clobbers a newer offer (was StopRun
     expect(screen.queryByText(/current runs\?/)).not.toBeInTheDocument();
 
     hold.releaseAll();
-    expect(await screen.findByRole("status")).toHaveTextContent("rule train-batch is enabled");
+    expect(await screen.findByRole("alert")).toHaveTextContent("rule train-batch is enabled");
     expect(screen.queryByText(/current runs\?/)).not.toBeInTheDocument();
   });
 });
@@ -1030,12 +1023,15 @@ describe("exclusive group and priority (issue #29 a, d8)", () => {
 });
 
 describe("stop current runs on disable: nothing to ask", () => {
-  // Holds with or without the StopRunsNotice; see the REGRESSION block above for the offer itself.
   it("asks nothing when the disabled entry point has no runs going", async () => {
+    withActiveRuns(api, "review-on-approve", 1);
     const user = userEvent.setup();
     renderEntry("train-batch");
     await disableTrainBatch(user);
     await waitFor(() => expect(sent("POST", "/rules/train-batch/disable")).toHaveLength(1));
     expect(screen.queryByText(/current run/)).not.toBeInTheDocument();
+    // the question does show here, for an entry point that has runs going
+    await user.click(switchOf("Review on approve"));
+    expect(await screen.findByText(/Review on approve is off\. Stop 1 current run\?/)).toBeInTheDocument();
   });
 });
