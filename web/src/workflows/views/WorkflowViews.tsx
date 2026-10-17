@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import WorkflowCanvas, { type CanvasProps } from "../Canvas";
 import DebugView from "./DebugView";
+import type { LiveFeed } from "../simple/liveFeed";
 import EntryEditors from "./EntryEditors";
 import { readViewMode, writeViewMode, type ViewMode } from "./mode";
 import ViewSwitch from "./ViewSwitch";
@@ -29,6 +30,14 @@ export interface WorkflowViewsProps extends CanvasProps {
   toolbar?: ReactNode;
   /** Told the view on mount and on every switch (agent-state reports it). */
   onModeChange?: (mode: ViewMode) => void;
+  /** Detailed's entry editors: the entry point asked for (?entry=), opened without a remount. */
+  entry?: string | null;
+  /** Detailed's entry editors: the page's live feed (rules, runs, asks, rule_decisions). */
+  live?: LiveFeed;
+  /** Detailed's entry editors: where a link to a workflow goes. */
+  hrefFor?: (workflowId: string) => string;
+  /** Detailed's entry editors deleted this (stepless) workflow after its last entry point. */
+  onWorkflowDeleted?: (workflowId: string) => void;
 }
 
 function SimplePlaceholder() {
@@ -40,7 +49,16 @@ function SimplePlaceholder() {
   );
 }
 
-export function WorkflowViews({ simple, toolbar, onModeChange, ...canvas }: Readonly<WorkflowViewsProps>) {
+export function WorkflowViews({
+  simple,
+  toolbar,
+  onModeChange,
+  entry,
+  live,
+  hrefFor,
+  onWorkflowDeleted,
+  ...canvas
+}: Readonly<WorkflowViewsProps>) {
   const [mode, setMode] = useState<ViewMode>(readViewMode);
   useEffect(() => onModeChange?.(mode), [mode, onModeChange]);
   const choose = useCallback((next: ViewMode) => {
@@ -53,7 +71,13 @@ export function WorkflowViews({ simple, toolbar, onModeChange, ...canvas }: Read
     view = (
       <>
         <WorkflowCanvas {...canvas} />
-        <EntryEditors workflow={canvas.workflow} />
+        <EntryEditors
+          workflow={canvas.workflow}
+          entry={entry}
+          live={live}
+          hrefFor={hrefFor}
+          onWorkflowDeleted={onWorkflowDeleted}
+        />
       </>
     );
   else if (mode === "debug") view = <DebugView workflow={canvas.workflow} />;

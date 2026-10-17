@@ -6,7 +6,7 @@ import type { Condition, Rule } from "../../api/types";
 import { type FakeApi } from "../../rules/fake-api";
 import { FOLD_RULES, ON_FAILURE, RUN_KEY } from "../simple/fixture";
 import {
-  editRunKey, entry, failure, findEntry, foldApi, renderEditors, sent, thenGroup as then, use as useFake,
+  concurrent, editRunKey, entry, failure, findEntry, foldApi, renderEditors, sent, testFeed, thenGroup as then, use as useFake,
   writes,
 } from "./entryHarness";
 
@@ -299,17 +299,87 @@ describe("re-review follow-up", () => {
 
 
 /**
- * REGRESSION (t22): the fold-fixA "an open form keeps the snapshot it was opened on" tests (c27)
- * need a rule changed elsewhere to be refreshed into the view while a form is open. Simple took
- * a live feed for that (`live`, and its own stream); EntryEditors passes none and fetches through
- * useRulesData, which refetches only after a write of its own. Until that is restored these can
- * only be listed, not ported. The snapshot-on-open behaviour itself (a save re-reads the rule and
- * skips one changed meanwhile) is covered above, without a refresh.
+ * fold-fixA (c27): a rule changed elsewhere is refreshed into the view through the live feed while
+ * a form is open; the open form keeps the snapshot it was opened on.
  */
 describe("fold-fixA: an open form keeps the snapshot it was opened on (c27)", () => {
-  it.todo("REGRESSION: an untouched Ends here save after a concurrent action edit writes nothing over it");
-  it.todo("REGRESSION: a changed Ends here save skips the rule edited meanwhile instead of overwriting it");
-  it.todo("REGRESSION: an untouched Runs save after a concurrent budget edit restores nothing");
-  it.todo("REGRESSION: a form opened in the mixed state stays mixed when a refresh makes the value shared: no invented noop");
-  it.todo("REGRESSION: an entry's own Runs form keeps its snapshot too");
+  const PR_FIX = ["pr-fixer-checks", "pr-fixer-comment", "pr-fixer-review", "pr-fixer-refix"];
+
+  it("an untouched Ends here save after a concurrent action edit writes nothing over it", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderEditors({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    // someone else changes the chain-end action on every entry: still shared, but newer
+    const newer = { ...FOLD_RULES[1].action, name: "Someone else's end" };
+    await concurrent(feed, PR_FIX, { action: newer });
+    await waitFor(() => expect(then("Ends here").querySelector(".fold-then__value")).toHaveTextContent("Someone else's end"));
+    await user.click(within(screen.getByRole("form", { name: "Ends here" })).getByRole("button", { name: "Save for every entry point" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes()).toHaveLength(0);
+    for (const id of PR_FIX) expect(api.rules.find((r) => r.id === id)!.action).toEqual(newer);
+  });
+
+  it("a changed Ends here save skips the rule edited meanwhile instead of overwriting it", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderEditors({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    const form = screen.getByRole("form", { name: "Ends here" });
+    await user.clear(within(form).getByLabelText("Action label"));
+    await user.type(within(form).getByLabelText("Action label"), "Mine");
+    const newer = { ...FOLD_RULES[1].action, name: "Someone else's end" };
+    await concurrent(feed, ["pr-fixer-comment"], { action: newer });
+    await user.click(within(screen.getByRole("form", { name: "Ends here" })).getByRole("button", { name: "Save for every entry point" }));
+    const results = await screen.findByRole("region", { name: "Save results" });
+    await waitFor(() => expect(within(results).getByText("Trusted PR comment").closest("li")).toHaveAttribute("data-status", "skipped-changed"));
+    expect(sent("PUT", "/rules/pr-fixer-comment")).toHaveLength(0);
+    expect(api.rules.find((r) => r.id === "pr-fixer-comment")!.action).toEqual(newer);
+  });
+
+  it("an untouched Runs save after a concurrent budget edit restores nothing", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderEditors({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
+    // every entry's budget becomes 7 meanwhile: still shared, but newer
+    await concurrent(feed, PR_FIX, { max_attempts: 7 });
+    await waitFor(() => expect(then("Runs")).toHaveTextContent("7 attempts per key"));
+    await user.click(within(screen.getByRole("form", { name: "Runs" })).getByRole("button", { name: "Save for every entry point" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes()).toHaveLength(0);
+    for (const id of PR_FIX) expect((api.rules.find((r) => r.id === id) as Rule & { max_attempts?: number }).max_attempts).toBe(7);
+  });
+
+  it("a form opened in the mixed state stays mixed when a refresh makes the value shared: no invented noop", async () => {
+    use(foldApi((rules) => { rules[3].action = { ...rules[3].action, name: "Other end" }; }));
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderEditors({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    await concurrent(feed, ["pr-fixer-refix"], { action: FOLD_RULES[0].action });
+    // the card now shows the shared value; the open form keeps what it was opened on (mixed)
+    await waitFor(() => expect(then("Ends here").querySelector(".fold-then__value")).toHaveTextContent("Comment when the chain ends here"));
+    expect(screen.getByRole("form", { name: "Ends here" })).toHaveTextContent("Differs per entry point");
+    await user.click(within(screen.getByRole("form", { name: "Ends here" })).getByRole("button", { name: "Save for every entry point" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("an entry's own Runs form keeps its snapshot too", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderEditors({ live: feed });
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "Runs for Checks settled, not green" }));
+    await concurrent(feed, ["pr-fixer-checks"], { max_attempts: 9 });
+    await user.click(within(screen.getByRole("form", { name: "Runs for Checks settled, not green" })).getByRole("button", { name: "Save for this entry point" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes()).toHaveLength(0);
+    expect((api.rules[0] as Rule & { max_attempts?: number }).max_attempts).toBe(9);
+  });
 });

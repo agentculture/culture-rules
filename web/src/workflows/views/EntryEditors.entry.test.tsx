@@ -9,8 +9,8 @@ import { createFakeApi, withActiveRuns, type FakeApi } from "../../rules/fake-ap
 import EntryEditors from "./EntryEditors";
 import { FOLD_RULES, FOLD_WORKFLOWS, RUN_KEY } from "../simple/fixture";
 import {
-  FOLD_NOW as NOW, defFor, editRunKey, entry, failure, findEntry, foldApi, openEntry, renderEditors, sent, thenGroup as then, use as useFake,
-  writes, type User,
+  concurrent, FOLD_NOW as NOW, defFor, editRunKey, entry, failure, findEntry, foldApi, openEntry, renderEditors, sent, thenGroup as then, use as useFake,
+  testFeed, writes, type User,
 } from "./entryHarness";
 
 let api: FakeApi;
@@ -131,10 +131,8 @@ describe("shared values once, differing ones per entry", () => {
   });
 });
 
-// REGRESSION (t22): the shared panel no longer counts the overrides ("4 overrides"); the per-entry
-// "override" marks and the Then lists of differing values remain (covered above).
 describe("shared values once: the override count", () => {
-  it.fails("REGRESSION: the shared panel says how many entry points override a differing value", async () => {
+  it("the shared panel says how many entry points override a differing value", async () => {
     use(foldApi((rules) => {
       rules[1].placement = { machine: "thor" };
     }));
@@ -377,8 +375,7 @@ describe("history, describe and stop runs per entry point", () => {
     expect(sent("GET", "/rules/pr-fixer-checks/describe")).toHaveLength(1);
   });
 
-  // REGRESSION (t22): EntryEditors never renders the StopRunsNotice that useRulesData offers.
-  it.fails("REGRESSION: disabling with runs going offers to stop them, through POST /rules/{id}/stop-runs", async () => {
+  it("disabling with runs going offers to stop them, through POST /rules/{id}/stop-runs", async () => {
     withActiveRuns(api, "pr-fixer-checks", 2);
     const user = userEvent.setup();
     renderEditors();
@@ -420,8 +417,7 @@ describe("a continuation's predecessor", () => {
 
 
 describe("deleting entry points", () => {
-  // REGRESSION (t22): EntryEditors' undo notice has no "Delete the workflow too" (c30).
-  it.fails("REGRESSION: deleting the last entry point of a stepless workflow offers to delete the workflow too", async () => {
+  it("deleting the last entry point of a stepless workflow offers to delete the workflow too", async () => {
     const user = userEvent.setup();
     renderEditors({ workflowId: "review-commit", def: FOLD_WORKFLOWS[1] });
     const only = await findEntry("Review the fix");
@@ -443,6 +439,18 @@ describe("deleting entry points", () => {
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(await findEntry("Checks settled, not green")).toBeInTheDocument();
     expect(sent("POST", "/rules/pr-fixer-checks/restore")).toHaveLength(1);
+  });
+
+  it("never offers to delete a workflow whose last entry point went while it has steps", async () => {
+    const user = userEvent.setup();
+    const withSteps = { ...FOLD_WORKFLOWS[1], steps: [{ id: "look", name: "Look", kind: "ai" }] } as typeof FOLD_WORKFLOWS[1];
+    renderEditors({ workflowId: "review-commit", def: withSteps });
+    const only = await findEntry("Review the fix");
+    await user.click(within(only).getByRole("button", { name: "Delete Review the fix" }));
+    expect(await screen.findByText("Deleted Review the fix")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Entry point: Review the fix" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /Delete the workflow/ })).not.toBeInTheDocument();
+    expect(sent("DELETE", "/workflows/review-commit")).toHaveLength(0);
   });
 });
 
@@ -545,8 +553,7 @@ describe("review follow-up: focus returns", () => {
 
   });
 
-  // REGRESSION (t22): the restored entry point does not take focus.
-  it.fails("REGRESSION: the restored entry takes focus after undo", async () => {
+  it("the restored entry takes focus after undo", async () => {
     const user = userEvent.setup();
     renderEditors();
     await findEntry("Checks settled, not green");
@@ -555,8 +562,7 @@ describe("review follow-up: focus returns", () => {
     await waitFor(() => expect(within(entry("Checks settled, not green")).getByRole("button", { name: "Collapse Checks settled, not green" })).toHaveFocus(), { timeout: 800 });
   });
 
-  // REGRESSION (t22): EntryEditors does not move focus to Undo when the notice appears (Simple did).
-  it.fails("REGRESSION: the Undo button takes focus when an entry point is deleted", async () => {
+  it("the Undo button takes focus when an entry point is deleted", async () => {
     const user = userEvent.setup();
     renderEditors();
     await findEntry("Checks settled, not green");
@@ -695,9 +701,7 @@ describe("full-pass review follow-up", () => {
     expect(add).toHaveAttribute("aria-expanded", "true");
   });
 
-  // REGRESSION (t22): EntryEditors keeps its write results and baselines when its workflow changes;
-  // nothing in WorkflowViews or the page keys it by workflow id.
-  it.fails("REGRESSION: a different workflow starts fresh: its own first entry open, no earlier baselines", async () => {
+  it("a different workflow starts fresh: its own first entry open, no earlier baselines", async () => {
     api.failNext["PUT /rules/pr-fixer-comment"] = failure;
     const user = userEvent.setup();
     const view = renderEditors({ workflowId: "pr-fix" });
@@ -737,8 +741,7 @@ describe("re-review: unchanged after the re-read, delete only an unused workflow
     expect(sent("GET", "/rules/pr-fixer-comment")).toHaveLength(1);
   });
 
-  // REGRESSION (t22): the "Delete the workflow too" offer is gone from EntryEditors.
-  it.fails("REGRESSION: Delete the workflow too re-reads the rules and keeps a workflow a rule still uses", async () => {
+  it("Delete the workflow too re-reads the rules and keeps a workflow a rule still uses", async () => {
     const user = userEvent.setup();
     renderEditors({ workflowId: "review-commit", def: FOLD_WORKFLOWS[1] });
     const only = await findEntry("Review the fix");
@@ -754,8 +757,8 @@ describe("re-review: unchanged after the re-read, delete only an unused workflow
 
 describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per form", () => {
   /**
-   * Another writer changes rules on the server. EntryEditors takes no live feed (t15), so the
-   * change is not refreshed into the view: the write's own re-read is what catches it.
+   * Another writer changes rules on the server. No feed is handed in here, so the change is not
+   * refreshed into the view: the write's own re-read is what catches it.
    */
   function elsewhere(ids: string[], change: Record<string, unknown>) {
     for (const id of ids) Object.assign(api.rules.find((r) => r.id === id)!, structuredClone(change), { updated_at: "2026-10-09T14:00:00Z" });
@@ -824,10 +827,27 @@ describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per
     expect(api.rules[0].condition).toEqual({ op: "compare", cmp: "==", left: { field: "data.draft" }, right: { literal: false } });
   });
 
-  // REGRESSION (t22): both need a rule changed elsewhere to be refreshed into the view while a form
-  // is open; EntryEditors takes no live feed (see the fold-fixA block in EntryEditors.then.test.tsx).
-  it.todo("REGRESSION: switching straight from Ends here to Runs shows the budget as it is now");
-  it.todo("REGRESSION: switching straight between an entry's override forms shows the rule as it is now");
+  it("switching straight from Ends here to Runs shows the budget as it is now", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderEditors({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    await concurrent(feed, ["pr-fixer-checks", "pr-fixer-comment", "pr-fixer-review", "pr-fixer-refix"], { max_attempts: 9 }, "2026-10-09T14:00:00Z");
+    await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
+    expect(within(screen.getByRole("form", { name: "Runs" })).getByLabelText("Attempts per key")).toHaveValue("9");
+  });
+
+  it("switching straight between an entry's override forms shows the rule as it is now", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderEditors({ live: feed });
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "On failure for Checks settled, not green" }));
+    await concurrent(feed, ["pr-fixer-checks"], { max_attempts: 9 }, "2026-10-09T14:00:00Z");
+    await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Runs for Checks settled, not green" }));
+    expect(within(screen.getByRole("form", { name: "Runs for Checks settled, not green" })).getByLabelText("Attempts per key")).toHaveValue("9");
+  });
 });
 
 describe("creating rules once the Rules tab is gone", () => {
@@ -859,9 +879,20 @@ describe("creating rules once the Rules tab is gone", () => {
   });
 });
 
-// REGRESSION (t22): Simple opened the entry point `?entry=<rule>` asked for, and followed a new one
-// without remounting. The page still reads `entry` (it picks the workflow), but EntryEditors has no
-// prop for it, so a deep link opens the first entry point instead.
+// Simple opened the entry point `?entry=<rule>` asked for, and followed a new one without
+// remounting; Detailed's entry editors do the same (t23).
 describe("fold-fixA: the view follows the asked-for entry", () => {
-  it.todo("REGRESSION: opens the newly asked entry point without remounting");
+  it("opens the newly asked entry point without remounting", async () => {
+    api.failNext["PUT /rules/pr-fixer-comment"] = failure;
+    const user = userEvent.setup();
+    const view = renderEditors({ entry: "pr-fixer-checks" });
+    await findEntry("Checks settled, not green");
+    await editRunKey(user, "pr:{trigger.data.number}");
+    await screen.findByRole("region", { name: "Save results" });
+    view.rerender(<MemoryRouter><EntryEditors workflow={defFor("pr-fix")} entry="pr-fixer-comment" /></MemoryRouter>);
+    await waitFor(() => expect(within(entry("Trusted PR comment")).getByRole("button", { name: "Collapse Trusted PR comment" })).toBeInTheDocument());
+    expect(within(entry("Checks settled, not green")).getByRole("button", { name: "Expand Checks settled, not green" })).toBeInTheDocument();
+    // same instance: the save results are still there
+    expect(screen.getByRole("region", { name: "Save results" })).toBeInTheDocument();
+  });
 });
