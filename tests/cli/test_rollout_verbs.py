@@ -826,3 +826,30 @@ def test_verify_falls_back_to_the_resume_step_of_an_older_document(
     later = datetime.now(UTC) + timedelta(seconds=5)
     put_failed(store, "after", created=later, finished=later, error=NO_BUILTIN)
     assert "after" in fail(capsys, "rollout", "verify")["message"]
+
+
+def test_plan_places_migrate_notes_after_upgrade_before_import(
+    wire, store, capsys, tmp_path  # noqa: F811
+):
+    put_node(store, "spark", "9.0.0", install={"mode": "shared_venv"})
+    wheel = tmp_path / "culture_rules-9.1.0-py3-none-any.whl"
+    wheel.write_bytes(b"")
+    out = jrun(capsys, "rollout", "plan", "--wheel", str(wheel))
+    lines = out["lines"]
+
+    def at(text):
+        return next(i for i, line in enumerate(lines) if text in line)
+
+    dry, apply_ = at("workflows migrate-notes   "), at("workflows migrate-notes --apply")
+    assert at("upgrade --host spark") < dry < apply_ < at("rollout seed") < at("rollout import")
+    assert at("rollout import") < at("rollout resume")
+    assert out["steps"] == [
+        "idle",
+        "pause",
+        "upgrade",
+        "seed",
+        "import",
+        "enable",
+        "resume",
+        "verify",
+    ]
