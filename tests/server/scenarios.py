@@ -88,3 +88,13 @@ def _record_rollout_snapshot(life: Any, store: Any) -> Callable[[], Any]:
 
 SERVER_AUDIT_SCENARIOS["rollouts.step"] = _record_rollout_step
 SERVER_AUDIT_SCENARIOS["rollouts.snapshot"] = _record_rollout_snapshot
+
+
+def _migrate_notes(life: Any, store: Any) -> Callable[[], Any]:
+    store.put(
+        "workflows", {"id": "w9", "name": "W", "description": "why", "notes": "", "steps": []}
+    )
+    return lambda: _defs(store).migrate_notes("alice", apply=True)
+
+
+SERVER_AUDIT_SCENARIOS["definitions.migrate_notes"] = _migrate_notes

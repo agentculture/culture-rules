@@ -425,6 +425,17 @@ class TypelessMigration(BaseModel):
     applied: bool
 
 
+class NotesChange(BaseModel):
+    id: str
+    name: str | None = None
+    nodes: list[str] = Field(description="'workflow' and/or the ids of the steps changed")
+
+
+class NotesMigration(BaseModel):
+    workflows: list[NotesChange]
+    applied: bool
+
+
 class BackfillResult(BaseModel):
     count: int = Field(description="run documents updated (or that would be, in a dry-run)")
     applied: bool
@@ -1060,6 +1071,17 @@ def _register_migrations(app: FastAPI, store: StoragePort, defs: Definitions) ->
             store, lambda rid: defs.set_enabled("rules", rid, False, identity), dry_run=not apply
         )
         return {"rules": rules, "applied": apply}
+
+    @app.post(
+        "/workflows/migrate-notes",
+        response_model=NotesMigration,
+        tags=["workflows"],
+        operation_id="migrate_workflow_notes",
+    )
+    def migrate_notes(identity: Identity, body: MigrateRequest | None = None):
+        """List workflows whose description moves to notes; ``apply`` moves it, audited."""
+        apply = (body or MigrateRequest()).apply
+        return {"workflows": defs.migrate_notes(identity, apply=apply), "applied": apply}
 
     @app.post(
         "/runs/backfill-ids",

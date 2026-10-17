@@ -30,6 +30,7 @@ from culture_rules.engine.variables import defined_variables, nodes_without_vari
 from culture_rules.io import exchange, gitrepo
 from culture_rules.io.bundle import KINDS, Bundle, SecretRef, check_name
 from culture_rules.model.machine import Machine
+from culture_rules.model.migrate_notes import migrate_notes, notes_changes
 from culture_rules.model.rule import Rule
 from culture_rules.model.validate import validate, validate_data, variable_ref_errors
 from culture_rules.model.variable import validate_variable_name
@@ -217,6 +218,10 @@ def _old_node_errors(rules: Iterable[Any], lacking: list[str]) -> list[dict[str,
 def _rule_set_errors(rules: Iterable[Rule], workflows: Iterable[Workflow]) -> list[dict[str, str]]:
     found = validate_rule_set(list(rules), {w.id: w for w in workflows})
     return [e.to_dict() for e in found]
+
+
+def _notes_entry(doc: Mapping[str, Any]) -> dict[str, Any]:
+    return {"id": doc["id"], "name": doc.get("name"), "nodes": notes_changes(doc)}
 
 
 class Definitions:
@@ -427,6 +432,48 @@ class Definitions:
                 after=res.document,
             )
         return res.document
+
+    @mutating_verb("definitions.migrate_notes", "Move workflow and step descriptions to notes")
+    def migrate_notes(self, identity: str, *, apply: bool = False) -> list[dict[str, Any]]:
+        """Move description to notes in every live workflow that still has any (c17, h14).
+
+        Dry-run unless ``apply``: it lists ``{id, name, nodes}`` per workflow it would change
+        (``nodes`` is ``workflow`` and/or step ids) and writes nothing. Applied, each workflow
+        is rewritten in its own transaction with one audit entry and a bumped revision, so a
+        tab read before the migration cannot overwrite it; it needs no expected revision. A
+        workflow with nothing to move is not written, so a second apply changes nothing.
+        """
+        require_identity(identity)
+        found: list[dict[str, Any]] = []
+        for doc in self.list("workflows"):
+            if not notes_changes(doc):
+                continue
+            if not apply:
+                found.append(_notes_entry(doc))
+                continue
+
+            def write(tx: Any, wid: str = doc["id"]) -> dict[str, Any] | None:
+                before = tx.get("workflows", wid)
+                if before is None or not _is_live(before) or not notes_changes(before):
+                    return None
+                after = tx.put(
+                    "workflows", {**migrate_notes(before), **rev.bump("workflows", before)}
+                )
+                self._audit.write(
+                    tx,
+                    identity=identity,
+                    verb="definitions.migrate_notes",
+                    collection="workflows",
+                    target_id=wid,
+                    before=before,
+                    after=after,
+                )
+                return _notes_entry(before)
+
+            entry = run_transaction(self._store, write)
+            if entry is not None:
+                found.append(entry)
+        return found
 
     def restore(self, kind: str, id: str, identity: str, life: Lifecycle) -> Document:
         """Restore a tombstoned definition through ``life`` (audited there), refusing an
