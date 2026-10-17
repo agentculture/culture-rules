@@ -20,7 +20,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getDescription } from "../../api/describe";
 import type { Paragraph, ParagraphSegment } from "../../api/types";
 import type { LiveChange } from "../../api/live";
-import { putWorkflowDef, type Step, type WorkflowDef } from "../../api/workflows";
+import {
+  REVISION_CONFLICT_MESSAGE,
+  getWorkflowDef,
+  isRevisionConflict,
+  putWorkflowDef,
+  type Step,
+  type WorkflowDef,
+} from "../../api/workflows";
 import { toDefinition } from "../model";
 import { useFeedSubscription, type LiveFeed } from "./liveFeed";
 import { stepViews, type StepView } from "./paragraphText";
@@ -235,6 +242,8 @@ export function SimpleView({ def, live, onSaved }: Readonly<SimpleViewProps>) {
   const [target, setTarget] = useState<Target>(null);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // A save refused because the workflow changed meanwhile: the typed text stays in its field.
+  const [conflict, setConflict] = useState(false);
 
   // Read again when the stored definition changes (a save, a reload) or the live feed says a
   // rule or workflow did.
@@ -259,14 +268,33 @@ export function SimpleView({ def, live, onSaved }: Readonly<SimpleViewProps>) {
   const save = async (next: WorkflowDef) => {
     setBusy(true);
     setSaveError(null);
+    setConflict(false);
     try {
-      const saved = await putWorkflowDef(toDefinition(next));
+      const saved = await putWorkflowDef(toDefinition(next), def.revision ?? 0);
       setTarget(null);
       onSaved?.(saved);
       setTick((n) => n + 1);
     } catch (err) {
-      setSaveError(`Save failed: ${errorMessage(err)}`);
+      if (isRevisionConflict(err)) {
+        setConflict(true);
+      } else {
+        setSaveError(`Save failed: ${errorMessage(err)}`);
+        setTarget(null);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Reload replaces the stored copy (and its revision); only now is the typed text let go.
+  const reload = async () => {
+    setBusy(true);
+    try {
+      onSaved?.(await getWorkflowDef(workflowId));
+      setConflict(false);
       setTarget(null);
+      setTick((n) => n + 1);
+    } catch (err) {
+      setSaveError(`Reload failed: ${errorMessage(err)}`);
     } finally {
       setBusy(false);
     }
@@ -285,6 +313,14 @@ export function SimpleView({ def, live, onSaved }: Readonly<SimpleViewProps>) {
 
   return (
     <section className="sv" aria-label="Simple view">
+      {conflict ? (
+        <p className="notice notice--error" role="alert">
+          {REVISION_CONFLICT_MESSAGE}.{" "}
+          <button type="button" className="wf-button" disabled={busy} onClick={() => void reload()}>
+            Reload
+          </button>
+        </p>
+      ) : null}
       {saveError ? (
         <p className="notice notice--error" role="alert">
           {saveError}

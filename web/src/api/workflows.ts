@@ -5,7 +5,7 @@
  * the engine's persisted run state (culture_rules/engine/runs.py
  * `_new_state`). Every call here is a route in api/openapi.json.
  */
-import { getJson, items, listRuns, query, request } from "./client";
+import { ApiError, getJson, items, listRuns, query, request } from "./client";
 import type {
   ExportResult,
   ImportPlan,
@@ -108,6 +108,11 @@ export interface WorkflowDef {
   outputs?: WorkflowOutput[];
   enabled?: boolean;
   schema_version?: string;
+  /**
+   * Server-owned metadata beside the definition (never inside a PUT body): bumped on every
+   * write. A save sends the one it read as `expected_revision`.
+   */
+  revision?: number;
   /** Tombstone fields: set on a soft-deleted definition (listed with `include_deleted`). */
   deleted_at?: string | null;
   deleted_by?: string | null;
@@ -191,9 +196,25 @@ export const listWorkflowDefs = (opts: ListWorkflowDefsOptions = {}, signal?: Ab
 export const getWorkflowDef = (id: string, signal?: AbortSignal) =>
   getJson<WorkflowDef>(`/workflows/${enc(id)}`, signal);
 
-/** `PUT /workflows/{id}`: replace the definition (only schema fields are sent). */
-export const putWorkflowDef = (def: WorkflowDef, signal?: AbortSignal) =>
-  request<WorkflowDef>("PUT", `/workflows/${enc(def.id)}`, def, signal);
+/**
+ * `PUT /workflows/{id}`: replace the definition (only schema fields are sent) if it is still at
+ * `expectedRevision`, the `revision` the caller read. A stale one is a 409 `revision_conflict`
+ * (see `isRevisionConflict`); the answer carries the new `revision`.
+ */
+export const putWorkflowDef = (def: WorkflowDef, expectedRevision: number, signal?: AbortSignal) =>
+  request<WorkflowDef>(
+    "PUT",
+    `/workflows/${enc(def.id)}`,
+    { ...def, expected_revision: expectedRevision },
+    signal,
+  );
+
+/** What a save that lost the race to another writer tells the person. */
+export const REVISION_CONFLICT_MESSAGE = "This workflow changed since you opened it";
+
+/** The save was refused because the workflow changed since it was read (409 `revision_conflict`). */
+export const isRevisionConflict = (err: unknown): boolean =>
+  err instanceof ApiError && err.status === 409 && err.code === "revision_conflict";
 
 /** `POST /workflows`: create a definition; a 409 means the id is taken (deleted ones included). */
 export const createWorkflowDef = (def: WorkflowDef, signal?: AbortSignal) =>
