@@ -66,6 +66,7 @@ export interface Step {
   id: string;
   name?: string;
   description?: string;
+  notes?: string;
   kind: StepKind;
   inputs?: Port[];
   outputs?: Port[];
@@ -98,6 +99,7 @@ export interface WorkflowDef {
   id: string;
   name: string;
   description?: string;
+  notes?: string;
   version?: number;
   inputs?: Port[];
   variables?: { name: string; type?: PortType; default?: unknown }[];
