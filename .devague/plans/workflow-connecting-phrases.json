@@ -1,0 +1,1038 @@
+{
+  "slug": "workflow-connecting-phrases",
+  "title": "workflow connecting phrases",
+  "frame_slug": "workflow-connecting-phrases",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-17T18:44:28Z",
+  "updated": "2026-10-17T18:55:53Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The Workflows tab reads as text, with no AI involved: each workflow carries a short paragraph and each step a one-line summary, both written by whoever builds the workflow. Simple shows that paragraph and then a paragraph built from the step lines, joined by fixed phrases derived from the step graph. With no workflow open, the tab hides the workflows pane and shows a card per workflow (name, step count, apps touched)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Each part of the announcement (plain description, built paragraph, joining phrases, overview with the pane hidden, apps touched) maps to an acceptance criterion in the plan, and none ships as a placeholder",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Connecting phrases come from the engine's real step semantics, not from edge kinds: Edge is port-to-port data wiring with no kind, and a step runs once every step feeding it through an edge is done. The phrase sources are a data dependency (sequence), steps with the same predecessors and no edge between them (at the same time), config.when (if), config.on_error skip (even if it fails), a retry policy (trying up to N times), a wait step's seconds (after waiting) and guard head_unchanged (unless the PR moves), for_each (for each item) and retry_until (until its condition holds)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A unit test per construct (sequence, same-predecessor siblings, when, on_error skip, retry, wait seconds, wait guard, for_each, retry_until) builds a minimal workflow and asserts the exact phrase; whether two steps get 'at the same time' is decided only by the edge graph (neither reaches the other through edges), matching engine/runs.py _deps_done",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "One fixed, unit-tested phrase per construct, held in one table; every phrase in the paragraph traces to a graph fact or a config key of the step it joins, and a test shows 0 invented lines: the paragraph contains only stored summaries and phrases from the table",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The phrase table is one dict in culture_rules/model/describe.py; a test walks every committed workflow's paragraph and asserts each joining phrase is a value of that table, and the rest of the text is a stored description",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "A step whose construct has no phrase in the table, or an unrecognised config, falls back to today's numbered line, never a guessed phrase",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "A test feeds a step of an unknown kind and a step with an unrecognised config and gets the d19 numbered line for it, with no phrase; describing never raises",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "The engine and run behaviour are unchanged: the paragraph is built in culture_rules/model/describe.py (stdlib only, no AI) and served through the existing GET /workflows/{id}/describe, so the CLI, MCP and editor read the same prose; api/openapi.json changes only for the new authored fields and the describe response",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "No file under culture_rules/engine or culture_rules/node changes; api/openapi.json changes only by the notes field and the describe response, and test_openapi_contract passes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Each overview card also lists the apps the workflow touches, derived from its steps' actors (an action step's config.action.params.actor, an ai or actor_task step's actor) resolved against the actors list to their app type (github, jira, discord, email, search)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Apps touched lists an app type only for actors whose type is app and whose surface is github, jira, discord, email or search; an unknown or deleted actor id is left out, never guessed; a workflow with none shows no apps line",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "No agent-drafting pipeline: no 'workflows summarize' verb, no summary_by author marker, no proposed/confirm state for prose. The paragraph and step lines are ordinary authored fields, written by a person in the editor or by an agent through the normal workflow write, like any other field (operator, 2026-10-17)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "grep finds no 'summarize' verb, no summary_by field and no proposed/confirm state for description; description is written through the same workflow write (API PUT, CLI/MCP workflows update) as any other field",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "description means plain description: Workflow.description holds the workflow's short plain-language paragraph and Step.description its one-line summary (operator, 2026-10-17). Technical notes move to a new optional field named notes on Workflow and Step (Python model, api/openapi.json, web types); a workflow or step without either loads and round-trips unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Every committed workflow loads with and without description and notes; a round-trip through the API returns both unchanged; Step.description and Workflow.description stay the same field names (no rename), notes is new",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "With no workflow open, /workflows hides the workflows pane and shows one card per workflow the API returns (name, step count, apps touched); opening a card shows the workflow with its pane, which can be closed and reopened",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "A web test opens /workflows with no workflow selected: no list pane is rendered, one card per workflow the fixture API returns, an empty list shows an empty state; opening a card shows the pane, whose toggle is a button with aria-expanded and works by keyboard",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Simple stops showing the flow chart and shows only text: the workflow's paragraph, then the built step paragraph; every field Simple edits today (entry trigger, condition, placement, continues into, ends here, on failure, runs) keeps an editor in Detailed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Simple renders no React Flow canvas; a test lists every field Simple edits today (entry trigger, condition, placement, attempt counting, shared conditions, continues into, ends here, on failure, runs) and finds an editor for each in Detailed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "A step with no summary shows as a visible gap in the paragraph, never invented text",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "A step with an empty description renders a visible gap marker with its step name in Simple and in describe, never filler; the test fixture has at least one such step",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The authored description survives a rollout: importing a committed workflow file whose description is empty does not erase a description stored from the editor; committed files carry notes (technical, code-side), and a committed file that does carry a description still wins",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "A test imports a bundle whose workflow has an empty description over a stored workflow that has one: the stored description remains and import reports no change for it alone; a committed file that carries a description still wins; every other field imports as before",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "The trust digest becomes versioned: v2 hashes the workflow without version, description and notes (workflow and step level), v1 stays today's function. workflow_role trusts a run when its v1 digest is in the v1 pins or its v2 digest is in the v2 pins, so chains crossing the rollout keep their role and editing prose never changes a v2 digest; the v1 set is retired in a later release, as the d20/d21 pins were",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A test shows that changing description or notes (workflow or step) leaves workflow_digest unchanged while any other field change still changes it; TRUSTED_WORKFLOWS gains the new digests and keeps the old ones, and tests/rules/test_trusted_workflow.py passes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "Tests: a run pinned to each historical definition in tests/rules/fixtures keeps its role through its v1 pin; the current committed definitions are trusted through v2 pins; changing description or notes leaves the v2 digest unchanged and any other field change still changes it; an unknown digest under both versions is refused",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "A migration moves today's technical description text into notes and leaves description empty for an author to write: 'culture-rules workflows migrate-notes' (dry-run by default, --apply commits, --json) over a server endpoint, in the pattern of 'rules migrate-typeless' and 'runs backfill-ids', with its MCP tool; the committed docs/rules workflow files are moved the same way in the same change. A workflow whose notes is already set is left alone (re-running is a no-op)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Dry run lists each workflow and step it would move and writes nothing; --apply moves description to notes byte for byte and empties description; a second --apply reports 0 changes; the committed docs/rules files after the change equal the migration's output for them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "audience",
+      "text": "The operator and the agents who read and author culture-rules workflows: in the web editor at rules.culture.dev, and through the CLI/MCP 'workflows describe'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Every surface the spec changes is one the operator or an agent uses in the web editor or through culture-rules CLI/MCP",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "before_state",
+      "text": "Today a workflow's description holds technical notes (pr-fix: 'd21, d30: quiet period -> GitGuardian hold ...'), Simple shows a flow chart of cards, the Workflows tab always shows the list pane beside one open workflow, and 'workflows describe' prints numbered config lines (d19) with no plain account of what the workflow is for",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Checkable on main before the build: pr-fix's description starts 'd21, d30: quiet period', Simple renders a flow canvas, and Workflows.tsx renders the list beside an open workflow",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "why_it_matters",
+      "text": "A reader cannot tell what a workflow does or why without reading its config or decoding d-numbers; the text that would tell them has nowhere to live, because description is taken by notes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "The before-state quotes are reproducible from main (docs/rules/pr-fixer/workflows/pr-fix.json, 'culture-rules workflows describe pr-fix')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "after_state",
+      "text": "Opening Workflows shows a card per workflow (name, description or a no-description placeholder, step count, apps touched) with no list pane. Opening one, Simple reads as text: the workflow's description, then one paragraph of its step descriptions joined by fixed phrases from the step graph ('Once that is done, ...', 'At the same time, ...', 'If the issue has results, ...'). 'workflows describe' prints the same paragraph; technical notes sit in notes, shown in Detailed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "A Playwright test in CI's web job against the fixture API sees the cards with no pane, opens one, reads the description and the joined paragraph in Simple, and finds notes in Detailed; it fails if any is missing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "success_signal",
+      "text": "Against the 9 committed workflows (with descriptions written into a test fixture), the built paragraph covers 100% of steps in workflow order, every joining phrase comes from the phrase table and traces to a graph fact or config key (0 invented phrases), and the editor's Simple text and 'workflows describe --json' return identical paragraphs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The fixture with written descriptions lives under tests/ (not docs/rules, per commit-is-code-and-logic), and the parity test compares the editor's rendered paragraph with the API describe output for the same workflow",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "success_signal",
+      "text": "After 'workflows migrate-notes --apply' on the live store, 0 workflows or steps still carry text in description that was there before the migration, notes holds it byte for byte, and every pr-fixer chain run started after the rollout keeps its trusted role (no workflow_not_trusted refusals)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "Checked live on rules.culture.dev after the rollout: migrate-notes dry run, then --apply, then a second dry run reporting 0; a pr-fixer chain run after the rollout reaches publish-fix or ends for a reason other than workflow_not_trusted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "Step count on a card counts every step including loop bodies; apps touched also include the actors of the Then-side actions of the rules that start the workflow (they read as part of the workflow in the editor)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "A card test with a loop workflow (daily-newspaper: 10 steps, 2 for_each with bodies) shows the full count, and a workflow whose rule's Then action posts a github.comment lists GitHub",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "Siblings with no edge between them read 'at the same time' only when at most one of them has config.when; when two or more carry a when, they read 'Depending on the conditions:' and the join after them reads 'Then', never 'Once both are done' (review-commit's review_codex and review_qwen exclude each other through when, so only one runs)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "review-commit's paragraph contains 'Depending on the conditions' and neither 'at the same time' nor 'once both'; pr-fix's threads and sonar (no when) still read 'at the same time'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Inside a loop body the phrases follow declared order ('Then:'), never 'at the same time': body steps run one after another in declared order (engine/runs.py _earlier_iteration_steps_ok), whatever their edges say",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "A test with a for_each body of two unconnected steps renders 'Then:' between them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "Join phrases are chosen on the transitive reduction of the edge graph: an edge already implied by a longer path never adds a 'once X and Y are done' (daily-newspaper's render has five incoming edges, all but one implied by the chain)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "daily-newspaper's render is introduced by 'Then:' alone; a unit test with a diamond (A to B, A to C, B and C to D, A to D) gives D 'Once both are done' naming only B and C's branch",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "A config.when identical on every remaining step at the same level is said once ('From here on, only if `<condition>`:') rather than repeated (daily-newspaper repeats 'deliver = true' on 8 of 10 steps; pr-fix's fix body repeats each fixer condition on 2-3 steps)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "daily-newspaper's paragraph contains 'deliver' at most twice; a step whose condition differs from the run in force still gets its own 'If'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "Conditions read in words: describe.py gains a words rendering of condition operators (= is, \u2260 is not, \u2208 is one of, missing is not set) beside today's symbol rendering, which d19's numbered lines keep; a rendered condition over a fixed length falls back to 'if its condition holds' with the full condition in Detailed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "condition_text's symbol output for d19 lines is byte-identical before and after; the words form of every operator in model/condition.py has a unit test; a condition past the cap renders 'if its condition holds'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Joining grammar is fixed: each phrase ends in a colon and the step's description follows unchanged as its own sentence (no lower-casing, no trimming), so author text is never rewritten; descriptions are written as standalone sentences",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "For every committed workflow with fixture descriptions, each description appears verbatim in the paragraph; every phrase in the table ends with a colon",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "The describe response keeps entries and lines (d19) and adds the workflow description and the paragraph as separate fields; the CLI prints the description, then the paragraph, then the numbered lines; --json carries all three; api/openapi.json pins the new fields",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "test_openapi_contract passes with the new describe fields; 'culture-rules workflows describe pr-fix' still prints the d19 numbered lines after the paragraph; --json has description, paragraph, entries and lines",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "boundary",
+      "text": "Nothing outside display reads a workflow's or step's description or notes: no engine code, actor brief, action param or reference namespace (grep of culture_rules today: only model, store, describe and schema touch them). Excluding them from the trust digest is safe only while that holds; a test fails if engine, node or actors code reads them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "A test greps culture_rules/engine, culture_rules/node and culture_rules/actors for reads of a workflow's or step's description or notes and fails on any",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "migrate-notes runs inside a rollout after the upgrade step has reached every host and before resume (steps: idle, pause, upgrade, seed, import, enable, resume, verify); the import step already writes the migrated committed files, so the verb covers stored workflows that are not in docs/rules",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "The rollout runbook and 'rollout plan' lines place migrate-notes between upgrade and resume; a dry run during the live rollout lists only workflows not in docs/rules (or none)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Workflow updates carry the version they were read at: the API refuses an update with a missing or stale expected version (409) and writes nothing, so a stale editor tab, including one from the previous release that knows no notes, can never overwrite a newer workflow or drop migrated notes. The editor, CLI and MCP send the version they read",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "API tests: an update with the current version succeeds; a stale version gets 409 and the stored document is unchanged; a body with no expected version gets 409; the editor test saves twice from two tabs and the second gets the conflict message",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "The new verb follows the CLI contract: workflows migrate-notes has an explain catalog entry, a mention in learn, an MCP tool kept identical by the parity test, and teken cli doctor --strict stays green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "'culture-rules explain workflows migrate-notes' prints an entry, learn mentions it, the MCP parity test lists it, teken cli doctor . --strict passes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "The constructed paragraph also reflects the rules: each rule that starts the workflow renders as one built sentence (its trigger, condition and placement, from describe.py's trigger_text and condition_text) before the step sentences, and the Then side (continues into, ends here, the action, on failure) as a built sentence after them; no rule free text is used (operator, 2026-10-17)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "pr-fix's paragraph opens with one built sentence per entry-point rule (e.g. 'Starts when a pr-fixer-dispatch run asks for a fix, on spark2.') and ends with its Then sentence (continues into review-commit; on failure ...); every word comes from describe.py's vocabularies, and no rule's description or name text appears",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Before-state evidence on main",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A record (devague evidence or the plan's notes) quotes pr-fix's stored description starting 'd21, d30: quiet period', the SimpleView React Flow canvas in web/src/workflows/simple/SimpleView.tsx, and the list pane always rendered in web/src/routes/Workflows.tsx, each with file and line on main b146956"
+      ],
+      "deps": [],
+      "covers": [
+        "c19",
+        "h16",
+        "c20",
+        "h17"
+      ],
+      "instruction": "Read-only: cite main as of b146956. No code changes."
+    },
+    {
+      "id": "t2",
+      "summary": "Model: optional notes on Workflow and Step",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/model/workflow.py: Workflow.notes and Step.notes, free text, default empty; description keeps its name",
+        "Every committed docs/rules workflow loads unchanged; a round-trip through Workflow.from_dict/to_dict and through the API keeps description and notes",
+        "schemas/workflow.schema.json, api/openapi.json and web/src/api/types.ts carry notes; test_openapi_contract passes"
+      ],
+      "deps": [],
+      "covers": [
+        "c11",
+        "h8"
+      ],
+      "instruction": "Add the field with doc() like description. Regenerate the JSON schema and openapi the way previous field additions did (grep the git log for openapi.json). Touch no describe, trust or web view code."
+    },
+    {
+      "id": "t3",
+      "summary": "Boundary test: engine, node and actors never read description or notes; no drafting verb",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_boundaries.py (or a new test beside it) fails if any module under culture_rules/engine, culture_rules/node or culture_rules/actors reads a workflow's or step's description or notes",
+        "The same test asserts no 'summarize' CLI verb or MCP tool exists and no summary_by field is in the model"
+      ],
+      "deps": [],
+      "covers": [
+        "c32",
+        "h29",
+        "c10",
+        "h7"
+      ],
+      "instruction": "Extend the existing AST/grep style in tests/test_boundaries.py; allow culture_rules/model, store, server, io and cli."
+    },
+    {
+      "id": "t4",
+      "summary": "Trust: versioned workflow digest (v1 and v2 pins)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/actors/trusted.py: workflow_digest_v2 hashes the definition without version, description and notes (workflow and every step, loop bodies included); workflow_digest (v1) is unchanged byte for byte",
+        "workflow_role trusts a run when its v1 digest is in the v1 pins or its v2 digest is in the v2 pins; an unknown digest under both is refused (fails closed)",
+        "v2 pins exist for the current committed pr-fixer workflows; tests: the pr-fixer-single fixture and every current committed definition keep their role; changing description or notes leaves v2 unchanged; any other field change changes it; tests/rules pass unchanged"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c16",
+        "h13",
+        "h33"
+      ],
+      "instruction": "Keep TRUSTED_WORKFLOWS as the v1 set; add TRUSTED_WORKFLOWS_V2 keyed by the same roles, with a comment naming the release and that v1 retires later as d20/d21 did. Print new digests from tests/rules/test_trusted_workflow.py's helper."
+    },
+    {
+      "id": "t5",
+      "summary": "describe.py: conditions in words",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/model/describe.py gains condition_words(tree) covering every operator in culture_rules/model/condition.py (is, is not, is one of, is not set, and/or/not, comparisons); one unit test per operator",
+        "condition_text output (symbols) is byte-identical before and after for every committed rule and workflow (snapshot test over docs/rules)",
+        "A rendered condition longer than a fixed cap (constant in describe.py) yields 'if its condition holds'"
+      ],
+      "deps": [],
+      "covers": [
+        "c29",
+        "h26"
+      ],
+      "instruction": "Add a sibling function; do not change condition_text or the d19 entries."
+    },
+    {
+      "id": "t6",
+      "summary": "paragraph.py: step paragraph from the phrase table",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "New culture_rules/model/paragraph.py, stdlib only: PHRASES (one dict) and step_paragraph(workflow) returning ordered segments {phrase, step, text} plus a rendered string",
+        "Unit tests, one per construct: sequence, same-predecessor siblings (no when), siblings with two or more when ('Depending on the conditions:'), join on the transitive reduction (diamond test), when, retry, on_error skip, wait seconds, wait guard, for_each, retry_until, loop body in declared order, condition shared by every remaining step said once",
+        "Unknown step kind or malformed config yields the d19 step_text line for that step and never raises; an empty description yields a visible gap segment naming the step",
+        "Every phrase ends with ':'; a test over all 9 committed workflows (with descriptions from a fixture under tests/fixtures) asserts every joining phrase is a PHRASES value and every description appears verbatim"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c3",
+        "h2",
+        "c4",
+        "h3",
+        "c5",
+        "h4",
+        "c14",
+        "h11",
+        "c25",
+        "h22",
+        "c26",
+        "h23",
+        "c27",
+        "h24",
+        "c28",
+        "h25",
+        "c30",
+        "h27"
+      ],
+      "instruction": "Readiness semantics come from engine/runs.py (_deps_done for top level, _earlier_iteration_steps_ok for loop bodies); read them, do not import the engine. Use describe.condition_words for when/until. Keep paragraph.py free of rule logic (t7 adds it)."
+    },
+    {
+      "id": "t7",
+      "summary": "paragraph.py: rule sentences around the step paragraph",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "rule_sentence(rule) builds one sentence per entry-point rule from trigger, condition, placement and relationships via describe.py vocabularies; then_sentence(rules) builds the Then side (continues into, ends here, action, on failure); no rule name or description text is used",
+        "pr-fix's paragraph (with its starting rules from docs/rules/pr-fixer/rules) opens with one sentence per starting rule and ends with the Then sentence; an unknown trigger or action kind falls back to its raw name"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c37",
+        "h35"
+      ],
+      "instruction": "Reuse describe.trigger_text, condition_words, action_text; the editor's fold (web/src/fold/model.ts) defines which rules start a workflow and which continue into it - mirror that in Python."
+    },
+    {
+      "id": "t8",
+      "summary": "API, CLI and MCP: describe returns description and paragraph",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GET /workflows/{id}/describe returns description, paragraph (segments and text), entries and lines; api/openapi.json pinned; test_openapi_contract passes",
+        "`culture-rules workflows describe <id>` prints description, then paragraph, then the d19 numbered lines; --json carries all; the MCP tool returns the same; the CLI/MCP parity test passes",
+        "No file under culture_rules/engine or culture_rules/node changes"
+      ],
+      "deps": [
+        "t7",
+        "t2"
+      ],
+      "covers": [
+        "c31",
+        "h28",
+        "c7",
+        "h5"
+      ],
+      "instruction": "Route in culture_rules/server/app.py beside describe_rule (line ~1259); CLI in culture_rules/cli/_commands/workflows.py; MCP in culture_rules/mcp/tools.py."
+    },
+    {
+      "id": "t9",
+      "summary": "API: expected version on workflow updates",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "PUT /workflows/{id} requires the expected version (If-Match or a body field, decided once and pinned in api/openapi.json); a missing or stale one gets 409 naming the current version and writes nothing, checked inside the store transaction",
+        "culture_rules/client and the CLI/MCP workflow write verbs send the version they read; API tests cover current, stale and missing; rollout import (io/exchange.py) is unaffected or passes its own version"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c34",
+        "h34"
+      ],
+      "instruction": "Implement in server/service.py _save for kind workflows only, using tx.update_if or an equivalent compare on version, like set_enabled's Conflict path. Do not touch web/ (t15 does)."
+    },
+    {
+      "id": "t10",
+      "summary": "Rollout import keeps a stored description the committed file lacks",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/io/exchange.py: importing a workflow whose committed description (workflow or step) is empty over a stored one that has it keeps the stored description and reports no change for that alone; a committed non-empty description wins; every other field imports as before"
+      ],
+      "deps": [],
+      "covers": [
+        "c15",
+        "h12"
+      ],
+      "instruction": "Merge the stored description into the committed form inside _change_for before comparing; tests in tests/io."
+    },
+    {
+      "id": "t11",
+      "summary": "migrate-notes: endpoint, CLI verb, MCP tool, explain and learn",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "POST /workflows/migrate-notes (dry run unless apply) moves description to notes byte for byte for workflow and steps, one audited write per workflow, skips a workflow whose notes is already set, and a second apply reports 0 changes",
+        "'culture-rules workflows migrate-notes [--apply] [--json]' via cli/_nounlib.py migration(), its MCP tool (parity test passes), an entry in explain/catalog.py and a mention in learn; teken cli doctor . --strict passes",
+        "The migration is one pure function migrate_notes(definition) -> definition in culture_rules/model, reused by the endpoint and by t11"
+      ],
+      "deps": [
+        "t9",
+        "t2"
+      ],
+      "covers": [
+        "c17",
+        "h14",
+        "c35",
+        "h32"
+      ],
+      "instruction": "Follow rules migrate-typeless end to end (server/app.py ~1016, cli rules.py:35, mcp tools)."
+    },
+    {
+      "id": "t12",
+      "summary": "Migrate the committed docs/rules workflow files",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Every docs/rules/*/workflows/*.json equals migrate_notes() of its previous content (test); descriptions are empty, notes hold the old text",
+        "v1 digests of the migrated files are NOT required; v2 pins from t4 still match (v2 ignores description and notes); tests/rules and the bundle tests pass"
+      ],
+      "deps": [
+        "t11",
+        "t4"
+      ],
+      "covers": [
+        "c17",
+        "h14"
+      ],
+      "instruction": "Run the pure function over the files with a one-off script in the scratchpad; commit only the JSON changes."
+    },
+    {
+      "id": "t13",
+      "summary": "Web: overview cards with the pane hidden",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "/workflows with nothing open renders no list pane and one card per workflow the API returns (name, description or 'No description yet', step count including loop bodies, apps touched); empty and error states; vitest",
+        "Apps touched: app-kind actors with a surface in APP_SURFACES, from action steps' params.actor, ai/actor_task actors and the starting rules' Then actions; unknown ids left out; a loop workflow shows its full step count",
+        "Opening a card shows the workflow with its pane; the pane toggle is a button with aria-expanded and works by keyboard"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c12",
+        "h9",
+        "c8",
+        "h6",
+        "c24",
+        "h21"
+      ],
+      "instruction": "New web/src/workflows/list/Overview.tsx; Workflows.tsx only switches between overview and open workflow. Actors come from the existing actors API client."
+    },
+    {
+      "id": "t14",
+      "summary": "Web: Simple shows description and the API paragraph",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "web/src/workflows/simple/SimpleView.tsx renders no React Flow canvas: the workflow description (or a gap), then the paragraph segments from GET /workflows/{id}/describe with phrases styled and gaps visible",
+        "The editor builds no phrases itself (o4): a test shows Simple text equals the API paragraph for a fixture workflow"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c13",
+        "h10"
+      ],
+      "instruction": "Use web/src/api/describe.ts; extend its types from openapi. Keep the description editable inline (one line per step, the paragraph field for the workflow)."
+    },
+    {
+      "id": "t15",
+      "summary": "Web: Detailed gains the editors Simple drops, and notes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A vitest lists every field Simple edited before (entry trigger, condition, placement, attempt counting, shared conditions, continues into, ends here, on failure, runs) and finds an editor for each in Detailed",
+        "Detailed shows notes for the workflow and each step, editable; StepEditor's description field is labelled as the one-line description"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c13",
+        "h10"
+      ],
+      "instruction": "Files: web/src/workflows/views/*, StepEditor.tsx, IoEditor.tsx. Not SimpleView.tsx or Workflows.tsx."
+    },
+    {
+      "id": "t16",
+      "summary": "Web: saves send the expected version; conflict message",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "web/src/api/workflows.ts sends the version read; a 409 shows 'This workflow changed since you opened it' with a reload action and keeps the draft; a two-tab vitest gets the conflict on the second save"
+      ],
+      "deps": [
+        "t9",
+        "t13"
+      ],
+      "covers": [
+        "c34",
+        "h34"
+      ],
+      "instruction": "Touch web/src/api/workflows.ts and the save handler only."
+    },
+    {
+      "id": "t17",
+      "summary": "Rollout plan places migrate-notes between upgrade and resume",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "'culture-rules rollout plan' lines and docs/operations rollout runbook list migrate-notes (dry run then --apply) after upgrade on every host and before resume; a test checks the step order"
+      ],
+      "deps": [
+        "t11"
+      ],
+      "covers": [
+        "c33",
+        "h30"
+      ],
+      "instruction": "culture_rules/cli/_commands/rollout.py plan lines (~line 505) and the ops doc; do not add a new rollout state step unless the existing record model needs it."
+    },
+    {
+      "id": "t18",
+      "summary": "Behavioural Playwright test and parity check in CI's web job",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Playwright against the fixture API: cards with no pane; open pr-fix; Simple shows description and the joined paragraph; notes in Detailed; fails if any is missing",
+        "The fixture (under web test fixtures and tests/fixtures, not docs/rules) has a workflow with no description and a step with none; 100% of steps appear in order with 0 invented phrases; editor text equals the API describe paragraph",
+        "Assumption c9 checked: the 9 committed workflows render How it runs with no fallback line, or the test lists the fallbacks"
+      ],
+      "deps": [
+        "t13",
+        "t14",
+        "t15",
+        "t16",
+        "t8"
+      ],
+      "covers": [
+        "c21",
+        "h18",
+        "c22",
+        "h19"
+      ],
+      "instruction": "Extend the existing web job Playwright suite; reuse t6's description fixture."
+    },
+    {
+      "id": "t19",
+      "summary": "Docs, CHANGELOG, prompt files and version 0.21.0",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md describe description/notes, the paragraph and migrate-notes in step; markdownlint-cli2 over the tree passes; harness-smoke passes",
+        "version-bump minor to 0.21.0 with a CHANGELOG entry; a closeout table maps every announcement element (description, paragraph, phrases, rule sentences, cards, apps, notes migration, versioned digest, expected version) to the task criterion that proves it"
+      ],
+      "deps": [
+        "t17",
+        "t18",
+        "t12"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c18",
+        "h15"
+      ],
+      "instruction": "Use the version-bump skill. Docs describe what is on disk."
+    },
+    {
+      "id": "t20",
+      "summary": "Live: roll out 0.21.0 through the CLI with migrate-notes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Operator-run rollout via culture-rules rollout: idle, pause, upgrade, seed, import, migrate-notes dry run then --apply, a second dry run reporting 0, enable, resume, verify",
+        "On rules.culture.dev: 0 workflows still carry pre-migration text in description, notes holds it byte for byte (sampled against the audit trail), and the next pr-fixer chain run reaches publish-fix or ends for a reason other than workflow_not_trusted"
+      ],
+      "deps": [
+        "t19"
+      ],
+      "covers": [
+        "c23",
+        "h20"
+      ],
+      "instruction": "Deploy steps need the operator's shell (memory: deploys-need-operator-shell); check each step's result before the next (rollout-steps-stop-on-error)."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "API tasks t2, t8, t9 and t11 each re-pin api/openapi.json; they are chained by dependencies so they never share a wave",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "The phrase wording (PHRASES values) is proposed in the spec artifact, not confirmed text; t6's acceptance pins behaviour, and the operator reviews the wording at t6's merge",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "Wave 4: t9 changes api/openapi.json while t14 may regenerate web/src/api/types.ts from it; if types are generated, t14 rebases on t9 before merge",
+      "kind": "unknown_nonblocking",
+      "task_id": "t14",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": [
+    {
+      "id": "o1",
+      "task_id": "t6",
+      "criterion_index": 1,
+      "criterion_snapshot": "New culture_rules/model/paragraph.py, stdlib only: PHRASES (one dict) and step_paragraph(workflow) returning ordered segments {phrase, step, text} plus a rendered string",
+      "seam": "culture_rules/model/describe.py paragraph builder",
+      "behavior": "A pure, stdlib-only function: the same workflow always yields the same paragraph; every joining phrase is a value of the one phrase table; no network, clock or randomness (frame o1)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "task_id": "t6",
+      "criterion_index": 3,
+      "criterion_snapshot": "Unknown step kind or malformed config yields the d19 step_text line for that step and never raises; an empty description yields a visible gap segment naming the step",
+      "seam": "culture_rules/model/describe.py on unknown input",
+      "behavior": "Never raises: an unknown step kind, malformed config or missing field yields the d19 numbered line for that step, and the rest of the paragraph still renders (frame o2)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "task_id": "t8",
+      "criterion_index": 1,
+      "criterion_snapshot": "GET /workflows/{id}/describe returns description, paragraph (segments and text), entries and lines; api/openapi.json pinned; test_openapi_contract passes",
+      "seam": "GET /workflows/{id}/describe (api/openapi.json)",
+      "behavior": "Returns description, paragraph, entries and lines for every stored workflow, including one with no steps or no descriptions; the schema served equals api/openapi.json (frame o3)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "task_id": "t14",
+      "criterion_index": 2,
+      "criterion_snapshot": "The editor builds no phrases itself (o4): a test shows Simple text equals the API paragraph for a fixture workflow",
+      "seam": "web/src/api/describe.ts \u2194 Simple view",
+      "behavior": "The editor shows the paragraph the API returns and never builds its own; Simple and 'workflows describe --json' are identical for the same workflow version (frame o4)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "task_id": "t11",
+      "criterion_index": 2,
+      "criterion_snapshot": "'culture-rules workflows migrate-notes [--apply] [--json]' via cli/_nounlib.py migration(), its MCP tool (parity test passes), an entry in explain/catalog.py and a mention in learn; teken cli doctor . --strict passes",
+      "seam": "CLI 'workflows migrate-notes' \u2194 MCP tool",
+      "behavior": "Same verb, same arguments, same output, kept identical by the CLI/MCP parity test; dry run by default, --apply to commit, --json everywhere, exit codes 0/1/2 per the CLI contract (frame o5)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "task_id": "t11",
+      "criterion_index": 1,
+      "criterion_snapshot": "POST /workflows/migrate-notes (dry run unless apply) moves description to notes byte for byte for workflow and steps, one audited write per workflow, skips a workflow whose notes is already set, and a second apply reports 0 changes",
+      "seam": "migration endpoint over the store",
+      "behavior": "A dry run writes nothing; --apply moves description to notes byte for byte, in one audited write per workflow; a second --apply changes nothing; a workflow with notes already set is left alone (frame o6)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "task_id": "t10",
+      "criterion_index": 1,
+      "criterion_snapshot": "culture_rules/io/exchange.py: importing a workflow whose committed description (workflow or step) is empty over a stored one that has it keeps the stored description and reports no change for that alone; a committed non-empty description wins; every other field imports as before",
+      "seam": "culture_rules/io/exchange.py import (rollout import step)",
+      "behavior": "Never clears a stored non-empty description when the committed file's description is empty; every other field imports exactly as before (frame o7)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "task_id": "t4",
+      "criterion_index": 2,
+      "criterion_snapshot": "workflow_role trusts a run when its v1 digest is in the v1 pins or its v2 digest is in the v2 pins; an unknown digest under both is refused (fails closed)",
+      "seam": "culture_rules/actors/trusted.py workflow_role",
+      "behavior": "Fails closed: a digest not in the pins is never trusted; after the release, every pr-fixer chain run started on the current committed definitions keeps its role, and editing description or notes never changes a digest (frame o8)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "task_id": "t3",
+      "criterion_index": 1,
+      "criterion_snapshot": "tests/test_boundaries.py (or a new test beside it) fails if any module under culture_rules/engine, culture_rules/node or culture_rules/actors reads a workflow's or step's description or notes",
+      "seam": "engine, node and actors packages",
+      "behavior": "Never read a workflow's or step's description or notes; a test enforces it (frame o10)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "task_id": "t13",
+      "criterion_index": 1,
+      "criterion_snapshot": "/workflows with nothing open renders no list pane and one card per workflow the API returns (name, description or 'No description yet', step count including loop bodies, apps touched); empty and error states; vitest",
+      "seam": "/workflows overview",
+      "behavior": "Lists exactly the workflows the API returns, with an empty state for none and an error state for a failed load, never a blank page (frame o11)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "task_id": "t13",
+      "criterion_index": 2,
+      "criterion_snapshot": "Apps touched: app-kind actors with a surface in APP_SURFACES, from action steps' params.actor, ai/actor_task actors and the starting rules' Then actions; unknown ids left out; a loop workflow shows its full step count",
+      "seam": "apps touched on a card",
+      "behavior": "Shows an app only for an enabled or disabled actor of kind app with a known surface; an unknown or deleted actor id is left out, never guessed (frame o12)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "task_id": "t9",
+      "criterion_index": 1,
+      "criterion_snapshot": "PUT /workflows/{id} requires the expected version (If-Match or a body field, decided once and pinned in api/openapi.json); a missing or stale one gets 409 naming the current version and writes nothing, checked inside the store transaction",
+      "seam": "PUT /workflows/{id} (server/service.py _save)",
+      "behavior": "Writes only when the expected version equals the stored version, in the same transaction; otherwise 409 naming the current version, and nothing is written (frame o13)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "task_id": "t7",
+      "criterion_index": 1,
+      "criterion_snapshot": "rule_sentence(rule) builds one sentence per entry-point rule from trigger, condition, placement and relationships via describe.py vocabularies; then_sentence(rules) builds the Then side (continues into, ends here, action, on failure); no rule name or description text is used",
+      "seam": "culture_rules/model/describe.py rule sentence",
+      "behavior": "Builds a rule's sentence only from its trigger, condition, placement, relationships and action through the existing d19 vocabularies; an unknown trigger or action kind falls back to its raw name, never free text (frame o14)",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
+}
