@@ -121,11 +121,10 @@ const ready = () => waitFor(() => expect(getAgentState().status).toBe("ready"));
 const emptyState = () => screen.getByRole("region", { name: "No workflows yet" });
 const list = () => screen.getByRole("navigation", { name: "Workflows" });
 /** The list pane's "New workflow" (it replaced the header's "+ New"). */
-const listNew = () => within(list()).getByRole("button", { name: "New workflow" });
+const listNew = () => within(screen.getByRole("complementary")).getByRole("button", { name: "New workflow" });
 const rowLink = (name: string) => within(list()).getByRole("link", { name });
-/** The folded list's stored workflows (rules pointing at a missing definition are listed apart). */
-const storedRows = () => [...list().querySelectorAll<HTMLElement>(".fold-workflow[data-workflow-id]:not([data-missing]):not(.is-deleted)")];
-const rowNames = () => storedRows().map((row) => row.querySelector("h3")!.textContent);
+/** The compact pane's rows: one link per workflow name (t21). */
+const rowNames = () => [...list().querySelectorAll("a")].map((a) => a.textContent);
 const nameForm = () => screen.getByRole("form", { name: "New workflow" });
 
 beforeEach(() => {
@@ -261,14 +260,14 @@ describe("Workflows tab: New workflow with a workflow selected", () => {
     expect(screen.getByRole("heading", { level: 1, name: "New workflow" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
     // No row is current while naming (as Rules while its "New rule" form is open).
-    expect(within(list()).queryByRole("link", { current: true })).toBeNull();
+    expect(within(list()).queryByRole("link", { current: "page" })).toBeNull();
     await user.type(within(nameForm()).getByRole("textbox", { name: "Name" }), "Review PR{Enter}");
     // "review-pr" is taken: the slug moves on.
     await waitFor(() => expect(where).toBe("/workflows?id=review-pr-2"));
     expect(await screen.findByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
     // The folded list orders workflows by chain, so compare as a set.
     expect(rowNames().sort()).toEqual(["Build image", "Review PR", "Review PR"]);
-    expect(within(list()).getByRole("link", { current: true })).toHaveAttribute("href", "/workflows?id=review-pr-2");
+    expect(within(list()).getByRole("link", { current: "page" })).toHaveAttribute("href", "/workflows?id=review-pr-2");
     await waitFor(() => expect(workflowsState()).toMatchObject({ count: 3, selected: "review-pr-2", steps: [] }));
   });
 
@@ -344,11 +343,12 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
   it("the list row's switch posts disable then enable; the header has none (as Rules)", async () => {
     const user = userEvent.setup();
     const api = fakeApi(WORKFLOW_DOCS);
-    renderWorkflows("/workflows?id=build-image");
-    await screen.findByRole("heading", { level: 1, name: "Build image" });
+    // t21: the enable switches live in the overview (chain cards), not the compact pane.
+    renderWorkflows("/workflows");
+    await screen.findByRole("heading", { level: 1, name: "Workflows" });
     await ready();
     expect(screen.queryByRole("switch", { name: "Workflow enabled" })).toBeNull();
-    const toggle = within(list()).getByRole("switch", { name: "Build image enabled" });
+    const toggle = screen.getByRole("switch", { name: "Build image enabled" });
     expect(toggle).toHaveAttribute("aria-checked", "true");
     await user.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
@@ -359,23 +359,22 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
       "POST /api/workflows/build-image/enable",
     ]);
     expect(workflowsState()?.dirty).toBe(false);
-    expect(rowLink("Build image").closest(".fold-workflow")).not.toHaveClass("is-disabled");
+    expect(toggle.closest(".fold-workflow")).not.toHaveClass("is-disabled");
   });
 
   it("a row's switch toggles that workflow, not only the selected one", async () => {
     const user = userEvent.setup();
     const api = fakeApi(WORKFLOW_DOCS);
-    renderWorkflows("/workflows?id=review-pr");
-    await screen.findByRole("heading", { level: 1, name: "Review PR" });
+    renderWorkflows("/workflows");
+    await screen.findByRole("heading", { level: 1, name: "Workflows" });
     await ready();
-    const toggle = within(list()).getByRole("switch", { name: "Build image enabled" });
+    const toggle = screen.getByRole("switch", { name: "Build image enabled" });
     await user.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
-    expect(rowLink("Build image").closest(".fold-workflow")).toHaveClass("is-disabled");
+    expect(toggle.closest(".fold-workflow")).toHaveClass("is-disabled");
     expect(api.writes().map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/workflows/build-image/disable"]);
-    // The open workflow stays open.
-    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
-    expect(where).toBe("/workflows?id=review-pr");
+    // Nothing gets opened by toggling.
+    expect(where).toBe("/workflows");
   });
 
   it("Delete soft-deletes, moves on, and Undo restores", async () => {
@@ -391,7 +390,7 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
     expect(within(list()).queryByRole("link", { name: "Nightly report" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Nightly report" })).toBeInTheDocument();
-    expect(rowLink("Nightly report")).toHaveAttribute("aria-current", "true");
+    expect(rowLink("Nightly report")).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(where).toBe("/workflows?id=nightly-report"));
     expect(screen.queryByText("Deleted Nightly report")).toBeNull();
     expect(api.writes().map((c) => `${c.method} ${c.path}`)).toEqual([
@@ -418,7 +417,7 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
     await screen.findByRole("heading", { level: 1, name: "Nightly report" });
     await ready();
     // One workflow: the list still shows, with its one row current.
-    expect(rowLink("Nightly report")).toHaveAttribute("aria-current", "true");
+    await waitFor(() => expect(rowLink("Nightly report")).toHaveAttribute("aria-current", "page"));
     await user.click(screen.getByRole("button", { name: "Delete workflow" }));
     expect(await screen.findByRole("heading", { level: 1, name: "No workflows yet" })).toBeInTheDocument();
     expect(within(emptyState()).getByRole("button", { name: "New workflow" })).toBeInTheDocument();
@@ -436,10 +435,10 @@ describe("Workflows toggle in flight (#7)", () => {
       if (/\/workflows\/build-image\/(enable|disable)$/.test(String(input))) await gate;
       return inner(input, init);
     }) as typeof fetch);
-    renderWorkflows("/workflows?id=build-image");
-    await screen.findByRole("heading", { level: 1, name: "Build image" });
+    renderWorkflows("/workflows");
+    await screen.findByRole("heading", { level: 1, name: "Workflows" });
     await ready();
-    const toggle = within(list()).getByRole("switch", { name: "Build image enabled" });
+    const toggle = screen.getByRole("switch", { name: "Build image enabled" });
     act(() => {
       toggle.click();
       toggle.click();
