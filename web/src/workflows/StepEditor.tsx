@@ -475,11 +475,23 @@ export function StepEditor({
           </label>
         </div>
         <label className="wf-field">
-          <span>Description</span>
+          <span>One-line description</span>
           <textarea
             rows={2}
+            aria-describedby={`${step.id}-description-hint`}
             value={step.description ?? ""}
             onChange={(e) => patch({ description: e.target.value })}
+          />
+        </label>
+        <small id={`${step.id}-description-hint`} className="wf-field__hint">
+          Plain language, one line: Simple reads it. Technical detail goes in Notes.
+        </small>
+        <label className="wf-field">
+          <span>Notes</span>
+          <textarea
+            rows={3}
+            value={step.notes ?? ""}
+            onChange={(e) => patch({ notes: e.target.value })}
           />
         </label>
         {portRows("inputs")}
