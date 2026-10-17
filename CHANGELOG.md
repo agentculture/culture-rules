@@ -16,6 +16,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `culture-rules rules migrate-orphans [--apply]` (`POST /rules/migrate-orphans`, admin, dry-run by default, an MCP tool): gives each workflow-less rule its own stepless workflow (the D7 move); a rule pointing at a missing or deleted workflow is only listed as not adopted
 - A server-owned workflow `revision` (store metadata, not a model field), bumped on every write: `PUT /workflows/{id}` needs `expected_revision`, and a stale or missing one gets 409 `revision_conflict` naming `current_revision`; the client, `workflows update` (`--expected-revision`) and the MCP tool send it
 - A versioned workflow digest: `workflow_role` trusts a run whose v1 digest is in `TRUSTED_WORKFLOWS` or whose v2 digest (ignoring description and notes at every level) is in `TRUSTED_WORKFLOWS_V2`; one role either way, and it fails closed. v2 pins exist for the committed pr-fixer workflows
+- `python -m culture_rules.actors.trusted workflow-v2 < FILE` prints the v2 digest new pins use (`workflow` still prints v1)
 - Editor: `/workflows` is an overview of full-width cards (name, description or "No description yet", step count including loop bodies, apps touched: app actors on github, jira, discord, email, search), with New workflow and New rule; an open workflow has a compact pane (a search box and workflow names) that collapses to a rail
 
 ### Changed

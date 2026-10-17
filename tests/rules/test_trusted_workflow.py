@@ -195,6 +195,20 @@ def test_the_digest_helper_prints_what_the_checks_compute(capsys):
     assert main(["actor"], stdin=io.StringIO("not json")) == 1
 
 
+def test_the_digest_helper_prints_the_v2_digest_new_pins_use(capsys):
+    """New pins go in TRUSTED_WORKFLOWS_V2, so the helper prints that digest too."""
+    import io
+    import json
+
+    from culture_rules.actors.trusted import main, workflow_digest, workflow_digest_v2
+
+    wf = workflow_doc()
+    assert main(["workflow-v2"], stdin=io.StringIO(json.dumps(wf))) == 0
+    assert capsys.readouterr().out.strip() == workflow_digest_v2(wf)
+    assert main(["workflow"], stdin=io.StringIO(json.dumps(wf))) == 0
+    assert capsys.readouterr().out.strip() == workflow_digest(wf)
+
+
 def test_every_committed_pr_fixer_workflow_hashes_to_a_trusted_digest():
     """t12: a committed definition is trusted in its role through v2 (prose left out), and
     its pre-migration form still hashes to the historical v1 pin."""

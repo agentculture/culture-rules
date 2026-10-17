@@ -25,7 +25,8 @@ its role when its v1 digest is in :data:`TRUSTED_WORKFLOWS` or its v2 digest is 
 trusted in none). The v1 set holds the older pins and is retired in a later release.
 
 Rolling out a legitimate change: edit the workflow in ``docs/rules/pr-fixer/workflows/``;
-``tests/rules/test_trusted_workflow.py`` then fails and prints the new v2 digest; add it to
+``tests/rules/test_trusted_workflow.py`` then fails and prints the new v2 digest (or run
+``python -m culture_rules.actors.trusted workflow-v2 < FILE``); add it to
 its role's set in :data:`TRUSTED_WORKFLOWS_V2` in the same PR (keep the old one while runs
 pinned to it may still push, remove it in a later release); ship the wheel, upgrade every
 node, then import the workflow. Standard-library only.
@@ -366,7 +367,8 @@ def is_pinned(actor_id: Any) -> bool:
 
 
 def main(argv: list[str] | None = None, stdin: Any = None) -> int:
-    """``python -m culture_rules.actors.trusted actor|workflow < FILE``: print the digest.
+    """``python -m culture_rules.actors.trusted actor|workflow|workflow-v2 < FILE``: print
+    the digest (``workflow`` is v1, ``workflow-v2`` the one new pins use).
 
     The document is read from standard input, never from a path argument, so the helper
     opens no file it is told to (an operator pipes the exported document in)."""
@@ -374,9 +376,15 @@ def main(argv: list[str] | None = None, stdin: Any = None) -> int:
 
     args = sys.argv[1:] if argv is None else argv
     source = sys.stdin if stdin is None else stdin
-    if len(args) != 1 or args[0] not in ("actor", "workflow"):
+    digests = {
+        "actor": actor_digest,
+        "workflow": workflow_digest,
+        "workflow-v2": workflow_digest_v2,
+    }
+    if len(args) != 1 or args[0] not in digests:
         print(
-            "usage: python -m culture_rules.actors.trusted actor|workflow < FILE", file=sys.stderr
+            "usage: python -m culture_rules.actors.trusted actor|workflow|workflow-v2 < FILE",
+            file=sys.stderr,
         )
         return 1
     try:
@@ -384,7 +392,7 @@ def main(argv: list[str] | None = None, stdin: Any = None) -> int:
     except ValueError:
         print("stdin is not a JSON document", file=sys.stderr)
         return 1
-    digest = actor_digest(doc) if args[0] == "actor" else workflow_digest(doc)
+    digest = digests[args[0]](doc)
     if digest is None:
         print(f"not a valid {args[0]} document", file=sys.stderr)
         return 1
