@@ -72,11 +72,12 @@ def test_workflows_describe_prints_the_lines(wire, seeded, capsys):  # noqa: F81
 
 
 def _unmarked(text: str, paragraph: dict) -> str:
-    """The CLI's paragraph with its marks taken out: strikes, and each stand-in's [ ]."""
+    """The CLI's paragraph with its marks taken out: ``(disabled)`` (d13), and each
+    stand-in's [ ]."""
     for seg in paragraph["segments"]:
         if seg.get("standin"):
             text = text.replace(f"[{seg['shown']}]", seg["shown"], 1)
-    return text.replace("~~", "").replace("\x1b[9m", "").replace("\x1b[29m", "")
+    return text.replace(" (disabled)", "")
 
 
 def test_describe_json_has_lines_and_entries(wire, seeded, capsys):  # noqa: F811
@@ -132,34 +133,28 @@ def newspaper(store):  # noqa: F811
     return store
 
 
-def test_describe_strikes_a_disabled_rule_out_without_a_tty(wire, newspaper, capsys):  # noqa: F811
+@pytest.mark.parametrize("tty", [False, True])
+def test_describe_marks_a_disabled_rule(wire, newspaper, capsys, monkeypatch, tty):  # noqa: F811
+    """d13: ``(disabled)`` after the disabled sentence's words, on a terminal or not; no
+    strike-through."""
+    monkeypatch.setattr("sys.stdout.isatty", lambda: tty, raising=False)
     para = jrun(capsys, "workflows", "describe", "daily-newspaper")["paragraph"]
     assert para["segments"][0]["disabled"] is True
     rc, out, err = run(capsys, "workflows", "describe", "daily-newspaper")
     assert rc == 0, err
     body = out.split("\n\n")[1]
     assert body.startswith(
-        "~~It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.~~\nFirst reads "
+        "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark (disabled).\nFirst reads "
     )
-    assert "\x1b" not in out and "isabled" not in body
-    assert _unmarked(body, para) == para["text"]
-
-
-def test_describe_strikes_with_ansi_on_a_tty(wire, newspaper, capsys, monkeypatch):  # noqa: F811
-    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
-    para = jrun(capsys, "workflows", "describe", "daily-newspaper")["paragraph"]
-    rc, out, err = run(capsys, "workflows", "describe", "daily-newspaper")
-    assert rc == 0, err
-    body = out.split("\n\n")[1]
-    assert body.startswith("\x1b[9mIt starts on cron")
-    assert "~~" not in body
+    assert body.count("(disabled)") == 1
+    assert "\x1b" not in out and "~~" not in out
     assert _unmarked(body, para) == para["text"]
 
 
 def test_describe_json_is_the_raw_payload_with_the_flag(wire, newspaper, capsys):  # noqa: F811
     out = jrun(capsys, "workflows", "describe", "daily-newspaper")
     assert out["paragraph"]["segments"][0]["disabled"] is True
-    assert "~~" not in out["paragraph"]["text"] and "\x1b" not in out["paragraph"]["text"]
+    assert "(disabled)" not in out["paragraph"]["text"] and "\x1b" not in out["paragraph"]["text"]
 
 
 @pytest.mark.parametrize("tty", [False, True])
@@ -174,10 +169,11 @@ def test_describe_puts_each_stand_in_in_brackets(
     rc, out, err = run(capsys, "workflows", "describe", "pr-fix")
     assert rc == 0, err
     body = out.split("\n\n")[0]
-    assert body.splitlines()[:2] == [
+    assert body.splitlines()[:3] == [
         "No rule starts it yet.",
         "First [quiet period], waiting 5 minutes, and the run stops if the PR head moves;"
-        " then [hold while GitGuardian fails]; then [trusted review threads].",
+        " then [hold while GitGuardian fails].",
+        "Then, at the same time, [trusted review threads] and [failing SonarCloud conditions].",
     ]
     assert body.count("[") == sum(1 for s in para["segments"] if s.get("standin"))
     assert _unmarked(body, para) == para["text"]

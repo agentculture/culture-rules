@@ -14,13 +14,16 @@ from culture_rules.model.paragraph import (
     BARE_LEADS,
     JOIN_KEYS,
     LEAD_KEYS,
+    MARK_KEYS,
     PHRASES,
     SENTENCE_KEYS,
+    SIBLING_KEYS,
     STANDIN_KEYS,
     TAIL_KEYS,
     compose,
     generic_line,
     lower_first,
+    mark_disabled,
     render_marked,
     standin_text,
     step_paragraph,
@@ -77,16 +80,20 @@ def test_the_table_is_lead_ins_connectors_trailing_clauses_and_sentences():
     assert PHRASES
     for key, value in PHRASES.items():
         assert isinstance(value, str) and not value.endswith(":"), key  # d11: no colon
-    assert LEAD_KEYS | JOIN_KEYS | TAIL_KEYS | STANDIN_KEYS | SENTENCE_KEYS | {"by"} == set(PHRASES)
+    every = LEAD_KEYS | JOIN_KEYS | TAIL_KEYS | STANDIN_KEYS | SENTENCE_KEYS | MARK_KEYS | {"by"}
+    assert every == set(PHRASES)
     for key in LEAD_KEYS:  # a lead-in opens a sentence: capitalised, no closing punctuation
         assert PHRASES[key][0].isupper() and PHRASES[key][-1] not in ".,;:", key
     for key in TAIL_KEYS:  # a trailing clause follows a comma: lower-case
         assert PHRASES[key][0].islower(), key
     assert {k: PHRASES[k] for k in JOIN_KEYS} == {
         "then_grouped": "; then",
-        "each_time_grouped": "; each time",
+        "list_grouped": ",",
+        "and_grouped": " and",
     }
-    assert BARE_LEADS == {"first", "then", "same_time", "then_grouped"}
+    assert SIBLING_KEYS == {"list_grouped", "and_grouped"}
+    assert BARE_LEADS == {"first", "then", "same_time"} | JOIN_KEYS
+    assert {k: PHRASES[k] for k in MARK_KEYS} == {"disabled_mark": "(disabled)"}
     for key in SENTENCE_KEYS:
         assert PHRASES[key].endswith("."), key
 
@@ -94,7 +101,8 @@ def test_the_table_is_lead_ins_connectors_trailing_clauses_and_sentences():
 def test_compose_joins_parts_with_commas_and_no_colon():
     assert compose([("then", {}), ("if", {"condition": "x is 1"})]) == "Then, if x is 1"
     assert compose([("if", {"condition": "x is 1"})]) == "If x is 1"
-    assert compose([("each_time_grouped", {}), ("if", {"condition": "x"})]) == "; each time, if x"
+    assert compose([("and_grouped", {}), ("if", {"condition": "x"})]) == " and, if x"
+    assert compose([("list_grouped", {}), ("if", {"condition": "x"})]) == ", if x"
 
 
 # --------------------------------------------------------------------------- constructs
@@ -109,9 +117,41 @@ def test_sequence_joins_one_sentence():
 
 
 def test_same_predecessor_siblings_without_when_run_at_the_same_time():
+    """d13: siblings read together, ``Then, at the same time, A and B``."""
     wf = _wf([_step("a"), _step("b"), _step("c")], _edges(("a", "b"), ("a", "c")))
-    assert _phrases(wf) == {"a": "First", "b": "; then", "c": "At the same time"}
-    assert _text(wf) == "First a runs; then b runs.\nAt the same time c runs."
+    assert _phrases(wf) == {"a": "First", "b": "Then, at the same time,", "c": " and"}
+    assert _text(wf) == "First a runs.\nThen, at the same time, b runs and c runs."
+    seg = {s["step"]: s for s in step_paragraph(wf)["segments"]}
+    assert seg["b"]["keys"] == ["then", "same_time"] and seg["c"]["keys"] == ["and_grouped"]
+    assert seg["c"]["grouped"] is True and seg["b"]["grouped"] is False
+
+
+def test_three_siblings_read_a_b_and_c():
+    steps = [_step("a"), _step("b"), _step("c"), _step("d")]
+    wf = _wf(steps, _edges(("a", "b"), ("a", "c"), ("a", "d")))
+    assert _phrases(wf) == {"a": "First", "b": "Then, at the same time,", "c": ",", "d": " and"}
+    assert _text(wf) == "First a runs.\nThen, at the same time, b runs, c runs and d runs."
+
+
+def test_a_disabled_sibling_reads_on_its_own():
+    steps = [_step("a"), _step("b"), _step("c", enabled=False), _step("d")]
+    wf = _wf(steps, _edges(("a", "b"), ("a", "c"), ("a", "d")))
+    assert _text(wf) == (
+        "First a runs.\nThen b runs.\nAt the same time c runs.\nAt the same time d runs."
+    )
+    steps = [_step("a"), _step("b", enabled=False), _step("c"), _step("d")]
+    wf = _wf(steps, _edges(("a", "b"), ("a", "c"), ("a", "d")))
+    assert _text(wf) == "First a runs.\nThen b runs.\nAt the same time c runs and d runs."
+
+
+def test_a_loop_sibling_ends_the_sibling_sentence_before_its_body():
+    loop = _step("l", "for_each", max_iterations=2, body=[_step("x")])
+    steps = [_step("a"), _step("b"), loop, _step("d")]
+    wf = _wf(steps, _edges(("a", "b"), ("a", "l"), ("a", "d")))
+    assert _text(wf) == (
+        "First a runs.\nThen, at the same time, b runs and l runs, for each item (up to 2).\n"
+        "Each time, x runs.\nAt the same time d runs."
+    )
 
 
 def test_siblings_with_two_whens_read_depending_on_the_conditions_then_then():
@@ -123,20 +163,26 @@ def test_siblings_with_two_whens_read_depending_on_the_conditions_then_then():
     p = _phrases(_wf(steps, _edges(("inputs", "r1"), ("inputs", "r2"), ("r1", "v"), ("r2", "v"))))
     assert p == {
         "r1": "Depending on the conditions, if reviewer is codex,",
-        "r2": "If reviewer is qwen,",
+        "r2": " and, if reviewer is qwen,",
         "v": "Then",
     }
     text = _text(_wf(steps, _edges(("r1", "v"), ("r2", "v"))))
     assert text == (
-        "Depending on the conditions, if reviewer is codex, r1 runs.\n"
-        "If reviewer is qwen, r2 runs.\nThen v runs."
+        "Depending on the conditions, if reviewer is codex, r1 runs and, if reviewer is qwen,"
+        " r2 runs.\nThen v runs."
+    )
+    steps.insert(2, _step("r3"))  # one with no condition: "in any case"
+    text = _text(_wf(steps, _edges(("r1", "v"), ("r2", "v"), ("r3", "v"))))
+    assert text == (
+        "Depending on the conditions, if reviewer is codex, r1 runs, if reviewer is qwen,"
+        " r2 runs and, in any case, r3 runs.\nThen v runs."
     )
 
 
 def test_siblings_with_one_when_still_run_at_the_same_time():
     steps = [_step("a"), _step("b"), _step("c", config={"when": _cmp("x", 1)})]
     p = _phrases(_wf(steps, _edges(("a", "b"), ("a", "c"))))
-    assert p["c"] == "At the same time, if x is 1,"
+    assert (p["b"], p["c"]) == ("Then, at the same time,", " and, if x is 1,")
 
 
 def test_join_on_the_transitive_reduction_diamond():
@@ -144,12 +190,12 @@ def test_join_on_the_transitive_reduction_diamond():
     edges = _edges(("a", "b"), ("a", "c"), ("b", "d"), ("c", "d"), ("a", "d"))
     assert _phrases(_wf(steps, edges)) == {
         "a": "First",
-        "b": "; then",
-        "c": "At the same time",
+        "b": "Then, at the same time,",
+        "c": " and",
         "d": "Once both are done,",
     }
     assert _text(_wf(steps, edges)) == (
-        "First a runs; then b runs.\nAt the same time c runs.\nOnce both are done, d runs."
+        "First a runs.\nThen, at the same time, b runs and c runs.\nOnce both are done, d runs."
     )
 
 
@@ -172,7 +218,8 @@ def test_a_join_on_the_step_just_read_is_then():
     steps = [_step("a"), _step("b"), _step("c"), _step("d")]
     edges = _edges(("a", "c"), ("b", "c"), ("c", "d"), ("a", "d"))
     p = _phrases(_wf(steps, edges))
-    assert (p["b"], p["c"], p["d"]) == ("At the same time", "Once both are done,", "; then")
+    assert (p["a"], p["b"]) == ("First, at the same time,", " and")
+    assert (p["c"], p["d"]) == ("Once both are done,", "; then")
 
 
 def test_a_join_on_an_earlier_step_names_it():
@@ -182,12 +229,13 @@ def test_a_join_on_an_earlier_step_names_it():
     steps = [_step("a", name="Alpha"), _step("b", name="Beta"), _step("c"), _step("d")]
     edges = _edges(("a", "b"), ("a", "c"), ("a", "d"), ("b", "d"))  # a -> b: a is implied
     p = _phrases(_wf(steps, edges))
-    assert (p["c"], p["d"]) == ("At the same time", "Once Beta is done,")
+    assert (p["b"], p["c"], p["d"]) == ("Then, at the same time,", " and", "Once Beta is done,")
     steps = [_step("a", name="Alpha"), _step("b", name="Beta"), _step("c"), _step("d")]
     edges = _edges(("a", "c"), ("a", "d"), ("b", "d"))
     p = _phrases(_wf(steps, edges))
-    assert (p["b"], p["c"], p["d"]) == (
-        "At the same time",
+    assert (p["a"], p["b"], p["c"], p["d"]) == (
+        "First, at the same time,",
+        " and",
         "Once Alpha is done,",
         "Once Alpha and Beta are done,",
     )
@@ -289,11 +337,11 @@ def test_for_each_and_its_body_in_declared_order():
     assert [(s["step"], s["phrase"], s["depth"], s["sentence"]) for s in out["segments"]] == [
         ("a", "First", 0, 0),
         ("loop", "Then", 0, 1),
-        ("x", "; each time,", 1, 1),
-        ("y", "; then", 1, 1),
+        ("x", "Each time,", 1, 2),
+        ("y", "; then", 1, 2),
     ]
     assert out["text"] == (
-        "First a runs.\nThen loop runs, for each item (up to 20); each time, x runs; then y runs."
+        "First a runs.\nThen loop runs, for each item (up to 20).\nEach time, x runs; then y runs."
     )
 
 
@@ -302,28 +350,35 @@ def test_loop_body_ignores_edges_for_its_phrases():
     edges = _edges(("x", "z"), ("y", "z"), ("inputs", "x"), ("inputs", "y"))
     loop = _step("loop", "for_each", max_iterations=2, body=body)
     p = _phrases(_wf([loop], edges))
-    assert (p["x"], p["y"], p["z"]) == ("; each time,", "; then", "; then")
+    assert (p["x"], p["y"], p["z"]) == ("Each time,", "; then", "; then")
 
 
 def test_retry_until():
     until = {"op": "exists", "arg": {"field": "verdict"}}
     loop = _step("fix", "retry_until", max_iterations=1, config={"until": until}, body=[_step("b")])
     assert _text(_wf([loop])) == (
-        "First fix runs, until verdict is set, at most once; each time, b runs."
+        "First fix runs, until verdict is set, at most once.\nEach time, b runs."
     )
     loop["max_iterations"] = 2
-    assert "until verdict is set, at most twice;" in _text(_wf([loop]))
+    assert "until verdict is set, at most twice.\n" in _text(_wf([loop]))
     loop["max_iterations"] = 5
-    assert "until verdict is set, at most 5 times;" in _text(_wf([loop]))
+    assert "until verdict is set, at most 5 times.\n" in _text(_wf([loop]))
 
 
-def test_the_body_continues_the_loop_sentence_even_with_a_condition_or_retry():
+def test_the_body_starts_its_own_sentence_even_with_a_condition_or_retry():
+    """d13: a loop's body always starts its own sentence (indented in the editor)."""
     body = [_step("x", config={"when": FIXER}, retry={"max_attempts": 2}), _step("y")]
     loop = _step("loop", "for_each", max_iterations=3, body=body)
-    assert _text(_wf([loop])) == (
-        "First loop runs, for each item (up to 3); each time, if fixer is claude, x runs,"
+    out = step_paragraph(_wf([loop]))
+    assert out["text"] == (
+        "First loop runs, for each item (up to 3).\nEach time, if fixer is claude, x runs,"
         " trying up to 2 times.\nThen y runs."
     )
+    assert [(s["depth"], s["sentence"], s["grouped"]) for s in out["segments"]] == [
+        (0, 0, False),
+        (1, 1, False),
+        (1, 2, False),
+    ]
 
 
 def test_a_condition_shared_by_every_remaining_step_is_said_once():
@@ -364,7 +419,7 @@ def test_a_shared_condition_in_a_loop_body_is_said_once_there():
     body = [_step("x", config={"when": DELIVER}), _step("y", config={"when": DELIVER})]
     loop = _step("loop", "for_each", max_iterations=3, body=body)
     p = _phrases(_wf([loop]))
-    assert p["x"] == "; each time, from here on, only if deliver is true,"
+    assert p["x"] == "Each time, from here on, only if deliver is true,"
     assert p["y"] == "; then"
 
 
@@ -404,6 +459,22 @@ def test_a_disabled_step_is_its_own_sentence():
         assert marked.replace("~~", "") == out["text"]
         for line in marked.splitlines():  # a struck step is a whole line of its own
             assert "~~" not in line or (line.startswith("~~") and line.endswith("~~"))
+
+
+def test_mark_disabled_goes_before_the_closing_period():
+    """d13: the CLI marks a disabled segment ``(disabled)``, after its words."""
+    assert (
+        mark_disabled("It starts on cron, on spark2.") == "It starts on cron, on spark2 (disabled)."
+    )
+    assert mark_disabled("Then b runs, trying up to 3 times.") == (
+        "Then b runs, trying up to 3 times (disabled)."
+    )
+    assert mark_disabled("Ready?") == "Ready (disabled)?"
+    assert mark_disabled("First a") == "First a (disabled)"
+    out = step_paragraph(_wf([_step("a"), _step("b", enabled=False)], _edges(("a", "b"))))
+    marked = render_marked(out, mark_disabled)
+    assert marked == "First a runs.\nThen b runs (disabled)."
+    assert marked.replace(" (disabled)", "") == out["text"]
 
 
 def test_a_workflow_model_reads_like_its_dict_form():
@@ -466,9 +537,11 @@ def test_a_join_or_sibling_is_not_grouped():
         _step("c", config={"when": FIXER}, description="Three."),
         _step("d", description="Four."),
     ]
-    # b and c both follow a and both carry a condition: alternatives, each its own sentence
+    # b and c both follow a and both carry a condition: alternatives, read together (d13);
+    # d, after the group, starts its own sentence
     out = step_paragraph(_wf(steps, _edges(("a", "b"), ("a", "c"))))
-    assert [s["grouped"] for s in out["segments"]] == [False, False, False, False]
+    assert [s["grouped"] for s in out["segments"]] == [False, False, True, False]
+    assert [s["sentence"] for s in out["segments"]] == [0, 1, 1, 2]
 
 
 def test_a_stand_in_stays_inside_its_group():
@@ -534,7 +607,7 @@ def test_grouping_in_a_loop_body_and_never_across_a_loop():
     after = _step("z", config={"when": FIXER}, description="Zed.")
     out = step_paragraph(_chain(loop, after))
     seg = {s["step"]: s for s in out["segments"]}
-    assert seg["x"]["grouped"] is True  # "; each time"
+    assert seg["x"]["grouped"] is False  # d13: the body starts its own sentence
     assert seg["y"]["grouped"] is True  # the body: one sentence
     assert seg["w"]["grouped"] is False  # condition change
     assert seg["z"]["grouped"] is False  # never glued onto the loop's last body step
@@ -746,7 +819,11 @@ def test_committed_paragraphs_use_only_table_phrases_and_verbatim_descriptions(w
         assert seg["fallback"] is False, seg  # every committed step has a phrase
         assert seg["keys"] and all(k in PHRASES for k in seg["keys"])
         # the lead-in: its keys composed, then a comma unless it is one bare lead
-        pattern = ", ".join(_template_regex(PHRASES[k], j == 0) for j, k in enumerate(seg["keys"]))
+        pattern = ""
+        for j, k in enumerate(seg["keys"]):  # compose: a space after a bare comma (d13)
+            if j:
+                pattern += " " if PHRASES[seg["keys"][j - 1]].endswith(",") else ", "
+            pattern += _template_regex(PHRASES[k], j == 0)
         if not (len(seg["keys"]) == 1 and seg["keys"][0] in BARE_LEADS):
             pattern += ","
         assert re.fullmatch(pattern, seg["phrase"]), seg
@@ -810,20 +887,21 @@ def test_pr_fix_threads_and_sonar_run_at_the_same_time_then_join():
         s["step"]: s["phrase"]
         for s in step_paragraph(next(wf for wf in _committed() if wf["id"] == "pr-fix"))["segments"]
     }
-    assert p["threads"] == "; then"
-    assert p["sonar"] == "At the same time"
+    assert p["threads"] == "Then, at the same time,"
+    assert p["sonar"] == " and"
     assert p["fix"] == "Once both are done,"
 
 
 def test_pr_fix_with_no_descriptions_reads_as_the_approved_mock():
-    """d11: the operator's approved mock (stand-ins in italics there, plain here)."""
+    """d11: the operator's approved mock (stand-ins in italics there, plain here), in d13's
+    shape: siblings in one sentence, the loop's body on its own line, ``empty``."""
     assert _paragraph("pr-fix", written=False) == "\n".join(
         [
             "First quiet period, waiting 5 minutes, and the run stops if the PR head moves;"
-            " then hold while GitGuardian fails; then trusted review threads.",
-            "At the same time failing SonarCloud conditions.",
-            "Once both are done, fix and test, one try, until verdict is set, at most"
-            ' once; each time, if fixer is not set or fixer is one of "", qwen-fixer, fix the PR'
+            " then hold while GitGuardian fails.",
+            "Then, at the same time, trusted review threads and failing SonarCloud conditions.",
+            "Once both are done, fix and test, one try, until verdict is set, at most once.",
+            "Each time, if fixer is not set or fixer is empty or qwen-fixer, fix the PR"
             " (Qwen bridge agent).",
             "Then, if fixer is claude-fixer, fix the PR (Claude bridge agent); then pack the"
             " Claude commits for the hand-off; then hand off to spark2"
