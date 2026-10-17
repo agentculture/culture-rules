@@ -25,6 +25,16 @@ read here, not imported):
 A step whose kind or config the table has no phrase for reads as its d19 line
 (:func:`culture_rules.model.describe.step_text`) with no phrase, and a step with an empty
 description reads as a visible gap naming it; describing never raises.
+
+The rules around the steps (t7, c37): :func:`workflow_paragraph` opens with one built
+sentence per rule that starts the workflow (:func:`rule_sentence`: its trigger, condition,
+relationships and placement) and closes with the Then side (:func:`then_sentence`: where it
+continues, what runs when it is done and on failure, how it runs). Those sentences are
+composed from :data:`PHRASES` entries ending with a period (:data:`SENTENCE_KEYS`) filled
+with describe.py's words (``trigger_text``, ``condition_words``, ``action_text``, the
+placement and run-key words); a rule's name and description, and an action's name and body,
+are never read. Which rules start a workflow and which continue into another mirrors the
+editor's fold (web/src/fold/model.ts ``foldModel``): :func:`fold_rules`.
 """
 
 from __future__ import annotations
@@ -33,10 +43,32 @@ from collections.abc import Mapping
 from typing import Any
 
 from culture_rules.model import condition as cond
-from culture_rules.model.describe import CONDITION_FALLBACK, condition_words, step_text
+from culture_rules.model.describe import (
+    CONDITION_FALLBACK,
+)
+from culture_rules.model.describe import _key_text as key_text
+from culture_rules.model.describe import _placement as placement_text
+from culture_rules.model.describe import (
+    action_text,
+    condition_words,
+    step_text,
+    trigger_text,
+)
 from culture_rules.model.workflow import STEP_KINDS
 
-__all__ = ["GAP", "PHRASES", "compose", "step_paragraph"]
+__all__ = [
+    "GAP",
+    "PHRASES",
+    "SENTENCE_KEYS",
+    "compose",
+    "compose_sentence",
+    "fold_rules",
+    "onward_of",
+    "rule_sentence",
+    "step_paragraph",
+    "then_sentence",
+    "workflow_paragraph",
+]
 
 #: Every joining phrase, one per construct; each ends with a colon and the step's
 #: description follows it as its own sentence (all but ``then_grouped``, see below). A
@@ -71,7 +103,46 @@ PHRASES: dict[str, str] = {
     # d5: the one connector inside a sentence, not followed by a colon - a step whose phrase
     # would be exactly ``Then, if <the previous step's condition>:`` joins its sentence
     "then_grouped": "; then",
+    # t7: the rule sentences around the steps. Each ends with a period; a sentence is one
+    # or more of them, composed by :func:`compose_sentence` (``It starts when x arrives`` +
+    # ``on spark2.`` -> ``It starts when x arrives, on spark2.``).
+    # how a rule that starts the workflow fires
+    "starts_event": "It starts when {trigger} arrives.",
+    "starts_on": "It starts on {trigger}.",
+    "starts_manual": "It is {trigger}.",
+    "starts_succeeded": "It starts when {workflow} succeeds.",
+    "starts_failed": "It starts when {workflow} fails.",
+    "starts_ended": "It starts when {workflow} ends ({outcome}).",
+    "starts_none": "No rule starts it yet.",
+    # what the rule's own config adds
+    "rule_if": "if {condition}.",
+    "rule_if_unspoken": "if its condition holds.",
+    "rule_must_after": "only after {rules} succeeded.",
+    "rule_may_after": "reading the outputs of {rules} if {it} ran.",
+    "rule_supersedes": "instead of {rules} for the same event.",
+    "rule_group": "only if no higher-priority rule of group {group} matches (priority {priority}).",
+    "rule_where": "{where}.",
+    "rule_disabled": "but it is disabled.",
+    # the Then side
+    "continues": "Then it continues into {workflows}.",
+    "continues_none": "Nothing continues from here.",
+    "ends": "When it is done, it runs {action}.",
+    "ends_noop": "When it is done, nothing else happens.",
+    "ends_differs": "When it is done, it runs {actions}, depending on the rule that started it.",
+    "on_failure": "If it fails, it runs {action}.",
+    "on_failure_differs": "If it fails, it runs {actions}, depending on the rule that started it.",
+    "runs_key": "It runs one at a time per {key}.",
+    "runs_attempts": "with at most {n} attempts.",
+    "runs_differs": "How it runs differs per rule that starts it.",
 }
+
+#: The :data:`PHRASES` entries that build the rule and Then sentences (each ends with a
+#: period); every other entry joins a step's description (and ends with a colon).
+SENTENCE_KEYS: frozenset[str] = frozenset(
+    k
+    for k in PHRASES
+    if k.startswith(("starts_", "rule_", "continues", "ends", "on_failure", "runs_"))
+)
 
 #: What stands in for a step with no description: visible, and naming the step.
 GAP = "[{step} has no description yet]"
@@ -533,3 +604,296 @@ def _render(segments: list[dict[str, Any]]) -> str:
         shown = seg["text"] or GAP.format(step=seg["name"])
         chunks.append(f"{seg['phrase']} {shown}")
     return " ".join(chunks)
+
+
+# --------------------------------------------------------------------------- the rules (t7)
+
+_RUN_EVENT = "rules.run."
+_RUN_OUTCOMES = {"succeeded": "starts_succeeded", "failed": "starts_failed"}
+
+
+def compose_sentence(parts: list[Part]) -> str:
+    """One sentence from table entries, in order: each entry without its period, the later
+    ones starting lower-case, joined by commas and ended by one period."""
+    texts = []
+    for i, (key, params) in enumerate(parts):
+        template = PHRASES[key][:-1]
+        if i:
+            template = template[0].lower() + template[1:]
+        texts.append(template.format(**params))
+    return ", ".join(texts) + "." if texts else ""
+
+
+def _sentence(part: str, parts: list[Part], **extra: Any) -> dict[str, Any]:
+    return {"part": part, "keys": [k for k, _ in parts], "text": compose_sentence(parts), **extra}
+
+
+def _ids(value: Any) -> list[str]:
+    return [str(x) for x in _list(value) if x not in (None, "")]
+
+
+def _workflow_literal(field: Any, literal: Any) -> str | None:
+    """``data.workflow_id`` compared with a string literal: that literal (fold/model.ts)."""
+    if not isinstance(field, Mapping) or not isinstance(literal, Mapping):
+        return None
+    if field.get("field") != "data.workflow_id" or not isinstance(literal.get("literal"), str):
+        return None
+    return literal["literal"]
+
+
+def _predecessor_id(node: Any) -> str | None:
+    if not isinstance(node, Mapping) or node.get("op") != "compare" or node.get("cmp") != "==":
+        return None
+    left, right = node.get("left"), node.get("right")
+    found = _workflow_literal(left, right)
+    return found if found is not None else _workflow_literal(right, left)
+
+
+def _predecessor_terms(condition: Any) -> list[Any]:
+    """``predecessorTerms``: the qualifying equality nodes in order, through ``and`` only."""
+    if not isinstance(condition, Mapping):
+        return []
+    if condition.get("op") == "and":
+        return [t for a in _list(condition.get("args")) for t in _predecessor_terms(a)]
+    return [condition] if _predecessor_id(condition) is not None else []
+
+
+def _entry(rule: dict[str, Any], workflow_id: str) -> dict[str, Any]:
+    """``entryFor``: a rule on a ``rules.run.*`` event continues from its predecessor."""
+    base = {"rule": rule, "workflow_id": workflow_id, "enabled": rule.get("enabled") is not False}
+    trigger = _plain(rule.get("trigger"))
+    params = trigger.get("params")
+    kind = params.get("type") if isinstance(params, Mapping) else None
+    if (
+        trigger.get("kind") != "event"
+        or not isinstance(kind, str)
+        or not kind.startswith(_RUN_EVENT)
+    ):
+        return {**base, "kind": "entry"}
+    sources = [_predecessor_id(t) for t in _predecessor_terms(rule.get("condition"))]
+    if not sources:
+        predecessor: dict[str, Any] = {"kind": "any"}
+    elif len(sources) == 1:
+        predecessor = {"kind": "linked", "workflow_id": sources[0]}
+    else:
+        predecessor = {"kind": "ambiguous", "workflow_ids": sources}
+    linked = predecessor.get("workflow_id")
+    return {**base, "kind": "continuation", "predecessor": predecessor, "from_workflow_id": linked}
+
+
+def fold_rules(rules: Any) -> list[dict[str, Any]]:
+    """The editor's fold (web/src/fold/model.ts ``foldModel``), in input order: one entry per
+    rule that runs a workflow, ``{"rule", "workflow_id", "enabled", "kind"}``, where ``kind``
+    is ``entry`` (it starts the workflow from outside) or ``continuation`` (it fires on a
+    ``rules.run.*`` event; it also carries ``predecessor`` - ``any``, ``linked`` with its
+    ``workflow_id`` or ``ambiguous`` with ``workflow_ids`` - and ``from_workflow_id``). Both
+    kinds belong to the workflow they start. A rule with no workflow is left out (D7)."""
+    out = []
+    for raw in _list(rules):
+        rule = _plain(raw)
+        ref = _plain(rule.get("workflow"))
+        if ref.get("id"):
+            out.append(_entry(rule, str(ref["id"])))
+    return out
+
+
+def onward_of(fold: list[dict[str, Any]], workflow_id: str) -> list[dict[str, Any]]:
+    """The continuations that start after ``workflow_id`` in another workflow: linked to it,
+    after any workflow, or naming it among several (SimpleView.tsx ``onwardOf``)."""
+    out = []
+    for e in fold:
+        if e["kind"] != "continuation" or e["workflow_id"] == workflow_id:
+            continue
+        pred = e["predecessor"]
+        if (
+            e["from_workflow_id"] == workflow_id
+            or pred["kind"] == "any"
+            or (pred["kind"] == "ambiguous" and workflow_id in pred["workflow_ids"])
+        ):
+            out.append(e)
+    return out
+
+
+def _without_terms(condition: Any, terms: list[Any]) -> Any:
+    """``condition``'s all-terms (through nested ``and``) other than ``terms``; ``None`` when
+    none are left, the one term alone, else an ``and`` of them."""
+    if condition is None or any(condition is t for t in terms):
+        return None
+    if not isinstance(condition, Mapping) or condition.get("op") != "and":
+        return condition
+
+    def flat(node: Any) -> list[Any]:
+        if isinstance(node, Mapping) and node.get("op") == "and":
+            return [x for a in _list(node.get("args")) for x in flat(a)]
+        return [node]
+
+    rest = [t for t in flat(condition) if not any(t is x for x in terms)]
+    if not rest:
+        return None
+    return rest[0] if len(rest) == 1 else {"op": "and", "args": rest}
+
+
+def _trigger_part(rule: dict[str, Any], entry: dict[str, Any]) -> tuple[Part, Any]:
+    """How the rule fires, and the condition left to say once that is said."""
+    condition = rule.get("condition")
+    trigger = _plain(rule.get("trigger"))
+    if entry["kind"] == "continuation" and entry["predecessor"]["kind"] == "linked":
+        outcome = str(_plain(trigger.get("params")).get("type"))[len(_RUN_EVENT) :]
+        rest = _without_terms(condition, _predecessor_terms(condition))
+        source = entry["from_workflow_id"]
+        key = _RUN_OUTCOMES.get(outcome)
+        if key:
+            return (key, {"workflow": source}), rest
+        return ("starts_ended", {"workflow": source, "outcome": outcome}), rest
+    words = trigger_text(trigger)
+    kind = trigger.get("kind")
+    if kind == "event":
+        return ("starts_event", {"trigger": words}), condition
+    if kind == "manual":
+        return ("starts_manual", {"trigger": words}), condition
+    return ("starts_on", {"trigger": words}), condition
+
+
+def _relationship_parts(rule: dict[str, Any]) -> list[Part]:
+    parts: list[Part] = []
+    must, may, sup = (_ids(rule.get(k)) for k in ("must_after", "may_after", "supersedes"))
+    if must:
+        parts.append(("rule_must_after", {"rules": _names(must)}))
+    if may:
+        parts.append(
+            ("rule_may_after", {"rules": _names(may), "it": "it" if len(may) == 1 else "they"})
+        )
+    if sup:
+        parts.append(("rule_supersedes", {"rules": _names(sup)}))
+    group = rule.get("exclusive_group")
+    if isinstance(group, str) and group:
+        parts.append(("rule_group", {"group": group, "priority": rule.get("priority", 0)}))
+    return parts
+
+
+def rule_sentence(rule: Any) -> dict[str, Any]:
+    """One built sentence for a rule that starts a workflow (a :class:`Rule` or its dict
+    form): how it fires (its trigger in describe.py's words, or, for a continuation, the
+    workflow whose run it follows), its condition in words (a continuation's predecessor term
+    is already said), its relationships, its placement and whether it is disabled.
+
+    Returns ``{"part": "start", "rule", "kind", "enabled", "keys", "text"}``; ``keys`` names
+    the :data:`PHRASES` entries the sentence is composed from. Never raises."""
+    r = _plain(rule)
+    entry = _entry(r, str(_plain(r.get("workflow")).get("id") or ""))
+    lead, condition = _trigger_part(r, entry)
+    parts = [lead]
+    if condition:
+        words = condition_words(condition)
+        if words == CONDITION_FALLBACK:
+            parts.append(("rule_if_unspoken", {}))
+        else:
+            parts.append(("rule_if", {"condition": words}))
+    parts += _relationship_parts(r)
+    where = placement_text(r.get("placement"), as_actor=False)
+    if where:
+        parts.append(("rule_where", {"where": where}))
+    if r.get("enabled") is False:
+        parts.append(("rule_disabled", {}))
+    return _sentence(
+        "start", parts, rule=str(r.get("id") or "?"), kind=entry["kind"], enabled=entry["enabled"]
+    )
+
+
+def _distinct(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def _either(labels: list[str]) -> str:
+    """``a`` / ``a or b`` / ``a, b or c``."""
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " or " + labels[-1]
+
+
+def _action_kind(action: Any) -> Any:
+    return _plain(action).get("kind")
+
+
+def _ends(rules: list[dict[str, Any]]) -> list[Part]:
+    actions = [r.get("action") for r in rules]
+    if all(_action_kind(a) == "noop" for a in actions):
+        return [("ends_noop", {})]
+    texts = _distinct([action_text(a) for a in actions])
+    if len(texts) == 1:
+        return [("ends", {"action": texts[0]})]
+    return [("ends_differs", {"actions": _either(texts)})]
+
+
+def _on_failure(rules: list[dict[str, Any]]) -> list[Part]:
+    actions = [r.get("on_failure") for r in rules]
+    texts = _distinct([action_text(a) for a in actions if a])
+    if not texts:
+        return []
+    if len(texts) == 1 and all(actions):
+        return [("on_failure", {"action": texts[0]})]
+    return [("on_failure_differs", {"actions": _either(texts)})]
+
+
+def _runs(rules: list[dict[str, Any]]) -> list[Part]:
+    keys = _distinct(
+        [key_text(str(r["concurrency_key"])) if r.get("concurrency_key") else "" for r in rules]
+    )
+    attempts = _distinct([str(r.get("max_attempts") or "") for r in rules])
+    if len(keys) > 1 or len(attempts) > 1:
+        return [("runs_differs", {})]
+    if not keys[0]:
+        return []
+    parts: list[Part] = [("runs_key", {"key": keys[0]})]
+    if attempts[0]:
+        parts.append(("runs_attempts", {"n": attempts[0]}))
+    return parts
+
+
+def then_sentence(rules: Any, onward: Any = ()) -> list[dict[str, Any]]:
+    """The Then side of a workflow, as built sentences: where it continues (``onward``: the
+    continuations of other workflows that start after it, from :func:`onward_of`), what runs
+    when it is done (the rules' ``action``), what runs on failure, and how it runs (run key
+    and attempt budget). ``rules`` are the rules that start the workflow; a value they all
+    hold reads once, values that differ read as alternatives. Each sentence is
+    ``{"part": "then", "keys", "text", "rules"}``."""
+    plain = [_plain(r) for r in _list(rules)]
+    ids = [str(r.get("id") or "?") for r in plain]
+    nxt = [e for e in _list(onward) if isinstance(e, Mapping)]
+    out = []
+    if nxt:
+        targets = _distinct([str(e["workflow_id"]) for e in nxt])
+        rule_ids = [str(_plain(e["rule"]).get("id") or "?") for e in nxt]
+        out.append(
+            _sentence("then", [("continues", {"workflows": _either(targets)})], rules=rule_ids)
+        )
+    else:
+        out.append(_sentence("then", [("continues_none", {})], rules=[]))
+    if plain:
+        for parts in (_ends(plain), _on_failure(plain), _runs(plain)):
+            if parts:
+                out.append(_sentence("then", parts, rules=ids))
+    return out
+
+
+def workflow_paragraph(workflow: Any, rules: Any) -> dict[str, Any]:
+    """``workflow``'s whole paragraph, given every rule (the fold picks the ones that start
+    it and the ones that continue from it): one sentence per starting rule
+    (:func:`rule_sentence`, in input order; ``No rule starts it yet.`` when none does), the
+    step paragraph (:func:`step_paragraph`), then the Then side (:func:`then_sentence`).
+
+    Returns ``{"segments", "text"}``; each segment carries ``part`` (``start``, ``step`` or
+    ``then``), step segments are :func:`step_paragraph`'s, and ``text`` joins them."""
+    wf = _plain(workflow)
+    wid = str(wf.get("id") or "")
+    fold = fold_rules(rules)
+    owned = [e for e in fold if e["workflow_id"] == wid]
+    if owned:
+        starts = [rule_sentence(e["rule"]) for e in owned]
+    else:
+        starts = [_sentence("start", [("starts_none", {})], rule=None, kind=None, enabled=None)]
+    steps = step_paragraph(wf)
+    thens = then_sentence([e["rule"] for e in owned], onward_of(fold, wid))
+    segments = starts + [{"part": "step", **seg} for seg in steps["segments"]] + thens
+    text = " ".join(
+        x for x in (*(s["text"] for s in starts), steps["text"], *(t["text"] for t in thens)) if x
+    )
+    return {"segments": segments, "text": text}

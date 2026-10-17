@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from culture_rules.model.describe import step_text
-from culture_rules.model.paragraph import GAP, PHRASES, compose, step_paragraph
+from culture_rules.model.paragraph import GAP, PHRASES, SENTENCE_KEYS, compose, step_paragraph
 from culture_rules.model.workflow import Workflow
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,7 +45,9 @@ def _phrases(wf: dict) -> dict[str, str]:
 
 def test_every_phrase_ends_with_a_colon():
     assert PHRASES
-    joining = {k: v for k, v in PHRASES.items() if k != "then_grouped"}
+    # t7: the rule and Then sentences (SENTENCE_KEYS) end with a period instead
+    skip = {"then_grouped", *SENTENCE_KEYS}
+    joining = {k: v for k, v in PHRASES.items() if k not in skip}
     assert all(isinstance(v, str) and v.endswith(":") for v in joining.values())
     # d5: the one in-sentence connector, for a step that shares the previous one's condition
     assert PHRASES["then_grouped"] == "; then"
