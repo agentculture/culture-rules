@@ -316,3 +316,40 @@ def test_library_import_owns_the_workflow_revision(tmp_path):
     export_bundle(bundle_from_store(store), tmp_path / "out", fmt="json", apply=True)
     text = (tmp_path / "out" / "workflows" / "wf-summary.json").read_text()
     assert "revision" not in json.loads(text)
+
+
+# --- migrate-notes must run before import (t17) ---------------------------
+
+
+def _migrate_stored(store, wid):
+    from culture_rules.model.migrate_notes import migrate_notes
+
+    store.put("workflows", migrate_notes(store.get("workflows", wid)))
+
+
+def _technical_store():
+    wf = make_workflow(description="Technical words")
+    store = MemoryStore()
+    store.put("workflows", {"id": wf.id, **wf.to_dict()})
+    return store, wf
+
+
+def test_import_before_migrate_notes_leaves_technical_description(tmp_path):
+    store, wf = _technical_store()
+    migrated = replace(wf, description="", notes="Technical words")
+    export_bundle(Bundle(workflows=(migrated,)), tmp_path / "src", apply=True)
+    import_bundle(tmp_path / "src", store, apply=True)  # keeps the stored description
+    _migrate_stored(store, wf.id)  # notes now set, so the node is skipped
+    got = store.get("workflows", wf.id)
+    assert got["description"] == "Technical words"  # the trap
+
+
+def test_migrate_notes_before_import_clears_description(tmp_path):
+    store, wf = _technical_store()
+    migrated = replace(wf, description="", notes="Technical words")
+    export_bundle(Bundle(workflows=(migrated,)), tmp_path / "src", apply=True)
+    _migrate_stored(store, wf.id)
+    import_bundle(tmp_path / "src", store, apply=True)
+    got = store.get("workflows", wf.id)
+    assert got["description"] == ""
+    assert got["notes"] == "Technical words"

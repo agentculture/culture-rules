@@ -143,12 +143,20 @@ cr rollout upgrade --host spark --wheel "$WHEEL" --apply    # shared venv first
 cr rollout upgrade --host thor --wheel "$WHEEL" --apply     # then each install.sh host
 cr rollout upgrade --host orin --wheel "$WHEEL" --apply
 cr rollout upgrade --host spark2 --wheel "$WHEEL" --apply
+cr workflows migrate-notes                 # dry run: workflows whose description moves to notes
+cr workflows migrate-notes --apply         # admin; then re-run the dry run: it reports 0
 cr rollout seed --apply                    # new variables from the wheel's variables.json
 cr rollout import --apply                  # the bundle's workflows and rules
 cr rollout enable --apply                  # the snapshot plus the release's new rules
 cr rollout resume --apply                  # refused while enable's rules are off
 cr rollout verify                          # exit 0 only when every check passes
 ```
+
+`migrate-notes` runs once, after every host is upgraded and before `import`,
+because `import` keeps a stored description wherever the committed one is empty:
+imported first, a stored workflow would end with its old text in both
+`description` and `notes`, and `migrate-notes` would then skip it. It is an
+operator step, not a recorded rollout step.
 
 `cr rollout show <version>` prints the rollout document: the snapshot and each
 applied step's outcome.
