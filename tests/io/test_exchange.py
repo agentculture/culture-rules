@@ -236,3 +236,62 @@ def test_read_files_reports_duplicate_ids_across_formats():
     assert [e.code for e in result.errors] == ["duplicate_id"]
     assert result.errors[0].path == "rules/r-review.yaml"  # json sorts first and wins
     assert len(result.bundle.rules) == 1
+
+
+# --- stored descriptions survive a rollout import --------------------------
+
+
+def _described(wf, text="Stored words"):
+    """``wf`` with a description on the workflow, a step and a loop body step."""
+    steps = []
+    for step in wf.steps:
+        if step.id == "each_file":
+            body = tuple(replace(b, description=text + " body") for b in step.body)
+            step = replace(step, body=body)
+        if step.id == "fetch":
+            step = replace(step, description=text + " step")
+        steps.append(step)
+    return replace(wf, description=text, steps=tuple(steps))
+
+
+def _import_over(tmp_path, stored_wf, committed_wf, apply=False):
+    store = MemoryStore()
+    store.put("workflows", {"id": stored_wf.id, **stored_wf.to_dict()})
+    export_bundle(Bundle(workflows=(committed_wf,)), tmp_path / "src", apply=True)
+    return store, import_bundle(tmp_path / "src", store, apply=apply)
+
+
+def test_import_keeps_stored_descriptions_when_committed_empty(tmp_path):
+    stored = _described(make_workflow())
+    store, plan = _import_over(tmp_path, stored, make_workflow(description=""), apply=True)
+    assert [c.action for c in plan.changes] == ["unchanged"]
+    assert bundle_from_store(store).workflows == (stored,)
+
+
+def test_import_merges_descriptions_but_still_imports_other_changes(tmp_path):
+    stored = _described(make_workflow())
+    store, plan = _import_over(
+        tmp_path, stored, make_workflow(description="", name="Renamed"), apply=True
+    )
+    assert [c.action for c in plan.changes] == ["change"]
+    got = bundle_from_store(store).workflows[0]
+    assert got == replace(stored, name="Renamed")
+
+
+def test_import_committed_description_wins(tmp_path):
+    stored = _described(make_workflow())
+    committed = _described(make_workflow(), "Committed words")
+    store, plan = _import_over(tmp_path, stored, committed, apply=True)
+    assert [c.action for c in plan.changes] == ["change"]
+    assert bundle_from_store(store).workflows == (committed,)
+
+
+def test_import_committed_only_step_has_nothing_to_merge(tmp_path):
+    stored = _described(make_workflow())
+    kept = [s for s in stored.steps if s.id != "approve"]
+    stored = replace(stored, steps=tuple(kept), edges=())
+    committed = make_workflow(description="", edges=())
+    store, _ = _import_over(tmp_path, stored, committed, apply=True)
+    got = {s.id: s.description for s in bundle_from_store(store).workflows[0].steps}
+    assert got["approve"] == ""
+    assert got["fetch"] == "Stored words step"
