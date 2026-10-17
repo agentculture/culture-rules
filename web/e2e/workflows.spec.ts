@@ -126,7 +126,7 @@ test.describe("Workflows tab", () => {
     await dialog.getByRole("radio", { name: "On a machine" }).check();
     await dialog.getByRole("combobox", { name: "Machine" }).selectOption("spark");
     await dialog.getByRole("button", { name: "Apply" }).click();
-    await expect(page.getByRole("button", { name: "on spark" })).toBeVisible();
+    await expect(step(page, "Review").getByRole("button", { name: "on spark" })).toBeVisible();
     // Fetch diff (spark) -> Review (now spark) is no longer a hop.
     await expect.poll(() => dash(edge(page, "fetch-diff.diff->review.diff"))).toBe("none");
     await expect(step(page, "Review")).toHaveAttribute("data-machine-slot", "0");
@@ -412,14 +412,16 @@ test.describe("Workflows tab", () => {
     await expect(panel).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(about).toBeFocused();
-    // The list row's (i) opens without opening the row (no navigation).
+    // The workflow row's (i) lives in the overview's chain section (the pane holds names only);
+    // it opens without opening the row (no navigation).
+    await page.goto("/workflows");
     const url = page.url();
-    const list = page.getByRole("navigation", { name: "Workflows" });
+    const list = page.getByRole("navigation", { name: "Chains and housekeeping" });
     await list.getByRole("button", { name: "About Review PR" }).click();
     await expect(list.getByRole("dialog", { name: "About Review PR" }).getByTestId("about-lines")).toBeVisible();
     expect(page.url()).toBe(url);
     // A press elsewhere closes it.
-    await page.getByRole("heading", { level: 1, name: "Review PR" }).click();
+    await page.getByRole("heading", { level: 1, name: "Workflows" }).click();
     await expect(list.getByRole("dialog", { name: "About Review PR" })).toBeHidden();
   });
 
@@ -448,7 +450,12 @@ test.describe("Workflows tab", () => {
     );
     for (const width of [1280, 1000, 800]) {
       await page.setViewportSize({ width, height: 880 });
-      for (const scope of [page.locator(".wf-head"), page.getByRole("navigation", { name: "Workflows" })]) {
+      // The head's (i) on the open workflow, then the row's (i) in the overview's chain section.
+      for (const [path, scope] of [
+        ["/workflows?id=review-pr", page.locator(".wf-head")],
+        ["/workflows", page.getByRole("navigation", { name: "Chains and housekeeping" })],
+      ] as const) {
+        await page.goto(path);
         const about = scope.getByRole("button", { name: "About Review PR" });
         await about.click();
         const panel = scope.getByRole("dialog", { name: "About Review PR" });
