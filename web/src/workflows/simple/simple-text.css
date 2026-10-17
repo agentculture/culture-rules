@@ -44,5 +44,22 @@
 }
 .sv-fallback { color: var(--ink-soft); }
 .sv-loading { color: var(--ink-soft); }
-.sv-disabled, .sv-disabled .sv-phrase { text-decoration: line-through; }
+.sv-disabled { color: var(--ink-soft); }
+.sv-disabled .sv-phrase { background: none; color: var(--ink-soft); }
+.sv-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--line-soft);
+  color: var(--ink-soft);
+  font: 600 var(--ac-type-meta) / 1.5 var(--font-body);
+  vertical-align: 0.1em;
+}
+/* The words whose panel is open. */
+.sv-selected, .sv-selected:hover:not([aria-disabled]) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
 .sv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

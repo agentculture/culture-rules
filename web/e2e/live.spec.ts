@@ -50,13 +50,7 @@ test.describe("live editor updates (h61 / c80)", () => {
     await swA.click();
     await expect(swA).toHaveAttribute("aria-checked", "false");
     await expect(swB).toHaveAttribute("aria-checked", "false", { timeout: 10_000 });
-    // (the pane holds names only; its copy lives in the overview's chain section, below)
     expect(navigations).toBe(0);
-    // The overview's copy follows too: the same rule is listed under build-image, disabled.
-    await pageB.getByRole("link", { name: "← All workflows" }).click();
-    await expect(
-      pageB.getByRole("navigation", { name: "Chains and housekeeping" }).locator('.fold-entry[data-rule-id="build-and-publish"]'),
-    ).toContainText("Disabled");
     // One stream per page: the board's, which the Simple view shares (no second EventSource).
     const collections = feed.streams.map((u) => new URL(u).searchParams.get("collections"));
     expect(new Set(collections)).toEqual(new Set(["workflows,runs,rules,asks,rule_decisions"]));

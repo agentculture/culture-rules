@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { machineColors } from "../culture-design/chart";
 import { ApiError, listMachines, listRules } from "../api/client";
 import { failureMessage, settleAll } from "../api/settle";
 import { usePending } from "../usePending";
@@ -16,7 +15,6 @@ import {
   listActors,
   listWorkflowDefs,
   listWorkflowRuns,
-  purgeWorkflow,
   putWorkflowDef,
   restoreWorkflowDef,
   setWorkflowEnabled,
@@ -41,6 +39,7 @@ import IoEditor from "../workflows/IoEditor";
 import RunForm, { RunOutputs } from "../workflows/RunForm";
 import {
   addStep,
+  findStepDeep,
   connect,
   deleteStep,
   INPUTS_NODE,
@@ -49,17 +48,16 @@ import {
   setPlacement,
   toDefinition,
   toggleStep,
-  workflowMachine,
   type Connection,
 } from "../workflows/model";
 import PlacementEditor from "../workflows/PlacementEditor";
 import StepEditor from "../workflows/StepEditor";
-import { useWhoami } from "../hooks/useWhoami";
-import PurgePanel, { type PurgeState } from "../workflows/PurgePanel";
-import { Overview, WorkflowList, WorkflowPane, readPaneCollapsed, writePaneCollapsed } from "../workflows/list";
+import { Switch } from "../culture-design/stages";
+import { ChainView, Overview, WorkflowPane, readPaneCollapsed, writePaneCollapsed } from "../workflows/list";
 import { SimpleView } from "../workflows/simple/SimpleView";
 import { NewRule } from "../workflows/simple/NewRule";
 import { D7Offer } from "../workflows/simple/D7Offer";
+import { RulePanel } from "../workflows/simple/RulePanel";
 import WorkflowNameForm from "../workflows/WorkflowNameForm";
 import { useTabReady } from "./useTabReady";
 import "../workflows/workflows.css";
@@ -92,6 +90,7 @@ const MAX_ID_TRIES = 20;
 const LIVE_COLLECTIONS = ["workflows", "runs", "rules", "asks", "rule_decisions"] as const;
 
 /** The open floating editor: a step's placement or fields, or the `in` / `out` node's. */
+type RuleOpen = { id: string; trigger: HTMLElement | null } | null;
 type Editing = { kind: "placement" | "step" | "io"; id: string; trigger: HTMLElement | null } | null;
 /** `revision`: the one the draft was read at; a save sends it back as `expected_revision`. */
 type Draft = { id: string; def: WorkflowDef; dirty: boolean; revision: number };
@@ -144,13 +143,13 @@ async function createWithFreeId(name: string, taken: string[], attempt = 0): Pro
 }
 
 /** Workflows, machines, actors and rules, re-read whenever `reload` moves. */
-function useWorkflowsLoad(reload: number, includeDeleted: boolean) {
+function useWorkflowsLoad(reload: number) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     settleAll(
       [
-        listWorkflowDefs({ includeDeleted }, controller.signal),
+        listWorkflowDefs({}, controller.signal),
         listMachines(controller.signal),
         listActors(controller.signal),
         listRules(controller.signal),
@@ -183,28 +182,10 @@ function useWorkflowsLoad(reload: number, includeDeleted: boolean) {
       },
     );
     return () => controller.abort();
-  }, [reload, includeDeleted]);
+  }, [reload]);
   return [loaded, setLoaded] as const;
 }
 
-const NO_MACHINES: Machine[] = [];
-const NO_ACTORS: Actor[] = [];
-
-/**
- * The list's dots: a workflow's palette slot is the one machine its steps run
- * on, coloured as the canvas colours its cards; null (neutral) otherwise.
- */
-function useWorkflowSlots(loaded: Loaded | null) {
-  const machines = loaded?.machines ?? NO_MACHINES;
-  const actors = loaded?.actors ?? NO_ACTORS;
-  return useMemo(() => {
-    const slots = machineColors(machines.map((m) => m.name));
-    return (wf: WorkflowDef): number | null => {
-      const machine = workflowMachine(wf, { machines, actors });
-      return machine === null ? null : (slots.get(machine) ?? null);
-    };
-  }, [machines, actors]);
-}
 
 /** Recent runs of this workflow (contextual, never a tab). */
 function useRecentRuns(workflowId: string | undefined, runStatus: string | undefined, tick: number) {
@@ -287,6 +268,9 @@ function WorkflowHead({
   renameButton,
   onRename,
   onDelete,
+  onToggle,
+  toggling,
+  chainHref,
 }: Readonly<{
   name: string;
   current: WorkflowDef;
@@ -295,6 +279,11 @@ function WorkflowHead({
   renameButton: RefObject<HTMLButtonElement>;
   onRename: () => void;
   onDelete: () => void;
+  /** The enable / disable switch (moved here from the removed chain cards, d13). */
+  onToggle: () => void;
+  toggling: boolean;
+  /** Link to the chain view when this workflow is linked to others by continuations, else null. */
+  chainHref: string | null;
 }>) {
   return (
     <>
@@ -311,6 +300,12 @@ function WorkflowHead({
         <PencilIcon />
       </button>
       <span className="wf-version">v{current.version ?? 1}</span>
+      <Switch label={`${name} enabled`} checked={current.enabled !== false} disabled={toggling} onChange={onToggle} />
+      {chainHref ? (
+        <Link className="wf-head__chain" to={chainHref}>
+          See it as one chain
+        </Link>
+      ) : null}
       <span className="wf-head__tools">
         <button
           type="button"
@@ -345,6 +340,9 @@ function BoardTitle({
   renameButton: RefObject<HTMLButtonElement>;
   onRename: () => void;
   onDelete: () => void;
+  onToggle: () => void;
+  toggling: boolean;
+  chainHref: string | null;
 }>) {
   if (aside || creating || !current || !workflow) return <HeadTitle creating={creating} empty={empty} aside={aside} />;
   return <WorkflowHead name={workflow.name} current={current} {...head} />;
@@ -411,7 +409,7 @@ function StepPanels({
       />
     );
   }
-  const step = editing ? (workflow.steps ?? []).find((s) => s.id === editing.id) : undefined;
+  const step = editing ? findStepDeep(workflow.steps, editing.id) : undefined;
   if (!editing || !step) return null;
   if (editing.kind === "placement") {
     return (
@@ -636,6 +634,9 @@ function WorkflowStage({
   onCloseEditor,
   runForm,
   simple,
+  view,
+  rulePanel,
+  onNotes,
   onModeChange,
   entryEditors,
 }: Readonly<{
@@ -654,12 +655,22 @@ function WorkflowStage({
   runForm: ReactNode;
   /** The Simple (When / Then) view of this workflow. */
   simple: ReactNode;
+  view: ViewMode;
+  /** Simple: the open rule's editor pane, or null. */
+  rulePanel: ReactNode;
+  /** Detailed: the workflow's Notes, edited at the top. */
+  onNotes: (notes: string) => void;
   onModeChange: (mode: ViewMode) => void;
   /** Detailed's entry editors: ?entry=, the live feed, links, and what a workflow delete does. */
   entryEditors: Pick<WorkflowViewsProps, "entry" | "live" | "hrefFor" | "onWorkflowDeleted">;
 }>) {
   return (
-    <div className="wf-stage" ref={stageRef}>
+    <div
+      className={`wf-stage${view === "simple" ? " wf-stage--simple" : ""}${
+        view === "simple" && (rulePanel || editing?.kind === "step") ? " wf-stage--pane" : ""
+      }`}
+      ref={stageRef}
+    >
       {renaming ? (
         <WorkflowNameForm
           key={workflow.id}
@@ -681,6 +692,7 @@ function WorkflowStage({
         selected={selected}
         {...handlers}
         simple={simple}
+        onNotes={onNotes}
         onModeChange={onModeChange}
         {...entryEditors}
       />
@@ -692,6 +704,7 @@ function WorkflowStage({
         onChange={onChange}
         onClose={onCloseEditor}
       />
+      {rulePanel}
       {runForm}
     </div>
   );
@@ -773,19 +786,12 @@ function runBlockReason(enabled: boolean | undefined, dirty: boolean | undefined
   return dirty ? "Save your changes to run them" : null;
 }
 
-/** The signed-in principal may purge (admin only). */
-function isAdminOf(whoami: ReturnType<typeof useWhoami>): boolean {
-  return whoami.status === "signed-in" && whoami.role === "admin";
-}
-
-/** The loaded definitions split into live and soft-deleted ones. */
 function useSplitDefs(loaded: { workflows?: WorkflowDef[] } | null) {
   const all = loaded?.workflows;
   return useMemo(() => {
     const defs = all ?? [];
     return {
       workflows: defs.filter((w) => !w.deleted_at),
-      deletedDefs: defs.filter((w) => w.deleted_at),
     };
   }, [all]);
 }
@@ -920,13 +926,11 @@ function RedirectNotices({
 export function Workflows() {
   const [params, setParams] = useSearchParams();
   const [reload, setReload] = useState(0);
-  const [showDeleted, setShowDeleted] = useState(false);
-  const [loaded, setLoaded] = useWorkflowsLoad(reload, showDeleted);
-  const whoami = useWhoami();
-  const isAdmin = isAdminOf(whoami);
-  const [purge, setPurge] = useState<PurgeState | null>(null);
+  const [loaded, setLoaded] = useWorkflowsLoad(reload);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
+  /** Simple: the rule whose editor is open in the right pane (d14). */
+  const [ruleOpen, setRuleOpen] = useState<RuleOpen>(null);
   const [status, setStatus] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   /** The id of the workflow whose save was refused because it changed since it was read. */
@@ -952,15 +956,15 @@ export function Workflows() {
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
 
-  const { workflows, deletedDefs } = useSplitDefs(loaded);
+  const { workflows } = useSplitDefs(loaded);
   const wantedId = params.get("id");
   const runId = params.get("run");
   const entryId = params.get("entry");
   const { missingRule, unreadRule } = redirectNotice(params);
-  const slotOf = useWorkflowSlots(loaded);
   const rules = loaded?.rules;
   const model = useMemo(() => foldModel(rules ?? [], workflows), [rules, workflows]);
   const [view, setView] = useState<ViewMode>("simple");
+  const chainWanted = params.get("chain") === "1";
   // A workflow just created elsewhere (the D7 place, New rule, a D7 offer) and opened before the
   // list's reload lands: until then it is "opening", never "missing" or swapped for another.
   const [awaited, setAwaited] = useState<{ id: string; after: number } | null>(null);
@@ -974,11 +978,16 @@ export function Workflows() {
   useEffect(() => {
     setSelectedStep(null);
     setEditing(null);
+    setRuleOpen(null);
     setRenaming(false);
     setRunFormOpen(false);
   }, [current?.id]);
 
   const workflow = draftOf(current, draft);
+  // The chain this workflow belongs to, when it is linked to others by continuations.
+  const chain = current ? model.chains.find((c) => c.workflowIds.includes(current.id)) : undefined;
+  const linkedChain = chain && chain.workflowIds.length > 1 ? chain : undefined;
+  const chainHref = current && linkedChain ? `/workflows?id=${encodeURIComponent(current.id)}&chain=1` : null;
   const empty = isEmptyList(loaded, workflows);
   // The canvas (and its view switch) is what the board shows: not New rule, the D7 place or New workflow.
   const showsCanvas = workflow !== null && !creatingRule && !creating && d7Rule === null;
@@ -1212,7 +1221,6 @@ export function Workflows() {
       await deleteWorkflowDef(gone.id);
       setDeleted(gone);
       setStatus("");
-      if (showDeleted) setReload((n) => n + 1);
       setLoaded((l) => dropFrom(l, gone.id));
       setQuery({ id: next?.id ?? null, run: null });
     } catch (err) {
@@ -1233,42 +1241,6 @@ export function Workflows() {
     }
   };
 
-  const { pending: restorePending, run: runRestore } = usePending();
-  const restoreFromList = (wf: WorkflowDef) =>
-    runRestore(wf.id, async () => {
-      setActionError(null);
-      try {
-        const back = storedOr(await restoreWorkflowDef(wf.id), { ...wf, deleted_at: null });
-        setLoaded((l) => putIn(l, { ...back, deleted_at: null }));
-        setStatus(`Restored ${back.name}`);
-      } catch (err) {
-        setActionError(`Restore failed: ${message(err)}`);
-      }
-    });
-  const asApiError = (err: unknown) => (err instanceof ApiError ? err : new ApiError(0, "unknown", String(err)));
-  const startPurge = async (wf: WorkflowDef) => {
-    setPurge({ workflow: wf, checked: false, busy: false, error: null });
-    try {
-      await purgeWorkflow(wf.id, false);
-      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, checked: true } : p));
-    } catch (err) {
-      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, error: asApiError(err) } : p));
-    }
-  };
-  const confirmPurge = async () => {
-    if (!purge || !purge.checked || purge.busy) return;
-    const wf = purge.workflow;
-    setPurge({ ...purge, busy: true });
-    try {
-      await purgeWorkflow(wf.id, true);
-      setLoaded((l) => dropFrom(l, wf.id));
-      setPurge(null);
-      setStatus(`Purged ${wf.name}`);
-    } catch (err) {
-      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, busy: false, error: asApiError(err) } : p));
-    }
-  };
-
   const now = Date.now();
 
   const hrefFor = (id: string) => `/workflows?id=${encodeURIComponent(id)}`;
@@ -1285,6 +1257,19 @@ export function Workflows() {
         def={current}
         live={simpleFeed}
         onSaved={(saved) => setLoaded((l) => replaceIn(l, saved))}
+        selectedStep={editing?.kind === "step" ? editing.id : null}
+        selectedRule={ruleOpen?.id ?? null}
+        onOpenStep={(id, trigger) => {
+          // The same panel Detailed opens for a step; one side pane at a time.
+          setRuleOpen(null);
+          setSelectedStep(id);
+          setEditing({ kind: "step", id, trigger });
+        }}
+        onOpenRule={(id, trigger) => {
+          setEditing(null);
+          setSelectedStep(null);
+          setRuleOpen({ id, trigger });
+        }}
       />
     ) : null;
   // While New rule or the D7 place is shown, the head names it: no workflow's rename, delete or run.
@@ -1332,6 +1317,16 @@ export function Workflows() {
         />
       );
     }
+    if (workflow && chainWanted && linkedChain) {
+      return (
+        <section className="wf-chain-place" aria-label="Chain">
+          <p className="wf-chain-place__bar">
+            <Link to={`/workflows?id=${encodeURIComponent(workflow.id)}`}>← Back to {workflow.name || workflow.id}</Link>
+          </p>
+          <ChainView model={model} chain={linkedChain} selectedId={workflow.id} onOpen={() => undefined} />
+        </section>
+      );
+    }
     if (workflow) {
       return (
         <WorkflowStage
@@ -1348,6 +1343,21 @@ export function Workflows() {
           onChange={(wf) => setDraft((d) => editDraft(d, () => wf))}
           onCloseEditor={closeEditor}
           simple={renderSimpleView()}
+          view={view}
+          rulePanel={
+            ruleOpen && view === "simple" && current ? (
+              <RulePanel
+                key={`${current.id}/${ruleOpen.id}`}
+                workflow={current}
+                ruleId={ruleOpen.id}
+                live={simpleFeed}
+                hrefFor={hrefFor}
+                returnFocus={ruleOpen.trigger}
+                onClose={() => setRuleOpen(null)}
+              />
+            ) : null
+          }
+          onNotes={(notes) => edit((wf) => ({ ...wf, notes }))}
           onModeChange={setView}
           entryEditors={{
             entry: entryId,
@@ -1446,6 +1456,9 @@ export function Workflows() {
             renameButton={renameButton}
             onRename={() => (renaming ? closeRename() : setRenaming(true))}
             onDelete={() => void removeWorkflow()}
+            onToggle={() => current && void toggleWorkflow(current)}
+            toggling={current ? togglePending.has(current.id) : false}
+            chainHref={chainHref}
           />
           )}
           <span className="wf-head__end">
@@ -1499,42 +1512,6 @@ export function Workflows() {
                 setCreatingRule(true);
               }}
               newRuleRef={newRuleButton}
-              more={
-                <WorkflowList
-                inOverview
-                model={model}
-                workflows={workflows}
-                selectedId={headless ? null : (current?.id ?? null)}
-                slotOf={slotOf}
-                onToggle={(wf) => void toggleWorkflow(wf)}
-                pending={togglePending}
-                onNew={openNew}
-                newRuleRef={newRuleButton}
-                onNewRule={() => {
-                  setCreating(false);
-                  setCreatingRule(true);
-                }}
-                onOpen={() => {
-                  setCreatingRule(false);
-                  openRow();
-                }}
-                newRef={newButton}
-                showDeleted={showDeleted}
-                onShowDeleted={(on) => {
-                  setShowDeleted(on);
-                  if (!on) setPurge(null);
-                }}
-                deleted={deletedDefs}
-                restoring={restorePending}
-                onRestore={(wf) => void restoreFromList(wf)}
-                onPurge={isAdmin ? (wf) => void startPurge(wf) : undefined}
-                purgePanel={
-                  isAdmin && purge ? (
-                    <PurgePanel state={purge} onConfirm={() => void confirmPurge()} onCancel={() => setPurge(null)} />
-                  ) : null
-                }
-                />
-              }
             />
           )
         ) : (
@@ -1542,18 +1519,6 @@ export function Workflows() {
         )}
 
         <div className="wf-foot">
-          <span className="wf-legend">
-            <svg width="34" height="4" aria-hidden="true">
-              <path d="M0 2 H34" className="wf-legend__line" />
-            </svg>
-            same machine
-          </span>
-          <span className="wf-legend">
-            <svg width="34" height="4" aria-hidden="true">
-              <path d="M0 2 H34" className="wf-legend__line wf-legend__line--cross" />
-            </svg>
-            crosses machines
-          </span>
           {aside === null ? <RecentRuns runs={runs} runId={runId} params={params} now={now} /> : null}
         </div>
       </main>

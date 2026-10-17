@@ -22,11 +22,11 @@ async function open(page: Page, path: string, view?: "detailed") {
 
 const norm = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** The text a reader sees: visually-hidden cues (.sv-sr) left out, whitespace normalised. */
+/** The text a reader sees: visually-hidden cues (.sv-sr) and the disabled tag (.sv-pill, d13) left out, whitespace normalised. */
 async function visibleText(el: Locator): Promise<string> {
   return el.evaluate((node) => {
     const copy = node.cloneNode(true) as HTMLElement;
-    copy.querySelectorAll(".sv-sr").forEach((n) => n.remove());
+    copy.querySelectorAll(".sv-sr, .sv-pill").forEach((n) => n.remove());
     return Array.from(copy.querySelectorAll(".sv-line"), (l) => (l.textContent ?? "").replace(/\s+/g, " ").trim()).join("\n");
   });
 }
@@ -50,7 +50,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     for (const wf of DESCRIBED_WORKFLOWS) {
       const card = page.getByRole("link", { name: new RegExp(`^${wf.name}`) }).first();
       const expected = wf.description?.trim() || "No description yet";
-      await expect(card.locator(".wf-card__desc")).toHaveText(expected);
+      await expect(card.locator(".wf-tile__desc")).toHaveText(expected);
     }
   });
 
@@ -69,11 +69,12 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     await expect(page.locator(".wf-canvas")).toHaveCount(0);
     await expect(page.getByRole("group", { name: /^Entry point:/ })).toHaveCount(0);
 
-    // Detailed: the workflow's Notes (in the inputs editor) and a step's Notes.
+    // Detailed: the workflow's Notes at the top (d13), also in the inputs editor, and a step's Notes.
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.getByRole("group", { name: "Canvas view" }).getByRole("button", { name: "Detailed" }).click();
     const wf = DESCRIBED_WORKFLOWS.find((w) => w.id === "pr-fix")!;
     expect(wf.notes).toBeTruthy();
+    await expect(page.getByRole("textbox", { name: "Notes for this workflow" })).toHaveValue(wf.notes!);
     await page.getByRole("group", { name: "Inputs", exact: true }).locator(".wf-card__io-title").click();
     await expect(page.getByRole("dialog", { name: "Edit inputs" }).getByRole("textbox", { name: "Workflow notes" })).toHaveValue(wf.notes!);
     await page.keyboard.press("Escape");
@@ -128,14 +129,44 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     await expect(stand).toHaveText(`${seg.shown} (not written yet)`);
     expect(DESCRIBED["publish-fix"].paragraph.text).toContain(String(seg.shown));
     expect(await stand.evaluate((el) => getComputedStyle(el).fontStyle)).toBe("italic");
-    // Clicking it opens an empty field for the author to write fresh.
+    // Clicking it opens the step's panel (d14) with an empty description for the author to write fresh.
     await stand.click();
-    await expect(page.getByRole("textbox", { name: /^Edit the description of / })).toHaveValue("");
+    const panel = page.getByRole("dialog", { name: /^Edit / });
+    await expect(panel.getByRole("textbox", { name: "One-line description" })).toHaveValue("");
+    await expect(stand).toHaveClass(/sv-selected/);
   });
 
   test("a workflow with no description shows the gap on its card and in Simple", async ({ page }) => {
     await open(page, "/workflows?id=daily-newspaper");
     await expect(page.getByLabel("Workflow description").locator(".sv-gap")).toHaveText("No description yet");
     await expect(paragraph(page)).toBeVisible();
+  });
+
+  test("d14: a step opens its panel, a rule opens its editor with the enable switch; the selected words are highlighted", async ({ page }) => {
+    await open(page, "/workflows?id=pr-fix");
+    const step = paragraph(page).locator(".sv-step .sv-text").nth(1);
+    await step.click();
+    const panel = page.getByRole("dialog", { name: /^Edit / });
+    await expect(panel.getByRole("textbox", { name: "One-line description" })).toBeVisible();
+    await expect(paragraph(page).locator(".sv-selected")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+    await expect(step).toBeFocused();
+    const rule = paragraph(page).locator("[data-rule] .sv-text").first();
+    await rule.click({ position: { x: 24, y: 8 } });
+    const editor = page.getByRole("dialog", { name: "Rule editor" });
+    await expect(editor.getByRole("switch", { name: /enabled/i }).first()).toBeVisible();
+    await expect(rule).toHaveClass(/sv-selected/);
+    await editor.getByRole("button", { name: "Close" }).click();
+    await expect(editor).toHaveCount(0);
+    await expect(rule).toBeFocused();
+  });
+
+  test("d13: disabled rules read muted with a tag, not struck through; Simple has no legend", async ({ page }) => {
+    await open(page, "/workflows?id=pr-fix");
+    const pill = paragraph(page).locator(".sv-pill").first();
+    await expect(pill).toHaveText("disabled");
+    expect(await paragraph(page).locator(".sv-disabled").first().evaluate((el) => getComputedStyle(el).textDecorationLine)).not.toBe("line-through");
+    await expect(page.getByText(/same machine|crosses machines/)).toHaveCount(0);
   });
 });

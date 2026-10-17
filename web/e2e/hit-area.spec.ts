@@ -154,16 +154,17 @@ test.describe("d4: every control has a 44x44 hit area", () => {
     ["one workflow", [REVIEW_PR]],
     ["no workflows", []],
   ] as const) {
-    test(`Workflows tab: the overview's chain section and New buttons (${label})`, async ({ page }) => {
+    test(`Workflows tab: the overview's cards and New buttons (${label})`, async ({ page }) => {
       await mockApi(page);
       await mockWorkflowsApi(page, [...start]);
       await page.goto("/workflows");
       await expect.poll(async () => (await agentState(page)).status).toBe("ready");
-      const list = page.getByRole("navigation", { name: "Chains and housekeeping" });
-      await expect(list).toBeVisible();
-      // One enable switch per stored workflow (its section on the folded list).
-      await expect(list.getByRole("switch")).toHaveCount(start.length);
-      expect(await smallHitAreas(page, 'nav[aria-label="Chains and housekeeping"]')).toEqual([]);
+      const overview = page.getByRole("region", { name: "Workflows overview" });
+      await expect(overview).toBeVisible();
+      // d13: no chain section and no switches here; the cards are the links.
+      await expect(page.getByRole("navigation", { name: "Chains and housekeeping" })).toHaveCount(0);
+      await expect(overview.getByRole("switch")).toHaveCount(0);
+      expect(await smallHitAreas(page, 'section[aria-label="Workflows overview"]')).toEqual([]);
       // New workflow (and New rule, in the overview's header once workflows exist) are large
       // targets too: at least 44px tall.
       const names = start.length ? ["New workflow", "New rule"] : ["New workflow"];
@@ -172,6 +173,15 @@ test.describe("d4: every control has a 44x44 hit area", () => {
       }
     });
   }
+
+  test("Workflows tab: the open workflow's head, with its enable switch (d13)", async ({ page }) => {
+    await mockApi(page);
+    await mockWorkflowsApi(page, [REVIEW_PR]);
+    await page.goto("/workflows?id=review-pr");
+    await expect.poll(async () => (await agentState(page)).status).toBe("ready");
+    await expect(page.locator(".wf-head").getByRole("switch", { name: "Review PR enabled" })).toBeVisible();
+    expect(await smallHitAreas(page, ".wf-head")).toEqual([]);
+  });
 
   test("Workflows tab: the compact pane and its collapsed rail", async ({ page }) => {
     await withView(page, "detailed");

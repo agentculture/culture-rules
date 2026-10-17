@@ -28,6 +28,8 @@ export interface WorkflowViewsProps extends CanvasProps {
   simple?: ReactNode;
   /** Extra toolbar content, after the switch (status chips, actions). */
   toolbar?: ReactNode;
+  /** Detailed: the workflow's Notes, edited at the top; told the new text. Absent: read-only. */
+  onNotes?: (notes: string) => void;
   /** Told the view on mount and on every switch (agent-state reports it). */
   onModeChange?: (mode: ViewMode) => void;
   /** Detailed's entry editors: the entry point asked for (?entry=), opened without a remount. */
@@ -49,9 +51,46 @@ function SimplePlaceholder() {
   );
 }
 
+/** The workflow's Notes, near the top of Detailed (a step's Notes stay in its step panel). */
+function NotesField({ notes, onChange }: Readonly<{ notes: string; onChange?: (notes: string) => void }>) {
+  return (
+    <label className="wf-views__notes">
+      <span>Notes for this workflow</span>
+      <textarea
+        rows={2}
+        value={notes}
+        readOnly={!onChange}
+        placeholder="Technical detail, caveats, who to ask."
+        onChange={(e) => onChange?.(e.target.value)}
+      />
+    </label>
+  );
+}
+
+/** What the canvas's wires mean: shown with Detailed's and Debug's canvas, not with Simple. */
+function CanvasLegend() {
+  return (
+    <div className="wf-foot wf-foot--legend">
+      <span className="wf-legend">
+        <svg width="34" height="4" aria-hidden="true">
+          <path d="M0 2 H34" className="wf-legend__line" />
+        </svg>
+        same machine
+      </span>
+      <span className="wf-legend">
+        <svg width="34" height="4" aria-hidden="true">
+          <path d="M0 2 H34" className="wf-legend__line wf-legend__line--cross" />
+        </svg>
+        crosses machines
+      </span>
+    </div>
+  );
+}
+
 export function WorkflowViews({
   simple,
   toolbar,
+  onNotes,
   onModeChange,
   entry,
   live,
@@ -70,7 +109,9 @@ export function WorkflowViews({
   if (mode === "detailed")
     view = (
       <>
+        <NotesField notes={canvas.workflow.notes ?? ""} onChange={onNotes} />
         <WorkflowCanvas {...canvas} />
+        <CanvasLegend />
         <EntryEditors
           workflow={canvas.workflow}
           entry={entry}
@@ -80,7 +121,12 @@ export function WorkflowViews({
         />
       </>
     );
-  else if (mode === "debug") view = <DebugView workflow={canvas.workflow} />;
+  else if (mode === "debug") view = (
+      <>
+        <DebugView workflow={canvas.workflow} />
+        <CanvasLegend />
+      </>
+    );
   else view = simple ?? <SimplePlaceholder />;
 
   return (

@@ -10,7 +10,7 @@ import SimpleView from "./SimpleView";
 const seg = (o: Record<string, unknown>) =>
   ({ keys: [], tail_keys: [], depth: 0, tail: "", standin: false, fallback: false, grouped: false, ...o }) as unknown as ParagraphSegment;
 const SEGMENTS: ParagraphSegment[] = [
-  { part: "start", sentence: 0, keys: ["starts_event"], text: "It starts when pr.opened arrives." },
+  { part: "start", sentence: 0, keys: ["starts_event"], rule: "pr-opened", text: "It starts when pr.opened arrives." },
   seg({ part: "step", sentence: 1, phrase: "First", step: "fetch", name: "Fetch", text: "Fetches the PR.", shown: "fetches the PR" }),
   seg({ part: "step", sentence: 1, phrase: "; then", step: "tag", name: "Tag", text: "Tags the pieces.", shown: "tags the pieces", tail: ", waiting 5 minutes.", grouped: true }),
   seg({ part: "step", sentence: 2, phrase: "Then, if it is large,", step: "split", name: "Split", text: "Splits it.", shown: "splits it", tail: "." }),
@@ -70,7 +70,7 @@ afterEach(() => vi.unstubAllGlobals());
 /** The paragraph as the reader sees it: whitespace normalized, visually-hidden cues left out. */
 function visible(el: HTMLElement) {
   const clone = el.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll(".sv-sr").forEach((n) => n.remove());
+  clone.querySelectorAll(".sv-sr, .sv-pill").forEach((n) => n.remove());
   return (clone.textContent ?? "")
     .split("\n")
     .map((l) => l.replace(/\s+/g, " ").trim())
@@ -180,7 +180,7 @@ describe("How it runs: the API paragraph", () => {
     expect(visible(para)).toBe(TEXT);
   });
 
-  it("one line per sentence; styles phrases, marks a stand-in not written yet, strikes a disabled step", async () => {
+  it("one line per sentence; styles phrases, marks a stand-in not written yet, mutes a disabled step with a small tag, no strike-through", async () => {
     stubApi();
     render(<SimpleView def={WF} />);
     const para = await screen.findByTestId("paragraph");
@@ -194,46 +194,51 @@ describe("How it runs: the API paragraph", () => {
     const old = within(para).getByText("is retired").closest(".sv-step")!;
     expect(old).toHaveClass("sv-disabled");
     expect(old.querySelector(".sv-sr")).not.toBeNull();
+    // d13 (amends d8): muted and tagged, not struck through.
+    expect(old.querySelector(".sv-pill")).toHaveTextContent("disabled");
+    expect(getComputedStyle(old).textDecorationLine).not.toBe("line-through");
+    expect(para.querySelectorAll(".sv-pill")).toHaveLength(1);
   });
 
-  it("a step description is edited in place: one PUT with that step's description, then a re-fetch", async () => {
+  it("a step's text opens its panel (the page mounts the Detailed one); nothing is edited inline (d14)", async () => {
     stubApi();
-    const onSaved = vi.fn();
-    render(<SimpleView def={WF} onSaved={onSaved} />);
-    await screen.findByTestId("paragraph");
-    const before = describes;
+    const onOpenStep = vi.fn();
+    render(<SimpleView def={WF} onOpenStep={onOpenStep} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "fetches the PR" }));
-    const field = screen.getByRole("textbox", { name: "Edit the description of Fetch" });
-    await user.clear(field);
-    await user.type(field, "Downloads the PR.{Enter}");
-    await waitFor(() => expect(puts).toHaveLength(1));
-    const sent = puts[0] as WorkflowDef;
-    expect(sent.steps?.find((s) => s.id === "fetch")?.description).toBe("Downloads the PR.");
-    expect(sent.description).toBe("Fixes a pull request.");
-    await waitFor(() => expect(describes).toBeGreaterThan(before));
-  });
-
-  it("a gap is filled the same way", async () => {
-    stubApi();
-    render(<SimpleView def={WF} />);
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /ship/ }));
-    const field = screen.getByRole("textbox", { name: "Edit the description of Ship" });
-    expect(field).toHaveValue("");
-    await user.type(field, "Ships it.{Enter}");
-    await waitFor(() => expect(puts).toHaveLength(1));
-    expect((puts[0] as WorkflowDef).steps?.find((s) => s.id === "ship")?.description).toBe("Ships it.");
-  });
-
-  it("Escape saves nothing", async () => {
-    stubApi();
-    render(<SimpleView def={WF} />);
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "fetches the PR" }));
-    await user.type(screen.getByRole("textbox", { name: "Edit the description of Fetch" }), "x{Escape}");
+    const text = await screen.findByRole("button", { name: "fetches the PR" });
+    await user.click(text);
+    expect(onOpenStep).toHaveBeenCalledWith("fetch", text);
+    expect(screen.queryByRole("textbox", { name: /Edit the description of Fetch/ })).toBeNull();
+    // A stand-in opens the same panel, by the keyboard too.
+    await user.click(screen.getByRole("button", { name: /ship/ }));
+    expect(onOpenStep).toHaveBeenLastCalledWith("ship", expect.anything());
+    screen.getByRole("button", { name: "tags the pieces" }).focus();
+    await user.keyboard("{Enter}");
+    expect(onOpenStep).toHaveBeenLastCalledWith("tag", expect.anything());
     expect(puts).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "fetches the PR" })).toBeInTheDocument();
+  });
+
+  it("the selected step's words are highlighted while its panel is open", async () => {
+    stubApi();
+    const { rerender } = render(<SimpleView def={WF} selectedStep="fetch" />);
+    const para = await screen.findByTestId("paragraph");
+    expect(within(para).getByRole("button", { name: "fetches the PR" })).toHaveClass("sv-selected");
+    expect(within(para).getByRole("button", { name: "tags the pieces" })).not.toHaveClass("sv-selected");
+    rerender(<SimpleView def={WF} selectedStep={null} />);
+    expect(para.querySelector(".sv-selected")).toBeNull();
+  });
+
+  it("a rule's sentence carries its rule id and opens the rule's editor", async () => {
+    stubApi();
+    const onOpenRule = vi.fn();
+    const { rerender } = render(<SimpleView def={WF} onOpenRule={onOpenRule} />);
+    const sentence = await screen.findByRole("button", { name: /It starts when pr.opened arrives/ });
+    await userEvent.setup().click(sentence);
+    expect(onOpenRule).toHaveBeenCalledWith("pr-opened", sentence);
+    rerender(<SimpleView def={WF} onOpenRule={onOpenRule} selectedRule="pr-opened" />);
+    expect(sentence).toHaveClass("sv-selected");
+    // A closing sentence belongs to no single rule: plain words.
+    expect(screen.queryByRole("button", { name: /nothing else happens/ })).toBeNull();
   });
 
   it("reads the paragraph again when a rule or workflow changes live", async () => {

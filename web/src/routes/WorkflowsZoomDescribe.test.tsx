@@ -214,18 +214,4 @@ describe("Workflows: zoom and the (i) description (d19)", () => {
     await userEvent.click(within(head).getByRole("button", { name: "About Review PR" }));
     expect(await screen.findByText("The saved version.", undefined, { timeout: 5000 })).toBeInTheDocument();
   });
-
-  it("the overview card list's (i) opens the same description (the pane no longer carries it)", async () => {
-    render(
-      <MemoryRouter initialEntries={["/workflows"]}>
-        <Routes>
-          <Route path="/workflows" element={<Workflows />} />
-        </Routes>
-      </MemoryRouter>,
-    );
-    const list = await screen.findByRole("navigation", { name: "Chains and housekeeping" });
-    await userEvent.click(within(list).getByRole("button", { name: "About Review PR" }));
-    const panel = within(list).getByRole("dialog", { name: "About Review PR" });
-    expect((await within(panel).findByTestId("about-lines")).textContent).toBe(DESCRIBED.lines.join("\n"));
-  });
 });

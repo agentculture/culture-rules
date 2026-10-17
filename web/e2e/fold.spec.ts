@@ -79,23 +79,24 @@ test.describe("the fold against the fake API (PR fixer)", () => {
       .toEqual([2, 8, 11, 13]);
     await page.goto("/workflows");
     await untilReady(page);
-    // The chain cards live in the overview's "Chains and housekeeping" section.
-    const list = page.getByRole("navigation", { name: "Chains and housekeeping" });
-    await expect(list.getByRole("article")).toHaveCount(model.chains.length);
-    // The overview says how many workflows there are; each chain card its own entry points and rules.
+    // d13: the overview is the cards only. The chain view is reached from an open workflow's head.
+    await expect(page.getByRole("navigation", { name: "Chains and housekeeping" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Workflows overview" })).toContainText(`${model.workflows.length} workflows.`);
-    const cards = list.getByRole("article");
     const n = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-    for (const [i, chain] of model.chains.entries()) {
-      await expect(cards.nth(i)).toContainText(
-        `${n(chain.workflowIds.length, "workflow")} linked by continuations · ${n(chain.entryPoints.length, "entry point")} · was ${n(chain.entryPoints.length + chain.continuations.length, "rule")}`,
+    for (const chain of model.chains.filter((c) => c.workflowIds.length > 1)) {
+      await page.goto(`/workflows?id=${chain.workflowIds[0]}`);
+      await untilReady(page);
+      await page.getByRole("link", { name: "See it as one chain" }).click();
+      const view = page.getByRole("region", { name: "Chain view" });
+      await expect(view).toContainText(
+        `${n(chain.entryPoints.length + chain.continuations.length, "rule")} → ${n(chain.entryPoints.length, "entry point")}, ${n(chain.continuations.length, "continuation")}, ${n(chain.workflowIds.length, "workflow")}`,
       );
     }
     expect(model.chains.reduce((n, c) => n + c.entryPoints.length + c.continuations.length, 0)).toBe(PR_FIXER_RULES.length - model.d7Candidates.length);
     const state = (await agentState(page)).workflows;
     expect(state.chains).toBe(2);
     expect(state.without_workflow).toEqual([]);
-    // Every stored PR fixer rule is disabled: the disabled badges must still read (AA contrast).
+    // Every stored PR fixer rule is disabled: the disabled tags must still read (AA contrast).
     const bad = (await new AxeBuilder({ page }).analyze()).violations
       .filter((v) => v.impact === "serious" || v.impact === "critical")
       .map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(" ")}`);

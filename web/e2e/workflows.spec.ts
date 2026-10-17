@@ -387,7 +387,7 @@ test.describe("Workflows tab", () => {
     await expect.poll(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("(i) on the head and the list row: mouse and keyboard, the API's lines, focus return (d19)", async ({ page }) => {
+  test("(i) on the head: mouse and keyboard, the API's lines, focus return (d19)", async ({ page }) => {
     await open(page);
     const head = page.locator(".wf-head");
     const about = head.getByRole("button", { name: "About Review PR" });
@@ -412,17 +412,6 @@ test.describe("Workflows tab", () => {
     await expect(panel).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(about).toBeFocused();
-    // The workflow row's (i) lives in the overview's chain section (the pane holds names only);
-    // it opens without opening the row (no navigation).
-    await page.goto("/workflows");
-    const url = page.url();
-    const list = page.getByRole("navigation", { name: "Chains and housekeeping" });
-    await list.getByRole("button", { name: "About Review PR" }).click();
-    await expect(list.getByRole("dialog", { name: "About Review PR" }).getByTestId("about-lines")).toBeVisible();
-    expect(page.url()).toBe(url);
-    // A press elsewhere closes it.
-    await page.getByRole("heading", { level: 1, name: "Workflows" }).click();
-    await expect(list.getByRole("dialog", { name: "About Review PR" })).toBeHidden();
   });
 
   test("(i) panels stay inside the window beside a long description (d19)", async ({ page }) => {
@@ -450,11 +439,8 @@ test.describe("Workflows tab", () => {
     );
     for (const width of [1280, 1000, 800]) {
       await page.setViewportSize({ width, height: 880 });
-      // The head's (i) on the open workflow, then the row's (i) in the overview's chain section.
-      for (const [path, scope] of [
-        ["/workflows?id=review-pr", page.locator(".wf-head")],
-        ["/workflows", page.getByRole("navigation", { name: "Chains and housekeeping" })],
-      ] as const) {
+      // The head's (i) on the open workflow (the overview's chain section, with its row (i), is gone: d13).
+      for (const [path, scope] of [["/workflows?id=review-pr", page.locator(".wf-head")]] as const) {
         await page.goto(path);
         const about = scope.getByRole("button", { name: "About Review PR" });
         await about.click();

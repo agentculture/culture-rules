@@ -16,6 +16,7 @@ import {
   disconnect,
   stepLabel,
   updateStep,
+  findStepDeep,
 } from "./model";
 import Panel from "./Panel";
 import {
@@ -334,7 +335,7 @@ export function StepEditor({
 }>) {
   const [errors, setErrors] = useState<Record<string, ErrorCode | null>>({});
   const [rawConfig, setRawConfig] = useState(false);
-  const step = (workflow.steps ?? []).find((s) => s.id === stepId);
+  const step = findStepDeep(workflow.steps, stepId);
   if (!step) return null;
   const setError = (field: string) => (code: ErrorCode | null) => setErrors((e) => ({ ...e, [field]: code }));
   const blocked = Object.values(errors).some(Boolean);
