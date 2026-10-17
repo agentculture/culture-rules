@@ -218,6 +218,10 @@ def test_every_committed_pr_fixer_workflow_hashes_to_a_trusted_digest():
         doc = json.loads(path.read_text())
         assert workflow_digest_v2(doc) in TRUSTED_WORKFLOWS_V2[role], name
         assert workflow_role({"workflow": {"definition": doc}}) == role, name
+        if name == "pr-fix":
+            # d12: the step rename moved pr-fix's v1 digest too; the v1 pin is the
+            # pre-rename definition's and gets no new v1 pin (new pins are v2 only)
+            continue
         assert workflow_digest(pre_migration(doc)) in TRUSTED_WORKFLOW_DIGESTS, name
     assert workflow_digest(workflow_doc()) in TRUSTED_WORKFLOW_DIGESTS
 
@@ -438,3 +442,14 @@ def test_v1_is_unchanged_by_the_v2_function():
     assert workflow_digest({**wf, "description": "x"}) != workflow_digest(wf)
     assert workflow_digest(wf) != workflow_digest_v2(wf)
     assert workflow_digest(wf) in TRUSTED_WORKFLOWS[ROLE_SINGLE]
+
+
+def test_the_pre_rename_pr_fix_stays_trusted_in_its_role_beside_the_renamed_one():
+    """d12: the step rename gave pr-fix a new v2 digest; the old pin stays while runs pinned
+    to the pre-rename definition may still push."""
+    from culture_rules.actors.trusted import ROLE_FIX, TRUSTED_WORKFLOWS_V2, workflow_digest_v2
+
+    old = "sha256:4a92df7e0b127246fe668c8ea2233169088f1d9ee06df0bad33ebe2036dad769"
+    assert old in TRUSTED_WORKFLOWS_V2[ROLE_FIX]
+    assert workflow_digest_v2(_load(V2_SOURCES[ROLE_FIX])) in TRUSTED_WORKFLOWS_V2[ROLE_FIX]
+    assert workflow_digest_v2(_load(V2_SOURCES[ROLE_FIX])) != old
