@@ -104,6 +104,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "daily-newspaper",
+            "sentence": 0,
             "text": "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark."
           },
           {
@@ -116,22 +117,32 @@
             ],
             "name": "Parse the sections",
             "part": "step",
-            "phrase": "First:",
+            "phrase": "First",
+            "sentence": 1,
+            "shown": "reads the configured sections and their search queries",
+            "standin": false,
             "step": "sections",
+            "tail": "",
+            "tail_keys": [],
             "text": "Reads the configured sections and their search queries."
           },
           {
             "depth": 0,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "then"
+              "then_grouped"
             ],
             "name": "Claim today's issue",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 1,
+            "shown": "claims today's issue, unless it was already delivered",
+            "standin": false,
             "step": "claim",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Claims today's issue, unless it was already delivered."
           },
           {
@@ -140,43 +151,60 @@
             "gap": false,
             "grouped": false,
             "keys": [
-              "then",
-              "for_each"
+              "then"
             ],
             "name": "Search each section",
             "part": "step",
-            "phrase": "Then, for each item (up to 20):",
+            "phrase": "Then",
+            "sentence": 2,
+            "shown": "searches the web for each section",
+            "standin": false,
             "step": "search",
+            "tail": ", for each item (up to 20)",
+            "tail_keys": [
+              "for_each"
+            ],
             "text": "Searches the web for each section."
           },
           {
             "depth": 1,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "each_time",
-              "from_here_on",
-              "retry"
+              "each_time_grouped",
+              "from_here_on"
             ],
             "name": "Brave search",
             "part": "step",
-            "phrase": "Each time, from here on, only if deliver is true, trying up to 3 times:",
+            "phrase": "; each time, from here on, only if deliver is true,",
+            "sentence": 2,
+            "shown": "runs the section's web search",
+            "standin": false,
             "step": "search_web",
+            "tail": ", trying up to 3 times",
+            "tail_keys": [
+              "retry"
+            ],
             "text": "Runs the section's web search."
           },
           {
             "depth": 1,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "then"
+              "then_grouped"
             ],
             "name": "Filter the results",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 2,
+            "shown": "keeps only the results the issue may show",
+            "standin": false,
             "step": "filter",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Keeps only the results the issue may show."
           },
           {
@@ -185,30 +213,42 @@
             "gap": false,
             "grouped": false,
             "keys": [
-              "then",
-              "for_each"
+              "then"
             ],
             "name": "Summarise each section",
             "part": "step",
-            "phrase": "Then, for each item (up to 20):",
+            "phrase": "Then",
+            "sentence": 3,
+            "shown": "summarises each section",
+            "standin": false,
             "step": "summarise",
+            "tail": ", for each item (up to 20)",
+            "tail_keys": [
+              "for_each"
+            ],
             "text": "Summarises each section."
           },
           {
             "depth": 1,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "each_time",
-              "if",
-              "retry",
-              "on_error_skip"
+              "each_time_grouped",
+              "if"
             ],
             "name": "cortex summary",
             "part": "step",
-            "phrase": "Each time, if deliver is true and results is not {}, trying up to 2 times, carrying on even if it fails:",
+            "phrase": "; each time, if deliver is true and results is not {},",
+            "sentence": 3,
+            "shown": "asks the language model for a short summary of the section's results",
+            "standin": false,
             "step": "summary",
+            "tail": ", trying up to 2 times, carrying on even if it fails.",
+            "tail_keys": [
+              "retry",
+              "on_error_skip"
+            ],
             "text": "Asks the language model for a short summary of the section's results."
           },
           {
@@ -222,8 +262,13 @@
             ],
             "name": "Render the issue",
             "part": "step",
-            "phrase": "Then, if deliver is true:",
+            "phrase": "Then, if deliver is true,",
+            "sentence": 4,
+            "shown": "renders the issue as an email and as an EPUB",
+            "standin": false,
             "step": "render",
+            "tail": "",
+            "tail_keys": [],
             "text": "Renders the issue as an email and as an EPUB."
           },
           {
@@ -237,7 +282,12 @@
             "name": "Fence the email",
             "part": "step",
             "phrase": "; then",
+            "sentence": 4,
+            "shown": "checks the email has not been sent yet and freezes what will be sent",
+            "standin": false,
             "step": "email_gate",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Checks the email has not been sent yet and freezes what will be sent."
           },
           {
@@ -247,14 +297,20 @@
             "grouped": false,
             "keys": [
               "then",
-              "if",
-              "retry",
-              "on_error_skip"
+              "if"
             ],
             "name": "Email the issue",
             "part": "step",
-            "phrase": "Then, if send is true, trying up to 3 times, carrying on even if it fails:",
+            "phrase": "Then, if send is true,",
+            "sentence": 5,
+            "shown": "sends the issue by email",
+            "standin": false,
             "step": "email",
+            "tail": ", trying up to 3 times, carrying on even if it fails.",
+            "tail_keys": [
+              "retry",
+              "on_error_skip"
+            ],
             "text": "Sends the issue by email."
           },
           {
@@ -268,8 +324,13 @@
             ],
             "name": "Record the email, fence the push",
             "part": "step",
-            "phrase": "Then, if deliver is true:",
+            "phrase": "Then, if deliver is true,",
+            "sentence": 6,
+            "shown": "records the sent email and checks the reader does not have the issue yet",
+            "standin": false,
             "step": "push_gate",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Records the sent email and checks the reader does not have the issue yet."
           },
           {
@@ -279,13 +340,19 @@
             "grouped": false,
             "keys": [
               "then",
-              "if",
-              "retry"
+              "if"
             ],
             "name": "Queue the EPUB on the reader",
             "part": "step",
-            "phrase": "Then, if deliver is true and push is true, trying up to 3 times:",
+            "phrase": "Then, if deliver is true and push is true,",
+            "sentence": 7,
+            "shown": "queues the EPUB on the e-reader",
+            "standin": false,
             "step": "push",
+            "tail": ", trying up to 3 times.",
+            "tail_keys": [
+              "retry"
+            ],
             "text": "Queues the EPUB on the e-reader."
           },
           {
@@ -299,8 +366,13 @@
             ],
             "name": "Record the delivery",
             "part": "step",
-            "phrase": "Then, if deliver is true:",
+            "phrase": "Then, if deliver is true,",
+            "sentence": 8,
+            "shown": "marks the day's issue as delivered",
+            "standin": false,
             "step": "record",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Marks the day's issue as delivered."
           },
           {
@@ -309,6 +381,7 @@
             ],
             "part": "then",
             "rules": [],
+            "sentence": 9,
             "text": "Nothing continues from here."
           },
           {
@@ -319,10 +392,11 @@
             "rules": [
               "daily-newspaper"
             ],
+            "sentence": 10,
             "text": "When it is done, nothing else happens."
           }
         ],
-        "text": "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark. First: Reads the configured sections and their search queries. Then: Claims today's issue, unless it was already delivered. Then, for each item (up to 20): Searches the web for each section. Each time, from here on, only if deliver is true, trying up to 3 times: Runs the section's web search. Then: Keeps only the results the issue may show. Then, for each item (up to 20): Summarises each section. Each time, if deliver is true and results is not {}, trying up to 2 times, carrying on even if it fails: Asks the language model for a short summary of the section's results. Then, if deliver is true: Renders the issue as an email and as an EPUB; then checks the email has not been sent yet and freezes what will be sent. Then, if send is true, trying up to 3 times, carrying on even if it fails: Sends the issue by email. Then, if deliver is true: Records the sent email and checks the reader does not have the issue yet. Then, if deliver is true and push is true, trying up to 3 times: Queues the EPUB on the e-reader. Then, if deliver is true: Marks the day's issue as delivered. Nothing continues from here. When it is done, nothing else happens."
+        "text": "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.\nFirst reads the configured sections and their search queries; then claims today's issue, unless it was already delivered.\nThen searches the web for each section, for each item (up to 20); each time, from here on, only if deliver is true, runs the section's web search, trying up to 3 times; then keeps only the results the issue may show.\nThen summarises each section, for each item (up to 20); each time, if deliver is true and results is not {}, asks the language model for a short summary of the section's results, trying up to 2 times, carrying on even if it fails.\nThen, if deliver is true, renders the issue as an email and as an EPUB; then checks the email has not been sent yet and freezes what will be sent.\nThen, if send is true, sends the issue by email, trying up to 3 times, carrying on even if it fails.\nThen, if deliver is true, records the sent email and checks the reader does not have the issue yet.\nThen, if deliver is true and push is true, queues the EPUB on the e-reader, trying up to 3 times.\nThen, if deliver is true, marks the day's issue as delivered.\nNothing continues from here.\nWhen it is done, nothing else happens."
       }
     },
     "pr-fix": {
@@ -444,6 +518,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-dispatch",
+            "sentence": 0,
             "text": "It starts when rules.queue.dispatch arrives, if its condition holds, on spark2."
           },
           {
@@ -452,42 +527,58 @@
             "gap": false,
             "grouped": false,
             "keys": [
-              "first",
-              "wait",
-              "wait_guard"
+              "first"
             ],
             "name": "Quiet period",
             "part": "step",
-            "phrase": "First, it waits 5 minutes, and the run stops if the PR head moves:",
+            "phrase": "First",
+            "sentence": 1,
+            "shown": "waits for the pull request to settle",
+            "standin": false,
             "step": "quiet",
+            "tail": ", waiting 5 minutes, and the run stops if the PR head moves",
+            "tail_keys": [
+              "wait",
+              "wait_guard"
+            ],
             "text": "Waits for the pull request to settle."
           },
           {
             "depth": 0,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "then"
+              "then_grouped"
             ],
             "name": "Hold while GitGuardian fails",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 1,
+            "shown": "stops the run while GitGuardian reports a leaked secret on the head",
+            "standin": false,
             "step": "secrets",
+            "tail": "",
+            "tail_keys": [],
             "text": "Stops the run while GitGuardian reports a leaked secret on the head."
           },
           {
             "depth": 0,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "then"
+              "then_grouped"
             ],
             "name": "Trusted review threads",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 1,
+            "shown": "lists the unresolved review threads opened by trusted authors",
+            "standin": false,
             "step": "threads",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Lists the unresolved review threads opened by trusted authors."
           },
           {
@@ -500,8 +591,13 @@
             ],
             "name": "Failing SonarCloud conditions",
             "part": "step",
-            "phrase": "At the same time:",
+            "phrase": "At the same time",
+            "sentence": 2,
+            "shown": "lists the issues behind the failing SonarCloud conditions",
+            "standin": false,
             "step": "sonar",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Lists the issues behind the failing SonarCloud conditions."
           },
           {
@@ -510,28 +606,39 @@
             "gap": false,
             "grouped": false,
             "keys": [
-              "once_both",
-              "retry_until"
+              "once_both"
             ],
             "name": "Agent and gate (up to 3 tries)",
             "part": "step",
-            "phrase": "Once both are done, it tries until verdict is set, at most once:",
+            "phrase": "Once both are done,",
+            "sentence": 3,
+            "shown": "gives the fix one try",
+            "standin": false,
             "step": "fix",
+            "tail": ", until verdict is set, at most once",
+            "tail_keys": [
+              "retry_until"
+            ],
             "text": "Gives the fix one try."
           },
           {
             "depth": 1,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "each_time",
+              "each_time_grouped",
               "if"
             ],
             "name": "Fix the PR (Qwen bridge agent)",
             "part": "step",
-            "phrase": "Each time, if fixer is not set or fixer is one of \"\", qwen-fixer:",
+            "phrase": "; each time, if fixer is not set or fixer is one of \"\", qwen-fixer,",
+            "sentence": 3,
+            "shown": "the Qwen agent fixes the pull request and commits locally",
+            "standin": false,
             "step": "agent_qwen",
+            "tail": ".",
+            "tail_keys": [],
             "text": "The Qwen agent fixes the pull request and commits locally."
           },
           {
@@ -545,8 +652,13 @@
             ],
             "name": "Fix the PR (Claude bridge agent)",
             "part": "step",
-            "phrase": "Then, if fixer is claude-fixer:",
+            "phrase": "Then, if fixer is claude-fixer,",
+            "sentence": 4,
+            "shown": "the Claude agent fixes the pull request and commits locally",
+            "standin": false,
             "step": "agent_claude",
+            "tail": "",
+            "tail_keys": [],
             "text": "The Claude agent fixes the pull request and commits locally."
           },
           {
@@ -560,7 +672,12 @@
             "name": "Hand-off: export the Claude commits",
             "part": "step",
             "phrase": "; then",
+            "sentence": 4,
+            "shown": "packs the Claude agent's commits",
+            "standin": false,
             "step": "handoff_export_claude",
+            "tail": "",
+            "tail_keys": [],
             "text": "Packs the Claude agent's commits."
           },
           {
@@ -574,7 +691,12 @@
             "name": "Hand-off: import the Claude commits into spark2",
             "part": "step",
             "phrase": "; then",
+            "sentence": 4,
+            "shown": "unpacks them into a fresh worktree on the gate's machine",
+            "standin": false,
             "step": "handoff_import_claude",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Unpacks them into a fresh worktree on the gate's machine."
           },
           {
@@ -588,8 +710,13 @@
             ],
             "name": "Fix the PR (Codex bridge agent)",
             "part": "step",
-            "phrase": "Then, if fixer is codex-fixer:",
+            "phrase": "Then, if fixer is codex-fixer,",
+            "sentence": 5,
+            "shown": "the Codex agent fixes the pull request and commits locally",
+            "standin": false,
             "step": "agent_codex",
+            "tail": "",
+            "tail_keys": [],
             "text": "The Codex agent fixes the pull request and commits locally."
           },
           {
@@ -603,7 +730,12 @@
             "name": "Hand-off: export the Codex commits",
             "part": "step",
             "phrase": "; then",
+            "sentence": 5,
+            "shown": "packs the Codex agent's commits",
+            "standin": false,
             "step": "handoff_export",
+            "tail": "",
+            "tail_keys": [],
             "text": "Packs the Codex agent's commits."
           },
           {
@@ -617,7 +749,12 @@
             "name": "Hand-off: import into spark2",
             "part": "step",
             "phrase": "; then",
+            "sentence": 5,
+            "shown": "unpacks them into a fresh worktree on the gate's machine",
+            "standin": false,
             "step": "handoff_import",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Unpacks them into a fresh worktree on the gate's machine."
           },
           {
@@ -630,22 +767,32 @@
             ],
             "name": "The path that ran",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "Then",
+            "sentence": 6,
+            "shown": "picks the commit of the agent that ran",
+            "standin": false,
             "step": "select",
+            "tail": "",
+            "tail_keys": [],
             "text": "Picks the commit of the agent that ran."
           },
           {
             "depth": 1,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "then"
+              "then_grouped"
             ],
             "name": "Test gate and diff guard",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 6,
+            "shown": "runs the repository's tests on that commit",
+            "standin": false,
             "step": "gate",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Runs the repository's tests on that commit."
           },
           {
@@ -663,27 +810,30 @@
               "pr-fixer-retry",
               "pr-fixer-review-commit"
             ],
+            "sentence": 7,
             "text": "Then it continues into queue-progress, queue-add-capacity, queue-add or review-commit."
           },
           {
             "keys": [
-              "ends"
+              "ends_status_chain"
             ],
             "part": "then",
             "rules": [
               "pr-fixer-dispatch"
             ],
-            "text": "When it is done, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends)."
+            "sentence": 8,
+            "text": "Where the chain ends here, it updates the chain's status comment on GitHub (as github-app)."
           },
           {
             "keys": [
-              "on_failure"
+              "on_failure_status_same"
             ],
             "part": "then",
             "rules": [
               "pr-fixer-dispatch"
             ],
-            "text": "If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends)."
+            "sentence": 9,
+            "text": "If it fails, it updates that comment with the failure."
           },
           {
             "keys": [
@@ -694,10 +844,11 @@
             "rules": [
               "pr-fixer-dispatch"
             ],
+            "sentence": 10,
             "text": "It runs one at a time per pr-fixer:{repository}#{number}, with at most 3 attempts."
           }
         ],
-        "text": "It starts when rules.queue.dispatch arrives, if its condition holds, on spark2. First, it waits 5 minutes, and the run stops if the PR head moves: Waits for the pull request to settle. Then: Stops the run while GitGuardian reports a leaked secret on the head. Then: Lists the unresolved review threads opened by trusted authors. At the same time: Lists the issues behind the failing SonarCloud conditions. Once both are done, it tries until verdict is set, at most once: Gives the fix one try. Each time, if fixer is not set or fixer is one of \"\", qwen-fixer: The Qwen agent fixes the pull request and commits locally. Then, if fixer is claude-fixer: The Claude agent fixes the pull request and commits locally; then packs the Claude agent's commits; then unpacks them into a fresh worktree on the gate's machine. Then, if fixer is codex-fixer: The Codex agent fixes the pull request and commits locally; then packs the Codex agent's commits; then unpacks them into a fresh worktree on the gate's machine. Then: Picks the commit of the agent that ran. Then: Runs the repository's tests on that commit. Then it continues into queue-progress, queue-add-capacity, queue-add or review-commit. When it is done, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends). If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends). It runs one at a time per pr-fixer:{repository}#{number}, with at most 3 attempts."
+        "text": "It starts when rules.queue.dispatch arrives, if its condition holds, on spark2.\nFirst waits for the pull request to settle, waiting 5 minutes, and the run stops if the PR head moves; then stops the run while GitGuardian reports a leaked secret on the head; then lists the unresolved review threads opened by trusted authors.\nAt the same time lists the issues behind the failing SonarCloud conditions.\nOnce both are done, gives the fix one try, until verdict is set, at most once; each time, if fixer is not set or fixer is one of \"\", qwen-fixer, the Qwen agent fixes the pull request and commits locally.\nThen, if fixer is claude-fixer, the Claude agent fixes the pull request and commits locally; then packs the Claude agent's commits; then unpacks them into a fresh worktree on the gate's machine.\nThen, if fixer is codex-fixer, the Codex agent fixes the pull request and commits locally; then packs the Codex agent's commits; then unpacks them into a fresh worktree on the gate's machine.\nThen picks the commit of the agent that ran; then runs the repository's tests on that commit.\nThen it continues into queue-progress, queue-add-capacity, queue-add or review-commit.\nWhere the chain ends here, it updates the chain's status comment on GitHub (as github-app).\nIf it fails, it updates that comment with the failure.\nIt runs one at a time per pr-fixer:{repository}#{number}, with at most 3 attempts."
       }
     },
     "publish-fix": {
@@ -749,6 +900,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-publish",
+            "sentence": 0,
             "text": "It starts when review-commit succeeds, if its condition holds, on spark2."
           },
           {
@@ -761,36 +913,51 @@
             ],
             "name": "Push as the App",
             "part": "step",
-            "phrase": "First:",
+            "phrase": "First",
+            "sentence": 1,
+            "shown": "pushes the approved commit to the pull request's branch",
+            "standin": false,
             "step": "push",
+            "tail": "",
+            "tail_keys": [],
             "text": "Pushes the approved commit to the pull request's branch."
           },
           {
             "depth": 0,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "then"
+              "then_grouped"
             ],
             "name": "Trusted review threads",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 1,
+            "shown": "re-reads the unresolved review threads opened by trusted authors",
+            "standin": false,
             "step": "threads",
+            "tail": "",
+            "tail_keys": [],
             "text": "Re-reads the unresolved review threads opened by trusted authors."
           },
           {
             "depth": 0,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "then"
+              "then_grouped"
             ],
             "name": "Threads to answer",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 1,
+            "shown": "keeps the threads the agent says it addressed",
+            "standin": false,
             "step": "pick",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Keeps the threads the agent says it addressed."
           },
           {
@@ -799,28 +966,39 @@
             "gap": false,
             "grouped": false,
             "keys": [
-              "then",
-              "for_each"
+              "then"
             ],
             "name": "One reply per addressed thread",
             "part": "step",
-            "phrase": "Then, for each item (up to 200):",
+            "phrase": "Then",
+            "sentence": 2,
+            "shown": "replies to each of those threads",
+            "standin": false,
             "step": "replies",
+            "tail": ", for each item (up to 200)",
+            "tail_keys": [
+              "for_each"
+            ],
             "text": "Replies to each of those threads."
           },
           {
             "depth": 1,
             "fallback": false,
             "gap": true,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "each_time"
+              "each_time_grouped"
             ],
             "name": "Reply and resolve",
             "part": "step",
-            "phrase": "Each time:",
+            "phrase": "; each time,",
+            "sentence": 2,
+            "shown": "reply and resolve",
+            "standin": true,
             "step": "reply",
-            "text": ""
+            "tail": ".",
+            "tail_keys": [],
+            "text": "Reply and resolve"
           },
           {
             "keys": [
@@ -828,27 +1006,30 @@
             ],
             "part": "then",
             "rules": [],
+            "sentence": 3,
             "text": "Nothing continues from here."
           },
           {
             "keys": [
-              "ends"
+              "ends_status_chain"
             ],
             "part": "then",
             "rules": [
               "pr-fixer-publish"
             ],
-            "text": "When it is done, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends)."
+            "sentence": 4,
+            "text": "Where the chain ends here, it updates the chain's status comment on GitHub (as github-app)."
           },
           {
             "keys": [
-              "on_failure"
+              "on_failure_status_same"
             ],
             "part": "then",
             "rules": [
               "pr-fixer-publish"
             ],
-            "text": "If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends)."
+            "sentence": 5,
+            "text": "If it fails, it updates that comment with the failure."
           },
           {
             "keys": [
@@ -858,10 +1039,11 @@
             "rules": [
               "pr-fixer-publish"
             ],
+            "sentence": 6,
             "text": "It runs one at a time per pr-fixer:{repository}#{number}."
           }
         ],
-        "text": "It starts when review-commit succeeds, if its condition holds, on spark2. First: Pushes the approved commit to the pull request's branch. Then: Re-reads the unresolved review threads opened by trusted authors. Then: Keeps the threads the agent says it addressed. Then, for each item (up to 200): Replies to each of those threads. Each time: [Reply and resolve has no description yet] Nothing continues from here. When it is done, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends). If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends). It runs one at a time per pr-fixer:{repository}#{number}."
+        "text": "It starts when review-commit succeeds, if its condition holds, on spark2.\nFirst pushes the approved commit to the pull request's branch; then re-reads the unresolved review threads opened by trusted authors; then keeps the threads the agent says it addressed.\nThen replies to each of those threads, for each item (up to 200); each time, reply and resolve.\nNothing continues from here.\nWhere the chain ends here, it updates the chain's status comment on GitHub (as github-app).\nIf it fails, it updates that comment with the failure.\nIt runs one at a time per pr-fixer:{repository}#{number}."
       }
     },
     "queue-add": {
@@ -892,6 +1074,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-checks",
+            "sentence": 0,
             "text": "It starts when github.pr.checks_settled arrives, if its condition holds, on spark2."
           },
           {
@@ -905,6 +1088,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-comment",
+            "sentence": 1,
             "text": "It starts when github.comment.created arrives, if its condition holds, on spark2."
           },
           {
@@ -918,6 +1102,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-conflict",
+            "sentence": 2,
             "text": "It starts when github.pr.conflicting arrives, if its condition holds, on spark2."
           },
           {
@@ -931,6 +1116,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-refix",
+            "sentence": 3,
             "text": "It starts when review-commit succeeds, if its condition holds, on spark2."
           },
           {
@@ -944,6 +1130,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-retry-failed",
+            "sentence": 4,
             "text": "It starts when pr-fix fails, if its condition holds, on spark2."
           },
           {
@@ -957,6 +1144,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-retry",
+            "sentence": 5,
             "text": "It starts when pr-fix succeeds, if its condition holds, on spark2."
           },
           {
@@ -970,6 +1158,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-review-comment",
+            "sentence": 6,
             "text": "It starts when github.review_comment.created arrives, if its condition holds, on spark2."
           },
           {
@@ -983,6 +1172,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-review",
+            "sentence": 7,
             "text": "It starts when github.review.submitted arrives, if its condition holds, on spark2."
           },
           {
@@ -995,8 +1185,13 @@
             ],
             "name": "Add to the queue",
             "part": "step",
-            "phrase": "First:",
+            "phrase": "First",
+            "sentence": 8,
+            "shown": "adds the request to the queue, or refreshes the one already waiting",
+            "standin": false,
             "step": "enqueue",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Adds the request to the queue, or refreshes the one already waiting."
           },
           {
@@ -1007,6 +1202,7 @@
             "rules": [
               "pr-fixer-queue-progress"
             ],
+            "sentence": 9,
             "text": "Then it continues into queue-progress."
           },
           {
@@ -1024,11 +1220,12 @@
               "pr-fixer-review-comment",
               "pr-fixer-review"
             ],
+            "sentence": 10,
             "text": "When it is done, nothing else happens."
           },
           {
             "keys": [
-              "on_failure"
+              "on_failure_status"
             ],
             "part": "then",
             "rules": [
@@ -1041,7 +1238,8 @@
               "pr-fixer-review-comment",
               "pr-fixer-review"
             ],
-            "text": "If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends)."
+            "sentence": 11,
+            "text": "If it fails, it updates the chain's status comment on GitHub with the failure (as github-app)."
           },
           {
             "keys": [
@@ -1058,10 +1256,11 @@
               "pr-fixer-review-comment",
               "pr-fixer-review"
             ],
+            "sentence": 12,
             "text": "It runs one at a time per pr-fixer:{repository}#{number}."
           }
         ],
-        "text": "It starts when github.pr.checks_settled arrives, if its condition holds, on spark2. It starts when github.comment.created arrives, if its condition holds, on spark2. It starts when github.pr.conflicting arrives, if its condition holds, on spark2. It starts when review-commit succeeds, if its condition holds, on spark2. It starts when pr-fix fails, if its condition holds, on spark2. It starts when pr-fix succeeds, if its condition holds, on spark2. It starts when github.review_comment.created arrives, if its condition holds, on spark2. It starts when github.review.submitted arrives, if its condition holds, on spark2. First: Adds the request to the queue, or refreshes the one already waiting. Then it continues into queue-progress. When it is done, nothing else happens. If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends). It runs one at a time per pr-fixer:{repository}#{number}."
+        "text": "It starts when github.pr.checks_settled arrives, if its condition holds, on spark2.\nIt starts when github.comment.created arrives, if its condition holds, on spark2.\nIt starts when github.pr.conflicting arrives, if its condition holds, on spark2.\nIt starts when review-commit succeeds, if its condition holds, on spark2.\nIt starts when pr-fix fails, if its condition holds, on spark2.\nIt starts when pr-fix succeeds, if its condition holds, on spark2.\nIt starts when github.review_comment.created arrives, if its condition holds, on spark2.\nIt starts when github.review.submitted arrives, if its condition holds, on spark2.\nFirst adds the request to the queue, or refreshes the one already waiting.\nThen it continues into queue-progress.\nWhen it is done, nothing else happens.\nIf it fails, it updates the chain's status comment on GitHub with the failure (as github-app).\nIt runs one at a time per pr-fixer:{repository}#{number}."
       }
     },
     "queue-add-capacity": {
@@ -1099,6 +1298,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-retry-capacity",
+            "sentence": 0,
             "text": "It starts when pr-fix fails, if its condition holds, on spark2."
           },
           {
@@ -1111,22 +1311,32 @@
             ],
             "name": "Rest the level that ran out of capacity",
             "part": "step",
-            "phrase": "First:",
+            "phrase": "First",
+            "sentence": 1,
+            "shown": "rests the agent level that ran out of capacity for a while",
+            "standin": false,
             "step": "cooldown",
+            "tail": "",
+            "tail_keys": [],
             "text": "Rests the agent level that ran out of capacity for a while."
           },
           {
             "depth": 0,
             "fallback": false,
             "gap": false,
-            "grouped": false,
+            "grouped": true,
             "keys": [
-              "then"
+              "then_grouped"
             ],
             "name": "Add to the queue",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 1,
+            "shown": "puts the pull request back in the fixer queue",
+            "standin": false,
             "step": "enqueue",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Puts the pull request back in the fixer queue."
           },
           {
@@ -1137,6 +1347,7 @@
             "rules": [
               "pr-fixer-queue-progress-capacity"
             ],
+            "sentence": 2,
             "text": "Then it continues into queue-progress."
           },
           {
@@ -1147,17 +1358,19 @@
             "rules": [
               "pr-fixer-retry-capacity"
             ],
+            "sentence": 3,
             "text": "When it is done, nothing else happens."
           },
           {
             "keys": [
-              "on_failure"
+              "on_failure_status"
             ],
             "part": "then",
             "rules": [
               "pr-fixer-retry-capacity"
             ],
-            "text": "If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends)."
+            "sentence": 4,
+            "text": "If it fails, it updates the chain's status comment on GitHub with the failure (as github-app)."
           },
           {
             "keys": [
@@ -1167,10 +1380,11 @@
             "rules": [
               "pr-fixer-retry-capacity"
             ],
+            "sentence": 5,
             "text": "It runs one at a time per pr-fixer:{repository}#{number}."
           }
         ],
-        "text": "It starts when pr-fix fails, if its condition holds, on spark2. First: Rests the agent level that ran out of capacity for a while. Then: Puts the pull request back in the fixer queue. Then it continues into queue-progress. When it is done, nothing else happens. If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends). It runs one at a time per pr-fixer:{repository}#{number}."
+        "text": "It starts when pr-fix fails, if its condition holds, on spark2.\nFirst rests the agent level that ran out of capacity for a while; then puts the pull request back in the fixer queue.\nThen it continues into queue-progress.\nWhen it is done, nothing else happens.\nIf it fails, it updates the chain's status comment on GitHub with the failure (as github-app).\nIt runs one at a time per pr-fixer:{repository}#{number}."
       }
     },
     "queue-progress": {
@@ -1200,6 +1414,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-queue-progress-cancelled",
+            "sentence": 0,
             "text": "It starts when pr-fix ends (cancelled), on spark2."
           },
           {
@@ -1212,6 +1427,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-queue-progress-capacity",
+            "sentence": 1,
             "text": "It starts when queue-add-capacity succeeds, on spark2."
           },
           {
@@ -1224,6 +1440,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-queue-progress-failed",
+            "sentence": 2,
             "text": "It starts when pr-fix fails, on spark2."
           },
           {
@@ -1236,6 +1453,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-queue-progress-fixed",
+            "sentence": 3,
             "text": "It starts when pr-fix succeeds, on spark2."
           },
           {
@@ -1248,6 +1466,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-queue-progress-stopped",
+            "sentence": 4,
             "text": "It starts when queue-stop succeeds, on spark2."
           },
           {
@@ -1260,6 +1479,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-queue-progress-superseded",
+            "sentence": 5,
             "text": "It starts when pr-fix ends (superseded), on spark2."
           },
           {
@@ -1272,6 +1492,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-queue-progress",
+            "sentence": 6,
             "text": "It starts when queue-add succeeds, on spark2."
           },
           {
@@ -1284,6 +1505,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-queue-sweep",
+            "sentence": 7,
             "text": "It starts on cron */30 * * * * (UTC), on spark2."
           },
           {
@@ -1296,8 +1518,13 @@
             ],
             "name": "Progress the queue",
             "part": "step",
-            "phrase": "First:",
+            "phrase": "First",
+            "sentence": 8,
+            "shown": "frees finished slots and dispatches the oldest waiting request",
+            "standin": false,
             "step": "progress",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Frees finished slots and dispatches the oldest waiting request."
           },
           {
@@ -1306,6 +1533,7 @@
             ],
             "part": "then",
             "rules": [],
+            "sentence": 9,
             "text": "Nothing continues from here."
           },
           {
@@ -1323,10 +1551,11 @@
               "pr-fixer-queue-progress",
               "pr-fixer-queue-sweep"
             ],
+            "sentence": 10,
             "text": "When it is done, nothing else happens."
           }
         ],
-        "text": "It starts when pr-fix ends (cancelled), on spark2. It starts when queue-add-capacity succeeds, on spark2. It starts when pr-fix fails, on spark2. It starts when pr-fix succeeds, on spark2. It starts when queue-stop succeeds, on spark2. It starts when pr-fix ends (superseded), on spark2. It starts when queue-add succeeds, on spark2. It starts on cron */30 * * * * (UTC), on spark2. First: Frees finished slots and dispatches the oldest waiting request. Nothing continues from here. When it is done, nothing else happens."
+        "text": "It starts when pr-fix ends (cancelled), on spark2.\nIt starts when queue-add-capacity succeeds, on spark2.\nIt starts when pr-fix fails, on spark2.\nIt starts when pr-fix succeeds, on spark2.\nIt starts when queue-stop succeeds, on spark2.\nIt starts when pr-fix ends (superseded), on spark2.\nIt starts when queue-add succeeds, on spark2.\nIt starts on cron */30 * * * * (UTC), on spark2.\nFirst frees finished slots and dispatches the oldest waiting request.\nNothing continues from here.\nWhen it is done, nothing else happens."
       }
     },
     "queue-stop": {
@@ -1371,6 +1600,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-stop-reaction",
+            "sentence": 0,
             "text": "It starts when github.reaction.added arrives, if its condition holds, on spark2."
           },
           {
@@ -1384,6 +1614,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-stop",
+            "sentence": 1,
             "text": "It starts when github.comment.created arrives, if its condition holds, on spark2."
           },
           {
@@ -1396,24 +1627,14 @@
             ],
             "name": "Stop the story",
             "part": "step",
-            "phrase": "First:",
+            "phrase": "First",
+            "sentence": 2,
+            "shown": "records the stop, removes the request from the queue and cancels running fixes",
+            "standin": false,
             "step": "stop",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Records the stop, removes the request from the queue and cancels running fixes."
-          },
-          {
-            "depth": 0,
-            "fallback": false,
-            "gap": false,
-            "grouped": false,
-            "keys": [
-              "then",
-              "wait"
-            ],
-            "name": "Let the chain settle",
-            "part": "step",
-            "phrase": "Then, it waits 2 minutes:",
-            "step": "settle",
-            "text": "Waits for any stage that was about to start."
           },
           {
             "depth": 0,
@@ -1423,10 +1644,36 @@
             "keys": [
               "then"
             ],
+            "name": "Let the chain settle",
+            "part": "step",
+            "phrase": "Then",
+            "sentence": 3,
+            "shown": "waits for any stage that was about to start",
+            "standin": false,
+            "step": "settle",
+            "tail": ", waiting 2 minutes",
+            "tail_keys": [
+              "wait"
+            ],
+            "text": "Waits for any stage that was about to start."
+          },
+          {
+            "depth": 0,
+            "fallback": false,
+            "gap": false,
+            "grouped": true,
+            "keys": [
+              "then_grouped"
+            ],
             "name": "Sweep",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "; then",
+            "sentence": 3,
+            "shown": "cancels a run that started after the stop",
+            "standin": false,
             "step": "sweep",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Cancels a run that started after the stop."
           },
           {
@@ -1437,6 +1684,7 @@
             "rules": [
               "pr-fixer-queue-progress-stopped"
             ],
+            "sentence": 4,
             "text": "Then it continues into queue-progress."
           },
           {
@@ -1448,6 +1696,7 @@
               "pr-fixer-stop-reaction",
               "pr-fixer-stop"
             ],
+            "sentence": 5,
             "text": "When it is done, nothing else happens."
           },
           {
@@ -1459,10 +1708,11 @@
               "pr-fixer-stop-reaction",
               "pr-fixer-stop"
             ],
+            "sentence": 6,
             "text": "If it fails, it runs github.comment as github-app (only where its chain ends)."
           }
         ],
-        "text": "It starts when github.reaction.added arrives, if its condition holds, on spark2. It starts when github.comment.created arrives, if its condition holds, on spark2. First: Records the stop, removes the request from the queue and cancels running fixes. Then, it waits 2 minutes: Waits for any stage that was about to start. Then: Cancels a run that started after the stop. Then it continues into queue-progress. When it is done, nothing else happens. If it fails, it runs github.comment as github-app (only where its chain ends)."
+        "text": "It starts when github.reaction.added arrives, if its condition holds, on spark2.\nIt starts when github.comment.created arrives, if its condition holds, on spark2.\nFirst records the stop, removes the request from the queue and cancels running fixes.\nThen waits for any stage that was about to start, waiting 2 minutes; then cancels a run that started after the stop.\nThen it continues into queue-progress.\nWhen it is done, nothing else happens.\nIf it fails, it runs github.comment as github-app (only where its chain ends)."
       }
     },
     "report-secrets": {
@@ -1493,6 +1743,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-secrets-late",
+            "sentence": 0,
             "text": "It starts when github.pr.checks_failed_late arrives, if its condition holds, on spark2."
           },
           {
@@ -1506,6 +1757,7 @@
             "kind": "entry",
             "part": "start",
             "rule": "pr-fixer-secrets",
+            "sentence": 1,
             "text": "It starts when github.pr.checks_settled arrives, if its condition holds, on spark2."
           },
           {
@@ -1518,8 +1770,13 @@
             ],
             "name": "GitGuardian findings",
             "part": "step",
-            "phrase": "First:",
+            "phrase": "First",
+            "sentence": 2,
+            "shown": "reads the GitGuardian findings for the head",
+            "standin": false,
             "step": "findings",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Reads the GitGuardian findings for the head."
           },
           {
@@ -1528,6 +1785,7 @@
             ],
             "part": "then",
             "rules": [],
+            "sentence": 3,
             "text": "Nothing continues from here."
           },
           {
@@ -1539,6 +1797,7 @@
               "pr-fixer-secrets-late",
               "pr-fixer-secrets"
             ],
+            "sentence": 4,
             "text": "When it is done, it runs github.comment as github-app (once per once_key)."
           },
           {
@@ -1550,6 +1809,7 @@
               "pr-fixer-secrets-late",
               "pr-fixer-secrets"
             ],
+            "sentence": 5,
             "text": "If it fails, it runs github.comment as github-app (once per once_key)."
           },
           {
@@ -1561,10 +1821,11 @@
               "pr-fixer-secrets-late",
               "pr-fixer-secrets"
             ],
+            "sentence": 6,
             "text": "It runs one at a time per pr-secrets:{repository}#{number}@{head_sha}."
           }
         ],
-        "text": "It starts when github.pr.checks_failed_late arrives, if its condition holds, on spark2. It starts when github.pr.checks_settled arrives, if its condition holds, on spark2. First: Reads the GitGuardian findings for the head. Nothing continues from here. When it is done, it runs github.comment as github-app (once per once_key). If it fails, it runs github.comment as github-app (once per once_key). It runs one at a time per pr-secrets:{repository}#{number}@{head_sha}."
+        "text": "It starts when github.pr.checks_failed_late arrives, if its condition holds, on spark2.\nIt starts when github.pr.checks_settled arrives, if its condition holds, on spark2.\nFirst reads the GitGuardian findings for the head.\nNothing continues from here.\nWhen it is done, it runs github.comment as github-app (once per once_key).\nIf it fails, it runs github.comment as github-app (once per once_key).\nIt runs one at a time per pr-secrets:{repository}#{number}@{head_sha}."
       }
     },
     "review-commit": {
@@ -1609,6 +1870,7 @@
             "kind": "continuation",
             "part": "start",
             "rule": "pr-fixer-review-commit",
+            "sentence": 0,
             "text": "It starts when pr-fix succeeds, if its condition holds, on spark2."
           },
           {
@@ -1622,8 +1884,13 @@
             ],
             "name": "Review the fix (Codex, read-only)",
             "part": "step",
-            "phrase": "Depending on the conditions, if its condition holds:",
+            "phrase": "Depending on the conditions, if its condition holds,",
+            "sentence": 1,
+            "shown": "codex reviews the commit, read-only",
+            "standin": false,
             "step": "review_codex",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Codex reviews the commit, read-only."
           },
           {
@@ -1636,8 +1903,13 @@
             ],
             "name": "Review the fix (Qwen, plan mode)",
             "part": "step",
-            "phrase": "If gate_verdict is one of pass, no_gate and diff_truncated is false and reviewer is qwen-reviewer:",
+            "phrase": "If gate_verdict is one of pass, no_gate and diff_truncated is false and reviewer is qwen-reviewer,",
+            "sentence": 2,
+            "shown": "qwen reviews the commit, read-only",
+            "standin": false,
             "step": "review_qwen",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Qwen reviews the commit, read-only."
           },
           {
@@ -1650,8 +1922,13 @@
             ],
             "name": "Review verdict",
             "part": "step",
-            "phrase": "Then:",
+            "phrase": "Then",
+            "sentence": 3,
+            "shown": "checks the review and records its verdict for the commit",
+            "standin": false,
             "step": "verdict",
+            "tail": ".",
+            "tail_keys": [],
             "text": "Checks the review and records its verdict for the commit."
           },
           {
@@ -1663,27 +1940,30 @@
               "pr-fixer-publish",
               "pr-fixer-refix"
             ],
+            "sentence": 4,
             "text": "Then it continues into publish-fix or queue-add."
           },
           {
             "keys": [
-              "ends"
+              "ends_status_chain"
             ],
             "part": "then",
             "rules": [
               "pr-fixer-review-commit"
             ],
-            "text": "When it is done, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends)."
+            "sentence": 5,
+            "text": "Where the chain ends here, it updates the chain's status comment on GitHub (as github-app)."
           },
           {
             "keys": [
-              "on_failure"
+              "on_failure_status_same"
             ],
             "part": "then",
             "rules": [
               "pr-fixer-review-commit"
             ],
-            "text": "If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends)."
+            "sentence": 6,
+            "text": "If it fails, it updates that comment with the failure."
           },
           {
             "keys": [
@@ -1693,10 +1973,11 @@
             "rules": [
               "pr-fixer-review-commit"
             ],
+            "sentence": 7,
             "text": "It runs one at a time per pr-fixer:{repository}#{number}."
           }
         ],
-        "text": "It starts when pr-fix succeeds, if its condition holds, on spark2. Depending on the conditions, if its condition holds: Codex reviews the commit, read-only. If gate_verdict is one of pass, no_gate and diff_truncated is false and reviewer is qwen-reviewer: Qwen reviews the commit, read-only. Then: Checks the review and records its verdict for the commit. Then it continues into publish-fix or queue-add. When it is done, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends). If it fails, it runs github.comment as github-app (as its chain's status comment) (only where its chain ends). It runs one at a time per pr-fixer:{repository}#{number}."
+        "text": "It starts when pr-fix succeeds, if its condition holds, on spark2.\nDepending on the conditions, if its condition holds, codex reviews the commit, read-only.\nIf gate_verdict is one of pass, no_gate and diff_truncated is false and reviewer is qwen-reviewer, qwen reviews the commit, read-only.\nThen checks the review and records its verdict for the commit.\nThen it continues into publish-fix or queue-add.\nWhere the chain ends here, it updates the chain's status comment on GitHub (as github-app).\nIf it fails, it updates that comment with the failure.\nIt runs one at a time per pr-fixer:{repository}#{number}."
       }
     }
   },

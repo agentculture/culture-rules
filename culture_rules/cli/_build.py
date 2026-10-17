@@ -79,16 +79,20 @@ def _render_variables(items: list) -> str:
 
 
 def _paragraph_text(paragraph: dict) -> str:
-    """The paragraph with disabled segments struck through (d8): ANSI on a terminal, else
-    ``~~ ~~``. Stripped of the marks it is exactly ``paragraph["text"]``."""
+    """The paragraph, one sentence per line (d11), with disabled segments struck through
+    (d8: ANSI on a terminal, else ``~~ ~~``) and each stand-in for a missing step
+    description in ``[ ]``. Stripped of the marks it is exactly ``paragraph["text"]``."""
     text = str(paragraph.get("text") or "")
-    if not any(isinstance(s, dict) and s.get("disabled") for s in paragraph.get("segments") or []):
+    segments = [s for s in paragraph.get("segments") or [] if isinstance(s, dict)]
+    if not any(s.get("disabled") or s.get("standin") for s in segments):
         return text
     from culture_rules.model.paragraph import render_marked  # noqa: PLC0415
 
     tty = sys.stdout.isatty()
     return render_marked(
-        paragraph, (lambda c: f"\x1b[9m{c}\x1b[29m") if tty else (lambda c: f"~~{c}~~")
+        paragraph,
+        (lambda c: f"\x1b[9m{c}\x1b[29m") if tty else (lambda c: f"~~{c}~~"),
+        lambda c: f"[{c}]",
     )
 
 

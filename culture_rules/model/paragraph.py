@@ -1,10 +1,10 @@
-"""A workflow's steps as one paragraph: each step's description joined by fixed phrases
-(#69). Standard-library only, and no AI.
+"""A workflow's steps as a paragraph, one sentence per line: each step's description after a
+lead-in from fixed phrases (#69, d11). Standard-library only, and no AI.
 
 Every joining word comes from :data:`PHRASES`, chosen from a fact of the step graph or a
 config key of the step it introduces; the rest of the paragraph is the steps' own
-descriptions, unchanged. The phrases follow the engine's step semantics (engine/runs.py,
-read here, not imported):
+descriptions. The phrases follow the engine's step semantics (engine/runs.py, read here, not
+imported):
 
 * a top-level step runs once every step feeding it through an edge is done
   (``_deps_done``), so the joins are read off the edge graph, on its transitive reduction
@@ -12,33 +12,46 @@ read here, not imported):
 * steps with the same predecessors and no path between them run at the same time, unless
   two or more of them carry a ``config.when``: then they read as alternatives;
 * a loop's body runs in declared order (``_earlier_iteration_steps_ok``), whatever its
-  edges say, so body steps read ``Then`` one after another;
-* ``config.when``, ``config.on_error: "skip"``, a retry policy, a wait step's seconds and
-  guard, ``for_each`` and ``retry_until`` each add their own phrase; a ``when`` shared by
-  every remaining step of a level is said once;
-* consecutive steps sharing an identical ``when`` (d5) read as one sentence: the first says
-  the condition, and each following step whose phrase would be only ``Then, if <it>:`` is
-  joined with ``; then`` - the one place a description is touched: the previous one's final
-  period is dropped and the joined one's first letter lower-cased (not before a non-letter
-  or an all-caps word such as ``EPUB``).
+  edges say, so body steps read ``then`` one after another;
+* ``config.when`` adds a lead-in (``If <it>``; a ``when`` shared by every remaining step of
+  a level is said once, ``From here on, only if <it>``); a wait step's seconds and guard,
+  ``for_each`` and ``retry_until`` bounds, a retry policy and ``config.on_error: "skip"``
+  add trailing clauses after the text.
 
-A step whose kind or config the table has no phrase for reads as its d19 line
-(:func:`culture_rules.model.describe.step_text`) with no phrase, and a step with an empty
-description reads as a visible gap naming it; describing never raises.
+How the steps make sentences (d11):
+
+* the text follows its lead-in with no colon, its first letter lower-cased
+  (:func:`lower_first`: not before a non-letter, nor in a first word with another capital,
+  such as ``PR``, ``EPUB`` or ``GitGuardian``) and its final period dropped (the sentence
+  supplies its own);
+* a plain step (its join is ``Then``, no wait, retry or loop) whose condition is the
+  previous step's (or both have none) joins that step's sentence with ``; then``; any other
+  step - siblings (``At the same time``), a join (``Once both are done``), a condition
+  change, a loop, a wait, a retry - starts a new sentence, and so does the step after a
+  loop's body, after a disabled step and after a step the table has no phrase for;
+* a loop's first body step continues the loop's sentence with ``; each time``.
+
+A step with no description is stood in for by its name, else by a generic line built only
+from the d19 vocabulary (:func:`generic_line`); the segment is marked ``standin`` (italic in
+the editor, ``[ ]`` in the CLI) and stays inside its sentence. A step whose kind or config the
+table has no phrase for reads as its own sentence, its d19 line
+(:func:`culture_rules.model.describe.step_text`) with no lead-in; describing never raises.
 
 The rules around the steps (t7, c37): :func:`workflow_paragraph` opens with one built
 sentence per rule that starts the workflow (:func:`rule_sentence`: its trigger, condition,
 relationships and placement) and closes with the Then side (:func:`then_sentence`: where it
-continues, what runs when it is done and on failure, how it runs). Those sentences are
-composed from :data:`PHRASES` entries ending with a period (:data:`SENTENCE_KEYS`) filled
-with describe.py's words (``trigger_text``, ``condition_words``, ``action_text``, the
-placement and run-key words); a rule's name and description, and an action's name and body,
-are never read. Which rules start a workflow and which continue into another mirrors the
-editor's fold (web/src/fold/model.ts ``foldModel``): :func:`fold_rules`.
+continues, what happens when it is done and on failure, how it runs), one sentence per line.
+Those sentences are composed from :data:`PHRASES` entries ending with a period
+(:data:`SENTENCE_KEYS`) filled with describe.py's words (``trigger_text``,
+``condition_words``, ``action_text``, the placement and run-key words); a rule's name and
+description, and an action's name and body, are never read. Which rules start a workflow
+and which continue into another mirrors the editor's fold (web/src/fold/model.ts
+``foldModel``): :func:`fold_rules`.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -46,7 +59,10 @@ from culture_rules.model import condition as cond
 from culture_rules.model.describe import (
     CONDITION_FALLBACK,
 )
+from culture_rules.model.describe import _actor_of as actor_words
+from culture_rules.model.describe import _comment_words as comment_words
 from culture_rules.model.describe import _key_text as key_text
+from culture_rules.model.describe import _kind_text as kind_text
 from culture_rules.model.describe import _placement as placement_text
 from culture_rules.model.describe import (
     action_text,
@@ -57,52 +73,66 @@ from culture_rules.model.describe import (
 from culture_rules.model.workflow import STEP_KINDS
 
 __all__ = [
-    "GAP",
+    "BARE_LEADS",
+    "JOIN_KEYS",
+    "LEAD_KEYS",
     "PHRASES",
     "SENTENCE_KEYS",
+    "STANDIN_KEYS",
+    "TAIL_KEYS",
     "compose",
     "compose_sentence",
     "fold_rules",
+    "generic_line",
+    "lower_first",
     "onward_of",
     "render_marked",
     "rule_sentence",
+    "standin_text",
     "step_paragraph",
     "then_sentence",
     "workflow_paragraph",
 ]
 
-#: Every joining phrase, one per construct; each ends with a colon and the step's
-#: description follows it as its own sentence (all but ``then_grouped``, see below). A
-#: step's phrase is one or more of these, composed by :func:`compose`
-#: (``Then:`` + ``If {condition}:`` -> ``Then, if x is 1:``).
+#: Every phrase, one per construct. A step reads ``<lead-in> <text><trailing clauses>``:
+#: its lead-in is one or more lead-in entries composed by :func:`compose`
+#: (``Then`` + ``If {condition}`` -> ``Then, if x is 1``), a step joining the sentence before
+#: it opens with a connector (``; then``) instead, and its trailing clauses follow its text,
+#: each after a comma. The rule and Then sentences are composed from the entries ending with a
+#: period (:data:`SENTENCE_KEYS`).
 PHRASES: dict[str, str] = {
-    # how a step follows the ones before it
-    "first": "First:",
-    "then": "Then:",
-    "same_time": "At the same time:",
-    "depending": "Depending on the conditions:",
-    "in_any_case": "In any case:",
-    "once_both": "Once both are done:",
-    "once_those": "Once those are done:",
-    "once_one": "Once {step} is done:",
-    "once_many": "Once {steps} are done:",
-    "from_start": "Separately, from the start:",
-    "each_time": "Each time:",
-    # what the step's own config adds
-    "from_here_on": "From here on, only if {condition}:",
-    "from_here_on_unspoken": "From here on, only if their shared condition holds:",
-    "if": "If {condition}:",
-    "if_unspoken": "If its condition holds:",
-    "wait": "It waits {duration}:",
-    "wait_guard": "And the run stops if the PR head moves:",
-    "for_each": "For each item (up to {n}):",
-    "retry_until": "It tries until {condition}, at most {times}:",
-    "retry_until_unspoken": "It tries until its condition holds, at most {times}:",
-    "retry": "Trying up to {n} times:",
-    "on_error_skip": "Carrying on even if it fails:",
-    # d5: the one connector inside a sentence, not followed by a colon - a step whose phrase
-    # would be exactly ``Then, if <the previous step's condition>:`` joins its sentence
+    # lead-ins: how a step follows the ones before it
+    "first": "First",
+    "then": "Then",
+    "same_time": "At the same time",
+    "depending": "Depending on the conditions",
+    "in_any_case": "In any case",
+    "once_both": "Once both are done",
+    "once_those": "Once those are done",
+    "once_one": "Once {step} is done",
+    "once_many": "Once {steps} are done",
+    "from_start": "Separately, from the start",
+    "each_time": "Each time",
+    # lead-ins the step's condition adds
+    "from_here_on": "From here on, only if {condition}",
+    "from_here_on_unspoken": "From here on, only if their shared condition holds",
+    "if": "If {condition}",
+    "if_unspoken": "If its condition holds",
+    # connectors: a step continuing the sentence before it (d11)
     "then_grouped": "; then",
+    "each_time_grouped": "; each time",
+    # trailing clauses after the step's text
+    "wait": "waiting {duration}",
+    "wait_guard": "and the run stops if the PR head moves",
+    "for_each": "for each item (up to {n})",
+    "retry_until": "until {condition}, at most {times}",
+    "retry_until_unspoken": "until its condition holds, at most {times}",
+    "retry": "trying up to {n} times",
+    "on_error_skip": "carrying on even if it fails",
+    # stand-ins for a step with neither a description nor a name, where the d19 words would
+    # only repeat the trailing clauses (see generic_line)
+    "standin_wait": "a pause",
+    "standin_loop": "a loop",
     # t7: the rule sentences around the steps. Each ends with a period; a sentence is one
     # or more of them, composed by :func:`compose_sentence` (``It starts when x arrives`` +
     # ``on spark2.`` -> ``It starts when x arrives, on spark2.``).
@@ -126,29 +156,62 @@ PHRASES: dict[str, str] = {
     "continues": "Then it continues into {workflows}.",
     "continues_none": "Nothing continues from here.",
     "ends": "When it is done, it runs {action}.",
+    "ends_chain": "Where the chain ends here, it runs {action}.",
+    "ends_status": "When it is done, it updates the chain's status comment on GitHub{by}.",
+    "ends_status_chain": (
+        "Where the chain ends here, it updates the chain's status comment on GitHub{by}."
+    ),
     "ends_noop": "When it is done, nothing else happens.",
     "ends_differs": "When it is done, it runs {actions}, depending on the rule that started it.",
     "on_failure": "If it fails, it runs {action}.",
+    "on_failure_status": (
+        "If it fails, it updates the chain's status comment on GitHub with the failure{by}."
+    ),
+    "on_failure_status_same": "If it fails, it updates that comment with the failure.",
     "on_failure_differs": "If it fails, it runs {actions}, depending on the rule that started it.",
     "runs_key": "It runs one at a time per {key}.",
     "runs_attempts": "with at most {n} attempts.",
     "runs_differs": "How it runs differs per rule that starts it.",
+    # how a status-comment sentence names who writes it (its ``{by}``, after a space)
+    "by": "({words})",
 }
 
 #: The :data:`PHRASES` entries that build the rule and Then sentences (each ends with a
-#: period); every other entry joins a step's description (and ends with a colon).
+#: period).
 SENTENCE_KEYS: frozenset[str] = frozenset(
     k
     for k in PHRASES
     if k.startswith(("starts_", "rule_", "continues", "ends", "on_failure", "runs_"))
 )
-
-#: What stands in for a step with no description: visible, and naming the step.
-GAP = "[{step} has no description yet]"
+#: Connectors: a step that continues the sentence before it opens with one of these.
+JOIN_KEYS: frozenset[str] = frozenset({"then_grouped", "each_time_grouped"})
+#: Trailing clauses, after a step's text.
+TAIL_KEYS: frozenset[str] = frozenset(
+    {
+        "wait",
+        "wait_guard",
+        "for_each",
+        "retry_until",
+        "retry_until_unspoken",
+        "retry",
+        "on_error_skip",
+    }
+)
+#: Generic stand-in words.
+STANDIN_KEYS: frozenset[str] = frozenset({"standin_wait", "standin_loop"})
+#: Lead-ins: a step that starts a sentence opens with one or more of these.
+LEAD_KEYS: frozenset[str] = frozenset(
+    set(PHRASES) - SENTENCE_KEYS - JOIN_KEYS - TAIL_KEYS - STANDIN_KEYS - {"by"}
+)
+#: A lead-in that is only one of these is followed by the text directly (``First quiet
+#: period``); any other is followed by a comma (``Then, if x is 1, quiet period``).
+BARE_LEADS: frozenset[str] = frozenset({"first", "then", "same_time", "then_grouped"})
 
 _WAIT_GUARDS = ("head_unchanged",)
 _TIMES = {1: "once", 2: "twice"}
 _UNITS = ((3600, "hour"), (60, "minute"))
+_LOOPS = ("for_each", "retry_until")
+_IF_KEYS = ("if", "if_unspoken", "from_here_on", "from_here_on_unspoken")
 
 Part = tuple[str, dict[str, Any]]
 
@@ -217,15 +280,41 @@ def _names(labels: list[str]) -> str:
 
 
 def compose(parts: list[Part]) -> str:
-    """One phrase from table entries, in order: each entry without its colon, the later ones
-    starting lower-case, joined by commas and ended by one colon."""
+    """One lead-in from table entries, in order: the first as it stands, the later ones
+    starting lower-case, joined by commas (``Then, if x is 1``; ``; each time, if x is 1``).
+    A step's ``phrase`` is this, followed by a comma unless it is one bare lead
+    (:data:`BARE_LEADS`)."""
     texts = []
     for i, (key, params) in enumerate(parts):
-        template = PHRASES[key][:-1]
+        template = PHRASES[key]
         if i:
             template = template[0].lower() + template[1:]
         texts.append(template.format(**params))
-    return ", ".join(texts) + ":" if texts else ""
+    return ", ".join(texts)
+
+
+def _lead_phrase(parts: list[Part]) -> str:
+    if not parts:
+        return ""
+    bare = len(parts) == 1 and parts[0][0] in BARE_LEADS
+    return compose(parts) + ("" if bare else ",")
+
+
+def _tail_text(parts: list[Part]) -> str:
+    return "".join(", " + PHRASES[k].format(**p) for k, p in parts)
+
+
+def lower_first(text: str) -> str:
+    """``Packs it.`` -> ``packs it.``: the text after a lead-in starts lower-case, unless it
+    opens with a non-letter (a quote, a digit) or its first word has another capital letter
+    (``PR``, ``EPUB``, ``GitGuardian``, ``SonarCloud``)."""
+    first = text[:1]
+    if not (first.isalpha() and first.isupper()):
+        return text
+    word = text.split(maxsplit=1)[0]
+    if any(c.isupper() for c in word[1:]):
+        return text
+    return first.lower() + text[1:]
 
 
 # --------------------------------------------------------------------------- recognition
@@ -355,12 +444,10 @@ def _shared_from(steps: list[dict[str, Any]], ok: list[bool]) -> int | None:
     return None
 
 
-def _own_parts(s: Mapping[str, Any], shared: bool, said_if: bool) -> list[Part]:
-    """The phrases a step's own config adds, in a fixed order."""
+def _tail_parts(s: Mapping[str, Any]) -> list[Part]:
+    """The trailing clauses a step's own config adds, in a fixed order."""
     config = _config(s)
     parts: list[Part] = []
-    if "when" in config and not shared and not said_if:
-        parts.append(_condition_part("if", config["when"]))
     kind = s.get("kind")
     if kind == "wait":
         parts.append(("wait", {"duration": _duration(float(config["seconds"]))}))
@@ -372,12 +459,16 @@ def _own_parts(s: Mapping[str, Any], shared: bool, said_if: bool) -> list[Part]:
         n = s["max_iterations"]
         key, params = _condition_part("retry_until", config["until"])
         parts.append((key, {**params, "times": _TIMES.get(n, f"{n} times")}))
-    retry = s.get("retry")
-    if isinstance(retry, Mapping) and (retry.get("max_attempts") or 1) > 1:
-        parts.append(("retry", {"n": retry["max_attempts"]}))
+    if _retries(s):
+        parts.append(("retry", {"n": s["retry"]["max_attempts"]}))
     if config.get("on_error") == "skip":
         parts.append(("on_error_skip", {}))
     return parts
+
+
+def _retries(s: Mapping[str, Any]) -> bool:
+    retry = s.get("retry")
+    return isinstance(retry, Mapping) and (retry.get("max_attempts") or 1) > 1
 
 
 def _groups(graph: _Graph, steps: list[dict[str, Any]], order: list[int]) -> list[list[int]]:
@@ -423,7 +514,7 @@ def _join(graph: _Graph, steps: list[dict[str, Any]], groups: list[list[int]], g
 def _lead_parts(
     graph: _Graph, steps: list[dict[str, Any]], groups: list[list[int]], g: int, k: int
 ) -> list[Part]:
-    """The joining phrases of the ``k``-th step of group ``g``."""
+    """The joining lead-ins of the ``k``-th step of group ``g``."""
     group = groups[g]
     has_when = _when(steps[group[k]]) is not None
     if _alternatives(steps, group):
@@ -435,19 +526,51 @@ def _lead_parts(
     return [_join(graph, steps, groups, g) if k == 0 else ("same_time", {})]
 
 
+def _level_leads(
+    steps: list[dict[str, Any]], ok: list[bool], leads: dict[int, list[Part]]
+) -> dict[int, list[Part]]:
+    """Each step's full lead-in at one level: its join, then the shared condition where it
+    starts, or its own condition outside the shared run."""
+    shared = _shared_from(steps, ok)
+    out = {}
+    for i, s in enumerate(steps):
+        parts = list(leads[i])
+        if shared is not None and i == shared:
+            parts.append(_condition_part("from_here_on", _when(s)))
+        elif ok[i] and _when(s) is not None and not (shared is not None and i > shared):
+            parts.append(_condition_part("if", _when(s)))
+        out[i] = parts or [("same_time", {})]
+    return out
+
+
+# --------------------------------------------------------------------------- stand-ins
+
+
+def generic_line(step: Any) -> str:
+    """What stands in for a step with neither a description nor a name: its d19 words
+    (describe.py's step kind, built-in, action and agent words, with its placement), never
+    free text. A wait or a loop, whose d19 words would only repeat its trailing clauses,
+    reads as :data:`PHRASES` ``standin_wait`` / ``standin_loop``; never raises."""
+    s = _plain(step)
+    kind = s.get("kind")
+    if kind == "wait":
+        return PHRASES["standin_wait"]
+    if kind in _LOOPS:
+        return PHRASES["standin_loop"]
+    try:
+        return kind_text(s, kind, _config(s), placement_text(s.get("placement")))
+    except (TypeError, ValueError, AttributeError):
+        return str(kind or "step")
+
+
+def standin_text(step: Any) -> str:
+    """What stands in for a step with no description: its name, else :func:`generic_line`."""
+    s = _plain(step)
+    name = s.get("name")
+    return name.strip() if isinstance(name, str) and name.strip() else generic_line(s)
+
+
 # --------------------------------------------------------------------------- segments
-
-
-def _segment(
-    s: dict[str, Any], parts: list[Part], ok: bool, label: str, depth: int
-) -> dict[str, Any]:
-    if not ok:
-        return _seg(s, "", [], f"{label} {_sid(s)} — {_d19(s)}", depth, fallback=True)
-    description = s.get("description")
-    text = description if isinstance(description, str) else ""
-    keys = [k for k, _ in parts]
-    phrase = PHRASES["then_grouped"] if keys == ["then_grouped"] else compose(parts)
-    return _seg(s, phrase, keys, text, depth, fallback=False)
 
 
 def _d19(s: Mapping[str, Any]) -> str:
@@ -459,18 +582,113 @@ def _d19(s: Mapping[str, Any]) -> str:
         return str(s.get("kind") or "step")
 
 
-def _seg(
-    s: Mapping[str, Any], phrase: str, keys: list[str], text: str, depth: int, *, fallback: bool
+def _item(
+    s: dict[str, Any], lead: list[Part], ok: bool, label: str, depth: int, level: str, k: int
 ) -> dict[str, Any]:
+    """A step before its sentence is settled."""
+    return {
+        "s": s,
+        "lead": lead,
+        "tail": _tail_parts(s) if ok else [],
+        "ok": ok,
+        "label": label,
+        "depth": depth,
+        "level": level,
+        "k": k,
+    }
+
+
+def _plain_step(it: Mapping[str, Any]) -> bool:
+    """A step that may join the sentence before it: recognised, enabled, not a loop or a wait,
+    no retry policy."""
+    s = it["s"]
+    return (
+        it["ok"]
+        and s.get("enabled") is not False
+        and s.get("kind") not in (*_LOOPS, "wait")
+        and not _retries(s)
+    )
+
+
+def _continues(prev: Mapping[str, Any] | None, it: Mapping[str, Any]) -> bool:
+    """Whether ``it`` continues the sentence ``prev`` is in (d11)."""
+    if prev is None or not it["ok"] or not prev["ok"]:
+        return False
+    if it["s"].get("enabled") is False or prev["s"].get("enabled") is False:
+        return False
+    if it["depth"] > 0 and it["k"] == 0:  # a loop's first body step: "; each time"
+        return True
+    if prev["level"] != it["level"] or prev["s"].get("kind") in _LOOPS:
+        return False  # the step after a loop's body, or after a loop with none
+    keys = [k for k, _ in it["lead"]]
+    if not _plain_step(it) or keys[0] != "then" or any(k.startswith("from_here") for k in keys):
+        return False
+    return _when(it["s"]) == _when(prev["s"])
+
+
+def _settle(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each step's sentence (0-based) and whether it continues the one before (d11); the
+    lead-in of a continuing step becomes its connector."""
+    sentence, prev = -1, None
+    for it in items:
+        joined = _continues(prev, it)
+        if joined:
+            rest = [p for p in it["lead"][1:] if p[0] in _IF_KEYS]
+            if it["depth"] > 0 and it["k"] == 0:
+                it["lead"] = [("each_time_grouped", {}), *rest]
+            else:
+                it["lead"] = [("then_grouped", {})]
+        else:
+            sentence += 1
+        it["joined"], it["sentence"] = joined, sentence
+        prev = it
+    return items
+
+
+def _segment(it: dict[str, Any], ends: bool) -> dict[str, Any]:
+    s = it["s"]
+    description = s.get("description")
+    written = isinstance(description, str) and bool(description.strip())
+    if not it["ok"]:
+        text = f"{it['label']} {_sid(s)} — {_d19(s)}"
+        return _seg(it, "", [], text, text, "." if ends else "", standin=False, fallback=True)
+    text = description if written else standin_text(s)
+    shown = lower_first(text)
+    if shown.endswith("."):
+        shown = shown[:-1]
+    tail = _tail_text(it["tail"])
+    if ends and not (not tail and shown.endswith(("?", "!"))):
+        tail += "."
+    keys = [k for k, _ in it["lead"]]
+    return _seg(it, _lead_phrase(it["lead"]), keys, text, shown, tail, standin=not written)
+
+
+def _seg(
+    it: Mapping[str, Any],
+    phrase: str,
+    keys: list[str],
+    text: str,
+    shown: str,
+    tail: str,
+    *,
+    standin: bool,
+    fallback: bool = False,
+) -> dict[str, Any]:
+    s = it["s"]
     seg = {
         "phrase": phrase,
         "step": _sid(s),
         "text": text,
+        "shown": shown,
+        "tail": tail,
         "keys": keys,
-        "depth": depth,
-        "gap": not fallback and not text,
+        "tail_keys": [k for k, _ in it["tail"]],
+        "depth": it["depth"],
+        "sentence": it["sentence"],
+        "gap": standin,
+        "standin": standin,
         "fallback": fallback,
-        "grouped": keys == ["then_grouped"],
+        "grouped": it["joined"],
         "name": _label(s),
     }
     if s.get("enabled") is False:
@@ -478,87 +696,39 @@ def _seg(
     return seg
 
 
-def _level_parts(
-    steps: list[dict[str, Any]], ok: list[bool], leads: dict[int, list[Part]]
-) -> dict[int, list[Part]]:
-    """Each step's full phrase at one level: its lead, then the shared condition where it
-    starts, then its own config's phrases."""
-    shared = _shared_from(steps, ok)
-    out = {}
-    for i, s in enumerate(steps):
-        parts = list(leads[i])
-        said_if = False
-        if shared is not None and i == shared:
-            parts.append(_condition_part("from_here_on", _when(s)))
-            said_if = True
-        in_run = shared is not None and i > shared
-        parts += _own_parts(s, in_run, said_if) if ok[i] else []
-        out[i] = parts or [("same_time", {})]
-    return _grouped(steps, ok, out)
-
-
-_IF_KEYS = ("if", "if_unspoken")
-
-
-def _ends_sentence(s: Mapping[str, Any]) -> bool:
-    description = s.get("description")
-    return isinstance(description, str) and description.endswith(".")
-
-
-def _grouped(
-    steps: list[dict[str, Any]], ok: list[bool], parts: dict[int, list[Part]]
-) -> dict[int, list[Part]]:
-    """d5: a step whose phrase is exactly ``Then, if <C>:``, right after a step that said
-    the identical condition ``C`` (or was itself joined to one), joins its sentence. A loop
-    (its body reads in between), a gap or a description without a final period ends the
-    sentence instead."""
-    open_when: Any = None
-    for i, s in enumerate(steps):
-        keys = [k for k, _ in parts[i]]
-        joins = (
-            open_when is not None
-            and ok[i]
-            and s.get("enabled") is not False
-            and len(keys) == 2
-            and keys[0] == "then"
-            and keys[1] in _IF_KEYS
-            and _when(s) == open_when
-            and isinstance(s.get("description"), str)
-            and bool(s["description"])
-        )
-        if joins:
-            parts[i] = [("then_grouped", {})]
-        elif ok[i] and s.get("enabled") is not False and any(k in _IF_KEYS for k in keys):
-            open_when = _when(s)
-        else:
-            open_when = None
-        if s.get("kind") in ("for_each", "retry_until") or not _ends_sentence(s):
-            open_when = None
-    return parts
-
-
-def _body_segments(loop: dict[str, Any], label: str) -> list[dict[str, Any]]:
+def _body_items(loop: dict[str, Any], label: str) -> list[dict[str, Any]]:
     body = _body(loop)
     ok = [_recognised(b) for b in body]
     leads = {i: [("each_time", {}) if i == 0 else ("then", {})] for i in range(len(body))}
-    parts = _level_parts(body, ok, leads)
-    return [_segment(b, parts[i], ok[i], f"{label}.{i + 1}", 1) for i, b in enumerate(body)]
+    full = _level_leads(body, ok, leads)
+    return [
+        _item(b, full[i], ok[i], f"{label}.{i + 1}", 1, _sid(loop), i) for i, b in enumerate(body)
+    ]
 
 
 def step_paragraph(workflow: Any) -> dict[str, Any]:
-    """``workflow``'s steps (a :class:`Workflow` or its dict form) as one paragraph.
+    """``workflow``'s steps (a :class:`Workflow` or its dict form) as sentences, one per line.
 
     Returns ``{"segments", "text"}``: one segment per step, top level in a stable
     topological order (declared order where it is one) and each loop's body right after its
-    loop, in declared order. A segment is ``{"phrase", "step", "text", "keys", "depth",
-    "gap", "fallback", "grouped", "name"}`` (plus ``"disabled": True`` for a disabled step, d8:
-    it keeps its normal phrase and is never ``grouped``): ``keys`` names the
-    :data:`PHRASES` entries its
-    phrase is composed from, ``text`` is the step's description unchanged (``gap`` when it
-    is empty), and a step the table has no phrase for has no phrase and its d19 line as ``text``
-    (``fallback``). ``text`` joins the segments: the phrase, then the description or
-    :data:`GAP`, or the d19 line alone; a ``grouped`` segment (d5) continues the previous
-    sentence with ``; then`` and its description, first letter lower-cased.
+    loop, in declared order. A segment is ``{"phrase", "step", "text", "shown", "tail",
+    "keys", "tail_keys", "depth", "sentence", "gap", "standin", "fallback", "grouped",
+    "name"}`` (plus ``"disabled": True`` for a disabled step, d8):
+
+    * ``phrase`` is the lead-in (composed from the :data:`PHRASES` entries named in
+      ``keys``), or a connector (``; then``, ``; each time, if x``) for a ``grouped`` step
+      that continues the sentence before it;
+    * ``text`` is the step's description unchanged, or, for a ``standin`` (no description:
+      ``gap`` too), its stand-in (:func:`standin_text`); ``shown`` is ``text`` as the sentence
+      reads it (:func:`lower_first`, final period dropped);
+    * ``tail`` is its trailing clauses (``tail_keys``), plus the sentence's period when the
+      sentence ends with it;
+    * ``sentence`` is the 0-based sentence it belongs to;
+    * a step the table has no phrase for (``fallback``) has no phrase, and its d19 line as
+      ``text`` and ``shown``.
+
+    A segment reads ``phrase + " " + shown + tail`` (``shown + tail`` with no phrase); the
+    segments of a sentence are concatenated, and ``text`` joins the sentences with ``\\n``.
     """
     segments = _segments(_plain(workflow))
     return {"segments": segments, "text": _render(segments)}
@@ -576,55 +746,64 @@ def _segments(wf: dict[str, Any]) -> list[dict[str, Any]]:
     # the shared-condition run is read in reading order, so re-index by position in it
     ordered = [steps[i] for i in order]
     ok = [_recognised(s) for s in ordered]
-    parts = _level_parts(ordered, ok, {n: leads[i] for n, i in enumerate(order)})
-    out: list[dict[str, Any]] = []
+    full = _level_leads(ordered, ok, {n: leads[i] for n, i in enumerate(order)})
+    items: list[dict[str, Any]] = []
     for n, i in enumerate(order):
         s = steps[i]
-        out.append(_segment(s, parts[n], ok[n], str(i + 1), 0))
-        if s.get("kind") in ("for_each", "retry_until"):
-            out += _body_segments(s, str(i + 1))
-    return out
+        items.append(_item(s, full[n], ok[n], str(i + 1), 0, "", n))
+        if s.get("kind") in _LOOPS:
+            items += _body_items(s, str(i + 1))
+    _settle(items)
+    return [
+        _segment(it, n + 1 == len(items) or items[n + 1]["sentence"] != it["sentence"])
+        for n, it in enumerate(items)
+    ]
 
 
-def _lower_first(text: str) -> str:
-    """``Packs it.`` -> ``packs it.``; text opening with a non-letter (a quote, a digit) or
-    an all-caps word (``EPUB``, ``PR``) is left as it is."""
-    word = text.split(" ", 1)[0]
-    if not text[:1].isupper() or (len(word) > 1 and word.isupper()):
-        return text
-    return text[0].lower() + text[1:]
+def _chunk(seg: Mapping[str, Any], standin: Callable[[str], str] | None) -> str:
+    """One segment as it reads: a step's lead-in, shown text and tail; a sentence's text."""
+    if "shown" not in seg:
+        return str(seg.get("text") or "")
+    shown = str(seg.get("shown") or "")
+    if standin and seg.get("standin"):
+        shown = standin(shown)
+    phrase = str(seg.get("phrase") or "")
+    return (f"{phrase} " if phrase else "") + shown + str(seg.get("tail") or "")
 
 
-def _render(segments: list[dict[str, Any]], mark: Callable[[str], str] | None = None) -> str:
-    """The segments as text; ``mark`` wraps a disabled segment's chunk (d8), if given."""
-    chunks: list[str] = []
+def _render(
+    segments: list[Mapping[str, Any]],
+    mark: Callable[[str], str] | None = None,
+    standin: Callable[[str], str] | None = None,
+) -> str:
+    """The segments as text, one sentence per line; ``mark`` wraps a disabled segment's
+    chunk (d8) and ``standin`` a stand-in's shown text, if given."""
+    lines: list[str] = []
+    last: Any = object()
     for seg in segments:
-        if seg["grouped"] and chunks and chunks[-1].endswith("."):
-            chunks[-1] = f"{chunks[-1][:-1]}{seg['phrase']} {_lower_first(seg['text'])}"
+        chunk = _chunk(seg, standin)
+        if not chunk:
             continue
-        if seg["fallback"]:
-            chunk = seg["text"]
+        if mark and seg.get("disabled"):
+            chunk = mark(chunk)
+        if lines and seg.get("sentence") == last:
+            lines[-1] += chunk
         else:
-            shown = seg["text"] or GAP.format(step=seg["name"])
-            chunk = f"{seg['phrase']} {shown}"
-        chunks.append(mark(chunk) if mark and seg.get("disabled") else chunk)
-    return " ".join(chunks)
+            lines.append(chunk)
+        last = seg.get("sentence")
+    return "\n".join(lines)
 
 
-def render_marked(paragraph: Mapping[str, Any], mark: Callable[[str], str]) -> str:
-    """A workflow paragraph's text (``workflow_paragraph``'s payload, or its JSON form) with
-    every disabled segment wrapped by ``mark``; without the marks it equals ``text``."""
+def render_marked(
+    paragraph: Mapping[str, Any],
+    mark: Callable[[str], str],
+    standin: Callable[[str], str] | None = None,
+) -> str:
+    """A paragraph's text (``workflow_paragraph``'s or ``step_paragraph``'s payload, or its
+    JSON form) with every disabled segment wrapped by ``mark`` and every stand-in's text by
+    ``standin``; without the marks it equals ``text``."""
     segs = [s for s in paragraph.get("segments") or [] if isinstance(s, Mapping)]
-    steps = _render([s for s in segs if s.get("part") == "step"], mark)
-    out: list[str] = []
-    for part in ("start", "step", "then"):
-        if part == "step":
-            out.append(steps)
-            continue
-        for s in segs:
-            if s.get("part") == part and s.get("text"):
-                out.append(mark(s["text"]) if s.get("disabled") else s["text"])
-    return " ".join(x for x in out if x)
+    return _render(segs, mark, standin)
 
 
 # --------------------------------------------------------------------------- the rules (t7)
@@ -837,24 +1016,75 @@ def _action_kind(action: Any) -> Any:
     return _plain(action).get("kind")
 
 
+_STACKED = re.compile(r"^(.*)\(([^()]*)\) \(([^()]*)\)$")
+_CHAIN_END = "only where its chain ends"
+
+
+def _unstacked(text: str) -> str:
+    """``x (a) (b)`` -> ``x (a, b)``: an action's trailing bracket groups read as one."""
+    while m := _STACKED.match(text):
+        text = f"{m.group(1)}({m.group(2)}, {m.group(3)})"
+    return text
+
+
+def _status(action: Any) -> bool:
+    """A ``github.comment`` that writes its chain's status comment (d26)."""
+    a = _plain(action)
+    params = a.get("params")
+    return (
+        a.get("kind") == "github.comment"
+        and isinstance(params, Mapping)
+        and (params.get("status") is True)
+    )
+
+
+def _chain_end(action: Any) -> bool:
+    return _plain(action).get("only_at_chain_end") is True
+
+
+def _action_words(action: Any) -> str:
+    """An action's d19 words, its chain-end note left to the sentence's lead-in."""
+    a = _plain(action)
+    a.pop("only_at_chain_end", None)
+    return _unstacked(action_text(a))
+
+
+def _by(action: Any) -> str:
+    """`` (as github-app)``: who writes a status comment, and its other guard words."""
+    params = _plain(_plain(action).get("params"))
+    words = [actor_words(params)]
+    words += [w.strip("()") for w in comment_words({**params, "status": False})]
+    words = [w for w in words if w]
+    return " " + PHRASES["by"].format(words=", ".join(words)) if words else ""
+
+
 def _ends(rules: list[dict[str, Any]]) -> list[Part]:
     actions = [r.get("action") for r in rules]
     if all(_action_kind(a) == "noop" for a in actions):
         return [("ends_noop", {})]
-    texts = _distinct([action_text(a) for a in actions])
-    if len(texts) == 1:
-        return [("ends", {"action": texts[0]})]
-    return [("ends_differs", {"actions": _either(texts)})]
+    texts = _distinct([_unstacked(action_text(a)) for a in actions])
+    if len(texts) > 1:
+        return [("ends_differs", {"actions": _either(texts)})]
+    action = actions[0]
+    chain = _chain_end(action)
+    if _status(action):
+        return [("ends_status_chain" if chain else "ends_status", {"by": _by(action)})]
+    return [("ends_chain" if chain else "ends", {"action": _action_words(action)})]
 
 
-def _on_failure(rules: list[dict[str, Any]]) -> list[Part]:
+def _on_failure(rules: list[dict[str, Any]], said_status: bool) -> list[Part]:
     actions = [r.get("on_failure") for r in rules]
-    texts = _distinct([action_text(a) for a in actions if a])
+    texts = _distinct([_unstacked(action_text(a)) for a in actions if a])
     if not texts:
         return []
-    if len(texts) == 1 and all(actions):
-        return [("on_failure", {"action": texts[0]})]
-    return [("on_failure_differs", {"actions": _either(texts)})]
+    if len(texts) > 1 or not all(actions):
+        return [("on_failure_differs", {"actions": _either(texts)})]
+    action = actions[0]
+    if _status(action):
+        if said_status:
+            return [("on_failure_status_same", {})]
+        return [("on_failure_status", {"by": _by(action)})]
+    return [("on_failure", {"action": texts[0]})]
 
 
 def _runs(rules: list[dict[str, Any]]) -> list[Part]:
@@ -874,10 +1104,13 @@ def _runs(rules: list[dict[str, Any]]) -> list[Part]:
 
 def then_sentence(rules: Any, onward: Any = ()) -> list[dict[str, Any]]:
     """The Then side of a workflow, as built sentences: where it continues (``onward``: the
-    continuations of other workflows that start after it, from :func:`onward_of`), what runs
-    when it is done (the rules' ``action``), what runs on failure, and how it runs (run key
-    and attempt budget). ``rules`` are the rules that start the workflow; a value they all
-    hold reads once, values that differ read as alternatives. Each sentence is
+    continuations of other workflows that start after it, from :func:`onward_of`), what
+    happens when it is done (the rules' ``action``; a status comment, d26, reads as updating
+    the chain's status comment, and ``only_at_chain_end`` as ``Where the chain ends here``),
+    what happens on failure (a status comment after one reads ``it updates that comment
+    with the failure``), and how it runs (run key and attempt budget). ``rules`` are the
+    rules that start the workflow; a value they all hold reads once, values that differ read
+    as alternatives. An action's trailing bracket groups read as one. Each sentence is
     ``{"part": "then", "keys", "text", "rules"}``."""
     plain = [_plain(r) for r in _list(rules)]
     ids = [str(r.get("id") or "?") for r in plain]
@@ -892,7 +1125,9 @@ def then_sentence(rules: Any, onward: Any = ()) -> list[dict[str, Any]]:
     else:
         out.append(_sentence("then", [("continues_none", {})], rules=[]))
     if plain:
-        for parts in (_ends(plain), _on_failure(plain), _runs(plain)):
+        ends = _ends(plain)
+        said_status = ends[0][0] in ("ends_status", "ends_status_chain")
+        for parts in (ends, _on_failure(plain, said_status), _runs(plain)):
             if parts:
                 out.append(_sentence("then", parts, rules=ids))
     return out
@@ -902,10 +1137,11 @@ def workflow_paragraph(workflow: Any, rules: Any) -> dict[str, Any]:
     """``workflow``'s whole paragraph, given every rule (the fold picks the ones that start
     it and the ones that continue from it): one sentence per starting rule
     (:func:`rule_sentence`, in input order; ``No rule starts it yet.`` when none does), the
-    step paragraph (:func:`step_paragraph`), then the Then side (:func:`then_sentence`).
+    step sentences (:func:`step_paragraph`), then the Then side (:func:`then_sentence`).
 
     Returns ``{"segments", "text"}``; each segment carries ``part`` (``start``, ``step`` or
-    ``then``), step segments are :func:`step_paragraph`'s, and ``text`` joins them."""
+    ``then``) and ``sentence`` (0-based over the whole paragraph), step segments are
+    :func:`step_paragraph`'s, and ``text`` is the sentences, one per line."""
     wf = _plain(workflow)
     wid = str(wf.get("id") or "")
     fold = fold_rules(rules)
@@ -914,10 +1150,11 @@ def workflow_paragraph(workflow: Any, rules: Any) -> dict[str, Any]:
         starts = [rule_sentence(e["rule"]) for e in owned]
     else:
         starts = [_sentence("start", [("starts_none", {})], rule=None, kind=None, enabled=None)]
-    steps = step_paragraph(wf)
+    steps = step_paragraph(wf)["segments"]
     thens = then_sentence([e["rule"] for e in owned], onward_of(fold, wid))
-    segments = starts + [{"part": "step", **seg} for seg in steps["segments"]] + thens
-    text = " ".join(
-        x for x in (*(s["text"] for s in starts), steps["text"], *(t["text"] for t in thens)) if x
-    )
-    return {"segments": segments, "text": text}
+    n = len(starts)
+    segments = [{**s, "sentence": i} for i, s in enumerate(starts)]
+    segments += [{"part": "step", **seg, "sentence": seg["sentence"] + n} for seg in steps]
+    n += len({seg["sentence"] for seg in steps})
+    segments += [{**t, "sentence": n + i} for i, t in enumerate(thens)]
+    return {"segments": segments, "text": _render(segments)}

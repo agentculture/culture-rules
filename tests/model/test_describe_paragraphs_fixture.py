@@ -7,7 +7,8 @@ the paragraph exactly as the API builds it. This test regenerates it and fails w
 committed copy has drifted; ``REGENERATE_E2E_FIXTURES=1 uv run pytest <this file>`` rewrites it.
 
 One workflow ships with no description of its own (``daily-newspaper``), and a step with none
-(``publish-fix``'s loop body step), so the editor's gaps are exercised.
+(``publish-fix``'s loop body step), so the editor's gaps and stand-ins (d11: the step's name,
+marked ``standin``) are exercised.
 
 Assumption c9 (checked here): none of the nine committed workflows reads a ``fallback`` step
 segment, i.e. every step kind and config in them has a joining phrase in the table.
@@ -107,6 +108,8 @@ def test_the_fixture_has_a_workflow_and_a_step_with_no_description():
     assert any(wid == "publish-fix" for wid, _ in gaps)
     segs = data["describe"]["publish-fix"]["paragraph"]["segments"]
     assert any(s.get("gap") for s in segs)
+    reply = next(s for s in segs if s.get("step") == "reply")
+    assert reply["standin"] is True and reply["text"] == reply["name"]
 
 
 def test_c9_no_committed_workflow_falls_back_to_a_generated_line():
