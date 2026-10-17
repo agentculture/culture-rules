@@ -315,7 +315,7 @@ workflow reads its steps numbered `1`, `2`, `3.1` ..., a loop's body one level
 deeper (a one-step body inline). `workflows describe` prints the workflow's own
 description, then its paragraph (the rules that start it and its steps joined by fixed
 phrases, no AI, one sentence per line; a step with no description stands in by its name in
-`[ ]`, a disabled one is struck through), then the numbered lines; `--json` and the MCP
+`[ ]`, a disabled one marked `(disabled)`), then the numbered lines; `--json` and the MCP
 tool carry `description`, `paragraph` (`segments`, `text`), `entries` and `lines`. API:
 `GET /rules/{id}/describe`, `GET /workflows/{id}/describe`.
 """
