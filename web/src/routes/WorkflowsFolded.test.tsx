@@ -32,6 +32,14 @@ import {
  */
 const NOW = Date.parse("2026-10-03T12:00:00Z");
 
+const describeBody = (start: string) => ({
+  id: "review-pr",
+  kind: "workflow",
+  lines: [],
+  entries: [],
+  paragraph: { segments: [{ part: "start", keys: [], text: start }], text: start },
+});
+
 function routes(overrides: ApiRoutes = {}): ApiRoutes {
   return {
     "/api/whoami": { body: WHOAMI },
@@ -39,6 +47,7 @@ function routes(overrides: ApiRoutes = {}): ApiRoutes {
     "/api/machines": { body: { items: MACHINES } },
     "/api/workflows": { body: { items: WORKFLOW_DOCS } },
     "/api/workflows/review-pr": { body: REVIEW_PR },
+    "/api/workflows/review-pr/describe": { body: describeBody("It starts when github.pull_request_review arrives.") },
     "/api/actors": { body: { items: ACTORS } },
     "/api/runs": { body: { items: workflowRunsFor(NOW) } },
     "/api/repos": { body: { items: REPOS } },
@@ -89,9 +98,9 @@ describe("Workflows, folded (t8)", () => {
     renderAt(`/workflows?id=${REVIEW_PR_ID}&entry=${REVIEW_RULE_ID}`);
     const group = await screen.findByRole("group", { name: "Canvas view" });
     expect(within(group).getByRole("button", { name: "Simple" })).toHaveAttribute("aria-pressed", "true");
-    // The Simple view (not its placeholder) is mounted, with this workflow's entry point.
+    // The Simple view (not its placeholder) is mounted, with this workflow's paragraph.
     expect(screen.queryByText("The When / Then view is on its way.")).toBeNull();
-    expect((await screen.findAllByText("Review on approve")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("It starts when github.pull_request_review arrives.")).toBeInTheDocument();
     await waitFor(() =>
       expect(getAgentState().workflows).toMatchObject({
         selected: REVIEW_PR_ID,
@@ -199,7 +208,7 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
 
   it("the Simple view and the list share one live stream, and a rules change reaches both", async () => {
     renderAt(`/workflows?id=${REVIEW_PR_ID}`);
-    await screen.findByRole("group", { name: "Entry point: Review on approve" });
+    await screen.findByText("It starts when github.pull_request_review arrives.");
     const open = FakeEventSource.instances.filter((s) => !s.closed);
     expect(open).toHaveLength(1);
     const url = new URL(open[0].url, "http://x");
@@ -207,7 +216,8 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
       "asks", "rule_decisions", "rules", "runs", "workflows",
     ]);
 
-    // A new entry point for review-pr arrives: the list and the Simple view both show it.
+    // A new entry point for review-pr arrives: the Simple view reads its paragraph again.
+    api["/api/workflows/review-pr/describe"] = { body: describeBody("It starts when two things arrive.") };
     api["/api/rules"] = {
       body: {
         items: [
@@ -227,7 +237,7 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, LIVE_DEBOUNCE_MS + 30));
     });
-    expect(await screen.findByRole("group", { name: "Entry point: Late reviewer" })).toBeInTheDocument();
+    expect(await screen.findByText("It starts when two things arrive.")).toBeInTheDocument();
     expect(FakeEventSource.instances.filter((s) => !s.closed)).toHaveLength(1);
   });
 

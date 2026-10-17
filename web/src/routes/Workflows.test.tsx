@@ -30,6 +30,14 @@ import {
 
 const NOW = Date.parse("2026-10-03T12:00:00Z");
 
+const describeBody = (start: string) => ({
+  id: "review-pr",
+  kind: "workflow",
+  lines: [],
+  entries: [],
+  paragraph: { segments: [{ part: "start", keys: [], text: start }], text: start },
+});
+
 function routes(overrides: ApiRoutes = {}): ApiRoutes {
   return {
     "/api/whoami": { body: WHOAMI },
@@ -37,6 +45,7 @@ function routes(overrides: ApiRoutes = {}): ApiRoutes {
     "/api/machines": { body: { items: MACHINES } },
     "/api/workflows": { body: { items: WORKFLOW_DOCS } },
     "/api/workflows/review-pr": { body: REVIEW_PR },
+    "/api/workflows/review-pr/describe": { body: describeBody("It starts when github.pull_request_review arrives.") },
     "/api/actors": { body: { items: ACTORS } },
     "/api/runs": { body: { items: workflowRunsFor(NOW) } },
     "/api/runs/run-7": { body: RUN_7 },
@@ -455,11 +464,12 @@ describe("Workflows tab live updates (h61 / c80)", () => {
     ]);
   });
 
-  it("a rules change re-reads the rules, so a new entry point shows", async () => {
+  it("a rules change reads the Simple paragraph again, so a new entry point shows", async () => {
     localStorage.setItem(VIEW_MODE_KEY, "simple");
     renderWorkflows();
     await loaded();
-    expect(screen.queryByRole("group", { name: "Entry point: Late reviewer" })).toBeNull();
+    expect(await screen.findByText("It starts when github.pull_request_review arrives.")).toBeInTheDocument();
+    api["/api/workflows/review-pr/describe"] = { body: describeBody("It starts when two things arrive.") };
     api["/api/rules"] = {
       body: {
         items: [
@@ -469,7 +479,7 @@ describe("Workflows tab live updates (h61 / c80)", () => {
       },
     };
     await emit("rules", "late-reviewer");
-    expect(await screen.findByRole("group", { name: "Entry point: Late reviewer" })).toBeInTheDocument();
+    expect(await screen.findByText("It starts when two things arrive.")).toBeInTheDocument();
   });
 
   it("a runs change re-reads the overlaid run, so the overlay follows it", async () => {

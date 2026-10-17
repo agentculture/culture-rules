@@ -25,6 +25,7 @@ import { setWorkflowsState } from "../workflows/agentState";
 import { setAgentState } from "../agent-state/store";
 import { type CanvasProps } from "../workflows/Canvas";
 import { WorkflowViews } from "../workflows/views/WorkflowViews";
+import EntryEditors from "../workflows/views/EntryEditors";
 import type { ViewMode } from "../workflows/views/mode";
 import { foldModel, type FoldModel } from "../fold/model";
 import { useLiveFeed } from "../workflows/simple/liveFeed";
@@ -1233,21 +1234,13 @@ export function Workflows() {
     setReload(reload + 1);
     setQuery({ id, entry, run: null });
   };
-  const opened = (id: string) => openCreated(id, entryId);
   // The workflow's simple (When / Then) view.
   const renderSimpleView = (): ReactNode =>
     current ? (
       <SimpleView
-        workflowId={current.id}
         def={current}
-        entry={entryId}
-        hrefFor={hrefFor}
-        onCreated={opened}
         live={simpleFeed}
-        onWorkflowDeleted={() => {
-          setReload((n) => n + 1);
-          setQuery({ id: null, entry: null, run: null });
-        }}
+        onSaved={(saved) => setLoaded((l) => replaceIn(l, saved))}
       />
     ) : null;
   // While New rule or the D7 place is shown, the head names it: no workflow's rename, delete or run.
@@ -1329,14 +1322,7 @@ export function Workflows() {
     if (missingWorkflow && strandedRules > 0) {
       return (
         <section className="wf-missing-place" aria-label={`Rules of the missing workflow ${missingWorkflow}`}>
-          <SimpleView
-            workflowId={missingWorkflow}
-            def={null}
-            entry={entryId}
-            hrefFor={hrefFor}
-            live={simpleFeed}
-            onCreated={(id) => openCreated(id, entryId)}
-          />
+          <EntryEditors workflow={{ id: missingWorkflow, name: missingWorkflow }} hrefFor={hrefFor} />
         </section>
       );
     }
