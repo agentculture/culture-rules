@@ -124,6 +124,7 @@ export const WORKFLOW_FIELDS = [
   "id",
   "name",
   "description",
+  "notes",
   "version",
   "inputs",
   "variables",

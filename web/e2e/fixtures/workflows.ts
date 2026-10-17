@@ -41,6 +41,34 @@ export const GONE_WORKFLOW: WorkflowDef = {
 /** What a workflow run started from the Run form produces once it finishes. */
 export const FORM_RUN_OUTPUTS = { verdict: "approve", owner: "ori" };
 
+/**
+ * A stand-in for GET /workflows/{id}/describe on a hand-made workflow: its description and one
+ * `step` segment per step (the step's own description, empty for a gap). The committed PR fixer
+ * and newspaper use the real API's paragraphs instead (e2e/fixtures/describe-paragraphs.json).
+ */
+export function standInDescription(wf: WorkflowDef) {
+  const steps = wf.steps ?? [];
+  const segments = steps.map((s, i) => ({
+    part: "step",
+    step: s.id,
+    name: s.name || s.id,
+    depth: 0,
+    phrase: i === 0 ? "First:" : "Then:",
+    text: s.description ?? "",
+  }));
+  return {
+    id: wf.id,
+    kind: "workflow" as const,
+    description: wf.description ?? "",
+    paragraph: {
+      segments,
+      text: segments.map((s) => `${s.phrase} ${s.text}`.trim()).join(" "),
+    },
+    lines: steps.map((s, i) => `${i + 1} ${s.id}`),
+    entries: steps.map((s, i) => ({ label: String(i + 1), text: s.kind, depth: 0, step: s.id })),
+  };
+}
+
 export async function mockWorkflowsApi(
   page: Page,
   start: WorkflowDef[] = WORKFLOW_DOCS,
@@ -49,7 +77,8 @@ export async function mockWorkflowsApi(
 ): Promise<Recorded[]> {
   const calls: Recorded[] = [];
   const now = Date.now();
-  let workflows = start.map((w) => ({ ...w }));
+  // The server owns `revision`: a stored workflow carries one (1 when the fixture has none).
+  let workflows: WorkflowDef[] = start.map((w) => ({ ...w, revision: w.revision ?? 1 }));
   const deleted = new Map<string, WorkflowDef>(gone.map((w) => [w.id, w]));
   let formRunPolls = 0;
   const used = new Set(WORKFLOW_RULES.map((r) => r.workflow?.id).filter(Boolean));
@@ -76,7 +105,7 @@ export async function mockWorkflowsApi(
       if (workflows.some((w) => w.id === body.id) || deleted.has(body.id)) {
         return fail(409, "conflict", `workflows/${body.id} already exists`);
       }
-      const stored = { ...body, version: 1, schema_version: "1.0" };
+      const stored = { ...body, version: 1, schema_version: "1.0", revision: 1 };
       workflows = [...workflows, stored];
       return json(201, stored);
     }
@@ -106,8 +135,13 @@ export async function mockWorkflowsApi(
     }
     const described = path.match(/^\/api\/workflows\/([^/]+)\/describe$/);
     if (described && method === "GET") {
-      if (described[1] !== REVIEW_PR_DESCRIBED.id) return fail(404, "not_found", `workflows/${described[1]}`);
-      return json(200, REVIEW_PR_DESCRIBED);
+      const stored = workflows.find((w) => w.id === described[1]);
+      if (described[1] === REVIEW_PR_DESCRIBED.id) {
+        const { lines, entries } = REVIEW_PR_DESCRIBED;
+        return json(200, { ...(stored ? standInDescription(stored) : {}), ...REVIEW_PR_DESCRIBED, lines, entries });
+      }
+      if (!stored) return fail(404, "not_found", `workflows/${described[1]}`);
+      return json(200, standInDescription(stored));
     }
     const one = path.match(/^\/api\/workflows\/([^/]+)$/);
     if (one && method === "DELETE") {
@@ -119,8 +153,24 @@ export async function mockWorkflowsApi(
       return json(200, doc);
     }
     if (one && method === "PUT") {
-      workflows = workflows.map((w) => (w.id === one[1] ? body : w));
-      return json(200, body);
+      // The server owns `revision` (d7): a save must carry the one it read, else 409.
+      const found = workflows.find((w) => w.id === one[1]);
+      if (!found) return fail(404, "not_found", `workflows/${one[1]} does not exist`);
+      const { expected_revision: expected, ...doc } = body ?? {};
+      if (expected !== found.revision) {
+        return json(409, {
+          error: {
+            code: "revision_conflict",
+            message: "The workflow changed since it was read",
+            errors: [
+              { path: "expected_revision", code: "revision_conflict", message: "stale", current_revision: found.revision },
+            ],
+          },
+        });
+      }
+      const saved = { ...doc, id: found.id, revision: (found.revision ?? 0) + 1 };
+      workflows = workflows.map((w) => (w.id === one[1] ? saved : w));
+      return json(200, saved);
     }
     if (one && method === "GET") return json(200, workflows.find((w) => w.id === one[1]));
     if (path === "/api/rules") return json(200, { items: WORKFLOW_RULES });

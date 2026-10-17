@@ -36,10 +36,12 @@ const posts = (calls: Recorded[]) =>
   calls.filter((c) => c.method === "POST" && c.path === "/api/workflows");
 const emptyState = (page: Page) => page.getByRole("region", { name: "No workflows yet" });
 const nameForm = (page: Page) => page.getByRole("form", { name: "New workflow" });
-const list = (page: Page) => page.getByRole("navigation", { name: "Workflows" });
-const listNew = (page: Page) => list(page).getByRole("button", { name: "New workflow" });
-/** A workflow's name link on the list (its entry points' links name rules, not workflows). */
-const workflowLinks = (page: Page) => list(page).locator(".fold-workflow h3").getByRole("link");
+/** The overview's "Chains and housekeeping" section (chain cards, switches, deleted workflows). */
+const list = (page: Page) => page.getByRole("navigation", { name: "Chains and housekeeping" });
+/** The compact pane an open workflow shows: names only, and its own New workflow button. */
+const pane = (page: Page) => page.locator("aside.wf-pane");
+const paneNew = (page: Page) => pane(page).getByRole("button", { name: "New workflow" });
+const paneLinks = (page: Page) => pane(page).getByRole("navigation", { name: "Workflows" }).getByRole("link");
 const section = (page: Page, id: string) => page.locator(`.fold-workflow[data-workflow-id="${id}"]`);
 
 async function noSeriousAxe(page: Page, label: string) {
@@ -56,9 +58,9 @@ test.describe("Workflows tab: New workflow", () => {
     await expect(cta).toBeVisible();
     // Large target: the primary action is drawn at 56px.
     expect(Math.round((await cta.boundingBox())!.height)).toBe(56);
-    // The list is there with no workflows: its New button, no stored workflow (no switch); the
-    // fixture's rules still name theirs, shown as missing. The header has no "+ New".
-    await expect(listNew(page)).toBeVisible();
+    // The overview holds no pane with no workflows; no stored workflow means no switch (the
+    // fixture's rules still name theirs, shown as missing). The header has no "+ New".
+    await expect(pane(page)).toHaveCount(0);
     await expect(list(page).getByRole("switch")).toHaveCount(0);
     const head = page.locator(".wf-head__end");
     await expect(head.getByRole("button", { name: "New workflow" })).toHaveCount(0);
@@ -110,7 +112,7 @@ test.describe("Workflows tab: New workflow", () => {
     await page.keyboard.press("Escape");
     await expect(nameForm(page)).toHaveCount(0);
     await expect(emptyState(page)).toBeVisible();
-    await expect(listNew(page)).toBeFocused();
+    await expect(emptyState(page).getByRole("button", { name: "New workflow" })).toBeFocused();
     expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
@@ -134,16 +136,16 @@ test.describe("Workflows tab: New workflow", () => {
     ] as const) {
       expect(Math.abs((await middle(name, role)) - row)).toBeLessThan(12);
     }
-    // The enable switch lives on the list row (as on Rules), not in the head.
+    // The enable switch lives on the overview's workflow section (as on Rules), not in the head.
     await expect(page.locator(".wf-head").getByRole("switch")).toHaveCount(0);
-    await listNew(page).click();
+    await paneNew(page).click();
     await expect(page.getByRole("heading", { level: 1, name: "New workflow" })).toBeVisible();
     await nameForm(page).getByRole("textbox", { name: "Name" }).fill("Ship release");
     await nameForm(page).getByRole("button", { name: "Create workflow" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Ship release" })).toBeVisible();
     await expect(page).toHaveURL(/\/workflows\?id=ship-release$/);
-    await expect(workflowLinks(page).filter({ hasText: "Ship release" })).toHaveAttribute("aria-current", "true");
-    await expect(workflowLinks(page)).toHaveCount(3);
+    await expect(paneLinks(page).filter({ hasText: "Ship release" })).toHaveAttribute("aria-current", "page");
+    await expect(paneLinks(page)).toHaveCount(3);
     expect(posts(calls)).toHaveLength(1);
   });
 
@@ -189,8 +191,8 @@ test.describe("Workflows tab: rename, enable / disable and delete", () => {
     });
   });
 
-  test("the list row's switch disables and enables the stored workflow", async ({ page }) => {
-    const calls = await open(page, [...WORKFLOW_DOCS, SPARE], "/workflows?id=nightly-report");
+  test("the overview section's switch disables and enables the stored workflow", async ({ page }) => {
+    const calls = await open(page, [...WORKFLOW_DOCS, SPARE], "/workflows");
     const toggle = list(page).getByRole("switch", { name: "Nightly report enabled" });
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await toggle.click();
@@ -216,7 +218,7 @@ test.describe("Workflows tab: rename, enable / disable and delete", () => {
       "POST /api/workflows/nightly-report/restore",
     ]);
 
-    await workflowLinks(page).filter({ hasText: "Review PR" }).click();
+    await paneLinks(page).filter({ hasText: "Review PR" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Review PR" })).toBeVisible();
     await page.getByRole("button", { name: "Delete workflow" }).click();
     await expect(page.getByRole("alert")).toContainText("workflows/review-pr is used by a rule");
