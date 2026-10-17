@@ -298,7 +298,10 @@ A rule reads `When` (the trigger), `If` / `and` / `or` (the condition, symbols
 `= ≠ < ≤ > ≥ ∈`, `not (…)`), `After`, `Supersedes`, `Run` (the workflow and its step
 count), `On` (placement), `Then`, `On failure`, `Key`, `Group`, `Disabled`. A
 workflow reads its steps numbered `1`, `2`, `3.1` ..., a loop's body one level
-deeper (a one-step body inline). API: `GET /rules/{id}/describe`,
+deeper (a one-step body inline). `workflows describe` prints the workflow's own
+description, then its paragraph (the rules that start it and its steps joined by fixed
+phrases, no AI), then the numbered lines; `--json` and the MCP tool carry `description`,
+`paragraph` (`segments`, `text`), `entries` and `lines`. API: `GET /rules/{id}/describe`,
 `GET /workflows/{id}/describe`.
 """
 

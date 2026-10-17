@@ -46,6 +46,7 @@ from culture_rules.engine.runs import (
 )
 from culture_rules.events.ingest import QUARANTINE_COLLECTION, ensure_quarantine_ttl
 from culture_rules.model import describe
+from culture_rules.model.paragraph import workflow_paragraph
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
 from culture_rules.server import events, humans, static
@@ -180,11 +181,33 @@ class DescribeEntry(BaseModel):
     step: str | None = Field(default=None, description="the step id (workflow entries only)")
 
 
+class ParagraphSegment(BaseModel):
+    """One piece of a workflow's paragraph (model/paragraph.py)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    part: str = Field(description="start, step or then")
+    text: str
+
+
+class Paragraph(BaseModel):
+    """A workflow's rules and steps as one paragraph of fixed phrases (#69, no AI)."""
+
+    segments: list[ParagraphSegment]
+    text: str = Field(description="the segments joined")
+
+
 class Description(BaseModel):
     """d19: a plain description generated only from the definition's config (no AI)."""
 
     id: str
     kind: str = Field(description="rule or workflow")
+    description: str | None = Field(
+        default=None, description="workflow only: its own plain description, empty when none"
+    )
+    paragraph: Paragraph | None = Field(
+        default=None, description="workflow only: its rules and steps as one paragraph"
+    )
     lines: list[str] = Field(description="the entries as text, one per line")
     entries: list[DescribeEntry]
 
@@ -1282,7 +1305,11 @@ def _register_runs(
     def describe_workflow_route(id: str):
         """The workflow's steps in plain words, from its config only (d19): numbered, a
         loop's body nested one level deeper."""
-        return _description(id, "workflow", describe.describe_workflow(defs.get("workflows", id)))
+        workflow = defs.get("workflows", id)
+        out = _description(id, "workflow", describe.describe_workflow(workflow))
+        out["description"] = str(workflow.get("description") or "")
+        out["paragraph"] = workflow_paragraph(workflow, defs.list("rules"))
+        return out
 
     @app.get(
         "/runs/{run_id}",

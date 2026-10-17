@@ -91,6 +91,11 @@ def _render_dict(result: dict, noun: str | None) -> str | None:
         from culture_rules.cli._commands.overview import render_text as render  # noqa: PLC0415
 
         return render(result["subject"], result["sections"])
+    if isinstance(result.get("lines"), list) and isinstance(result.get("paragraph"), dict):
+        # workflows describe: the description, the paragraph, then the numbered lines
+        parts = [str(result.get("description") or ""), str(result["paragraph"].get("text") or "")]
+        parts.append("\n".join(str(x) for x in result["lines"]))
+        return "\n\n".join(p for p in parts if p)
     if isinstance(result.get("lines"), list):
         return "\n".join(str(x) for x in result["lines"])  # a verb that renders itself
     if result.get("dry_run"):

@@ -247,6 +247,18 @@
       "Description": {
         "description": "d19: a plain description generated only from the definition's config (no AI).",
         "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "workflow only: its own plain description, empty when none",
+            "title": "Description"
+          },
           "entries": {
             "items": {
               "$ref": "#/components/schemas/DescribeEntry"
@@ -270,6 +282,17 @@
             },
             "title": "Lines",
             "type": "array"
+          },
+          "paragraph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Paragraph"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "workflow only: its rules and steps as one paragraph"
           }
         },
         "required": [
@@ -783,6 +806,50 @@
           }
         },
         "title": "MigrateRequest",
+        "type": "object"
+      },
+      "Paragraph": {
+        "description": "A workflow's rules and steps as one paragraph of fixed phrases (#69, no AI).",
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/ParagraphSegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "text": {
+            "description": "the segments joined",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segments",
+          "text"
+        ],
+        "title": "Paragraph",
+        "type": "object"
+      },
+      "ParagraphSegment": {
+        "additionalProperties": true,
+        "description": "One piece of a workflow's paragraph (model/paragraph.py).",
+        "properties": {
+          "part": {
+            "description": "start, step or then",
+            "title": "Part",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part",
+          "text"
+        ],
+        "title": "ParagraphSegment",
         "type": "object"
       },
       "PurgeRequest": {
