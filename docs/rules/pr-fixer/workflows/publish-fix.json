@@ -1,5 +1,5 @@
 {
-  "description": "d21: github.push as the App of the commit a review-commit run approved, then one github.review_reply per trusted thread the agent addressed, naming the pushed commit.",
+  "description": "",
   "edges": [
     {
       "source": "inputs",
@@ -169,7 +169,7 @@
     }
   ],
   "name": "Publish the approved fix",
-  "notes": "",
+  "notes": "d21: github.push as the App of the commit a review-commit run approved, then one github.review_reply per trusted thread the agent addressed, naming the pushed commit.",
   "outputs": [
     {
       "name": "pushed",
@@ -202,7 +202,7 @@
         },
         "builtin": "action"
       },
-      "description": "github.push fast-forwards the PR head branch to the approved commit from the pr-fix run's bundle, only on a passing gate and only while every rule of the chain is enabled. It verifies the WHOLE chain from the store: this run was started by a trusted review-commit run's success, that one by a trusted pr-fix run's, the commit and its start, bundle and PR are what that fix run's last gate built, and that review run's record approves exactly this commit by a reviewer other than the implementer. Runs on spark2, where the bundle is.",
+      "description": "",
       "enabled": true,
       "id": "push",
       "inputs": [
@@ -252,7 +252,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Push as the App",
-      "notes": "",
+      "notes": "github.push fast-forwards the PR head branch to the approved commit from the pr-fix run's bundle, only on a passing gate and only while every rule of the chain is enabled. It verifies the WHOLE chain from the store: this run was started by a trusted review-commit run's success, that one by a trusted pr-fix run's, the commit and its start, bundle and PR are what that fix run's last gate built, and that review run's record approves exactly this commit by a reviewer other than the implementer. Runs on spark2, where the bundle is.",
       "outputs": [
         {
           "description": "",
@@ -281,7 +281,7 @@
         "actor": "github-app",
         "builtin": "github.threads"
       },
-      "description": "Re-reads the PR's unresolved review threads as the App after the push and keeps those opened by a trusted author (a thread resolved meanwhile is not answered).",
+      "description": "",
       "enabled": true,
       "id": "threads",
       "inputs": [
@@ -313,7 +313,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Trusted review threads",
-      "notes": "",
+      "notes": "Re-reads the PR's unresolved review threads as the App after the push and keeps those opened by a trusted author (a thread resolved meanwhile is not answered).",
       "outputs": [
         {
           "description": "",
@@ -341,7 +341,7 @@
       "config": {
         "builtin": "github.threads_addressed"
       },
-      "description": "Keeps the agent's threads_addressed entries that are in the trusted list; any other id is dropped, never answered.",
+      "description": "",
       "enabled": true,
       "id": "pick",
       "inputs": [
@@ -373,7 +373,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Threads to answer",
-      "notes": "",
+      "notes": "Keeps the agent's threads_addressed entries that are in the trusted list; any other id is dropped, never answered.",
       "outputs": [
         {
           "description": "",
@@ -445,7 +445,7 @@
         }
       ],
       "config": {},
-      "description": "github.review_reply per trusted thread the agent addressed, after the push.",
+      "description": "",
       "enabled": true,
       "id": "replies",
       "inputs": [
@@ -471,7 +471,7 @@
       "kind": "for_each",
       "max_iterations": 200,
       "name": "One reply per addressed thread",
-      "notes": "",
+      "notes": "github.review_reply per trusted thread the agent addressed, after the push.",
       "outputs": [],
       "placement": null,
       "retry": null,

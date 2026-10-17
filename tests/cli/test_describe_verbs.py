@@ -16,12 +16,37 @@ from tests.cli.test_nouns_api import jrun, run, store, wire  # noqa: E402,F401
 from tests.model.test_describe import PR_FIX_WORKFLOW, PR_FIXER_CHECKS  # noqa: E402
 
 BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "pr-fixer"
+PLAIN = json.loads(
+    (
+        Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "workflow_descriptions.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+def _plain(doc: dict) -> dict:
+    """t12: the committed descriptions are empty (their text is in notes), so the describe
+    prose comes from the plain-text fixture (tests/fixtures/workflow_descriptions.json)."""
+    entry = PLAIN[doc["id"]]
+    out = json.loads(json.dumps(doc))
+    out["description"] = entry["description"]
+
+    def walk(steps):
+        for step in steps or ():
+            if isinstance(step, dict):
+                if step.get("id") in entry["steps"]:
+                    step["description"] = entry["steps"][step["id"]]
+                walk(step.get("steps") or step.get("body"))
+
+    walk(out.get("steps"))
+    return out
 
 
 @pytest.fixture
 def seeded(store):  # noqa: F811
-    store.put("workflows", json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text()))
-    store.put("workflows", json.loads((BUNDLE / "workflows" / "queue-add.json").read_text()))
+    store.put("workflows", _plain(json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text())))
+    store.put(
+        "workflows", _plain(json.loads((BUNDLE / "workflows" / "queue-add.json").read_text()))
+    )
     store.put("rules", json.loads((BUNDLE / "rules" / "pr-fixer-checks.json").read_text()))
     return store
 
@@ -88,7 +113,8 @@ NEWSPAPER = Path(__file__).resolve().parents[2] / "docs" / "rules" / "newspaper"
 @pytest.fixture
 def newspaper(store):  # noqa: F811
     store.put(
-        "workflows", json.loads((NEWSPAPER / "workflows" / "daily-newspaper.json").read_text())
+        "workflows",
+        _plain(json.loads((NEWSPAPER / "workflows" / "daily-newspaper.json").read_text())),
     )
     store.put("rules", json.loads((NEWSPAPER / "rules" / "daily-newspaper.json").read_text()))
     return store

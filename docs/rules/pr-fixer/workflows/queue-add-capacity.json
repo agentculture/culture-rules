@@ -1,5 +1,5 @@
 {
-  "description": "#39: a fixer try whose agent hit its backend's usage limit (capacity_exhausted). The built-in fixer.cooldown first rests that try's level: it upserts fixer_cooldowns/<the level's actor> until the try's end plus vars.fixer_capacity_cooldown_s (default 3600 s), the actor read from the failed run's own agent step (never from an input), and only for an actor of vars.fixer_levels. Then the built-in queue.add puts the story back in line as a retry, so queue.progress gives its next try the next available level. The failed try still counts toward the story's 3; one whose PR spent them fails here and the rule hands back once. Non-agentic: no actor, no GitHub call.",
+  "description": "",
   "edges": [
     {
       "source": "inputs",
@@ -133,7 +133,7 @@
     }
   ],
   "name": "Back in the fixer queue after capacity_exhausted",
-  "notes": "",
+  "notes": "#39: a fixer try whose agent hit its backend's usage limit (capacity_exhausted). The built-in fixer.cooldown first rests that try's level: it upserts fixer_cooldowns/<the level's actor> until the try's end plus vars.fixer_capacity_cooldown_s (default 3600 s), the actor read from the failed run's own agent step (never from an input), and only for an actor of vars.fixer_levels. Then the built-in queue.add puts the story back in line as a retry, so queue.progress gives its next try the next available level. The failed try still counts toward the story's 3; one whose PR spent them fails here and the rule hands back once. Non-agentic: no actor, no GitHub call.",
   "outputs": [
     {
       "name": "queued",
@@ -195,7 +195,7 @@
         "cooldown": "fixer_capacity_cooldown_s",
         "levels": "fixer_levels"
       },
-      "description": "The built-in fixer.cooldown: finds the failed try from this run's verified rules.run.failed event, takes the actor of its agent step that failed capacity_exhausted, and (for a level actor of vars.fixer_levels) upserts its cooldown; a later cooldown is never shortened.",
+      "description": "",
       "enabled": true,
       "id": "cooldown",
       "inputs": [
@@ -215,7 +215,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Rest the level that ran out of capacity",
-      "notes": "",
+      "notes": "The built-in fixer.cooldown: finds the failed try from this run's verified rules.run.failed event, takes the actor of its agent step that failed capacity_exhausted, and (for a level actor of vars.fixer_levels) upserts its cooldown; a later cooldown is never shortened.",
       "outputs": [
         {
           "description": "always true: the request added next is a retry",
@@ -266,7 +266,7 @@
         "levels": "fixer_levels",
         "queue": "pr-fixer"
       },
-      "description": "The built-in queue.add: appends the request by compare-and-set (first come, first served across nodes) to the queue of its try's level in vars.fixer_levels (queues/pr-fixer without levels), or refreshes the PR's waiting request in place.",
+      "description": "",
       "enabled": true,
       "id": "enqueue",
       "inputs": [
@@ -334,7 +334,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Add to the queue",
-      "notes": "",
+      "notes": "The built-in queue.add: appends the request by compare-and-set (first come, first served across nodes) to the queue of its try's level in vars.fixer_levels (queues/pr-fixer without levels), or refreshes the PR's waiting request in place.",
       "outputs": [
         {
           "description": "",

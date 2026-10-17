@@ -1,5 +1,5 @@
 {
-  "description": "d21, #39: an independent, read-only review of the commit a pr-fix run built and gated, by the reviewer of its try's level (codex-reviewer for a Qwen try, qwen-reviewer for a Codex try), recorded for that exact commit. pr-fixer-publish fires on an approval, pr-fixer-refix on a request for changes.",
+  "description": "",
   "edges": [
     {
       "source": "inputs",
@@ -247,7 +247,7 @@
     }
   ],
   "name": "Review the fix",
-  "notes": "",
+  "notes": "d21, #39: an independent, read-only review of the commit a pr-fix run built and gated, by the reviewer of its try's level (codex-reviewer for a Qwen try, qwen-reviewer for a Codex try), recorded for that exact commit. pr-fixer-publish fires on an approval, pr-fixer-refix on a request for changes.",
   "outputs": [
     {
       "name": "review",
@@ -376,7 +376,7 @@
           "op": "and"
         }
       },
-      "description": "d20, #39: reviews a Qwen try (the reviewer is codex-reviewer, or none is given). An independent reviewer (Codex through the codex bridge on spark, sandbox read-only) reviews the pr-fix run's gated commit's diff and ends with a verdict object. Its brief is locked in the reviewer actor (trusted code), never this workflow. Runs only for a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
+      "description": "",
       "enabled": true,
       "id": "review_codex",
       "inputs": [
@@ -450,7 +450,7 @@
       "kind": "ai",
       "max_iterations": null,
       "name": "Review the fix (Codex, read-only)",
-      "notes": "",
+      "notes": "d20, #39: reviews a Qwen try (the reviewer is codex-reviewer, or none is given). An independent reviewer (Codex through the codex bridge on spark, sandbox read-only) reviews the pr-fix run's gated commit's diff and ends with a verdict object. Its brief is locked in the reviewer actor (trusted code), never this workflow. Runs only for a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
       "outputs": [
         {
           "description": "the verdict object, as a JSON string",
@@ -545,7 +545,7 @@
           "op": "and"
         }
       },
-      "description": "#39: reviews a Codex try (the reviewer is qwen-reviewer). Qwen Code through the qwen bridge on spark2, in mode plan (an approval policy, not a sandbox: the verdict step also checks the checkout is unchanged), with the same locked brief and bound inputs. Runs only for a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
+      "description": "",
       "enabled": true,
       "id": "review_qwen",
       "inputs": [
@@ -619,7 +619,7 @@
       "kind": "ai",
       "max_iterations": null,
       "name": "Review the fix (Qwen, plan mode)",
-      "notes": "",
+      "notes": "#39: reviews a Codex try (the reviewer is qwen-reviewer). Qwen Code through the qwen bridge on spark2, in mode plan (an approval policy, not a sandbox: the verdict step also checks the checkout is unchanged), with the same locked brief and bound inputs. Runs only for a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
       "outputs": [
         {
           "description": "the verdict object, as a JSON string",
@@ -681,7 +681,7 @@
           "review_qwen"
         ]
       },
-      "description": "Walks to the pr-fix run whose success started this run (verified run-event lineage, from the store, never wired inputs), reads its last gate and implementer and this run's reviewer (#39: the one review step of review_steps that succeeded; two fail closed), checks the reviewer was read-only, saw exactly that commit's diff and is not the implementer, parses the verdict fail-closed and records it for that commit (repo, PR, base, start, tip), where github.push finds it. request_changes becomes the re-fix's instruction; with the attempt budget spent it fails the run (changes_requested).",
+      "description": "",
       "enabled": true,
       "id": "verdict",
       "inputs": [
@@ -701,7 +701,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Review verdict",
-      "notes": "",
+      "notes": "Walks to the pr-fix run whose success started this run (verified run-event lineage, from the store, never wired inputs), reads its last gate and implementer and this run's reviewer (#39: the one review step of review_steps that succeeded; two fail closed), checks the reviewer was read-only, saw exactly that commit's diff and is not the implementer, parses the verdict fail-closed and records it for that commit (repo, PR, base, start, tip), where github.push finds it. request_changes becomes the re-fix's instruction; with the attempt budget spent it fails the run (changes_requested).",
       "outputs": [
         {
           "description": "the gate's verdict",

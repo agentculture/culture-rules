@@ -196,12 +196,29 @@ def test_the_digest_helper_prints_what_the_checks_compute(capsys):
 
 
 def test_every_committed_pr_fixer_workflow_hashes_to_a_trusted_digest():
+    """t12: a committed definition is trusted in its role through v2 (prose left out), and
+    its pre-migration form still hashes to the historical v1 pin."""
+    from culture_rules.actors.trusted import (
+        ROLE_FIX,
+        ROLE_PUBLISH,
+        ROLE_REVIEW,
+        TRUSTED_WORKFLOWS_V2,
+        workflow_digest_v2,
+    )
+    from tests.rules.pre_migration import pre_migration
+
     root = Path(__file__).resolve().parents[2]
     # The queue and report-secrets workflows never push, so they are not in the trusted set.
-    for name in ("pr-fix", "review-commit", "publish-fix"):
+    for name, role in (
+        ("pr-fix", ROLE_FIX),
+        ("review-commit", ROLE_REVIEW),
+        ("publish-fix", ROLE_PUBLISH),
+    ):
         path = root / "docs" / "rules" / "pr-fixer" / "workflows" / f"{name}.json"
-        digest = workflow_digest(json.loads(path.read_text()))
-        assert digest in TRUSTED_WORKFLOW_DIGESTS, name
+        doc = json.loads(path.read_text())
+        assert workflow_digest_v2(doc) in TRUSTED_WORKFLOWS_V2[role], name
+        assert workflow_role({"workflow": {"definition": doc}}) == role, name
+        assert workflow_digest(pre_migration(doc)) in TRUSTED_WORKFLOW_DIGESTS, name
     assert workflow_digest(workflow_doc()) in TRUSTED_WORKFLOW_DIGESTS
 
 
@@ -328,9 +345,10 @@ def test_v2_changes_on_any_other_field():
 def test_moving_description_into_notes_keeps_v2_and_the_role():
     """t12 migrates the committed files (description -> notes): v2 and the role survive."""
     from culture_rules.actors.trusted import workflow_digest_v2
+    from tests.rules.pre_migration import pre_migration
 
     for role, path in V2_SOURCES.items():
-        wf = _load(path)
+        wf = pre_migration(_load(path))  # the description-bearing form t12 migrated away
         migrated = copy.deepcopy(wf)
         moved = 0
         for node in _all_nodes(migrated):
@@ -347,9 +365,11 @@ def test_moving_description_into_notes_keeps_v2_and_the_role():
 
 def test_a_run_matches_by_v1_or_v2_and_unknown_under_both_is_refused():
     from culture_rules.actors import trusted
+    from tests.rules.pre_migration import pre_migration
 
     wf = _load(V2_SOURCES["publish-fix"])
-    v1 = trusted.workflow_digest(wf)
+    historical = pre_migration(wf)  # the v1 path needs the pre-t12 description
+    v1 = trusted.workflow_digest(historical)
     v2 = trusted.workflow_digest_v2(wf)
     assert _role(wf) == trusted.ROLE_PUBLISH
     only_v1 = {**trusted.TRUSTED_WORKFLOWS_V2, trusted.ROLE_PUBLISH: frozenset()}
@@ -359,7 +379,7 @@ def test_a_run_matches_by_v1_or_v2_and_unknown_under_both_is_refused():
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(trusted, "TRUSTED_WORKFLOWS_V2", only_v1)
         assert v1 in trusted.TRUSTED_WORKFLOWS[trusted.ROLE_PUBLISH]
-        assert _role(wf) == trusted.ROLE_PUBLISH
+        assert _role(historical) == trusted.ROLE_PUBLISH
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(trusted, "TRUSTED_WORKFLOWS", only_v2)
         assert v2 in trusted.TRUSTED_WORKFLOWS_V2[trusted.ROLE_PUBLISH]
@@ -375,8 +395,9 @@ def test_a_run_matches_by_v1_or_v2_and_unknown_under_both_is_refused():
 
 def test_v1_and_v2_matching_different_roles_fails_closed():
     from culture_rules.actors import trusted
+    from tests.rules.pre_migration import pre_migration
 
-    wf = _load(V2_SOURCES["publish-fix"])
+    wf = pre_migration(_load(V2_SOURCES["publish-fix"]))
     v2 = trusted.workflow_digest_v2(wf)
     crossed = {
         **trusted.TRUSTED_WORKFLOWS_V2,
