@@ -1424,10 +1424,11 @@
  */
 .wf-stage--simple .wf-panel {
   position: fixed;
-  top: 88px;
+  /* Below the head and the view switch, so Save and Run stay reachable. */
+  top: 236px;
   right: 24px;
   width: min(440px, calc(100vw - 32px));
-  max-height: calc(100dvh - 112px);
+  max-height: calc(100dvh - 260px);
 }
 .wf-panel__close { float: right; }
 @media (min-width: 1100px) {
@@ -1438,3 +1439,9 @@
 .wf-chain-place { display: grid; gap: 12px; min-width: 0; }
 .wf-chain-place__bar { margin: 0; }
 .wf-chain-place__bar a { color: var(--accent-strong); }
+
+/* The rule pane is one column: the entry points, then the Then side, stacked. */
+.wf-panel--rule .fold-board,
+.wf-panel--rule .fold-board:not(:has(.fold-col--steps)) {
+  grid-template-columns: minmax(0, 1fr);
+}

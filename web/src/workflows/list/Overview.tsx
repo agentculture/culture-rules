@@ -86,21 +86,21 @@ function Card({ wf, model, actors }: Readonly<{ wf: WorkflowDef; model: FoldMode
   const description = wf.description?.trim();
   return (
     <li>
-      <Link className="wf-card" to={workflowUrl(wf.id)}>
-        <h2 className="wf-card__name">{wf.name || wf.id}</h2>
+      <Link className="wf-tile" to={workflowUrl(wf.id)}>
+        <h2 className="wf-tile__name">{wf.name || wf.id}</h2>
         {description ? (
-          <p className="wf-card__desc">{description}</p>
+          <p className="wf-tile__desc">{description}</p>
         ) : (
-          <p className="wf-card__desc wf-card__desc--none">No description yet</p>
+          <p className="wf-tile__desc wf-tile__desc--none">No description yet</p>
         )}
-        <p className="wf-card__facts">
+        <p className="wf-tile__facts">
           <span>{count(stepCount(wf.steps), "step")}</span>
           {apps.map((app) => (
-            <span key={app} className="wf-card__chip">
+            <span key={app} className="wf-tile__chip">
               {app}
             </span>
           ))}
-          {wf.enabled === false ? <span className="wf-card__chip wf-card__chip--off">Disabled</span> : null}
+          {wf.enabled === false ? <span className="wf-tile__chip wf-tile__chip--off">Disabled</span> : null}
         </p>
       </Link>
     </li>
@@ -141,7 +141,7 @@ export function Overview({ workflows, model, actors, error, onNew, onNewRule, ne
           <p className="wf-empty__hint">Name it, then add steps with +.</p>
         </section>
       ) : (
-        <ul className="wf-cards" aria-label="All workflows">
+        <ul className="wf-tiles" aria-label="All workflows">
           {workflows.map((wf) => (
             <Card key={wf.id} wf={wf} model={model} actors={actors} />
           ))}

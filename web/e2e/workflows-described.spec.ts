@@ -50,7 +50,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     for (const wf of DESCRIBED_WORKFLOWS) {
       const card = page.getByRole("link", { name: new RegExp(`^${wf.name}`) }).first();
       const expected = wf.description?.trim() || "No description yet";
-      await expect(card.locator(".wf-card__desc")).toHaveText(expected);
+      await expect(card.locator(".wf-tile__desc")).toHaveText(expected);
     }
   });
 
@@ -140,5 +140,33 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     await open(page, "/workflows?id=daily-newspaper");
     await expect(page.getByLabel("Workflow description").locator(".sv-gap")).toHaveText("No description yet");
     await expect(paragraph(page)).toBeVisible();
+  });
+
+  test("d14: a step opens its panel, a rule opens its editor with the enable switch; the selected words are highlighted", async ({ page }) => {
+    await open(page, "/workflows?id=pr-fix");
+    const step = paragraph(page).locator(".sv-step .sv-text").nth(1);
+    await step.click();
+    const panel = page.getByRole("dialog", { name: /^Edit / });
+    await expect(panel.getByRole("textbox", { name: "One-line description" })).toBeVisible();
+    await expect(paragraph(page).locator(".sv-selected")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+    await expect(step).toBeFocused();
+    const rule = paragraph(page).locator("[data-rule] .sv-text").first();
+    await rule.click({ position: { x: 24, y: 8 } });
+    const editor = page.getByRole("dialog", { name: "Rule editor" });
+    await expect(editor.getByRole("switch", { name: /enabled/i }).first()).toBeVisible();
+    await expect(rule).toHaveClass(/sv-selected/);
+    await editor.getByRole("button", { name: "Close" }).click();
+    await expect(editor).toHaveCount(0);
+    await expect(rule).toBeFocused();
+  });
+
+  test("d13: disabled rules read muted with a tag, not struck through; Simple has no legend", async ({ page }) => {
+    await open(page, "/workflows?id=pr-fix");
+    const pill = paragraph(page).locator(".sv-pill").first();
+    await expect(pill).toHaveText("disabled");
+    expect(await paragraph(page).locator(".sv-disabled").first().evaluate((el) => getComputedStyle(el).textDecorationLine)).not.toBe("line-through");
+    await expect(page.getByText(/same machine|crosses machines/)).toHaveCount(0);
   });
 });
