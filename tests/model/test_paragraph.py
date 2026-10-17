@@ -45,7 +45,10 @@ def _phrases(wf: dict) -> dict[str, str]:
 
 def test_every_phrase_ends_with_a_colon():
     assert PHRASES
-    assert all(isinstance(v, str) and v.endswith(":") for v in PHRASES.values())
+    joining = {k: v for k, v in PHRASES.items() if k != "then_grouped"}
+    assert all(isinstance(v, str) and v.endswith(":") for v in joining.values())
+    # d5: the one in-sentence connector, for a step that shares the previous one's condition
+    assert PHRASES["then_grouped"] == "; then"
 
 
 def test_compose_joins_parts_with_commas_and_one_colon():
@@ -298,6 +301,133 @@ def test_steps_read_in_a_stable_topological_order():
     assert [s["step"] for s in step_paragraph(wf)["segments"]] == ["a", "b"]
 
 
+def _chain(*steps: dict) -> dict:
+    """Steps in sequence, ending with one that has no condition (so no condition is shared
+    by every remaining step and the "From here on" rule stays out of the way)."""
+    steps = (*steps, _step("end", description="End."))
+    ids = [s["id"] for s in steps]
+    return _wf(list(steps), _edges(*zip(ids, ids[1:])))
+
+
+FIXER = _cmp("fixer", "claude")
+
+
+def test_consecutive_steps_sharing_a_condition_join_one_sentence():
+    wf = _chain(
+        _step("a", description="Starts."),
+        _step("b", config={"when": FIXER}, description="The agent fixes it."),
+        _step("c", config={"when": FIXER}, description="Packs the commits."),
+        _step("d", config={"when": FIXER}, description="Unpacks them."),
+        _step("e", config={"when": _cmp("fixer", "codex")}, description="Codex fixes it."),
+    )
+    out = step_paragraph(wf)
+    assert out["text"] == (
+        "First: Starts. Then, if fixer is claude: The agent fixes it.; then packs the commits"
+        "; then unpacks them. Then, if fixer is codex: Codex fixes it. Then: End."
+    ).replace(".; then", "; then")
+    seg = {s["step"]: s for s in out["segments"]}
+    assert (seg["c"]["phrase"], seg["c"]["keys"], seg["c"]["grouped"]) == (
+        "; then",
+        ["then_grouped"],
+        True,
+    )
+    assert seg["c"]["text"] == "Packs the commits."  # the segment keeps it unchanged
+    assert seg["b"]["grouped"] is False and seg["e"]["grouped"] is False
+
+
+def test_a_step_with_another_modifier_starts_its_own_sentence():
+    wf = _chain(
+        _step("b", config={"when": FIXER}, description="One."),
+        _step("c", config={"when": FIXER}, retry={"max_attempts": 2}, description="Two."),
+        _step("d", config={"when": FIXER, "on_error": "skip"}, description="Three."),
+        _step("e", config={"when": FIXER}, description="Four."),
+    )
+    assert step_paragraph(wf)["text"] == (
+        "First, if fixer is claude: One. Then, if fixer is claude, trying up to 2 times: Two. "
+        "Then, if fixer is claude, carrying on even if it fails: Three; then four. Then: End."
+    )
+
+
+def test_a_join_or_sibling_is_not_grouped():
+    steps = [
+        _step("a", config={"when": FIXER}, description="One."),
+        _step("b", config={"when": FIXER}, description="Two."),
+        _step("c", config={"when": FIXER}, description="Three."),
+        _step("d", description="Four."),
+    ]
+    # b and c both follow a: siblings, so c keeps its own phrase
+    out = step_paragraph(_wf(steps, _edges(("a", "b"), ("a", "c"))))
+    assert [s["grouped"] for s in out["segments"]] == [False, False, False, False]
+
+
+def test_a_gap_ends_the_group():
+    wf = _chain(
+        _step("a", config={"when": FIXER}, description="One."),
+        _step("b", config={"when": FIXER}, description=""),
+        _step("c", config={"when": FIXER}, description="Three."),
+    )
+    assert step_paragraph(wf)["text"] == (
+        f"First, if fixer is claude: One. Then, if fixer is claude: {GAP.format(step='b')} "
+        "Then, if fixer is claude: Three. Then: End."
+    )
+
+
+def test_a_description_without_a_final_period_is_not_joined():
+    wf = _chain(
+        _step("a", config={"when": FIXER}, description="One!"),
+        _step("b", config={"when": FIXER}, description="Two."),
+    )
+    assert step_paragraph(wf)["text"] == (
+        "First, if fixer is claude: One! Then, if fixer is claude: Two. Then: End."
+    )
+
+
+@pytest.mark.parametrize(
+    ("description", "shown"),
+    [
+        ("Packs it.", "packs it."),
+        ("EPUB goes out.", "EPUB goes out."),
+        ("PR is read.", "PR is read."),
+        ('"Quoted" first.', '"Quoted" first.'),
+        ("3 tries.", "3 tries."),
+        ("already lower.", "already lower."),
+        ("A step.", "a step."),
+    ],
+)
+def test_only_the_first_letter_of_a_grouped_description_is_lowered(description, shown):
+    wf = _chain(
+        _step("a", config={"when": FIXER}, description="One."),
+        _step("b", config={"when": FIXER}, description=description),
+    )
+    assert step_paragraph(wf)["text"] == f"First, if fixer is claude: One; then {shown} Then: End."
+
+
+def test_grouping_in_a_loop_body_and_never_across_a_loop():
+    body = [
+        _step("x", config={"when": FIXER}, description="Ex."),
+        _step("y", config={"when": FIXER}, description="Why."),
+        _step("w", description="Double-u."),
+    ]
+    loop = _step("loop", "for_each", max_iterations=2, body=body, config={"when": FIXER})
+    after = _step("z", config={"when": FIXER}, description="Zed.")
+    out = step_paragraph(_chain(loop, after))
+    seg = {s["step"]: s for s in out["segments"]}
+    assert seg["y"]["grouped"] is True  # the body: one sentence
+    assert seg["z"]["grouped"] is False  # never glued onto the loop's last body step
+
+
+def test_the_from_here_on_rule_is_unchanged():
+    steps = [
+        _step("a", description="Start."),
+        _step("b", config={"when": DELIVER}, description="B."),
+        _step("c", config={"when": DELIVER}, description="C."),
+    ]
+    wf = _wf(steps, _edges(("a", "b"), ("b", "c")))
+    assert step_paragraph(wf)["text"] == (
+        "First: Start. Then, from here on, only if deliver is true: B. Then: C."
+    )
+
+
 # --------------------------------------------------------------------------- gaps, fallbacks
 
 
@@ -424,17 +554,53 @@ def test_committed_paragraphs_use_only_table_phrases_and_verbatim_descriptions(w
     for seg in segments:
         assert seg["fallback"] is False, seg  # every committed step has a phrase
         assert seg["keys"] and all(k in PHRASES for k in seg["keys"])
+        if seg["grouped"]:
+            assert seg["phrase"] == PHRASES["then_grouped"]
+            continue
         pattern = ", ".join(_template_regex(PHRASES[k], i == 0) for i, k in enumerate(seg["keys"]))
         assert re.fullmatch(pattern + ":", seg["phrase"]), seg
-    rest = out["text"]
+    expected = ""
     for seg in segments:  # the text is exactly phrase + description (or gap), in order
         step = next(s for s in _all_steps(wf["steps"]) if s["id"] == seg["step"])
         assert seg["text"] == step["description"]
+        if seg["grouped"]:
+            # d5: exactly two edits - the previous description's final period dropped, and
+            # this description's first letter lower-cased (only where _lower_first allows)
+            assert seg["keys"] == ["then_grouped"] and seg["text"]
+            assert expected.endswith(".")
+            expected = expected[:-1] + "; then " + _lower_first(seg["text"])
+            continue
         shown = seg["text"] or GAP.format(step=step.get("name") or step["id"])
-        chunk = f"{seg['phrase']} {shown}"
-        assert rest.startswith(chunk), (rest[:80], chunk)
-        rest = rest[len(chunk) :].removeprefix(" ")
-    assert rest == ""
+        expected += (" " if expected else "") + f"{seg['phrase']} {shown}"
+    assert out["text"] == expected
+
+
+def _lower_first(text: str) -> str:
+    """The one edit d5 makes to a grouped description: its first letter lower-cased, unless
+    it opens with a non-letter or an all-caps token (EPUB, PR)."""
+    word = text.split(" ", 1)[0]
+    if not text[:1].isupper() or (len(word) > 1 and word.isupper()):
+        return text
+    return text[0].lower() + text[1:]
+
+
+def _levels(steps: list[dict]):
+    """Each level's steps in reading order (committed workflows are declared in order)."""
+    yield steps
+    for s in steps:
+        if s.get("body"):
+            yield s["body"]
+
+
+@pytest.mark.parametrize("wf", _committed(), ids=lambda wf: wf["id"])
+def test_no_condition_repeats_on_consecutive_steps_that_share_it(wf):
+    """h25 (amended by d5)."""
+    keys = {seg["step"]: seg["keys"] for seg in step_paragraph(wf)["segments"]}
+    for level in _levels(wf["steps"]):
+        for prev, step in zip(level, level[1:]):
+            when = (step.get("config") or {}).get("when")
+            if when is not None and when == (prev.get("config") or {}).get("when"):
+                assert not {"if", "if_unspoken"} & set(keys[step["id"]]), step["id"]
 
 
 def _paragraph(wid: str) -> str:

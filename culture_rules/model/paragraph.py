@@ -15,7 +15,12 @@ read here, not imported):
   edges say, so body steps read ``Then`` one after another;
 * ``config.when``, ``config.on_error: "skip"``, a retry policy, a wait step's seconds and
   guard, ``for_each`` and ``retry_until`` each add their own phrase; a ``when`` shared by
-  every remaining step of a level is said once.
+  every remaining step of a level is said once;
+* consecutive steps sharing an identical ``when`` (d5) read as one sentence: the first says
+  the condition, and each following step whose phrase would be only ``Then, if <it>:`` is
+  joined with ``; then`` - the one place a description is touched: the previous one's final
+  period is dropped and the joined one's first letter lower-cased (not before a non-letter
+  or an all-caps word such as ``EPUB``).
 
 A step whose kind or config the table has no phrase for reads as its d19 line
 (:func:`culture_rules.model.describe.step_text`) with no phrase, and a step with an empty
@@ -34,8 +39,9 @@ from culture_rules.model.workflow import STEP_KINDS
 __all__ = ["GAP", "PHRASES", "compose", "step_paragraph"]
 
 #: Every joining phrase, one per construct; each ends with a colon and the step's
-#: description follows it as its own sentence. A step's phrase is one or more of these,
-#: composed by :func:`compose` (``Then:`` + ``If {condition}:`` -> ``Then, if x is 1:``).
+#: description follows it as its own sentence (all but ``then_grouped``, see below). A
+#: step's phrase is one or more of these, composed by :func:`compose`
+#: (``Then:`` + ``If {condition}:`` -> ``Then, if x is 1:``).
 PHRASES: dict[str, str] = {
     # how a step follows the ones before it
     "first": "First:",
@@ -62,6 +68,9 @@ PHRASES: dict[str, str] = {
     "retry": "Trying up to {n} times:",
     "on_error_skip": "Carrying on even if it fails:",
     "disabled": "Disabled, so it never runs:",
+    # d5: the one connector inside a sentence, not followed by a colon - a step whose phrase
+    # would be exactly ``Then, if <the previous step's condition>:`` joins its sentence
+    "then_grouped": "; then",
 }
 
 #: What stands in for a step with no description: visible, and naming the step.
@@ -368,7 +377,9 @@ def _segment(
         return _seg(s, "", [], f"{label} {_sid(s)} — {_d19(s)}", depth, fallback=True)
     description = s.get("description")
     text = description if isinstance(description, str) else ""
-    return _seg(s, compose(parts), [k for k, _ in parts], text, depth, fallback=False)
+    keys = [k for k, _ in parts]
+    phrase = PHRASES["then_grouped"] if keys == ["then_grouped"] else compose(parts)
+    return _seg(s, phrase, keys, text, depth, fallback=False)
 
 
 def _d19(s: Mapping[str, Any]) -> str:
@@ -391,6 +402,7 @@ def _seg(
         "depth": depth,
         "gap": not fallback and not text,
         "fallback": fallback,
+        "grouped": keys == ["then_grouped"],
         "name": _label(s),
     }
 
@@ -411,7 +423,46 @@ def _level_parts(
         in_run = shared is not None and i > shared
         parts += _own_parts(s, in_run, said_if) if ok[i] else []
         out[i] = parts or [("same_time", {})]
-    return out
+    return _grouped(steps, ok, out)
+
+
+_IF_KEYS = ("if", "if_unspoken")
+
+
+def _ends_sentence(s: Mapping[str, Any]) -> bool:
+    description = s.get("description")
+    return isinstance(description, str) and description.endswith(".")
+
+
+def _grouped(
+    steps: list[dict[str, Any]], ok: list[bool], parts: dict[int, list[Part]]
+) -> dict[int, list[Part]]:
+    """d5: a step whose phrase is exactly ``Then, if <C>:``, right after a step that said
+    the identical condition ``C`` (or was itself joined to one), joins its sentence. A loop
+    (its body reads in between), a gap or a description without a final period ends the
+    sentence instead."""
+    open_when: Any = None
+    for i, s in enumerate(steps):
+        keys = [k for k, _ in parts[i]]
+        joins = (
+            open_when is not None
+            and ok[i]
+            and len(keys) == 2
+            and keys[0] == "then"
+            and keys[1] in _IF_KEYS
+            and _when(s) == open_when
+            and isinstance(s.get("description"), str)
+            and bool(s["description"])
+        )
+        if joins:
+            parts[i] = [("then_grouped", {})]
+        elif ok[i] and any(k in _IF_KEYS for k in keys):
+            open_when = _when(s)
+        else:
+            open_when = None
+        if s.get("kind") in ("for_each", "retry_until") or not _ends_sentence(s):
+            open_when = None
+    return parts
 
 
 def _body_segments(loop: dict[str, Any], label: str) -> list[dict[str, Any]]:
@@ -428,11 +479,12 @@ def step_paragraph(workflow: Any) -> dict[str, Any]:
     Returns ``{"segments", "text"}``: one segment per step, top level in a stable
     topological order (declared order where it is one) and each loop's body right after its
     loop, in declared order. A segment is ``{"phrase", "step", "text", "keys", "depth",
-    "gap", "fallback", "name"}``: ``keys`` names the :data:`PHRASES` entries its phrase is
-    composed from, ``text`` is the step's description unchanged (``gap`` when it is empty),
-    and a step the table has no phrase for has no phrase and its d19 line as ``text``
+    "gap", "fallback", "grouped", "name"}``: ``keys`` names the :data:`PHRASES` entries its
+    phrase is composed from, ``text`` is the step's description unchanged (``gap`` when it
+    is empty), and a step the table has no phrase for has no phrase and its d19 line as ``text``
     (``fallback``). ``text`` joins the segments: the phrase, then the description or
-    :data:`GAP`, or the d19 line alone.
+    :data:`GAP`, or the d19 line alone; a ``grouped`` segment (d5) continues the previous
+    sentence with ``; then`` and its description, first letter lower-cased.
     """
     segments = _segments(_plain(workflow))
     return {"segments": segments, "text": _render(segments)}
@@ -460,9 +512,21 @@ def _segments(wf: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _lower_first(text: str) -> str:
+    """``Packs it.`` -> ``packs it.``; text opening with a non-letter (a quote, a digit) or
+    an all-caps word (``EPUB``, ``PR``) is left as it is."""
+    word = text.split(" ", 1)[0]
+    if not text[:1].isupper() or (len(word) > 1 and word.isupper()):
+        return text
+    return text[0].lower() + text[1:]
+
+
 def _render(segments: list[dict[str, Any]]) -> str:
-    chunks = []
+    chunks: list[str] = []
     for seg in segments:
+        if seg["grouped"] and chunks and chunks[-1].endswith("."):
+            chunks[-1] = f"{chunks[-1][:-1]}{seg['phrase']} {_lower_first(seg['text'])}"
+            continue
         if seg["fallback"]:
             chunks.append(seg["text"])
             continue
