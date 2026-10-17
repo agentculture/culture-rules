@@ -13,9 +13,12 @@ in context, inside a workflow or one of its entry points.
 The visual source of truth is the design canvas
 (<https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi>), row 'Chosen'.
 Every tab implements its 'Chosen' board; the folded Workflows tab follows
-the canvas v11 boards Fold-List, Fold-Chain, Fold-Editor (Simple), WF-Flow
-(Detailed) and WF-Variables (Debug). Any deliberate departure is recorded
-on the PR with a screenshot.
+the canvas v11 boards Fold-Chain, WF-Flow (Detailed) and WF-Variables
+(Debug). The overview cards, the compact pane and the text-only Simple view
+come from the workflow phrases spec
+(`docs/specs/2026-10-17-workflow-connecting-phrases.md`, deviations d6,
+d13–d15) and replace Fold-List and Fold-Editor. Any deliberate departure is
+recorded on the PR with a screenshot.
 
 ## What is here today
 
@@ -34,15 +37,21 @@ on the PR with a screenshot.
   - the agent-state node.
 - **Workflows** (`/workflows?id=&entry=&run=`; `/workflows/<id>` is the
   same page) holds the workflows and the rules that start them:
-  - **the list** (`src/workflows/list/`): workflows linked by continuation
-    rules sit on one chain card. Each workflow reads "Starts when", its
-    entry points; "Continues into", the workflows its runs continue into;
-    "Runs", key and budget; and "Ends with", the chain-end action. The
-    counts read "N workflows · N entry points · was N rules". "See it as
-    one chain" opens the Chain view (entry points, workflows and
-    continuation edges). "Rules without a workflow" lists D7 candidates.
-    "New workflow" and "New rule" sit at the top; "Show deleted" lists
-    soft-deleted workflows to restore (or purge, for admins);
+  - **the overview** (`src/workflows/list/Overview.tsx`): with nothing
+    open, one full-width card per workflow: its name, its description (or
+    "No description yet"), its step count (loop bodies included) and the
+    apps it touches (app actors with a known surface: github, jira,
+    discord, email, search). "New workflow" and "New rule" sit at the top.
+    There is no chains, rules-without-a-workflow or deleted section:
+    workflow-less rules are adopted at rollout by `culture-rules rules
+    migrate-orphans`, and deleted workflows are restored or purged from the
+    CLI or MCP;
+  - **the pane** (`src/workflows/list/WorkflowPane.tsx`): with a workflow
+    open, a compact column of workflow names under a search box, which
+    collapses to a button-width rail (`aria-expanded`). The open
+    workflow's header holds its enable switch and, when continuations
+    link it, "See it as one chain", which opens the Chain view (entry
+    points, workflows and continuation edges);
   - **chains are derived only from stored rules** (`src/fold/model.ts`): a
     continuation rule is linked to its predecessor by its condition's
     `data.workflow_id == <id>` compare. A run-event rule without that term
@@ -52,28 +61,33 @@ on the PR with a screenshot.
     (`src/workflows/views/`). The choice is kept per viewer in
     localStorage (`culture-rules.workflow-view`), and the editor works the
     same when storage is blocked:
-    - **Simple** (the default, `src/workflows/simple/`): When / Then. When
-      lists the workflow's entry points, one per rule that starts it, with
-      trigger, condition, placement, attempt counting, the rule's
-      exclusive group and priority (edited together; the group's other
-      rules are listed with the winner marked) and the rule's
-      relationships (*must run after*, *may run after*, *supersedes*);
-      a continuation is owned here, by the workflow it starts. Then shows
-      "Continues into" (a read-only link; the continuation is edited on
-      the next workflow), "Ends here" (the chain-end action), "On
-      failure" and "Runs" (key and budget);
-    - **Detailed**: the steps-and-edges canvas below, compact (0.18.0):
+    - **Simple** (the default, `src/workflows/simple/SimpleView.tsx`):
+      text only. The workflow's description (or a visible gap), then "How
+      it runs", the paragraph from `GET /workflows/{id}/describe` rendered
+      segment by segment in the quiet-inline style (d15): lead-ins in
+      teal, one sentence per line, a stand-in for a step with no
+      description marked as not written yet (italic, muted), a disabled
+      rule or step muted with a small "disabled" tag. The editor builds no
+      phrase itself. Selecting a step opens the same step panel Detailed
+      opens (its one-line description, hint "Start with a verb", and its
+      notes); selecting a rule's sentence opens that rule's entry-point
+      editor (`src/workflows/simple/RulePanel.tsx`) with its enable switch
+      and the Stop-runs offer (d14);
+    - **Detailed**: "Notes for this workflow" on top, then the
+      steps-and-edges canvas below with its legend, compact (0.18.0):
       a card shows its machine, enable switch and name but no port rows
       (`in` / `out` show a count, "9 inputs"), and one edge joins two
       connected cards, labelled with its wire count when it carries more
       than one (`bundleEdges` in `src/workflows/model.ts`). Selecting a
       card expands its port rows and draws its wires one by one from its
       ports; while a wire is dragged, the card under the pointer expands
-      too, so the drop lands on a port;
+      too, so the drop lands on a port. Below the canvas sit the
+      entry-point and Then editors (`src/workflows/views/EntryEditors.tsx`);
     - **Debug** (`src/workflows/views/DebugView.tsx`): every input and
       output port with its type and reference. Choosing a port lights it,
       its upstream and its downstream;
-  - **every entry point keeps what the Rules tab had**: the trigger and
+  - **every entry point keeps what the Rules tab had** (in Detailed's entry
+    editors): the trigger and
     action pickers and forms from `src/rules/`, the enable switch,
     history (`GET /rules/{id}/history`), the (i) "About" panel (`GET
     /rules/{id}/describe`), pending human asks ("Waiting on you"), and the
@@ -110,6 +124,10 @@ on the PR with a screenshot.
     deletes it softly with Undo (`DELETE /workflows/{id}`, then `POST
     /workflows/{id}/restore`); a workflow a rule still uses is kept and
     the conflict named. The rename works in every view, Simple included;
+  - **a save sends the revision it read** (d7, `src/api/workflows.ts`):
+    `PUT /workflows/{id}` carries `expected_revision`; a 409
+    `revision_conflict` shows "This workflow changed since you opened it"
+    with Reload and keeps the draft until Reload replaces it;
   - **saving a trusted workflow asks first** (d6,
     `src/workflows/trusted.ts`): Save on one of the PR fixer's trusted
     workflows (`pr-fixer`, `pr-fix`, `review-commit`, `publish-fix`) opens
@@ -130,15 +148,14 @@ on the PR with a screenshot.
     like a document at its zoom, so Fit shrinks a wide graph to the canvas
     width and returns to 100% when the graph already fits
     (`src/workflows/zoom.ts`);
-  - an (i) "About" button on every list row and beside the open
-    workflow's title (d19): the stored workflow's steps, numbered, a loop's
+  - an (i) "About" button beside the open workflow's title (d19): the stored workflow's steps, numbered, a loop's
     body indented (`GET /workflows/{id}/describe`, the same lines as
     `culture-rules workflows describe`). While the draft has unsaved edits
     the head's panel says it shows "the saved version". The button makes
-    the head's row full at 1280px beside the list, so Run may wrap under
+    the head's row full at 1280px beside the pane, so Run may wrap under
     it there;
-  - in Detailed, a step panel to edit a step, its placement and its enable
-    switch; add and delete steps; save with `PUT /workflows/{id}`;
+  - a step panel (from Detailed, or a step's sentence in Simple) to edit
+    a step's one-line description, notes, placement and enable switch; add and delete steps; save with `PUT /workflows/{id}`;
   - Run (`POST /runs` through the rule that uses the workflow) and, in
     Detailed, a run overlay from the persisted run state (`GET
     /runs/{id}`): each step's outcome and the host it ran on. Recent runs
@@ -209,7 +226,7 @@ refetches what it shows:
   survives), `rules` (a rules change re-folds the list and the entry
   points), `runs` (recent runs, and the overlaid run), `asks` (pending
   asks) and `rule_decisions` (an entry point's last runs and skips). The
-  Simple view opens no stream of its own: the tab hands each batch down
+  Simple view and the entry editors open no stream of their own: the tab hands each batch down
   to it (`src/workflows/simple/liveFeed.ts`);
 - **Statistics:** `machines`, `runs` and `heartbeats`.
 

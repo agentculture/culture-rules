@@ -541,52 +541,36 @@ after its workflow.
 
 The editor has no Rules tab: it folds each rule into the workflow it starts
 ([spec](../specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md)).
-The rules above are unchanged; only the way the editor shows them is. On the
-**Workflows** tab the fixer's 18 rules and 6 workflows read as:
+The rules above are unchanged; only the way the editor shows them is. The
+**Workflows** tab opens on one card per workflow (#69): its name, its
+plain-language description, its step count and the apps it touches. The chain's links are derived from the rules
+the editor reads (`web/src/fold/model.ts`), nothing is stored for them. A
+continuation is linked only by its condition's `data.workflow_id ==
+<workflow>` term (the `rules.run.succeeded` rows above): edit the
+predecessor with the "Continues from" control on the entry point, which
+writes exactly that term, rather than in the condition. An open workflow
+linked by continuations offers "See it as one chain" in its header.
 
-- **one chain card for the fix chain**: `queue-add`, `queue-progress`,
-  `pr-fix`, `review-commit` and `publish-fix`, linked by continuations, "5
-  workflows linked by continuations · 7 entry points · was 16 rules".
-  `queue-add` starts when one of its 5 entry points fires
-  (`pr-fixer-checks`, `-conflict`, `-comment`, `-review`, `-review-comment`) and owns the
-  continuations `pr-fixer-refix` and `pr-fixer-retry`. `pr-fix` starts on
-  the entry point `pr-fixer-dispatch` (the queue's event), and
-  `queue-progress` on `pr-fixer-queue-sweep` plus the five progress
-  continuations. `review-commit` owns `pr-fixer-review-commit`, and
-  `publish-fix` owns `pr-fixer-publish`. Each previous workflow shows a
-  read-only "Continues into" link to the next;
-- **a chain card of its own for `report-secrets`**, with its 2 entry points
-  `pr-fixer-secrets` and `pr-fixer-secrets-late`: no continuation links it
-  to the fix chain. `pr-fixer-checks` and `pr-fixer-secrets` both start on
-  `github.pr.checks_settled`, so the list notes on each "same event starts"
-  the other workflow.
-
-Over the whole list that is "6 workflows · 8 entry points · was 19 rules";
-"See it as one chain" draws the chain. These counts are what the editor
-derives from the rules it reads (`web/src/fold/model.ts`), nothing is
-stored for them. A continuation is linked only by its condition's
-`data.workflow_id == <workflow>` term (the `rules.run.succeeded` rows above):
-edit the predecessor with the "Continues from" control on the entry point,
-which writes exactly that term, rather than in the condition.
-
-Opening `queue-add` shows the **Simple** view: When lists its entry points,
-each with its trigger, condition, placement and whether it counts toward the
-attempt budget; Then reads "Continues into" `queue-progress`, "Ends here",
-"On failure" and "Runs" (the PR's key and the budget). A value all 6 of its
-rules hold identically (the PR's key, or the placement on spark2) shows
-once; editing it writes each
-rule in turn, skipping and flagging any rule changed meanwhile. **Detailed**
-on `pr-fix` shows the steps (`quiet`, `secrets`, `threads`, `sonar`, `fix`)
-and **Debug** every port and reference. An old `/rules/pr-fixer-checks` link
+Opening `queue-add` shows the **Simple** view: its description and "How it
+runs", the paragraph `culture-rules workflows describe queue-add` prints,
+with one sentence per starting rule ("It starts when …"), its steps, and
+what happens after ("Then it continues into …"). Selecting a rule's
+sentence opens that rule's entry-point editor; selecting a step opens its
+panel. **Detailed** on `pr-fix` shows the workflow's notes, the steps on
+the canvas and the entry-point and Then editors (a value all of a
+workflow's rules hold identically shows once; editing it writes each rule
+in turn, skipping and flagging any rule changed meanwhile), and **Debug**
+every port and reference. An old `/rules/pr-fixer-checks` link
 opens `/workflows/queue-add?entry=pr-fixer-checks`. The trigger picker offers
 the queue's event under the built-in surface **Rules engine (a queued
 request's turn)**.
 
-Editing an entry point in the Simple view writes only that rule, so no
-trusted workflow digest moves. Any save of the workflow itself does change
-its digest: a rename from the head (which works in every view, Simple
-included) or step edits in Detailed. A trusted workflow saved that way stops
-being trusted ([Trusted workflows](#trusted-workflows-d20-round-2-d21-roles)):
+Editing an entry point writes only that rule, so no trusted workflow digest
+moves. A change to a workflow's or a step's description or notes alone keeps
+its v2 digest (`TRUSTED_WORKFLOWS_V2`, #69), so it stays trusted. Any other
+save of the workflow itself does change its digest: a rename from the head
+(which works in every view) or step edits in Detailed. A trusted workflow
+saved that way stops being trusted ([Trusted workflows](#trusted-workflows-d20-round-2-d21-roles)):
 its runs still start, but the chain will not review or push their work
 until the new digest is added to `culture_rules/actors/trusted.py` and
 released to every node. Saving the original definition back restores the

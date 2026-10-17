@@ -43,9 +43,10 @@ code, services, robots, …). It is built and on disk:
   `api/openapi.json`, and an MCP server exposing the same verbs as tools;
 - a Node.js + React Flow editor in `web/` with four tabs: **Workflows |
   Actors | Variables | Statistics**. There is no Rules tab: each rule is
-  shown and edited as an entry point of the workflow it starts, and a
-  workflow opens in a Simple (When / Then), Detailed (steps) or Debug
-  (ports and references) view. Runs and history appear in context, never
+  shown and edited as an entry point of the workflow it starts. A
+  workflow opens in a Simple (its description and a plain-language
+  paragraph), Detailed (notes, the steps canvas and the entry-point
+  editors) or Debug (ports and references) view. Runs and history appear in context, never
   as a tab.
 
 **Status: the first mile is shipped on `main` (PR #4); the second
@@ -70,6 +71,20 @@ and `search` app surfaces and four action kinds: `email.send` (Resend),
 locked brief, no tools) and `library.push` (an EPUB to xteink). It also adds
 the step option `config.on_error: "skip"` and the disabled bundle
 `docs/rules/newspaper`.
+
+The **workflow phrases** work (#69, spec
+`docs/specs/2026-10-17-workflow-connecting-phrases.md`) makes a workflow's
+and a step's `description` plain language and adds an optional `notes` for
+technical text; `culture-rules workflows migrate-notes [--apply]` moves old
+description text into notes, and the committed `docs/rules` workflows are
+migrated. `culture-rules workflows describe` (and `GET
+/workflows/{id}/describe`) returns the description and a paragraph built
+from one phrase table (`culture_rules/model/paragraph.py`, no AI), with the
+rule sentences and the Then side. Workflow saves carry a server-owned
+`revision` (a stale one gets 409), trust accepts a v1 or v2 workflow digest
+(v2 ignores description and notes), and `culture-rules rules
+migrate-orphans [--apply]` gives each workflow-less rule its own stepless
+workflow.
 
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's
