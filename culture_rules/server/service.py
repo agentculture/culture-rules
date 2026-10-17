@@ -501,9 +501,10 @@ class Definitions:
         The workflow is what ``createD7Workflow`` makes: the id is the rule name's slug avoiding
         every workflow id in the store (soft-deleted included), the name is the rule's name, no
         steps and no edges; the rule then gets ``workflow: {id}`` and nothing else. Workflow and
-        rule are written in one transaction per rule, with one audit entry (on the rule); the
-        workflow starts at revision 1. Dry-run unless ``apply``: it lists
-        ``{rule_id, rule_name, workflow_id}``. Rules whose reference names a missing or soft-deleted
+        rule are written in one transaction per rule, with two audit entries (workflow create,
+        rule update); the workflow starts at revision 1. Dry-run unless ``apply``: it
+        lists ``{rule_id, rule_name, workflow_id}``. Rules whose reference names a missing or
+        soft-deleted
         workflow are only listed (``not_adopted``), never written; nothing is ever deleted.
         A second apply finds none.
         """
@@ -542,7 +543,18 @@ class Definitions:
                     "workflows",
                     {"id": wid, "name": before.get("name") or wid, "steps": [], "edges": []},
                 )
-                tx.put("workflows", {**self._stored(obj, ident), **rev.bump("workflows", None)})
+                created = tx.put(
+                    "workflows", {**self._stored(obj, ident), **rev.bump("workflows", None)}
+                )
+                self._audit.write(
+                    tx,
+                    identity=identity,
+                    verb="definitions.migrate_orphans",
+                    collection="workflows",
+                    target_id=wid,
+                    before=None,
+                    after=created,
+                )
                 after = tx.put("rules", {**before, "workflow": {"id": wid}})
                 self._audit.write(
                     tx,

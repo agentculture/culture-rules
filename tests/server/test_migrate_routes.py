@@ -209,7 +209,7 @@ def test_orphans_apply_makes_d7_workflows_audited_and_is_idempotent(client, stor
         assert wf["name"] == store.get(RULES, rid)["name"]
         assert wf["steps"] == [] and wf["edges"] == []
         assert wf["revision"] == 1
-        assert len(_audit(store, rid)) == 1  # one entry per rule; its after names the workflow
+        assert len(_audit(store, rid)) == 1 and len(_audit(store, wid)) == 1
     # never written: dangling, deleted-workflow, deleted rule; nothing deleted
     assert store.get(RULES, "dangling")["workflow"] == {"id": "nowhere"}
     assert store.get(RULES, "tomb")["workflow"] == {"id": "w-dead"}
