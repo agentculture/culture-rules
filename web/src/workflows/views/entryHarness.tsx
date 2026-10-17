@@ -7,10 +7,12 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import type userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { expect, vi } from "vitest";
+import type { LiveChange } from "../../api/live";
 import type { Rule } from "../../api/types";
 import type { WorkflowDef } from "../../api/workflows";
 import { createFakeApi, fetchFor, handle, type FakeApi } from "../../rules/fake-api";
 import { FOLD_RULES, FOLD_WORKFLOWS } from "../simple/fixture";
+import type { LiveFeed } from "../simple/liveFeed";
 import EntryEditors from "./EntryEditors";
 
 export type User = ReturnType<typeof userEvent.setup>;
@@ -39,6 +41,10 @@ export function use(fake: FakeApi) {
 export interface RenderProps {
   workflowId?: string;
   def?: WorkflowDef;
+  /** The entry point asked for (`?entry=`). */
+  entry?: string | null;
+  /** A live feed the test emits into, as the Workflows tab hands one down. */
+  live?: LiveFeed;
 }
 
 export function defFor(workflowId: string, def?: WorkflowDef): WorkflowDef {
@@ -49,7 +55,7 @@ export function renderEditors(props: RenderProps = {}) {
   const workflow = defFor(props.workflowId ?? "pr-fix", props.def);
   return render(
     <MemoryRouter>
-      <EntryEditors workflow={workflow} />
+      <EntryEditors workflow={workflow} entry={props.entry} live={props.live} />
     </MemoryRouter>,
   );
 }
@@ -77,4 +83,26 @@ export async function editRunKey(user: User, key: string) {
   await user.clear(within(form).getByLabelText("Run key"));
   await user.type(within(form).getByLabelText("Run key"), key.replaceAll("{", "{{"));
   await user.click(within(form).getByRole("button", { name: "Save for every entry point" }));
+}
+
+/** A live feed the test emits into, as the Workflows tab hands one down. */
+export function testFeed(): LiveFeed {
+  const listeners = new Set<(changes: LiveChange[]) => void>();
+  return {
+    subscribe: (l) => {
+      listeners.add(l);
+      return () => {
+        listeners.delete(l);
+      };
+    },
+    emit: (changes) => listeners.forEach((l) => l(changes)),
+  };
+}
+
+/** Another writer changes rules on the server; the change arrives through the feed and is re-listed. */
+export async function concurrent(feed: LiveFeed, ids: string[], change: Record<string, unknown>, at = "2026-10-09T13:30:00Z") {
+  for (const id of ids) Object.assign(harness.api.rules.find((r) => r.id === id)!, structuredClone(change), { updated_at: at });
+  const before = sent("GET", "/rules").length;
+  feed.emit([{ collection: "rules", op: "update", id: ids[0] } as LiveChange]);
+  await waitFor(() => expect(sent("GET", "/rules").length).toBeGreaterThan(before));
 }
