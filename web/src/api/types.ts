@@ -222,6 +222,15 @@ export interface ParagraphSegment {
   text: string;
   /** a disabled rule's or step's segment (d8): shown struck through, no words */
   disabled?: boolean;
+  /** Segments of one sentence share a number; the Simple view shows one line per sentence (d11). */
+  sentence?: number;
+  /** A step with no description: `text` is its stand-in, shown italic and marked not written yet. */
+  standin?: boolean;
+  /** Step: its text as it reads in the sentence (first letter lowered, no final period). */
+  shown?: string;
+  /** Step: trailing clauses (wait, retry, loop bounds) and the sentence's closing period. */
+  tail?: string;
+  tail_keys?: string[];
   [key: string]: unknown;
 }
 

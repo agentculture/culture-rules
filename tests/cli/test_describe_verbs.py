@@ -63,8 +63,20 @@ def test_workflows_describe_prints_the_lines(wire, seeded, capsys):  # noqa: F81
     # description, blank, paragraph, blank, then the d19 numbered lines
     head, para, lines = out.rstrip("\n").split("\n\n", 2)
     assert head == seeded.get("workflows", "pr-fix")["description"]
-    assert para == jrun(capsys, "workflows", "describe", "pr-fix")["paragraph"]["text"]
+    paragraph = jrun(capsys, "workflows", "describe", "pr-fix")["paragraph"]
+    # d11: one sentence per line, each stand-in for a missing step description in [ ]
+    assert len(para.splitlines()) == paragraph["text"].count("\n") + 1
+    assert not any(s.get("standin") for s in paragraph["segments"])  # all written here
+    assert _unmarked(para, paragraph) == paragraph["text"]
     assert lines.splitlines() == PR_FIX_WORKFLOW
+
+
+def _unmarked(text: str, paragraph: dict) -> str:
+    """The CLI's paragraph with its marks taken out: strikes, and each stand-in's [ ]."""
+    for seg in paragraph["segments"]:
+        if seg.get("standin"):
+            text = text.replace(f"[{seg['shown']}]", seg["shown"], 1)
+    return text.replace("~~", "").replace("\x1b[9m", "").replace("\x1b[29m", "")
 
 
 def test_describe_json_has_lines_and_entries(wire, seeded, capsys):  # noqa: F811
@@ -126,9 +138,11 @@ def test_describe_strikes_a_disabled_rule_out_without_a_tty(wire, newspaper, cap
     rc, out, err = run(capsys, "workflows", "describe", "daily-newspaper")
     assert rc == 0, err
     body = out.split("\n\n")[1]
-    assert body.startswith("~~It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.~~ First: ")
+    assert body.startswith(
+        "~~It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.~~\nFirst reads "
+    )
     assert "\x1b" not in out and "isabled" not in body
-    assert body.replace("~~", "") == para["text"]
+    assert _unmarked(body, para) == para["text"]
 
 
 def test_describe_strikes_with_ansi_on_a_tty(wire, newspaper, capsys, monkeypatch):  # noqa: F811
@@ -139,10 +153,31 @@ def test_describe_strikes_with_ansi_on_a_tty(wire, newspaper, capsys, monkeypatc
     body = out.split("\n\n")[1]
     assert body.startswith("\x1b[9mIt starts on cron")
     assert "~~" not in body
-    assert body.replace("\x1b[9m", "").replace("\x1b[29m", "") == para["text"]
+    assert _unmarked(body, para) == para["text"]
 
 
 def test_describe_json_is_the_raw_payload_with_the_flag(wire, newspaper, capsys):  # noqa: F811
     out = jrun(capsys, "workflows", "describe", "daily-newspaper")
     assert out["paragraph"]["segments"][0]["disabled"] is True
     assert "~~" not in out["paragraph"]["text"] and "\x1b" not in out["paragraph"]["text"]
+
+
+@pytest.mark.parametrize("tty", [False, True])
+def test_describe_puts_each_stand_in_in_brackets(
+    wire, store, capsys, monkeypatch, tty  # noqa: F811
+):
+    """d11: the bundle's pr-fix with no step descriptions: each step stands in by its name,
+    in [ ] (on a terminal too); without the marks the output is exactly the paragraph."""
+    monkeypatch.setattr("sys.stdout.isatty", lambda: tty, raising=False)
+    store.put("workflows", json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text()))
+    para = jrun(capsys, "workflows", "describe", "pr-fix")["paragraph"]
+    rc, out, err = run(capsys, "workflows", "describe", "pr-fix")
+    assert rc == 0, err
+    body = out.split("\n\n")[0]
+    assert body.splitlines()[:2] == [
+        "No rule starts it yet.",
+        "First [quiet period], waiting 5 minutes, and the run stops if the PR head moves;"
+        " then [hold while GitGuardian fails]; then [trusted review threads].",
+    ]
+    assert body.count("[") == sum(1 for s in para["segments"] if s.get("standin"))
+    assert _unmarked(body, para) == para["text"]

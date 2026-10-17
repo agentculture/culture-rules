@@ -484,7 +484,7 @@ export function StepEditor({
           />
         </label>
         <small id={`${step.id}-description-hint`} className="wf-field__hint">
-          Plain language, one line: Simple reads it. Technical detail goes in Notes.
+          Start with a verb, one line: "Packs the commits for the hand-off." Technical detail goes in Notes.
         </small>
         <label className="wf-field">
           <span>Notes</span>

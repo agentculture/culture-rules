@@ -89,7 +89,7 @@ def _template_regex(template: str, first: bool) -> str:
     body = template[:-1]
     if not first:
         body = body[0].lower() + body[1:]
-    return ".+".join(re.escape(p) for p in re.split(r"\{[a-z_]+\}", body))
+    return ".*".join(re.escape(p) for p in re.split(r"\{[a-z_]+\}", body))
 
 
 def _assert_from_table(seg: dict) -> None:
@@ -106,9 +106,9 @@ def test_sentence_entries_are_table_values_ending_with_a_period():
     assert SENTENCE_KEYS <= set(PHRASES)
     for key in SENTENCE_KEYS:
         assert PHRASES[key].endswith("."), key
-    # the step paragraph's joining phrases keep their colon (t6)
-    joining = set(PHRASES) - SENTENCE_KEYS - {"then_grouped"}
-    assert joining and all(PHRASES[k].endswith(":") for k in joining)
+    # d11: the step paragraph's lead-ins, connectors and trailing clauses carry no colon
+    joining = set(PHRASES) - SENTENCE_KEYS
+    assert joining and not any(PHRASES[k].endswith((":", ".")) for k in joining)
 
 
 # --------------------------------------------------------------------------- the fold
@@ -406,14 +406,71 @@ def test_then_action_on_failure_and_runs():
         concurrency_key="pr:{trigger.data.repository}#{trigger.data.number}",
         max_attempts=3,
     )
-    texts = [s["text"] for s in _then([rule])]
-    act = "github.comment as github-app (as its chain's status comment) (only where its chain ends)"
-    assert texts == [
+    segs = _then([rule])
+    assert [s["text"] for s in segs] == [
         "Nothing continues from here.",
-        f"When it is done, it runs {act}.",
-        f"If it fails, it runs {act}.",
+        "Where the chain ends here, it updates the chain's status comment on GitHub"
+        " (as github-app).",
+        "If it fails, it updates that comment with the failure.",
         "It runs one at a time per pr:{repository}#{number}, with at most 3 attempts.",
     ]
+    for seg in segs:
+        _assert_from_table(seg)
+
+
+def _comment(**kw: object) -> dict:
+    params = {"actor": "github-app", "body": f"{SENTINEL} body", **kw.pop("params", {})}
+    return {"kind": "github.comment", "name": f"{SENTINEL} comment", "params": params, **kw}
+
+
+@pytest.mark.parametrize(
+    "action, on_failure, texts",
+    [
+        # a status comment written whenever it is done, and a plain failure action after it
+        (
+            _comment(params={"status": True}),
+            {"kind": "message", "params": {"channel": "#ops"}},
+            [
+                "When it is done, it updates the chain's status comment on GitHub"
+                " (as github-app).",
+                "If it fails, it runs message to #ops.",
+            ],
+        ),
+        # a status comment only on failure: it names the comment in full
+        (
+            {"kind": "noop"},
+            _comment(params={"status": True, "once_key": "k"}, only_at_chain_end=True),
+            [
+                "When it is done, nothing else happens.",
+                "If it fails, it updates the chain's status comment on GitHub with the failure"
+                " (as github-app, once per once_key).",
+            ],
+        ),
+        # an ordinary comment at the chain's end: the lead-in says so, the brackets merge
+        (
+            _comment(params={"once_key": "k"}, only_at_chain_end=True),
+            _comment(params={"once_key": "k"}, only_at_chain_end=True),
+            [
+                "Where the chain ends here, it runs github.comment as github-app"
+                " (once per once_key).",
+                "If it fails, it runs github.comment as github-app"
+                " (once per once_key, only where its chain ends).",
+            ],
+        ),
+        # a status comment with no actor reads with no brackets
+        (
+            {"kind": "github.comment", "params": {"status": True}},
+            None,
+            ["When it is done, it updates the chain's status comment on GitHub."],
+        ),
+    ],
+)
+def test_then_status_comments_and_chain_ends(action, on_failure, texts):
+    segs = _then([_rule(action=action, on_failure=on_failure)])
+    assert [s["text"] for s in segs[1:]] == texts
+    assert not any(") (" in s["text"] for s in segs)  # no stacked brackets
+    for seg in segs:
+        _assert_from_table(seg)
 
 
 def test_then_values_that_differ_per_rule():
@@ -469,16 +526,17 @@ def test_workflow_paragraph_orders_starts_steps_then():
     out = workflow_paragraph(wf, rules)
     assert [s["part"] for s in out["segments"]] == ["start", "start", "step", "then", "then"]
     assert out["text"] == (
-        "It starts when github.pr.opened arrives. It starts when w0 succeeds."
-        " First: Does it. Then it continues into w2. When it is done, nothing else happens."
+        "It starts when github.pr.opened arrives.\nIt starts when w0 succeeds."
+        "\nFirst does it.\nThen it continues into w2.\nWhen it is done, nothing else happens."
     )
+    assert [s["sentence"] for s in out["segments"]] == [0, 1, 2, 3, 4]
     assert step_paragraph(wf)["text"] in out["text"]
 
 
 def test_workflow_paragraph_without_rules():
     wf = {"id": "w", "steps": [{"id": "s", "kind": "code", "description": "Does it."}]}
     out = workflow_paragraph(wf, [])
-    assert out["text"] == "No rule starts it yet. First: Does it. Nothing continues from here."
+    assert out["text"] == "No rule starts it yet.\nFirst does it.\nNothing continues from here."
 
 
 def test_pr_fix_paragraph_opens_with_its_starting_rule_and_ends_with_then():
@@ -489,16 +547,19 @@ def test_pr_fix_paragraph_opens_with_its_starting_rule_and_ends_with_then():
     assert [s["rule"] for s in starts] == ["pr-fixer-dispatch"]
     assert out["text"].startswith(
         "It starts when rules.queue.dispatch arrives, if its condition holds, on spark2."
-        " First, it waits 5 minutes"
+        "\nFirst waits for the pull request to settle, waiting 5 minutes"
     )
     steps = step_paragraph(wf)["text"]
     head, sep, tail = out["text"].partition(steps)
-    assert sep and head.endswith(". ")
-    assert tail.startswith(
-        " Then it continues into queue-progress, queue-add-capacity, queue-add or" " review-commit."
-    )
-    assert "If it fails, it runs github.comment as github-app" in tail
-    assert "It runs one at a time per pr-fixer:{repository}#{number}, with at most 3" in tail
+    assert sep and head.endswith(".\n")
+    assert tail.split("\n") == [
+        "",
+        "Then it continues into queue-progress, queue-add-capacity, queue-add or review-commit.",
+        "Where the chain ends here, it updates the chain's status comment on GitHub"
+        " (as github-app).",
+        "If it fails, it updates that comment with the failure.",
+        "It runs one at a time per pr-fixer:{repository}#{number}, with at most 3 attempts.",
+    ]
     for seg in out["segments"]:
         if seg["part"] != "step":
             _assert_from_table(seg)
@@ -512,9 +573,11 @@ def test_pr_fix_paragraph_opens_with_its_starting_rule_and_ends_with_then():
 
 def test_daily_newspaper_paragraph():
     out = workflow_paragraph(_committed_workflow("daily-newspaper"), _committed_rules())
-    assert out["text"].startswith("It starts on cron 0 5 * * * (Asia/Jerusalem), on spark. First: ")
+    assert out["text"].startswith(
+        "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.\nFirst reads "
+    )
     assert out["text"].endswith(
-        " Nothing continues from here. When it is done, nothing else happens."
+        "\nNothing continues from here.\nWhen it is done, nothing else happens."
     )
 
 

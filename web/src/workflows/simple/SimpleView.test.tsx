@@ -7,21 +7,28 @@ import type { WorkflowDef } from "../../api/workflows";
 import { useLiveFeed } from "./liveFeed";
 import SimpleView from "./SimpleView";
 
-const seg = (o: Record<string, unknown>) => ({ keys: [], depth: 0, ...o }) as unknown as ParagraphSegment;
+const seg = (o: Record<string, unknown>) =>
+  ({ keys: [], tail_keys: [], depth: 0, tail: "", standin: false, fallback: false, grouped: false, ...o }) as unknown as ParagraphSegment;
 const SEGMENTS: ParagraphSegment[] = [
-  { part: "start", keys: ["starts_event"], text: "It starts when pr.opened arrives." },
-  seg({ part: "step", phrase: "First:", step: "fetch", name: "Fetch", text: "Fetches the PR.", gap: false, fallback: false, grouped: false }),
-  seg({ part: "step", phrase: "Then, if it is large:", step: "split", name: "Split", text: "Splits it.", gap: false, fallback: false, grouped: false }),
-  seg({ part: "step", phrase: "; then", step: "tag", name: "Tag", text: "Tags the pieces.", gap: false, fallback: false, grouped: true }),
-  seg({ part: "step", phrase: "Each time:", step: "inner", name: "Inner", text: "Works on one piece.", depth: 1, gap: false, fallback: false, grouped: false }),
-  seg({ part: "step", phrase: "Then:", step: "ship", name: "Ship", text: "", gap: true, fallback: false, grouped: false }),
-  seg({ part: "step", phrase: "Disabled:", step: "old", name: "Old", text: "Is retired.", gap: false, fallback: false, grouped: false, disabled: true }),
-  { part: "then", keys: ["ends_noop"], text: "When it is done, nothing else happens." },
+  { part: "start", sentence: 0, keys: ["starts_event"], text: "It starts when pr.opened arrives." },
+  seg({ part: "step", sentence: 1, phrase: "First", step: "fetch", name: "Fetch", text: "Fetches the PR.", shown: "fetches the PR" }),
+  seg({ part: "step", sentence: 1, phrase: "; then", step: "tag", name: "Tag", text: "Tags the pieces.", shown: "tags the pieces", tail: ", waiting 5 minutes.", grouped: true }),
+  seg({ part: "step", sentence: 2, phrase: "Then, if it is large,", step: "split", name: "Split", text: "Splits it.", shown: "splits it", tail: "." }),
+  seg({ part: "step", sentence: 3, phrase: "Then", step: "inner", name: "Inner", text: "Works on one piece.", shown: "works on one piece", tail: ".", depth: 1 }),
+  seg({ part: "step", sentence: 4, phrase: "Then", step: "ship", name: "Ship", text: "Ship", shown: "ship", tail: ".", standin: true, gap: true }),
+  seg({ part: "step", sentence: 5, phrase: "Then", step: "old", name: "Old", text: "Is retired.", shown: "is retired", tail: ".", disabled: true }),
+  { part: "then", sentence: 6, keys: ["ends_noop"], text: "When it is done, nothing else happens." },
 ];
-// What the API's paragraph.text reads for those segments (grouping edits applied).
-const TEXT =
-  "It starts when pr.opened arrives. First: Fetches the PR. Then, if it is large: Splits it; then tags the pieces." +
-  " Each time: Works on one piece. Then: [Ship has no description yet] Disabled: Is retired. When it is done, nothing else happens.";
+// What the API's paragraph.text reads for those segments: one sentence per line.
+const TEXT = [
+  "It starts when pr.opened arrives.",
+  "First fetches the PR; then tags the pieces, waiting 5 minutes.",
+  "Then, if it is large, splits it.",
+  "Then works on one piece.",
+  "Then ship.",
+  "Then is retired.",
+  "When it is done, nothing else happens.",
+].join("\n");
 
 const WF: WorkflowDef = {
   id: "pr-fix",
@@ -64,7 +71,11 @@ afterEach(() => vi.unstubAllGlobals());
 function visible(el: HTMLElement) {
   const clone = el.cloneNode(true) as HTMLElement;
   clone.querySelectorAll(".sv-sr").forEach((n) => n.remove());
-  return (clone.textContent ?? "").replace(/\s+/g, " ").trim();
+  return (clone.textContent ?? "")
+    .split("\n")
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
 }
 
 describe("Simple is text only (d1)", () => {
@@ -169,15 +180,18 @@ describe("How it runs: the API paragraph", () => {
     expect(visible(para)).toBe(TEXT);
   });
 
-  it("styles phrases, shows a gap naming the step, indents a loop body, strikes a disabled step", async () => {
+  it("one line per sentence; styles phrases, marks a stand-in not written yet, strikes a disabled step", async () => {
     stubApi();
     render(<SimpleView def={WF} />);
     const para = await screen.findByTestId("paragraph");
-    expect(within(para).getByText("First:")).toHaveClass("sv-phrase");
+    expect(para.querySelectorAll(".sv-line")).toHaveLength(7);
+    expect(within(para).getByText("First")).toHaveClass("sv-phrase");
     expect(within(para).getByText("; then")).toHaveClass("sv-phrase");
-    expect(within(para).getByText("[Ship has no description yet]")).toHaveClass("sv-gap");
-    expect(within(para).getByText("Works on one piece.").closest(".sv-body")).not.toBeNull();
-    const old = within(para).getByText("Is retired.").closest(".sv-step")!;
+    const standin = within(para).getByRole("button", { name: /ship/ });
+    expect(standin).toHaveClass("sv-standin");
+    expect(standin.querySelector(".sv-sr")?.textContent).toMatch(/not written yet/);
+    expect(within(para).getByText("works on one piece").closest(".sv-line--in")).not.toBeNull();
+    const old = within(para).getByText("is retired").closest(".sv-step")!;
     expect(old).toHaveClass("sv-disabled");
     expect(old.querySelector(".sv-sr")).not.toBeNull();
   });
@@ -189,7 +203,7 @@ describe("How it runs: the API paragraph", () => {
     await screen.findByTestId("paragraph");
     const before = describes;
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Fetches the PR." }));
+    await user.click(screen.getByRole("button", { name: "fetches the PR" }));
     const field = screen.getByRole("textbox", { name: "Edit the description of Fetch" });
     await user.clear(field);
     await user.type(field, "Downloads the PR.{Enter}");
@@ -204,8 +218,10 @@ describe("How it runs: the API paragraph", () => {
     stubApi();
     render(<SimpleView def={WF} />);
     const user = userEvent.setup();
-    await user.click(await screen.findByText("[Ship has no description yet]"));
-    await user.type(screen.getByRole("textbox", { name: "Edit the description of Ship" }), "Ships it.{Enter}");
+    await user.click(await screen.findByRole("button", { name: /ship/ }));
+    const field = screen.getByRole("textbox", { name: "Edit the description of Ship" });
+    expect(field).toHaveValue("");
+    await user.type(field, "Ships it.{Enter}");
     await waitFor(() => expect(puts).toHaveLength(1));
     expect((puts[0] as WorkflowDef).steps?.find((s) => s.id === "ship")?.description).toBe("Ships it.");
   });
@@ -214,10 +230,10 @@ describe("How it runs: the API paragraph", () => {
     stubApi();
     render(<SimpleView def={WF} />);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Fetches the PR." }));
+    await user.click(await screen.findByRole("button", { name: "fetches the PR" }));
     await user.type(screen.getByRole("textbox", { name: "Edit the description of Fetch" }), "x{Escape}");
     expect(puts).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Fetches the PR." })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "fetches the PR" })).toBeInTheDocument();
   });
 
   it("reads the paragraph again when a rule or workflow changes live", async () => {
@@ -246,8 +262,13 @@ describe("How it runs: the API paragraph", () => {
 });
 
 describe("the editor builds no phrases (o4)", () => {
+  it("lowercasing and stand-in logic are gone from the editor", () => {
+    const src = readFileSync(`${process.cwd()}/src/workflows/simple/SimpleView.tsx`, "utf8");
+    expect(src).not.toMatch(/toLowerCase|lowerFirst|has no description yet/);
+  });
+
   it("no joining phrase from the API's table is written in the Simple sources", () => {
-    const src = ["SimpleView.tsx", "paragraphText.ts"].map((f) => readFileSync(`${process.cwd()}/src/workflows/simple/${f}`, "utf8")).join("\n");
+    const src = ["SimpleView.tsx"].map((f) => readFileSync(`${process.cwd()}/src/workflows/simple/${f}`, "utf8")).join("\n");
     for (const phrase of ["First:", "At the same time", "It starts when", "Once both are done", "Depending on the conditions", "Carrying on even if"]) {
       expect(src).not.toContain(phrase);
     }
