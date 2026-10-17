@@ -320,7 +320,7 @@ describe("Workflows, folded: the Rules board's page scenarios (t9)", () => {
   });
 
   it("every rule is listed, as an entry point or under rules without a workflow, the first affordance New workflow / New rule", async () => {
-    renderAt("/workflows");
+    renderAt("/workflows?id=build-image");
     const list = await screen.findByRole("navigation", { name: "Workflows" });
     const buttons = within(list).getAllByRole("button");
     expect(buttons.slice(0, 2).map((b) => b.textContent)).toEqual(["New workflow", "New rule"]);
@@ -373,5 +373,54 @@ describe("Workflows, folded: the Rules board's page scenarios (t9)", () => {
     expect((await screen.findAllByRole("alert"))[0]).toHaveTextContent("store unreachable");
     await waitFor(() => expect(getAgentState().status).toBe("ready"));
     expect(getAgentState().errors).toEqual(["store unreachable"]);
+  });
+});
+
+describe("Workflows overview and pane toggle (t13)", () => {
+  beforeEach(() => {
+    localStorage.removeItem(VIEW_MODE_KEY);
+    resetAgentState();
+    vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
+    vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
+    mockFetch(routes());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("with nothing open shows a card per workflow and no list pane", async () => {
+    renderAt("/workflows");
+    const cards = await screen.findByRole("list", { name: "All workflows" });
+    expect(within(cards).getAllByRole("listitem").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hide workflows" })).toBeNull();
+  });
+
+  it("opening a card shows the workflow with its pane", async () => {
+    const user = userEvent.setup();
+    renderAt("/workflows");
+    const cards = await screen.findByRole("list", { name: "All workflows" });
+    await user.click(within(cards).getAllByRole("link")[0]);
+    expect(await screen.findByRole("navigation", { name: "Workflows" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "All workflows" })).toBeNull();
+  });
+
+  it("the pane toggle is a button with aria-expanded that works by keyboard; All workflows returns", async () => {
+    const user = userEvent.setup();
+    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    const toggle = await screen.findByRole("button", { name: "Hide workflows" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("navigation", { name: "Workflows" })).toBeInTheDocument();
+    toggle.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
+    const shown = screen.getByRole("button", { name: "Show workflows" });
+    expect(shown).toHaveAttribute("aria-expanded", "false");
+    await user.keyboard(" ");
+    expect(screen.getByRole("navigation", { name: "Workflows" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide workflows" })).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByRole("link", { name: "← All workflows" }));
+    expect(await screen.findByRole("list", { name: "All workflows" })).toBeInTheDocument();
   });
 });

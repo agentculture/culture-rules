@@ -1,0 +1,85 @@
+/*
+ * The Workflows overview (nothing open): one card per workflow, the list pane hidden.
+ * Tokens only; the global prefers-reduced-motion switch in tokens.css stops the transitions.
+ */
+.wf-overview {
+  display: grid;
+  gap: 24px;
+  width: 100%;
+  max-width: 1200px;
+}
+.wf-overview__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.wf-overview__head h1 {
+  margin: 0 0 4px;
+  font: 600 var(--ac-type-page-title) / var(--ac-leading-display) var(--font-display);
+}
+.wf-overview__head p { margin: 0; color: var(--ink-soft); }
+.wf-overview__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.wf-overview__error { margin: 0; color: var(--wf-fail); }
+
+.wf-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.wf-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.wf-card:hover,
+.wf-card:focus-visible { box-shadow: var(--shadow-lift); border-color: var(--accent); }
+.wf-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wf-card__name { margin: 0; font: 600 var(--ac-type-card-title) / var(--ac-leading-card) var(--font-display); }
+.wf-card__desc { margin: 0; font: var(--ac-type-body) / 1.5 var(--font-body); }
+.wf-card__desc--none { color: var(--ink-soft); font-style: italic; }
+.wf-card__facts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: var(--ac-type-meta);
+}
+.wf-card__chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 9px;
+  color: var(--ink);
+  background: var(--bg);
+}
+.wf-card__chip--off { color: var(--ink-soft); }
+
+.wf-pane-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.wf-pane-bar a { color: var(--accent-strong); }
+.wf-pane-toggle {
+  font: 600 var(--ac-type-ui) / 1 var(--font-body);
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.wf-pane-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

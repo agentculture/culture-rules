@@ -52,7 +52,7 @@ import PlacementEditor from "../workflows/PlacementEditor";
 import StepEditor from "../workflows/StepEditor";
 import { useWhoami } from "../hooks/useWhoami";
 import PurgePanel, { type PurgeState } from "../workflows/PurgePanel";
-import { WorkflowList } from "../workflows/list";
+import { Overview, WorkflowList } from "../workflows/list";
 import { SimpleView } from "../workflows/simple/SimpleView";
 import { NewRule } from "../workflows/simple/NewRule";
 import { D7Offer } from "../workflows/simple/D7Offer";
@@ -257,12 +257,6 @@ const TrashIcon = () => (
     <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
   </svg>
 );
-const PlusIcon = ({ size }: Readonly<{ size: number }>) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
-
 /** The head's title when no workflow is open: creating, none yet, or (sr-only) the tab name. */
 function HeadTitle({
   creating,
@@ -384,19 +378,6 @@ function RecentRuns({
   );
 }
 
-/** The empty state: "New workflow" as the primary action. */
-function EmptyWorkflows({ onNew }: Readonly<{ onNew: () => void }>) {
-  return (
-    <section className="wf-empty" aria-label="No workflows yet">
-      <button type="button" className="wf-button wf-button--primary wf-button--large" onClick={onNew}>
-        <PlusIcon size={20} />
-        New workflow
-      </button>
-      <p className="wf-empty__hint">Name it, then add steps with +.</p>
-    </section>
-  );
-}
-
 /** The floating editor for what is being edited: a step's placement or ports, or the in / out node. */
 function StepPanels({
   editing,
@@ -513,9 +494,9 @@ function rulesAlias(loaded: Loaded | null, entry: string | null) {
   return { count: loaded.rules.length, selected: rule?.id ?? null, stages: rule ? stagesOf(rule) : [] };
 }
 
-/** The open workflow: the one asked for in the query, else the first. */
+/** The open workflow: the one asked for in the query; with none asked for, the overview shows. */
 const pickWorkflow = (workflows: WorkflowDef[], id: string | null): WorkflowDef | null =>
-  workflows.find((w) => w.id === id) ?? workflows[0] ?? null;
+  workflows.find((w) => w.id === id) ?? null;
 
 /** No run is asked for, or the asked-for run has answered (a doc or an error). */
 const runSettledFor = (runId: string | null, run: OverlaidRun | null): boolean =>
@@ -1362,18 +1343,19 @@ export function Workflows() {
     if (awaiting) {
       return <output className="wf-notice">Opening {wantedId}…</output>;
     }
-    if (empty) {
-      return <EmptyWorkflows onNew={openNew} />;
-    }
     return null;
   };
-  const body = renderBody();
+  // Nothing open (no ?id=, no form): the overview cards, and no list pane.
+  const overviewing = !wantedId && !creating && !creatingRule && d7Rule === null && !awaiting;
+  const [paneOpen, setPaneOpen] = useState(true);
+  const body = overviewing ? null : renderBody();
   const trustDraft = trustAskDraft(askTrust, draft, aside);
   // No workflow's head (rename, delete, run) while naming a new one, an aside, or nothing open.
   const headless = creating || aside !== null || current === null;
 
   return (
     <div className="rules-board wf-layout">
+      {!overviewing && paneOpen ? (
       <WorkflowList
         model={model}
         workflows={workflows}
@@ -1407,6 +1389,7 @@ export function Workflows() {
           ) : null
         }
       />
+      ) : null}
       <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
         <RedirectNotices missingRule={missingRule} unreadRule={unreadRule} missingWorkflow={missingWorkflow} />
         <BoardNotices
@@ -1415,7 +1398,21 @@ export function Workflows() {
           onUndo={() => void undoDelete()}
           onDismiss={() => setDeleted(null)}
         />
+        {overviewing ? null : (
+          <div className="wf-pane-bar">
+            <Link to="/workflows">← All workflows</Link>
+            <button
+              type="button"
+              className="wf-pane-toggle"
+              aria-expanded={paneOpen}
+              onClick={() => setPaneOpen((open) => !open)}
+            >
+              {paneOpen ? "Hide workflows" : "Show workflows"}
+            </button>
+          </div>
+        )}
         <div className="wf-head">
+          {overviewing ? null : (
           <BoardTitle
             aside={aside}
             creating={creating}
@@ -1428,6 +1425,7 @@ export function Workflows() {
             onRename={() => (renaming ? closeRename() : setRenaming(true))}
             onDelete={() => void removeWorkflow()}
           />
+          )}
           <span className="wf-head__end">
             <IoControls
               onImported={() => setReload((n) => n + 1)}
@@ -1465,7 +1463,25 @@ export function Workflows() {
 
         {run?.doc?.status === "succeeded" && run.doc.outputs ? <RunOutputs outputs={run.doc.outputs} /> : null}
 
-        {body}
+        {overviewing ? (
+          loaded === null ? null : (
+            <Overview
+              workflows={workflows}
+              model={model}
+              actors={loaded.actors}
+              error={loaded.listed ? null : (loaded.errors[0] ?? "unknown error")}
+              onNew={openNew}
+              newRef={newButton}
+              onNewRule={() => {
+                setCreating(false);
+                setCreatingRule(true);
+              }}
+              newRuleRef={newRuleButton}
+            />
+          )
+        ) : (
+          body
+        )}
 
         <div className="wf-foot">
           <span className="wf-legend">
