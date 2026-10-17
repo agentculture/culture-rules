@@ -148,3 +148,17 @@ def test_empty_workflow_describes(viewer):
     assert body["description"] == ""
     assert body["lines"] == []
     assert isinstance(body["paragraph"]["text"], str)
+
+
+def test_disabled_survives_on_the_wire_only_when_true(viewer):
+    store, client = viewer
+    wf = store.get("workflows", "pr-fix")
+    first = wf["steps"][0]["id"]
+    store.put(
+        "workflows", {**wf, "steps": [{**wf["steps"][0], "enabled": False}, *wf["steps"][1:]]}
+    )
+    segs = client.get("/workflows/pr-fix/describe").json()["paragraph"]["segments"]
+    off = [s for s in segs if s.get("disabled")]
+    assert [s["step"] for s in off] == [first] and off[0]["part"] == "step"
+    assert all(s.get("disabled") is None for s in segs if s not in off)
+    assert "isabled" not in client.get("/workflows/pr-fix/describe").json()["paragraph"]["text"]
