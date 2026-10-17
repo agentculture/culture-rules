@@ -843,6 +843,8 @@ def test_plan_places_migrate_notes_after_upgrade_before_import(
     dry, apply_ = at("workflows migrate-notes   "), at("workflows migrate-notes --apply")
     assert at("upgrade --host spark") < dry < apply_ < at("rollout seed") < at("rollout import")
     assert at("rollout import") < at("rollout resume")
+    odry, oapply = at("rules migrate-orphans   "), at("rules migrate-orphans --apply")
+    assert at("rollout import") < odry < oapply < at("rollout enable")
     assert out["steps"] == [
         "idle",
         "pause",

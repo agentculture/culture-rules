@@ -98,3 +98,11 @@ def _migrate_notes(life: Any, store: Any) -> Callable[[], Any]:
 
 
 SERVER_AUDIT_SCENARIOS["definitions.migrate_notes"] = _migrate_notes
+
+
+def _migrate_orphans(life: Any, store: Any) -> Callable[[], Any]:
+    # the shared fixture's one rule has no workflow: it is the single orphan
+    return lambda: _defs(store).migrate_orphans("alice", apply=True)
+
+
+SERVER_AUDIT_SCENARIOS["definitions.migrate_orphans"] = _migrate_orphans

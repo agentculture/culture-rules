@@ -35,6 +35,10 @@ def _migrate_typeless(ctx: Context) -> Any:
     return migration(ctx, "rules migrate-typeless", "/rules/migrate-typeless")
 
 
+def _migrate_orphans(ctx: Context) -> Any:
+    return migration(ctx, "rules migrate-orphans", "/rules/migrate-orphans")
+
+
 def stop_hint(rule_id: str, total: int) -> str:
     return (
         f"{total} current run(s) of {rule_id} are still active; disabling does not stop them. "
@@ -103,6 +107,17 @@ VERBS: list[Verb] = [
         "migrate-typeless",
         "List event rules with no event type; --apply disables them (audited, never deleted)",
         _migrate_typeless,
+        (),
+        True,
+        "admin",
+    ),
+    Verb(
+        NOUN,
+        "migrate-orphans",
+        "List rules with no workflow; --apply gives each a stepless workflow of its own (D7, "
+        "audited). Rules pointing at a missing or deleted workflow are listed as not adopted and "
+        "never written: restore the workflow or delete the rule from the CLI",
+        _migrate_orphans,
         (),
         True,
         "admin",

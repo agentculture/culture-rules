@@ -147,6 +147,8 @@ cr workflows migrate-notes                 # dry run: workflows whose descriptio
 cr workflows migrate-notes --apply         # admin; then re-run the dry run: it reports 0
 cr rollout seed --apply                    # new variables from the wheel's variables.json
 cr rollout import --apply                  # the bundle's workflows and rules
+cr rules migrate-orphans                   # dry run: workflow-less rules and the workflow each gets
+cr rules migrate-orphans --apply           # admin; then re-run the dry run: it reports 0
 cr rollout enable --apply                  # the snapshot plus the release's new rules
 cr rollout resume --apply                  # refused while enable's rules are off
 cr rollout verify                          # exit 0 only when every check passes
@@ -156,6 +158,13 @@ cr rollout verify                          # exit 0 only when every check passes
 because `import` keeps a stored description wherever the committed one is empty:
 imported first, a stored workflow would end with its old text in both
 `description` and `notes`, and `migrate-notes` would then skip it. It is an
+operator step, not a recorded rollout step.
+
+`rules migrate-orphans` runs once, after `import` (import may add rules) and
+before `enable`, so no rule goes live without a workflow: each live rule with no
+workflow gets a stepless workflow of its own, as the editor's D7 offer does. A
+rule that points at a missing or deleted workflow is listed as "not adopted" and
+never written: restore the workflow, or delete the rule from the CLI. It is an
 operator step, not a recorded rollout step.
 
 `cr rollout show <version>` prints the rollout document: the snapshot and each
