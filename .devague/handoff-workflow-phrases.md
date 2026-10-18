@@ -17,23 +17,21 @@ overview cards only and full width, notes on top of Detailed, header switch, cha
 d14 (Simple opens the step panel and the rule pane), d15 quiet-inline design. Gates at
 5af203a: pytest 6696, vitest 765, Playwright 116, lint, teken 26/26, scan-secrets.
 
-## In flight when this was written
+## State (2026-10-18)
 
-- t19 is merged (version 0.21.0, CHANGELOG, the four prompt files, READMEs, the closeout
-  table in the evidence log); all gates green after the merge (pytest 6696, vitest 765,
-  Playwright 116, teken 26/26, harness-smoke, markdownlint, scan-secrets).
-- Qwen review 1 of 2 (trusted.py, service.py, store/revision.py, io/exchange.py), output in
-  the session scratchpad `review1.txt`. Then review 2: culture_rules/model/paragraph.py. One
-  Qwen job at a time. Verify every finding before acting.
+- PR #70 open, CI fully green at f6d621a (SonarCloud gate OK, 0 open issues). Not merged.
+- Qwen reviews done: fixes 22447cb (workflow-v2 digest helper) and 90ad22f (nested loop body,
+  priority guard). Sonar: 79a8b49 (sort compare) and f6d621a (68 smells cleared).
+- /validate-delivery: evidence e1-e14, deltas b1-b9 filed (proposed; operator to confirm).
+- /summarize-delivery: docs/deliveries/2026-10-17-workflow-connecting-phrases.md (run: partial).
 
 ## Next
 
-1. Fold in verified Qwen findings (deviate if they change the plan).
-2. `/validate-delivery`: evidence for plan obligations o1-o13 (+ frame o1-o14).
-3. PR through the cicd skill (body signed by the cicd script), then `/summarize-delivery`.
-4. t20 live rollout from the operator's shell: idle, pause, upgrade every host,
+1. Operator: confirm e1-e14, b1-b9 (and lapse l2); review and merge PR #70.
+2. t20 live rollout from the operator's shell: idle, pause, upgrade every host,
    `workflows migrate-notes` (dry run, --apply, dry run = 0), seed, import,
    `rules migrate-orphans` (dry run, --apply, dry run = 0), enable, resume, verify.
+3. Live PR fixer: Qwen reviewer fails with JSON-RPC -32603 (two hand-backs on #70).
 
 ## Open notes
 
