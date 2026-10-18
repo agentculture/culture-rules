@@ -2,7 +2,7 @@
   "plan_slug": "workflow-connecting-phrases",
   "schema_version": 2,
   "created": "2026-10-17T19:24:42Z",
-  "updated": "2026-10-18T19:49:28Z",
+  "updated": "2026-10-18T21:23:35Z",
   "deviations": [
     {
       "id": "d1",
@@ -524,7 +524,7 @@
         "commit": "2be3b8d"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 30
     },
@@ -543,7 +543,7 @@
         "commit": "2be3b8d"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 31
     }

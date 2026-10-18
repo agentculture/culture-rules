@@ -110,7 +110,7 @@ After: Opening Workflows shows a card per workflow (name, description or a no-de
 - lint: black, isort, flake8, bandit, markdownlint, `teken cli doctor . --strict`, `scripts/scan-secrets.py` — clean; CI `lint`, `harness-smoke`, `version-check` pass
 - SonarCloud: quality gate OK, 0 open issues on PR #70 at `f6d621a`
 - commits: `b146956..f6d621a` (77+ commits on `rules/workflow-phrases`)
-- live: the 0.21.0 rollout on 2026-10-18 (`e15`, `e16`, proposed)
+- live: the 0.21.0 rollout on 2026-10-18 (`e15`, `e16`, approved 2026-10-19)
 - PRs / issues: PR #70, issue #69
 
 ## Delivery Claims
@@ -152,7 +152,6 @@ Lapse ledger evidence:
 ## Remaining Work / Follow-up
 
 - `t20`, its last criterion: the next pr-fix chain run on 0.21.0 must reach publish-fix or end for a reason other than `workflow_not_trusted`. Until one runs, the live half of plan `o8` is unchecked; the run stays `partial`.
-- Adjudicate `e15` and `e16` (the live rollout evidence) — operator.
 - `d10` was classified `needs-follow-up` when filed; t23 (`7a4ca30`) restored all 8 behaviours and the ported tests pass, so nothing is left open from it.
 - Risks kept open as follow-ups: `r4` (`describe.step_text` crash on a non-numeric retry), `r5` (web `StepKind` lacks "wait"), `r7` (a Playwright cold-start flake), `r8` (SSE tabs against the browser's 6-connection limit).
 - The live PR fixer handed back twice on PR #70: its Qwen reviewer failed with JSON-RPC `-32603` (runs `run-c21a3ad5037f58c1a34e41fca864af0c`, `run-8b813e43d9a6e7f445e464bc687e0960`) — check the reviewer on spark2. Its second run also reported `tests/node/test_library_push.py::test_invalid_content_is_refused[QUJD=]` failing on Python 3.12.3 locally; CI passes, so it is unconfirmed.
