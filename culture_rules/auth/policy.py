@@ -6,7 +6,7 @@
   configured repository (``POST /export``, dry-run included), runs (start/cancel, and a direct
   workflow run), stopping a disabled rule's runs (``POST /rules/{id}/stop-runs``) and answering
   asks;
-- admin: purge, the data migrations (typeless rules, run-id backfill), service tokens, and
+- admin: purge, the data migrations (typeless, notes, run ids), service tokens,
   engine/machine containment (pause/resume/drain/undrain), and writing a shared variable
   (``PUT /variables/{name}``, via the fail-closed default); variable reads are viewer;
   writing a rollout document (``PUT /rollouts/{id}``, ``POST /rollouts/{id}/steps/{name}``
@@ -33,6 +33,8 @@ _ADMIN_PATTERNS = (
     re.compile(r"^/machines/[^/]+/(drain|undrain)$"),
     re.compile(r"^/controls/(pause|resume)$"),
     re.compile(r"^/rules/migrate-typeless$"),
+    re.compile(r"^/rules/migrate-orphans$"),
+    re.compile(r"^/workflows/migrate-notes$"),
     re.compile(r"^/runs/backfill-ids$"),
 )
 # read-only operations that take a request body (no write happens)

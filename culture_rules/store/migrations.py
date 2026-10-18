@@ -23,6 +23,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from culture_rules.store import revision
 from culture_rules.store.port import Document, StoragePort, StoreError, VersionSkewError
 from culture_rules.store.versioning import SchemaVersion
 
@@ -190,7 +191,8 @@ def _migrate_one(
             if doc.get("id") != doc_id:
                 raise MigrationError(f"migration {name} {step.from_major} changed the id")
             doc["schema_version"] = f"{step.to_major}.0"
-        tx.put(name, doc)
+        # a migrated workflow is a new revision: a tab read before it cannot write over it
+        tx.put(name, {**doc, **revision.bump(name, tx.get(name, doc_id))})
     return True
 
 

@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { Rule } from "../src/api/types";
 import { foldModel } from "../src/fold/model";
 import { mockPrFixerApi, PR_FIXER_RULES, PR_FIXER_WORKFLOWS, writesOf } from "./fixtures/pr-fixer";
+import { withView } from "./fixtures/view";
 
 /**
  * The fold's own scenarios (spec c18, c19, h14; plan t9), against the
@@ -66,6 +67,7 @@ async function editSharedRunKey(page: Page, key: string) {
 
 test.describe("the fold against the fake API (PR fixer)", () => {
   test("the list folds the stored PR fixer: chains, workflows and entry points computed from its rules", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     await mockPrFixerApi(page);
     const model = foldModel(PR_FIXER_RULES, PR_FIXER_WORKFLOWS);
     // d2: 2 chains; since #35 6 workflows (queue-add, queue-progress); since d31 9 entry
@@ -77,13 +79,24 @@ test.describe("the fold against the fake API (PR fixer)", () => {
       .toEqual([2, 8, 11, 13]);
     await page.goto("/workflows");
     await untilReady(page);
-    const list = page.getByRole("navigation", { name: "Workflows" });
-    await expect(list.getByRole("article")).toHaveCount(model.chains.length);
-    await expect(list).toContainText(`${model.workflows.length} workflows · ${model.entryPoints.length} entry points · was ${PR_FIXER_RULES.length} rules`);
+    // d13: the overview is the cards only. The chain view is reached from an open workflow's head.
+    await expect(page.getByRole("navigation", { name: "Chains and housekeeping" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Workflows overview" })).toContainText(`${model.workflows.length} workflows.`);
+    const n = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+    for (const chain of model.chains.filter((c) => c.workflowIds.length > 1)) {
+      await page.goto(`/workflows?id=${chain.workflowIds[0]}`);
+      await untilReady(page);
+      await page.getByRole("link", { name: "See it as one chain" }).click();
+      const view = page.getByRole("region", { name: "Chain view" });
+      await expect(view).toContainText(
+        `${n(chain.entryPoints.length + chain.continuations.length, "rule")} → ${n(chain.entryPoints.length, "entry point")}, ${n(chain.continuations.length, "continuation")}, ${n(chain.workflowIds.length, "workflow")}`,
+      );
+    }
+    expect(model.chains.reduce((n, c) => n + c.entryPoints.length + c.continuations.length, 0)).toBe(PR_FIXER_RULES.length - model.d7Candidates.length);
     const state = (await agentState(page)).workflows;
     expect(state.chains).toBe(2);
     expect(state.without_workflow).toEqual([]);
-    // Every stored PR fixer rule is disabled: the disabled badges must still read (AA contrast).
+    // Every stored PR fixer rule is disabled: the disabled tags must still read (AA contrast).
     const bad = (await new AxeBuilder({ page }).analyze()).violations
       .filter((v) => v.impact === "serious" || v.impact === "critical")
       .map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(" ")}`);
@@ -91,6 +104,7 @@ test.describe("the fold against the fake API (PR fixer)", () => {
   });
 
   test("editing one entry point's condition issues exactly 1 rule PUT, for its rule", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     const api = await mockPrFixerApi(page);
     const quiet = trackNetwork(page);
     const card = await openEntry(page, "queue-add", "pr-fixer-comment", COMMENT);
@@ -109,6 +123,7 @@ test.describe("the fold against the fake API (PR fixer)", () => {
   });
 
   test("a fan-out with one failing PUT shows that rule as an override with its old value and a retry; the others saved", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     const api = await mockPrFixerApi(page);
     const old = stored(PR_FIXER_RULES.find((r) => r.id === "pr-fixer-comment")!).concurrency_key;
     api.failNext["PUT /rules/pr-fixer-comment"] = { status: 503, code: "store_down", message: "store unreachable" };
@@ -147,6 +162,7 @@ test.describe("the fold against the fake API (PR fixer)", () => {
   });
 
   test("a concurrent change is re-read, skipped and flagged, never overwritten; the others save", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     const api = await mockPrFixerApi(page);
     await openEntry(page, "queue-add", "pr-fixer-checks", "PR fixer: checks settled");
     // Someone else edits the review entry point after the page read it.
@@ -169,6 +185,7 @@ test.describe("the fold against the fake API (PR fixer)", () => {
   });
 
   test("old /rules links redirect: a known id to its entry point, an unknown id to a notice, /rules to the list", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     await mockPrFixerApi(page);
     await page.goto("/rules/pr-fixer-review-commit");
     await expect(page).toHaveURL(/\/workflows\?id=review-commit&entry=pr-fixer-review-commit$/);

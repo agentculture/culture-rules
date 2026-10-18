@@ -25,8 +25,10 @@ from culture_rules.actors.trusted import (
     ROLE_REVIEW,
     TRUSTED_ACTOR_DIGESTS,
     TRUSTED_WORKFLOWS,
+    TRUSTED_WORKFLOWS_V2,
     actor_digest,
     workflow_digest,
+    workflow_digest_v2,
 )
 from culture_rules.cli import main
 from culture_rules.io.exchange import bundle_files
@@ -185,13 +187,14 @@ def test_each_shipped_workflow_is_trusted_in_its_role_only():
         ("review-commit", ROLE_REVIEW),
         ("publish-fix", ROLE_PUBLISH),
     ):
-        digest = workflow_digest(workflow_docs()[wid])
-        assert digest in TRUSTED_WORKFLOWS[role], (
-            f"docs/rules/pr-fixer/workflows/{wid}.json now hashes to {digest}: if the change is "
-            f"intended, put it in TRUSTED_WORKFLOWS[{role!r}] in culture_rules/actors/trusted.py"
+        digest = workflow_digest_v2(workflow_docs()[wid])
+        assert digest in TRUSTED_WORKFLOWS_V2[role], (
+            f"docs/rules/pr-fixer/workflows/{wid}.json now hashes (v2) to {digest}: if the "
+            f"change is intended, put it in TRUSTED_WORKFLOWS_V2[{role!r}] in "
+            "culture_rules/actors/trusted.py"
         )
-        others = [r for r in TRUSTED_WORKFLOWS if r != role]
-        assert all(digest not in TRUSTED_WORKFLOWS[r] for r in others)
+        others = [r for r in TRUSTED_WORKFLOWS_V2 if r != role]
+        assert all(digest not in TRUSTED_WORKFLOWS_V2[r] for r in others)
 
 
 QWEN_WHEN = {
@@ -275,6 +278,7 @@ def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
 
 
 PUBLISH_FIX_DIGEST = "sha256:0fa92074e1cfa67c1388f0423fc379063fd82c5886bc619c5ef4ffcc83c23680"
+PUBLISH_FIX_V2 = "sha256:540cb216fcc1ccccf8d5b7d29abd07427e9a22f6ad40bd930c3036890a3f9c84"
 """publish-fix as shipped by d21: #39 adds no push path, so it is unchanged."""
 D30_PR_FIX_DIGEST = "sha256:307e82fc96eba7a36be1781b2f550728fbf232d37d776ed878071ae7f74ae032"
 
@@ -283,7 +287,9 @@ def test_publish_fix_is_unchanged_by_the_escalation():
     """#39 t4: no new code path pushes. publish-fix, its placement and its trust are as
     shipped; pr-fix still holds no push, and the d30 pr-fix stays trusted (runs pinned to
     it may still push) next to the new one, each in its own role only."""
-    assert workflow_digest(workflow_docs()["publish-fix"]) == PUBLISH_FIX_DIGEST
+    # the t12 notes migration changed prose only: the v2 pin (prose left out) is what must hold
+    assert workflow_digest_v2(workflow_docs()["publish-fix"]) == PUBLISH_FIX_V2
+    assert TRUSTED_WORKFLOWS_V2[ROLE_PUBLISH] == frozenset({PUBLISH_FIX_V2})
     assert TRUSTED_WORKFLOWS[ROLE_PUBLISH] == frozenset({PUBLISH_FIX_DIGEST})
     assert D30_PR_FIX_DIGEST in TRUSTED_WORKFLOWS[ROLE_FIX]
     pr_fix = json.dumps(workflow_docs()["pr-fix"])

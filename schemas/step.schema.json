@@ -20,6 +20,11 @@
       "description": "Free text",
       "default": ""
     },
+    "notes": {
+      "type": "string",
+      "description": "Free text",
+      "default": ""
+    },
     "kind": {
       "type": "string",
       "enum": [

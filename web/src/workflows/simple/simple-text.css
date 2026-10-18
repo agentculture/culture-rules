@@ -1,0 +1,61 @@
+/* The Simple view: text across the full main width (d6). */
+.sv { width: 100%; padding: 8px 0 48px; }
+.sv-description { margin: 0 0 24px; }
+.sv-text {
+  all: unset;
+  display: inline;
+  /* Without a positioned box, Chromium hit-tests these unset inline buttons over the whole
+     page above them (the view switch could not be clicked once the paragraph had loaded). */
+  position: relative;
+  cursor: text;
+  border-radius: 4px;
+}
+.sv-text:hover:not([aria-disabled]) { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.sv-text:focus-visible, .sv-field:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sv-lede { display: block; font: var(--ac-type-lede) / var(--ac-leading-lede) var(--font-display); }
+.sv-gap {
+  border: 1px dashed var(--ink-soft);
+  border-radius: 4px;
+  padding: 0 6px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.sv-heading { font: 600 var(--ac-type-section-title) / var(--ac-leading-heading) var(--font-display); margin: 0 0 8px; }
+/* A sentence's lead-in (d15, quiet inline): teal words, no chip, regular weight. */
+.sv-phrase { color: var(--accent); }
+/* One sentence per line (d11). A line inside a loop keeps a quiet rule at its left. */
+.sv-line { font: var(--ac-type-body) / 1.8 var(--font-body); margin: 0 0 10px; overflow-wrap: anywhere; }
+.sv-line--band { margin-top: 22px; }
+.sv-line--in { margin-left: 6px; padding-left: 14px; border-left: 2px solid var(--line); }
+.sv-standin { font-style: italic; color: var(--ink-soft); }
+.sv-field {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.sv-fallback { color: var(--ink-soft); }
+.sv-loading { color: var(--ink-soft); }
+.sv-disabled { color: var(--ink-soft); }
+.sv-disabled .sv-phrase { color: var(--ink-soft); }
+.sv-pill {
+  display: inline-block;
+  margin: 0 2px 0 8px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--line-soft);
+  color: var(--ink-soft);
+  font: 600 var(--ac-type-meta) / 1.5 var(--font-body);
+  vertical-align: 0.1em;
+}
+/* The words whose panel is open. */
+.sv-selected, .sv-selected:hover:not([aria-disabled]) {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.sv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

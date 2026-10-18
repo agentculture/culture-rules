@@ -1,0 +1,89 @@
+{
+  "daily-newspaper": {
+    "description": "Builds one newspaper issue a day from the configured sections and delivers it by email and to the e-reader.",
+    "steps": {
+      "sections": "Reads the configured sections and their search queries.",
+      "claim": "Claims today's issue, unless it was already delivered.",
+      "search": "Searches the web for each section.",
+      "search_web": "Runs the section's web search.",
+      "filter": "Keeps only the results the issue may show.",
+      "summarise": "Summarises each section.",
+      "summary": "Asks the language model for a short summary of the section's results.",
+      "render": "Renders the issue as an email and as an EPUB.",
+      "email_gate": "Checks the email has not been sent yet and freezes what will be sent.",
+      "email": "Sends the issue by email.",
+      "push_gate": "Records the sent email and checks the reader does not have the issue yet.",
+      "push": "Queues the EPUB on the e-reader.",
+      "record": "Marks the day's issue as delivered."
+    }
+  },
+  "pr-fix": {
+    "description": "Fixes a pull request's review threads and failing SonarCloud conditions with an agent, then runs the repository's test gate on the agent's commit.",
+    "steps": {
+      "quiet": "Waits for the pull request to settle.",
+      "secrets": "Stops the run while GitGuardian reports a leaked secret on the head.",
+      "threads": "Lists the unresolved review threads opened by trusted authors.",
+      "sonar": "Lists the issues behind the failing SonarCloud conditions.",
+      "fix": "Gives the fix one try.",
+      "agent_qwen": "The Qwen agent fixes the pull request and commits locally.",
+      "agent_claude": "The Claude agent fixes the pull request and commits locally.",
+      "handoff_export_claude": "Packs the Claude agent's commits.",
+      "handoff_import_claude": "Unpacks them into a fresh worktree on the gate's machine.",
+      "agent_codex": "The Codex agent fixes the pull request and commits locally.",
+      "handoff_export": "Packs the Codex agent's commits.",
+      "handoff_import": "Unpacks them into a fresh worktree on the gate's machine.",
+      "select": "Picks the commit of the agent that ran.",
+      "gate": "Runs the repository's tests on that commit."
+    }
+  },
+  "publish-fix": {
+    "description": "Pushes an approved fix to the pull request and answers the review threads the agent addressed.",
+    "steps": {
+      "push": "Pushes the approved commit to the pull request's branch.",
+      "threads": "Re-reads the unresolved review threads opened by trusted authors.",
+      "pick": "Keeps the threads the agent says it addressed.",
+      "replies": "Replies to each of those threads."
+    }
+  },
+  "queue-add-capacity": {
+    "description": "Puts a fix request back in the queue after its agent ran out of capacity.",
+    "steps": {
+      "cooldown": "Rests the agent level that ran out of capacity for a while.",
+      "enqueue": "Puts the pull request back in the fixer queue."
+    }
+  },
+  "queue-add": {
+    "description": "Puts a pull request in the fixer queue.",
+    "steps": {
+      "enqueue": "Adds the request to the queue, or refreshes the one already waiting."
+    }
+  },
+  "queue-progress": {
+    "description": "Moves the fixer queues along and starts the next fix when there is room.",
+    "steps": {
+      "progress": "Frees finished slots and dispatches the oldest waiting request."
+    }
+  },
+  "queue-stop": {
+    "description": "Stops a pull request's fixer work when a trusted person asks.",
+    "steps": {
+      "stop": "Records the stop, removes the request from the queue and cancels running fixes.",
+      "settle": "Waits for any stage that was about to start.",
+      "sweep": "Cancels a run that started after the stop."
+    }
+  },
+  "report-secrets": {
+    "description": "Reports GitGuardian's findings on a pull request head, without any secret values.",
+    "steps": {
+      "findings": "Reads the GitGuardian findings for the head."
+    }
+  },
+  "review-commit": {
+    "description": "Has an independent reviewer review the commit a fix built and records the verdict for that commit.",
+    "steps": {
+      "review_codex": "Codex reviews the commit, read-only.",
+      "review_qwen": "Qwen reviews the commit, read-only.",
+      "verdict": "Checks the review and records its verdict for the commit."
+    }
+  }
+}

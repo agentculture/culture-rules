@@ -414,6 +414,14 @@ export function IoEditor({
             onChange={(e) => onChange({ ...workflow, description: e.target.value })}
           />
         </label>
+        <label className="wf-field">
+          <span>Workflow notes</span>
+          <textarea
+            rows={3}
+            value={workflow.notes ?? ""}
+            onChange={(e) => onChange({ ...workflow, notes: e.target.value })}
+          />
+        </label>
         <Section legend="Inputs" empty={inputs.length === 0} add="Add input" onAdd={() => onChange(addInput(workflow).workflow)}>
           {inputs.map((p, i) => (
             <InputRow

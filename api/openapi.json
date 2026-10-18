@@ -247,6 +247,18 @@
       "Description": {
         "description": "d19: a plain description generated only from the definition's config (no AI).",
         "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "workflow only: its own plain description, empty when none",
+            "title": "Description"
+          },
           "entries": {
             "items": {
               "$ref": "#/components/schemas/DescribeEntry"
@@ -270,6 +282,17 @@
             },
             "title": "Lines",
             "type": "array"
+          },
+          "paragraph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Paragraph"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "workflow only: its rules and steps as one paragraph"
           }
         },
         "required": [
@@ -389,6 +412,18 @@
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "current_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "revision_conflict only: the workflow's stored revision, to reload at",
+            "title": "Current Revision"
           },
           "message": {
             "title": "Message",
@@ -783,6 +818,199 @@
           }
         },
         "title": "MigrateRequest",
+        "type": "object"
+      },
+      "NotAdopted": {
+        "properties": {
+          "reason": {
+            "description": "'missing' or 'deleted'; never written",
+            "title": "Reason",
+            "type": "string"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "rule_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Name"
+          },
+          "workflow_id": {
+            "description": "the workflow the rule points at",
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "workflow_id",
+          "reason"
+        ],
+        "title": "NotAdopted",
+        "type": "object"
+      },
+      "NotesChange": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "nodes": {
+            "description": "'workflow' and/or the ids of the steps changed",
+            "items": {
+              "type": "string"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "nodes"
+        ],
+        "title": "NotesChange",
+        "type": "object"
+      },
+      "NotesMigration": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "workflows": {
+            "items": {
+              "$ref": "#/components/schemas/NotesChange"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workflows",
+          "applied"
+        ],
+        "title": "NotesMigration",
+        "type": "object"
+      },
+      "OrphanAdoption": {
+        "properties": {
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "rule_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Name"
+          },
+          "workflow_id": {
+            "description": "the stepless workflow it gets (or would get)",
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "workflow_id"
+        ],
+        "title": "OrphanAdoption",
+        "type": "object"
+      },
+      "OrphanMigration": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "not_adopted": {
+            "items": {
+              "$ref": "#/components/schemas/NotAdopted"
+            },
+            "title": "Not Adopted",
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/OrphanAdoption"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules",
+          "not_adopted",
+          "applied"
+        ],
+        "title": "OrphanMigration",
+        "type": "object"
+      },
+      "Paragraph": {
+        "description": "A workflow's rules and steps as one paragraph of fixed phrases (#69, no AI).",
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/ParagraphSegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "text": {
+            "description": "the segments joined",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segments",
+          "text"
+        ],
+        "title": "Paragraph",
+        "type": "object"
+      },
+      "ParagraphSegment": {
+        "additionalProperties": true,
+        "description": "One piece of a workflow's paragraph (model/paragraph.py).",
+        "properties": {
+          "part": {
+            "description": "start, step or then",
+            "title": "Part",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part",
+          "text"
+        ],
+        "title": "ParagraphSegment",
         "type": "object"
       },
       "PurgeRequest": {
@@ -5133,6 +5361,83 @@
         ]
       }
     },
+    "/rules/migrate-orphans": {
+      "post": {
+        "description": "List rules with no workflow; ``apply`` gives each a stepless workflow (D7, audited).\n\nRules pointing at a missing or deleted workflow are listed under ``not_adopted`` and\nnever written; nothing is deleted.",
+        "operationId": "migrate_orphan_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MigrateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrphanMigration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Migrate Orphans",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
     "/rules/migrate-typeless": {
       "post": {
         "description": "List event rules with no event type; ``apply`` disables them (audited, never deleted).",
@@ -7529,6 +7834,7 @@
     },
     "/workflows": {
       "get": {
+        "description": "Each workflow carries `revision` beside its definition: server-owned metadata, bumped on every write (create 1, then stored + 1). Send it back as `expected_revision` on `PUT /workflows/{id}`; never inside the definition.",
         "operationId": "list_workflows",
         "parameters": [
           {
@@ -7679,6 +7985,83 @@
         ]
       }
     },
+    "/workflows/migrate-notes": {
+      "post": {
+        "description": "List workflows whose description moves to notes; ``apply`` moves it, audited.",
+        "operationId": "migrate_workflow_notes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MigrateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotesMigration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Migrate Notes",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
     "/workflows/{id}": {
       "delete": {
         "operationId": "delete_workflow",
@@ -7771,6 +8154,7 @@
         ]
       },
       "get": {
+        "description": "Each workflow carries `revision` beside its definition: server-owned metadata, bumped on every write (create 1, then stored + 1). Send it back as `expected_revision` on `PUT /workflows/{id}`; never inside the definition.",
         "operationId": "get_workflow",
         "parameters": [
           {
@@ -7851,6 +8235,7 @@
         ]
       },
       "put": {
+        "description": "Replace the workflow. The body is the definition plus `expected_revision`: the `revision` the workflow had when it was read (a document stored before revisions existed reads as 0). The update writes only when it equals the stored revision, checked inside the write's transaction, and the stored revision becomes that plus one. A missing or stale `expected_revision` is 409 `revision_conflict`, whose one error entry carries `current_revision`; nothing is written. `revision` itself is server-owned: a body carrying it is 422.",
         "operationId": "update_workflow",
         "parameters": [
           {

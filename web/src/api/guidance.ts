@@ -122,6 +122,7 @@ const TABLE: Record<string, Guidance> = {
   invalid: g("Some of what was entered is not valid.", EDIT),
   not_found: g("That item no longer exists.", RELOAD, { kind: "create-rule" }),
   conflict: g("Someone else changed this at the same time.", RELOAD),
+  revision_conflict: g("This workflow changed since you opened it.", RELOAD),
   rule_referenced: g("Other rules still depend on this one, so it cannot be removed.", EDIT, RELOAD),
   repo_not_found: g("That repository is not set up on the server.", EDIT),
   repo_not_local: g("That repository is not on this machine.", EDIT),

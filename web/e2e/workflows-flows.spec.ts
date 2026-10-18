@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
 import { withView } from "./fixtures/view";
-import { FORM_RUN_OUTPUTS, GONE_WORKFLOW, mockWorkflowsApi } from "./fixtures/workflows";
+import { FORM_RUN_OUTPUTS, mockWorkflowsApi } from "./fixtures/workflows";
 import { WORKFLOW_DOCS } from "../src/workflows/fixture";
 import type { WorkflowDef } from "../src/api/workflows";
 
@@ -25,7 +25,8 @@ async function open(
   const calls = await mockWorkflowsApi(page, WORKFLOW_DOCS, gone);
   await page.goto(path);
   await expect.poll(async () => (await agentState(page)).status).toBe("ready");
-  await expect(step(page, "Decide")).toBeVisible();
+  // The overview (nothing open) has no canvas.
+  if (path !== "/workflows") await expect(step(page, "Decide")).toBeVisible();
   return calls;
 }
 
@@ -88,7 +89,7 @@ test.describe("Workflows: step panel", () => {
   test("an invalid timeout is a guided error that blocks Done; a valid one is saved", async ({ page }) => {
     const calls = await open(page);
     await step(page, "Review").locator(".wf-card__name").click();
-    await page.getByRole("button", { name: "Edit Review" }).click();
+    await page.getByRole("button", { name: "Edit Review", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Edit Review" });
     await expect(dialog).toBeVisible();
     await noSeriousAxe(page, "step panel");
@@ -156,50 +157,5 @@ test.describe("Workflows: inputs and outputs editors", () => {
     await expect(dialog.getByRole("group", { name: "Variables" })).toBeVisible();
     await expect(dialog.getByRole("textbox", { name: "Name of output verdict" })).toHaveValue("verdict");
     await noSeriousAxe(page, "outputs editor");
-  });
-});
-
-test.describe("Workflows: deleted and purge", () => {
-  const showDeleted = async (page: Page) => {
-    await page.getByRole("button", { name: "Show deleted" }).click();
-    await expect(page.getByRole("button", { name: "Restore Old flow" })).toBeVisible();
-  };
-
-  test("an admin sees Purge; it dry-runs, then Confirm purge sends {apply:true}", async ({ page }) => {
-    const calls = await open(page, { gone: [GONE_WORKFLOW] });
-    await expect(page.getByText("Old flow")).toHaveCount(0);
-    await showDeleted(page);
-    expect(calls.some((c) => c.path === "/api/workflows" && c.search.includes("include_deleted=true"))).toBe(true);
-    await noSeriousAxe(page, "deleted view");
-
-    await page.getByRole("button", { name: "Purge Old flow" }).click();
-    const panel = page.getByRole("region", { name: "Purge Old flow" });
-    const confirm = panel.getByRole("button", { name: "Confirm purge" });
-    await expect(confirm).toBeEnabled();
-    await noSeriousAxe(page, "purge confirmation");
-    const purges = () => calls.filter((c) => c.path === "/api/workflows/old-flow/purge").map((c) => c.body);
-    expect(purges()).toEqual([{ apply: false }]);
-
-    await confirm.click();
-    await expect(panel).toHaveCount(0);
-    expect(purges()).toEqual([{ apply: false }, { apply: true }]);
-    await expect(page.getByText("Purged Old flow")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Restore Old flow" })).toHaveCount(0);
-  });
-
-  test("Cancel leaves the workflow unpurged", async ({ page }) => {
-    const calls = await open(page, { gone: [GONE_WORKFLOW] });
-    await showDeleted(page);
-    await page.getByRole("button", { name: "Purge Old flow" }).click();
-    await page.getByRole("region", { name: "Purge Old flow" }).getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("region", { name: "Purge Old flow" })).toHaveCount(0);
-    expect(calls.filter((c) => c.path.endsWith("/purge")).map((c) => c.body)).toEqual([{ apply: false }]);
-  });
-
-  test("a non-admin sees the deleted workflow and Restore, but no Purge", async ({ page }) => {
-    await open(page, { roles: ["viewer", "editor"], gone: [GONE_WORKFLOW] });
-    await showDeleted(page);
-    await expect(page.getByRole("button", { name: /^Purge/ })).toHaveCount(0);
-    await noSeriousAxe(page, "deleted view, non-admin");
   });
 });

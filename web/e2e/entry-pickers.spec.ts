@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import type { FakeApi } from "../src/rules/fake-api";
 import { mockRulesApi } from "./fixtures/rules";
+import { withView } from "./fixtures/view";
 
 /**
  * The typed trigger picker and the typed action picker, driven through the
@@ -26,10 +27,11 @@ const created = (api: FakeApi) =>
   api.calls.filter((c) => c.method === "POST" && c.path === "/rules").map((c) => c.body as Record<string, any>);
 
 async function openNewRule(page: Page, name: string) {
+  await withView(page); // entry points are edited in Detailed
   const api = await mockRulesApi(page);
   await page.goto("/workflows");
   await untilReady(page);
-  await page.getByRole("navigation", { name: "Workflows" }).getByRole("button", { name: "New rule" }).click();
+  await page.getByRole("button", { name: "New rule" }).first().click();
   const form = page.getByRole("form", { name: "New rule" });
   await form.getByLabel("Name").fill(name);
   return { api, form };

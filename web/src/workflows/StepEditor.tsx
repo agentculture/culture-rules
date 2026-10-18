@@ -16,6 +16,7 @@ import {
   disconnect,
   stepLabel,
   updateStep,
+  findStepDeep,
 } from "./model";
 import Panel from "./Panel";
 import {
@@ -334,7 +335,7 @@ export function StepEditor({
 }>) {
   const [errors, setErrors] = useState<Record<string, ErrorCode | null>>({});
   const [rawConfig, setRawConfig] = useState(false);
-  const step = (workflow.steps ?? []).find((s) => s.id === stepId);
+  const step = findStepDeep(workflow.steps, stepId);
   if (!step) return null;
   const setError = (field: string) => (code: ErrorCode | null) => setErrors((e) => ({ ...e, [field]: code }));
   const blocked = Object.values(errors).some(Boolean);
@@ -475,11 +476,23 @@ export function StepEditor({
           </label>
         </div>
         <label className="wf-field">
-          <span>Description</span>
+          <span>One-line description</span>
           <textarea
             rows={2}
+            aria-describedby={`${step.id}-description-hint`}
             value={step.description ?? ""}
             onChange={(e) => patch({ description: e.target.value })}
+          />
+        </label>
+        <small id={`${step.id}-description-hint`} className="wf-field__hint">
+          Start with a verb, one line: "Packs the commits for the hand-off." Technical detail goes in Notes.
+        </small>
+        <label className="wf-field">
+          <span>Notes</span>
+          <textarea
+            rows={3}
+            value={step.notes ?? ""}
+            onChange={(e) => patch({ notes: e.target.value })}
           />
         </label>
         {portRows("inputs")}

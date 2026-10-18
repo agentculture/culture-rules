@@ -14,14 +14,22 @@ role of every run in its chain. An edited workflow still runs; it can never push
 
 The digest (:func:`workflow_digest`) is sha256 over the definition the run pinned, put
 through the workflow model (so field order and defaults do not matter) without
-``version`` (which every save bumps), as compact sorted JSON. It is recomputed from the
+``version`` (which every save bumps) and ``notes`` (free text, on the workflow and every
+step, loop bodies included), as compact sorted JSON. It is recomputed from the
 run's pinned definition, never read from a stored digest.
 
+The digest is versioned (spec c16): :func:`workflow_digest_v2` also leaves out
+``description`` (workflow and every step), so editing prose never changes it. A run keeps
+its role when its v1 digest is in :data:`TRUSTED_WORKFLOWS` or its v2 digest is in
+:data:`TRUSTED_WORKFLOWS_V2`, the same role either way (a definition matching two roles is
+trusted in none). The v1 set holds the older pins and is retired in a later release.
+
 Rolling out a legitimate change: edit the workflow in ``docs/rules/pr-fixer/workflows/``;
-``tests/rules/test_trusted_workflow.py`` then fails and prints the new digest; add it to
-its role's set in the same PR (keep the old one while runs pinned to it may still push,
-remove it in a later release); ship the wheel, upgrade every node, then import the
-workflow. Standard-library only.
+``tests/rules/test_trusted_workflow.py`` then fails and prints the new v2 digest (or run
+``python -m culture_rules.actors.trusted workflow-v2 < FILE``); add it to
+its role's set in :data:`TRUSTED_WORKFLOWS_V2` in the same PR (keep the old one while runs
+pinned to it may still push, remove it in a later release); ship the wheel, upgrade every
+node, then import the workflow. Standard-library only.
 """
 
 from __future__ import annotations
@@ -38,15 +46,20 @@ __all__ = [
     "ROLE_SINGLE",
     "TRUSTED_ACTOR_DIGESTS",
     "TRUSTED_WORKFLOWS",
+    "TRUSTED_WORKFLOWS_V2",
     "actor_digest",
     "actor_refusal",
     "doc_refusal",
     "is_pinned",
     "trusted_workflow_digests",
     "workflow_digest",
+    "workflow_digest_v2",
     "workflow_refusal",
     "workflow_role",
 ]
+
+_DIGEST_PREFIX = "sha256:"
+"""The scheme prefix on every digest here, workflow (v1 and v2) and actor alike."""
 
 ROLE_SINGLE = "pr-fixer"
 """The d20 single workflow: fixes, gates, reviews and pushes in one run (its own review)."""
@@ -104,10 +117,50 @@ to one role: the role says what a run of that workflow may do - record a review,
 commit a review approves, push an approved commit - and the push verifies the WHOLE chain
 by role (:mod:`culture_rules.actors.lineage`)."""
 
+TRUSTED_WORKFLOWS_V2: dict[str, frozenset[str]] = {
+    # Spec 2026-10-17 workflow connecting phrases (c16, q5 option B): the v2 digests
+    # (:func:`workflow_digest_v2`, prose left out) of the definitions committed when the
+    # versioned digest shipped. A run is trusted when its v1 digest is in TRUSTED_WORKFLOWS
+    # or its v2 digest is here, in the same role either way. TRUSTED_WORKFLOWS (v1) stays
+    # for runs pinned to older definitions and is retired in a later release, as the d20
+    # and d21 pins were; new pins go here only.
+    # the single d20 workflow (tests/rules/fixtures/pr-fixer-single) is historical: it stays
+    # trusted through its v1 pin only and gets no v2 pin (spec h33, deviation d4)
+    ROLE_SINGLE: frozenset(),
+    # docs/rules/pr-fixer/workflows/pr-fix.json (#56's, v1 sha256:2255b082...)
+    ROLE_FIX: frozenset(
+        {
+            # the pre-rename definition (d12): stays while runs pinned to it may still push;
+            # remove in a later release
+            "sha256:4a92df7e0b127246fe668c8ea2233169088f1d9ee06df0bad33ebe2036dad769",
+            # the committed definition with the plain stand-in step names (d12)
+            "sha256:aaa5f90e2a391abcdebe93962dd697b173c5e7691bb6ad66763b82d6d670af47",
+        }
+    ),
+    # docs/rules/pr-fixer/workflows/review-commit.json (#39's, v1 sha256:0653ba8c...)
+    ROLE_REVIEW: frozenset(
+        {"sha256:e0a782fafb7aa406d83058290a45901afae7112fc33d1a0398a3e5ea31dec4ac"}
+    ),
+    # docs/rules/pr-fixer/workflows/publish-fix.json (d21, v1 sha256:0fa92074...)
+    ROLE_PUBLISH: frozenset(
+        {"sha256:540cb216fcc1ccccf8d5b7d29abd07427e9a22f6ad40bd930c3036890a3f9c84"}
+    ),
+}
+"""Per role, the v2 digests trusted in it (spec c16). Same roles as :data:`TRUSTED_WORKFLOWS`;
+a definition must come out in one role whichever version matched."""
+
+
+def _drop_notes(node: dict[str, Any]) -> None:
+    """Remove ``notes`` from a workflow doc and from every step, recursing into loop bodies."""
+    node.pop("notes", None)
+    for step in node.get("steps") or node.get("body") or ():
+        _drop_notes(step)
+
 
 def workflow_digest(definition: Any) -> str | None:
     """The trust digest of a workflow definition (dict or model), or ``None`` if it does
-    not parse as a workflow."""
+    not parse as a workflow. ``version`` and ``notes`` (workflow and every step, loop
+    bodies included) are left out of the hash."""
     from culture_rules.model.workflow import Workflow  # noqa: PLC0415 - model import is cheap
 
     try:
@@ -120,12 +173,47 @@ def workflow_digest(definition: Any) -> str | None:
     except Exception:  # noqa: BLE001 - anything unparseable is simply not trusted
         return None
     doc.pop("version", None)
+    _drop_notes(doc)
     text = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return _DIGEST_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+_PROSE = ("description", "notes")
+"""The free-text fields the v2 digest leaves out, on the workflow and every step."""
+
+
+def _drop_prose(node: dict[str, Any]) -> None:
+    """Remove :data:`_PROSE` from a workflow doc and from every step, loop bodies included.
+    Port descriptions stay in."""
+    for key in _PROSE:
+        node.pop(key, None)
+    for step in node.get("steps") or node.get("body") or ():
+        _drop_prose(step)
+
+
+def workflow_digest_v2(definition: Any) -> str | None:
+    """The v2 trust digest (spec c16): :func:`workflow_digest` that also leaves out
+    ``description`` (workflow and every step, loop bodies included), so editing prose never
+    changes it. ``None`` if the definition does not parse as a workflow."""
+    from culture_rules.model.workflow import Workflow  # noqa: PLC0415 - model import is cheap
+
+    try:
+        model = (
+            definition
+            if isinstance(definition, Workflow)
+            else Workflow.from_dict(dict(definition), strict=False)
+        )
+        doc = model.to_dict()
+    except Exception:  # noqa: BLE001 - anything unparseable is simply not trusted
+        return None
+    doc.pop("version", None)
+    _drop_prose(doc)
+    text = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _DIGEST_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def trusted_workflow_digests() -> frozenset[str]:
-    """Every trusted digest, whatever its role."""
+    """Every trusted v1 digest, whatever its role."""
     return frozenset().union(*TRUSTED_WORKFLOWS.values())
 
 
@@ -136,11 +224,19 @@ def workflow_role(run: Mapping[str, Any] | None) -> str | None:
     definition = pin.get("definition") if isinstance(pin, Mapping) else None
     if not isinstance(definition, Mapping):
         return None
-    digest = workflow_digest(definition)
-    if digest is None:
+    try:
+        v1 = workflow_digest(definition)
+        v2 = workflow_digest_v2(definition)
+    except Exception:  # noqa: BLE001 - fail closed: no error path grants a role
         return None
-    roles = [role for role, digests in TRUSTED_WORKFLOWS.items() if digest in digests]
-    return roles[0] if len(roles) == 1 else None  # a digest in two roles is trusted in none
+    roles = {
+        role for role, digests in TRUSTED_WORKFLOWS.items() if v1 is not None and v1 in digests
+    }
+    roles |= {
+        role for role, digests in TRUSTED_WORKFLOWS_V2.items() if v2 is not None and v2 in digests
+    }
+    # one role whichever version matched; a definition in two roles is trusted in none
+    return next(iter(roles)) if len(roles) == 1 else None
 
 
 def workflow_refusal(
@@ -246,7 +342,7 @@ def actor_digest(doc: Any) -> str | None:
     text = json.dumps(
         _actor_projection(doc), sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return _DIGEST_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def actor_refusal(store: Any, actor_id: Any) -> tuple[str | None, str | None]:
@@ -274,7 +370,8 @@ def is_pinned(actor_id: Any) -> bool:
 
 
 def main(argv: list[str] | None = None, stdin: Any = None) -> int:
-    """``python -m culture_rules.actors.trusted actor|workflow < FILE``: print the digest.
+    """``python -m culture_rules.actors.trusted actor|workflow|workflow-v2 < FILE``: print
+    the digest (``workflow`` is v1, ``workflow-v2`` the one new pins use).
 
     The document is read from standard input, never from a path argument, so the helper
     opens no file it is told to (an operator pipes the exported document in)."""
@@ -282,9 +379,15 @@ def main(argv: list[str] | None = None, stdin: Any = None) -> int:
 
     args = sys.argv[1:] if argv is None else argv
     source = sys.stdin if stdin is None else stdin
-    if len(args) != 1 or args[0] not in ("actor", "workflow"):
+    digests = {
+        "actor": actor_digest,
+        "workflow": workflow_digest,
+        "workflow-v2": workflow_digest_v2,
+    }
+    if len(args) != 1 or args[0] not in digests:
         print(
-            "usage: python -m culture_rules.actors.trusted actor|workflow < FILE", file=sys.stderr
+            "usage: python -m culture_rules.actors.trusted actor|workflow|workflow-v2 < FILE",
+            file=sys.stderr,
         )
         return 1
     try:
@@ -292,7 +395,7 @@ def main(argv: list[str] | None = None, stdin: Any = None) -> int:
     except ValueError:
         print("stdin is not a JSON document", file=sys.stderr)
         return 1
-    digest = actor_digest(doc) if args[0] == "actor" else workflow_digest(doc)
+    digest = digests[args[0]](doc)
     if digest is None:
         print(f"not a valid {args[0]} document", file=sys.stderr)
         return 1

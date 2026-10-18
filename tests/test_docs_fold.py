@@ -117,9 +117,12 @@ def test_run_events_states_the_stepless_workflow_fact() -> None:
 
 
 def test_pr_fixer_ops_doc_reads_the_fixer_as_one_chain() -> None:
+    # #69 d13: the overview has one card per workflow and no chain cards; the chain is
+    # drawn from an open workflow's header and read in Simple's paragraph.
     text = _flat("docs/operations/pr-fixer.md")
-    assert "chain card" in text
-    assert "Continues into" in text
+    assert "chain card" not in text
+    assert "See it as one chain" in text
+    assert "Then it continues into" in text
 
 
 def test_pr_fixer_ops_doc_explains_the_trusted_save_question() -> None:

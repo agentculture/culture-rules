@@ -124,17 +124,29 @@ function stampRule(api: FakeApi, rule: Rule, write = false): Rule {
   return stored;
 }
 
+/** `GET /workflows/{id}` and `GET /rules/{id}`; null when `path` is neither. */
+function getOne(api: FakeApi, path: string): FakeResponse | null {
+  const workflow = /^\/workflows\/([^/]+)$/.exec(path);
+  if (workflow) {
+    const found = api.workflows.find((w) => w.id === decodeURIComponent(workflow[1]));
+    return found ? json(200, found) : error(404, "not_found", path);
+  }
+  const rule = /^\/rules\/([^/]+)$/.exec(path);
+  if (rule) {
+    const found = api.rules.find((r) => r.id === decodeURIComponent(rule[1]));
+    return found ? json(200, stampRule(api, found)) : error(404, "not_found", path);
+  }
+  return null;
+}
+
 function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResponse {
   if (path === "/whoami") return json(200, WHOAMI);
   if (path === "/rules") return json(200, { items: api.rules.map((rule) => stampRule(api, rule)) });
   if (path === "/actors") return json(200, { items: ACTORS });
   if (path === "/machines") return json(200, { items: MACHINES });
   if (path === "/workflows") return json(200, { items: api.workflows });
-  const rule = /^\/rules\/([^/]+)$/.exec(path);
-  if (rule) {
-    const found = api.rules.find((r) => r.id === decodeURIComponent(rule[1]));
-    return found ? json(200, stampRule(api, found)) : error(404, "not_found", path);
-  }
+  const one = getOne(api, path);
+  if (one) return one;
   const described = /^\/rules\/([^/]+)\/describe$/.exec(path);
   if (described) return describeRule(api, described[1]);
   if (path === "/runs") return listRuns(api, query);
@@ -305,8 +317,33 @@ function createWorkflow(api: FakeApi, body: unknown): FakeResponse {
   if ([...api.workflows, ...api.workflowTrash].some((w) => w.id === doc.id)) {
     return error(409, "conflict", `${doc.id} exists`);
   }
-  api.workflows.push(structuredClone(doc));
+  api.workflows.push({ ...structuredClone(doc), revision: 1 });
   return json(201, api.workflows.at(-1));
+}
+
+/**
+ * `PUT /workflows/{id}`: replaces the definition only when `expected_revision` is the stored
+ * `revision` (a document with none reads as 0); the stored revision becomes that plus one.
+ * A missing or stale one is 409 `revision_conflict` carrying `current_revision`; a body with
+ * `revision` itself is 422 `unknown_field` (the server owns it).
+ */
+function putWorkflow(api: FakeApi, id: string, body: unknown): FakeResponse {
+  const found = api.workflows.find((w) => w.id === id);
+  if (!found) return error(404, "not_found", id);
+  const { expected_revision: expected, ...doc } = (body ?? {}) as WorkflowDef & { expected_revision?: unknown };
+  if ("revision" in doc) {
+    const errors = [{ path: "revision", code: "unknown_field", message: "Unknown field" }];
+    return json(422, { error: { code: "validation_error", message: "Invalid workflow", errors } });
+  }
+  const current = found.revision ?? 0;
+  if (expected !== current) {
+    const message = "The workflow changed since it was read";
+    const errors = [{ path: "expected_revision", code: "revision_conflict", message, current_revision: current }];
+    return json(409, { error: { code: "revision_conflict", message, errors } });
+  }
+  const stored = { ...doc, id, revision: current + 1 };
+  api.workflows[api.workflows.indexOf(found)] = stored;
+  return json(200, stored);
 }
 
 /** `DELETE /workflows/{id}`: a soft delete, into the trash. */
@@ -352,6 +389,7 @@ function takeForcedFailure(api: FakeApi, key: string): FakeResponse | undefined 
 function handleWrite(api: FakeApi, method: string, path: string, body: unknown): FakeResponse {
   if (method === "POST" && path === "/workflows") return createWorkflow(api, body);
   const workflow = /^\/workflows\/([^/]+)$/.exec(path);
+  if (method === "PUT" && workflow) return putWorkflow(api, decodeURIComponent(workflow[1]), body);
   if (method === "DELETE" && workflow) return deleteWorkflow(api, decodeURIComponent(workflow[1]), path);
   if (method === "POST" && path === "/rules") return createRule(api, body);
   const variable = /^\/variables\/([^/]+)$/.exec(path);

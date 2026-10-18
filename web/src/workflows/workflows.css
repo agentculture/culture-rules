@@ -993,6 +993,7 @@
 }
 
 .wf-field__hint {
+  display: block;
   margin: 4px 0 0;
   font-size: 14px;
   color: var(--ink-soft);
@@ -1412,4 +1413,32 @@
 .wf-trust-ask p {
   flex: 1 1 100%;
   margin: 0;
+}
+
+/*
+ * Simple opens the step and rule panels from text far down a long page: they stay in view
+ * (fixed, right), and the paragraph leaves them room on a wide screen (d14).
+ */
+.wf-stage--simple .wf-panel {
+  position: fixed;
+  /* Below the head and the view switch, so Save and Run stay reachable. */
+  top: 236px;
+  right: 24px;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 260px);
+}
+.wf-panel__close { float: right; }
+@media (min-width: 1100px) {
+  .wf-stage--pane .sv { padding-right: 480px; }
+}
+
+.wf-head__chain { color: var(--accent-strong); font-size: 14px; }
+.wf-chain-place { display: grid; gap: 12px; min-width: 0; }
+.wf-chain-place__bar { margin: 0; }
+.wf-chain-place__bar a { color: var(--accent-strong); }
+
+/* The rule pane is one column: the entry points, then the Then side, stacked. */
+.wf-panel--rule .fold-board,
+.wf-panel--rule .fold-board:not(:has(.fold-col--steps)) {
+  grid-template-columns: minmax(0, 1fr);
 }

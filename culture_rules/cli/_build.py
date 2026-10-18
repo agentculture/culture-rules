@@ -78,6 +78,19 @@ def _render_variables(items: list) -> str:
     return "\n".join(lines)
 
 
+def _paragraph_text(paragraph: dict) -> str:
+    """The paragraph, one sentence per line (d11), each disabled segment marked
+    ``(disabled)`` before its closing period (d13) and each stand-in for a missing step
+    description in ``[ ]``. Stripped of the marks it is exactly ``paragraph["text"]``."""
+    text = str(paragraph.get("text") or "")
+    segments = [s for s in paragraph.get("segments") or [] if isinstance(s, dict)]
+    if not any(s.get("disabled") or s.get("standin") for s in segments):
+        return text
+    from culture_rules.model.paragraph import mark_disabled, render_marked  # noqa: PLC0415
+
+    return render_marked(paragraph, mark_disabled, lambda c: f"[{c}]")
+
+
 def render_text(result: Any, noun: str | None = None) -> str:
     text = _render_dict(result, noun) if isinstance(result, dict) else None
     if text is not None:
@@ -91,6 +104,11 @@ def _render_dict(result: dict, noun: str | None) -> str | None:
         from culture_rules.cli._commands.overview import render_text as render  # noqa: PLC0415
 
         return render(result["subject"], result["sections"])
+    if isinstance(result.get("lines"), list) and isinstance(result.get("paragraph"), dict):
+        # workflows describe: the description, the paragraph, then the numbered lines
+        parts = [str(result.get("description") or ""), _paragraph_text(result["paragraph"])]
+        parts.append("\n".join(str(x) for x in result["lines"]))
+        return "\n\n".join(p for p in parts if p)
     if isinstance(result.get("lines"), list):
         return "\n".join(str(x) for x in result["lines"])  # a verb that renders itself
     if result.get("dry_run"):

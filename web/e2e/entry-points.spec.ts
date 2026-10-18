@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createFakeApi, withPendingAsk, type FakeApi } from "../src/rules/fake-api";
 import { mockRulesApi } from "./fixtures/rules";
+import { withView } from "./fixtures/view";
 
 /**
  * The Rules tab's scenarios (e2e/rules.spec.ts before the fold), moved to
@@ -33,6 +34,7 @@ function apiWith(...alsoBuildImage: string[]): FakeApi {
 
 /** Open build-image's Simple view at `rule`'s entry point (expanded). */
 async function openAt(page: Page, rule: string, name: string, api: FakeApi = createFakeApi()) {
+  await withView(page); // entry points are edited in Detailed
   await mockRulesApi(page, api);
   await page.goto(`/workflows?id=build-image&entry=${rule}`);
   await untilReady(page);
@@ -60,13 +62,13 @@ test.describe("Entry points (the Rules tab, folded into Workflows)", () => {
     const y = async (l: Locator) => (await l.boundingBox())!.y;
     expect(await y(card.locator(".fold-entry__trigger"))).toBeLessThan(await y(card.getByRole("list", { name: "Only if all of" })));
     expect(await y(card.getByRole("list", { name: "Only if all of" }))).toBeLessThan(await y(rel));
-    // When | Steps | Then, left to right; the action is the Then's "ends here".
+    // Detailed: the steps canvas above, then When | Then left to right; the action is the Then's "ends here".
     const x = async (l: Locator) => (await l.boundingBox())!.x;
-    const when = page.getByRole("heading", { level: 2, name: "When" });
-    const steps = page.getByRole("region", { name: "Steps of this workflow" });
-    const then = page.getByRole("heading", { level: 2, name: "Then" });
-    expect(await x(when)).toBeLessThan(await x(steps));
-    expect(await x(steps)).toBeLessThan(await x(then));
+    const when = page.getByRole("heading", { name: "When", exact: true });
+    const steps = page.getByLabel("Workflow canvas");
+    const then = page.getByRole("heading", { name: "Then", exact: true });
+    expect(await y(steps)).toBeLessThan(await y(when));
+    expect(await x(when)).toBeLessThan(await x(then));
     await expect(page.getByRole("group", { name: "Ends here", exact: true })).toContainText("Publish");
     await expect(card.getByRole("button", { name: "Add condition" })).toBeVisible();
     await page.screenshot({ path: SCREENSHOT, fullPage: true });
@@ -186,10 +188,11 @@ test.describe("Entry points (the Rules tab, folded into Workflows)", () => {
   });
 
   test("a new rule starts from 'New rule', asks 'When does this happen?', gets its workflow and grows through +", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     const api = await mockRulesApi(page);
     await page.goto("/workflows");
     await untilReady(page);
-    await page.getByRole("navigation", { name: "Workflows" }).getByRole("button", { name: "New rule" }).click();
+    await page.getByRole("button", { name: "New rule" }).first().click();
     const form = page.getByRole("form", { name: "New rule" });
     await expect(form).toContainText("When does this happen?");
     await form.getByLabel("Name").fill("Disk is nearly full");

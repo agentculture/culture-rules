@@ -8,12 +8,17 @@ that references a shared variable is also refused when the variable is undefined
 (``variables_unsupported_nodes``, deviation d7). Every
 mutating verb writes its change and exactly one audit entry in one transaction. Nothing is
 cached in the process: each call reads the store.
+
+Workflows carry a server-owned ``revision`` (:mod:`culture_rules.store.revision`, spec c34):
+every write bumps it, and an update writes only when its ``expected_revision`` equals the
+stored one, compared inside the write's transaction (else :class:`RevisionConflict`, 409).
 """
 
 from __future__ import annotations
 
 import json
 import math
+import re
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
@@ -26,18 +31,22 @@ from culture_rules.engine.variables import defined_variables, nodes_without_vari
 from culture_rules.io import exchange, gitrepo
 from culture_rules.io.bundle import KINDS, Bundle, SecretRef, check_name
 from culture_rules.model.machine import Machine
+from culture_rules.model.migrate_notes import migrate_notes, notes_changes
 from culture_rules.model.rule import Rule
 from culture_rules.model.validate import validate, validate_data, variable_ref_errors
 from culture_rules.model.variable import validate_variable_name
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
+from culture_rules.store import revision as rev
 from culture_rules.store.port import Document, StoragePort, VariableVersionConflict
+from culture_rules.store.retry import run_transaction
 
 __all__ = [
     "DEFINITION_KINDS",
     "Conflict",
     "Definitions",
     "Invalid",
+    "RevisionConflict",
     "RuleReferenced",
     "NotFound",
     "ServiceError",
@@ -84,6 +93,79 @@ class Conflict(ServiceError):
     """The target is in the wrong state for this verb (HTTP 409)."""
 
     code = "conflict"
+
+
+class RevisionConflict(Conflict):
+    """A workflow update named a missing or stale ``expected_revision`` (HTTP 409); the one
+    error entry carries ``current_revision`` so the client can reload and apply again."""
+
+    code = "revision_conflict"
+
+
+def _revision_conflict(kind: str, ident: str, expected: Any, current: int) -> RevisionConflict:
+    if expected is None:
+        message = (
+            f"{kind}/{ident} is at revision {current}; an update must name the revision it "
+            f"was read at in `{rev.EXPECTED_REVISION}`"
+        )
+    else:
+        message = (
+            f"{kind}/{ident} is at revision {current}, not {expected}; it changed since it "
+            "was read: reload it and apply the change again"
+        )
+    return RevisionConflict(
+        message,
+        [
+            {
+                "path": rev.EXPECTED_REVISION,
+                "code": RevisionConflict.code,
+                "message": message,
+                "current_revision": current,
+            }
+        ],
+    )
+
+
+def _expected_revision(body: Any) -> tuple[Any, Any]:
+    """``(body without expected_revision, expected_revision or None)``; 422 when it is not a
+    non-negative integer."""
+    if not isinstance(body, Mapping) or rev.EXPECTED_REVISION not in body:
+        return body, None
+    rest = {k: v for k, v in body.items() if k != rev.EXPECTED_REVISION}
+    value = body[rev.EXPECTED_REVISION]
+    if value is None:
+        return rest, None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise Invalid(
+            f"{rev.EXPECTED_REVISION} must be a non-negative integer",
+            [
+                {
+                    "path": rev.EXPECTED_REVISION,
+                    "code": "type",
+                    "message": f"{value!r} is not a non-negative integer",
+                }
+            ],
+        )
+    return rest, value
+
+
+def _check_before(kind: str, ident: str, before: Any, expect_id: str | None) -> None:
+    """Refuse a save against what the transaction read: a create of an existing id, an update
+    of a missing or soft-deleted one."""
+    if expect_id is None and before is not None:
+        raise Conflict(f"{kind}/{ident} already exists")
+    if expect_id is not None:
+        if before is None:
+            raise NotFound(f"{kind}/{ident} does not exist")
+        if not _is_live(before):
+            raise Conflict(f"{kind}/{ident} is deleted; restore it first")
+
+
+def _check_revision(kind: str, ident: str, before: Any, expected: Any) -> None:
+    """Refuse an update whose ``expected`` revision is missing or not ``before``'s."""
+    current = rev.current_revision(before)
+    if expected is None or expected != current:
+        raise _revision_conflict(kind, ident, expected, current)
 
 
 class RuleReferenced(Conflict):
@@ -156,6 +238,45 @@ def _old_node_errors(rules: Iterable[Any], lacking: list[str]) -> list[dict[str,
 def _rule_set_errors(rules: Iterable[Rule], workflows: Iterable[Workflow]) -> list[dict[str, str]]:
     found = validate_rule_set(list(rules), {w.id: w for w in workflows})
     return [e.to_dict() for e in found]
+
+
+def _slug_for(name: str, taken: Iterable[str], fallback: str = "workflow") -> str:
+    """The editor's ``slugFor`` (web/src/routes/rules-view.ts): a slug of ``name`` not taken."""
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or fallback
+    used = set(taken)
+    slug, n = base, 2
+    while slug in used:
+        slug = f"{base}-{n}"
+        n += 1
+    return slug
+
+
+def _has_no_workflow(doc: Mapping[str, Any]) -> bool:
+    """The fold's ``d7Candidates`` test (web/src/fold/model.ts): ``!rule.workflow?.id``."""
+    ref = doc.get("workflow")
+    return not (isinstance(ref, Mapping) and ref.get("id"))
+
+
+def _stranded(
+    rules: Iterable[Mapping[str, Any]], live: set[str], taken: set[str]
+) -> list[dict[str, Any]]:
+    """The rules whose workflow reference names no live workflow (``migrate_orphans``'s
+    ``not_adopted``): ``reason`` is ``deleted`` when the id is ``taken`` (soft-deleted),
+    else ``missing``."""
+    return [
+        {
+            "rule_id": r["id"],
+            "rule_name": r.get("name"),
+            "workflow_id": r["workflow"]["id"],
+            "reason": "deleted" if r["workflow"]["id"] in taken else "missing",
+        }
+        for r in rules
+        if not _has_no_workflow(r) and r["workflow"]["id"] not in live
+    ]
+
+
+def _notes_entry(doc: Mapping[str, Any]) -> dict[str, Any]:
+    return {"id": doc["id"], "name": doc.get("name"), "nodes": notes_changes(doc)}
 
 
 class Definitions:
@@ -265,27 +386,31 @@ class Definitions:
         check: SaveCheck | None = None,
     ) -> Document:
         require_identity(identity)
+        revisioned = rev.is_revisioned(kind) and expect_id is not None
+        expected = None
+        if revisioned:
+            body, expected = _expected_revision(body)
         obj, ident = self._parse(kind, body)
         if expect_id is not None and ident != expect_id:
             raise Invalid(
                 "body id does not match the URL",
                 [{"path": "id", "code": "id_mismatch", "message": f"{ident!r} != {expect_id!r}"}],
             )
-        with self._store.transaction() as tx:
+
+        def write(tx: Any) -> Document:
             before = tx.get(kind, ident)
-            if expect_id is None and before is not None:
-                raise Conflict(f"{kind}/{ident} already exists")
-            if expect_id is not None:
-                if before is None:
-                    raise NotFound(f"{kind}/{ident} does not exist")
-                if not _is_live(before):
-                    raise Conflict(f"{kind}/{ident} is deleted; restore it first")
+            _check_before(kind, ident, before, expect_id)
+            if revisioned:
+                # compare inside the transaction: the put below replaces exactly the document
+                # read here, so a concurrent writer makes this attempt lose (and the retry
+                # re-reads and refuses with the revision it finds)
+                _check_revision(kind, ident, before, expected)
             if isinstance(obj, Rule):
                 self._check_rule_set(tx, obj)
             doc = self._stored(obj, ident)
             if check is not None:
                 check(kind, before, doc)
-            after = tx.put(kind, doc)
+            after = tx.put(kind, {**doc, **rev.bump(kind, before)})
             self._audit.write(
                 tx,
                 identity=identity,
@@ -295,7 +420,12 @@ class Definitions:
                 before=before,
                 after=after,
             )
-        return after
+            return after
+
+        if rev.is_revisioned(kind):
+            return run_transaction(self._store, write)
+        with self._store.transaction() as tx:
+            return write(tx)
 
     @mutating_verb("definitions.create", "Create a rule, workflow, actor or machine")
     def create(
@@ -307,6 +437,9 @@ class Definitions:
     def update(
         self, kind: str, id: str, body: Any, identity: str, *, check: SaveCheck | None = None
     ) -> Document:
+        """Replace a definition. For a workflow, ``body`` also carries ``expected_revision``
+        (the revision it was read at); a missing or stale one raises :class:`RevisionConflict`
+        and nothing is written."""
         return self._save(kind, body, identity, "definitions.update", id, check)
 
     @mutating_verb("definitions.set_enabled", "Enable or disable a definition")
@@ -328,7 +461,12 @@ class Definitions:
                 )
                 if errors:
                     raise Invalid("rule cannot be enabled yet", errors)
-            res = tx.update_if(kind, id, {"enabled": before.get("enabled")}, {"enabled": enabled})
+            res = tx.update_if(
+                kind,
+                id,
+                {"enabled": before.get("enabled"), **rev.guard(kind, before)},
+                {"enabled": enabled, **rev.bump(kind, before)},
+            )
             if not res.won:
                 raise Conflict(f"{kind}/{id} changed concurrently")
             self._audit.write(
@@ -341,6 +479,118 @@ class Definitions:
                 after=res.document,
             )
         return res.document
+
+    @mutating_verb("definitions.migrate_notes", "Move workflow and step descriptions to notes")
+    def migrate_notes(self, identity: str, *, apply: bool = False) -> list[dict[str, Any]]:
+        """Move description to notes in every live workflow that still has any (c17, h14).
+
+        Dry-run unless ``apply``: it lists ``{id, name, nodes}`` per workflow it would change
+        (``nodes`` is ``workflow`` and/or step ids) and writes nothing. Applied, each workflow
+        is rewritten in its own transaction with one audit entry and a bumped revision, so a
+        tab read before the migration cannot overwrite it; it needs no expected revision. A
+        workflow with nothing to move is not written, so a second apply changes nothing.
+        """
+        require_identity(identity)
+        found: list[dict[str, Any]] = []
+        for doc in self.list("workflows"):
+            if not notes_changes(doc):
+                continue
+            if not apply:
+                found.append(_notes_entry(doc))
+                continue
+
+            def write(tx: Any, wid: str = doc["id"]) -> dict[str, Any] | None:
+                before = tx.get("workflows", wid)
+                if before is None or not _is_live(before) or not notes_changes(before):
+                    return None
+                after = tx.put(
+                    "workflows", {**migrate_notes(before), **rev.bump("workflows", before)}
+                )
+                self._audit.write(
+                    tx,
+                    identity=identity,
+                    verb="definitions.migrate_notes",
+                    collection="workflows",
+                    target_id=wid,
+                    before=before,
+                    after=after,
+                )
+                return _notes_entry(before)
+
+            entry = run_transaction(self._store, write)
+            if entry is not None:
+                found.append(entry)
+        return found
+
+    @mutating_verb("definitions.migrate_orphans", "Give each workflow-less rule its own workflow")
+    def migrate_orphans(self, identity: str, *, apply: bool = False) -> dict[str, Any]:
+        """Give every live rule with no workflow reference a stepless workflow of its own (D7).
+
+        The orphan test is the editor's ``d7Candidates`` (a null, absent or empty workflow id).
+        The workflow is what ``createD7Workflow`` makes: the id is the rule name's slug avoiding
+        every workflow id in the store (soft-deleted included), the name is the rule's name, no
+        steps and no edges; the rule then gets ``workflow: {id}`` and nothing else. Workflow and
+        rule are written in one transaction per rule, with two audit entries (workflow create,
+        rule update); the workflow starts at revision 1. Dry-run unless ``apply``: it
+        lists ``{rule_id, rule_name, workflow_id}``. Rules whose reference names a missing or
+        soft-deleted
+        workflow are only listed (``not_adopted``), never written; nothing is ever deleted.
+        A second apply finds none.
+        """
+        require_identity(identity)
+        docs = self._store.find("workflows")
+        live = {d["id"] for d in docs if _is_live(d)}
+        taken = {d["id"] for d in docs}
+        stranded = _stranded(self.list("rules"), live, taken)
+        found: list[dict[str, Any]] = []
+        for doc in self.list("rules"):
+            if not _has_no_workflow(doc):
+                continue
+            if not apply:
+                wid = _slug_for(doc.get("name") or "", taken)
+                taken.add(wid)
+                found.append(
+                    {"rule_id": doc["id"], "rule_name": doc.get("name"), "workflow_id": wid}
+                )
+                continue
+
+            def write(tx: Any, rid: str = doc["id"]) -> dict[str, Any] | None:
+                before = tx.get("rules", rid)
+                if before is None or not _is_live(before) or not _has_no_workflow(before):
+                    return None
+                wid = _slug_for(before.get("name") or "", {d["id"] for d in tx.find("workflows")})
+                obj, ident = self._parse(
+                    "workflows",
+                    {"id": wid, "name": before.get("name") or wid, "steps": [], "edges": []},
+                )
+                created = tx.put(
+                    "workflows", {**self._stored(obj, ident), **rev.bump("workflows", None)}
+                )
+                self._audit.write(
+                    tx,
+                    identity=identity,
+                    verb="definitions.migrate_orphans",
+                    collection="workflows",
+                    target_id=wid,
+                    before=None,
+                    after=created,
+                )
+                after = tx.put("rules", {**before, "workflow": {"id": wid}})
+                self._audit.write(
+                    tx,
+                    identity=identity,
+                    verb="definitions.migrate_orphans",
+                    collection="rules",
+                    target_id=rid,
+                    before=before,
+                    after=after,
+                )
+                return {"rule_id": rid, "rule_name": before.get("name"), "workflow_id": wid}
+
+            entry = run_transaction(self._store, write)
+            if entry is not None:
+                found.append(entry)
+        return {"rules": found, "not_adopted": stranded}
 
     def restore(self, kind: str, id: str, identity: str, life: Lifecycle) -> Document:
         """Restore a tombstoned definition through ``life`` (audited there), refusing an
@@ -563,6 +813,10 @@ class Definitions:
             if not apply:
                 return plan
             for kind, doc in writes:
+                # an import change is a write like any other: the stored revision plus one
+                # (never the bundle's; it carries none)
+                if rev.is_revisioned(kind):
+                    doc = {**doc, **rev.bump(kind, tx.get(kind, doc["id"]))}
                 tx.put(kind, doc)
             self._audit.write(
                 tx,

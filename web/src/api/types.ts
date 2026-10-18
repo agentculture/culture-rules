@@ -217,9 +217,35 @@ export interface DescribeEntry {
  * `GET /rules/{id}/describe` and `GET /workflows/{id}/describe` — the
  * Description schema: a plain description generated from the config only.
  */
+export interface ParagraphSegment {
+  part: string;
+  text: string;
+  /** a disabled rule's or step's segment (d13): shown muted with a small "disabled" tag, no words in `text` */
+  disabled?: boolean;
+  /** Segments of one sentence share a number; the Simple view shows one line per sentence (d11). */
+  sentence?: number;
+  /** A step with no description: `text` is its stand-in, shown italic and marked not written yet. */
+  standin?: boolean;
+  /** Step: its text as it reads in the sentence (first letter lowered, no final period). */
+  shown?: string;
+  /** Step: trailing clauses (wait, retry, loop bounds) and the sentence's closing period. */
+  tail?: string;
+  tail_keys?: string[];
+  [key: string]: unknown;
+}
+
+export interface Paragraph {
+  segments: ParagraphSegment[];
+  text: string;
+}
+
 export interface Description {
   id: string;
   kind: "rule" | "workflow";
+  /** Workflow only: its own plain description, empty when none. */
+  description?: string;
+  /** Workflow only: its rules and steps as one paragraph. */
+  paragraph?: Paragraph;
   lines: string[];
   entries: DescribeEntry[];
 }
