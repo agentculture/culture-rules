@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-10-18
+
+### Changed
+
+- Close out workflow-connecting-phrases (#69): the operator approved evidence e1-e14, deltas b1-b9 and lapse l2; t20 rolled 0.21.0 out live (4 nodes, rollout verify passed, migrate-notes moved 10 workflows byte for byte), filed as e15 and e16; the delivery summary records it, with the first post-rollout pr-fix chain run still to observe
+
 ## [0.21.0] - 2026-10-18
 
 ### Added

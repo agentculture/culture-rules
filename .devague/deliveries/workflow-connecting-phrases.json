@@ -2,7 +2,7 @@
   "plan_slug": "workflow-connecting-phrases",
   "schema_version": 2,
   "created": "2026-10-17T19:24:42Z",
-  "updated": "2026-10-18T08:08:52Z",
+  "updated": "2026-10-18T19:49:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -508,6 +508,44 @@
       "status": "approved",
       "superseded": false,
       "seq": 29
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o6",
+      "test_ref": "live rollout 0.21.0 on rules.culture.dev: culture-rules workflows migrate-notes (dry run, --apply, dry run again)",
+      "behavior_text": "the dry run listed 10 stored workflows, --apply moved them, the second dry run listed 0; every node, the API and the engine verified on 0.21.0 (rollout verify exit 0, 26 rules enabled = snapshot)",
+      "contract_text": "A dry run writes nothing; --apply moves description to notes byte for byte, in one audited write per workflow; a second --apply is a no-op",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "run live on the production API through the release CLI, each step's exit code checked before the next",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-18T09:24:00Z",
+        "commit": "2be3b8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o6",
+      "test_ref": "live read of /workflows/{id} for the 9 migrated workflows with a committed 0.20.1 file (9023caf docs/rules), compared with each 0.20.1 workflow and step description",
+      "behavior_text": "51 of 51 pre-migration descriptions (workflow and step level) equal the live notes byte for byte; the sampled live description reads empty",
+      "contract_text": "--apply moves description to notes byte for byte",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "byte comparison against the last committed release's text, not the audit trail; pr-fixer (store-only, no committed file) was not compared",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-18T19:45:00Z",
+        "commit": "2be3b8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
     }
   ],
   "deltas": [
