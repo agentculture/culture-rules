@@ -5,6 +5,7 @@ import { statStatuses } from "../src/statistics/fixture";
 import { mockApi } from "./fixtures/api";
 import { LiveFeed } from "./fixtures/live";
 import { mockRulesApi } from "./fixtures/rules";
+import { withView } from "./fixtures/view";
 import { mockStatistics } from "./fixtures/statistics";
 
 async function agentState(page: Page) {
@@ -28,6 +29,7 @@ test.describe("live editor updates (h61 / c80)", () => {
     const pageA = await a.newPage();
     const pageB = await b.newPage();
     for (const page of [pageA, pageB]) {
+      await withView(page);
       await mockRulesApi(page, api);
       await feed.broadcastWrites(page);
       await feed.attach(page);
@@ -48,10 +50,6 @@ test.describe("live editor updates (h61 / c80)", () => {
     await swA.click();
     await expect(swA).toHaveAttribute("aria-checked", "false");
     await expect(swB).toHaveAttribute("aria-checked", "false", { timeout: 10_000 });
-    // The list's copy follows too: the same rule is listed under build-image, disabled.
-    await expect(
-      pageB.getByRole("navigation", { name: "Workflows" }).locator('.fold-entry[data-rule-id="build-and-publish"]'),
-    ).toContainText("Disabled");
     expect(navigations).toBe(0);
     // One stream per page: the board's, which the Simple view shares (no second EventSource).
     const collections = feed.streams.map((u) => new URL(u).searchParams.get("collections"));
@@ -74,6 +72,7 @@ test.describe("live editor updates (h61 / c80)", () => {
         host: "spark",
       },
     ];
+    await withView(page);
     await mockRulesApi(page, api);
     await page.goto(ENTRY);
     await untilReady(page);

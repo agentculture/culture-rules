@@ -30,6 +30,14 @@ import {
 
 const NOW = Date.parse("2026-10-03T12:00:00Z");
 
+const describeBody = (start: string) => ({
+  id: "review-pr",
+  kind: "workflow",
+  lines: [],
+  entries: [],
+  paragraph: { segments: [{ part: "start", keys: [], text: start }], text: start },
+});
+
 function routes(overrides: ApiRoutes = {}): ApiRoutes {
   return {
     "/api/whoami": { body: WHOAMI },
@@ -37,6 +45,7 @@ function routes(overrides: ApiRoutes = {}): ApiRoutes {
     "/api/machines": { body: { items: MACHINES } },
     "/api/workflows": { body: { items: WORKFLOW_DOCS } },
     "/api/workflows/review-pr": { body: REVIEW_PR },
+    "/api/workflows/review-pr/describe": { body: describeBody("It starts when github.pull_request_review arrives.") },
     "/api/actors": { body: { items: ACTORS } },
     "/api/runs": { body: { items: workflowRunsFor(NOW) } },
     "/api/runs/run-7": { body: RUN_7 },
@@ -392,14 +401,13 @@ describe("Workflows board (Chosen — Workflows)", () => {
     // The old <select> switcher is gone: the list on the left switches.
     expect(screen.queryByRole("combobox", { name: "Workflow" })).toBeNull();
     const list = screen.getByRole("navigation", { name: "Workflows" });
-    // The folded list: one row per stored workflow (its h3), plus the rules that start it.
-    const rows = [...list.querySelectorAll(".fold-workflow[data-workflow-id]:not([data-missing]) h3")];
-    expect(rows.map((h) => h.textContent).sort()).toEqual(["Build image", "Review PR"]);
-    expect(within(list).getByRole("link", { name: "Review PR" })).toHaveAttribute("aria-current", "true");
+    // The compact pane: one name-only row per stored workflow.
+    expect([...list.querySelectorAll("a")].map((a) => a.textContent).sort()).toEqual(["Build image", "Review PR"]);
+    expect(within(list).getByRole("link", { name: "Review PR" })).toHaveAttribute("aria-current", "page");
     await user.click(within(list).getByRole("link", { name: "Build image" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Build image" })).toBeInTheDocument();
     expect(where).toBe("/workflows?id=build-image");
-    expect(within(list).getByRole("link", { name: "Build image" })).toHaveAttribute("aria-current", "true");
+    expect(within(list).getByRole("link", { name: "Build image" })).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(workflowsState()).toMatchObject({ count: 2, selected: "build-image" }));
   });
 
@@ -456,11 +464,12 @@ describe("Workflows tab live updates (h61 / c80)", () => {
     ]);
   });
 
-  it("a rules change re-reads the list, so a new entry point shows", async () => {
+  it("a rules change reads the Simple paragraph again, so a new entry point shows", async () => {
+    localStorage.setItem(VIEW_MODE_KEY, "simple");
     renderWorkflows();
     await loaded();
-    const list = screen.getByRole("navigation", { name: "Workflows" });
-    expect(within(list).queryByRole("link", { name: "Late reviewer" })).toBeNull();
+    expect(await screen.findByText("It starts when github.pull_request_review arrives.")).toBeInTheDocument();
+    api["/api/workflows/review-pr/describe"] = { body: describeBody("It starts when two things arrive.") };
     api["/api/rules"] = {
       body: {
         items: [
@@ -470,7 +479,7 @@ describe("Workflows tab live updates (h61 / c80)", () => {
       },
     };
     await emit("rules", "late-reviewer");
-    expect(await within(list).findByRole("link", { name: "Late reviewer" })).toBeInTheDocument();
+    expect(await screen.findByText("It starts when two things arrive.")).toBeInTheDocument();
   });
 
   it("a runs change re-reads the overlaid run, so the overlay follows it", async () => {

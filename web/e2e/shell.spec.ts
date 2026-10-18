@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
 import { mockRulesApi } from "./fixtures/rules";
+import { withView } from "./fixtures/view";
 
 /** Where the board screenshot lands, for review against the canvas (Fold-Editor). */
 const SCREENSHOT = process.env.RULES_SCREENSHOT ?? "test-results/workflows-board.png";
@@ -120,20 +121,22 @@ test.describe("culture-rules shell", () => {
     expect(still.split(",").every((d) => parseFloat(d) <= 0.00001)).toBe(true);
   });
 
-  test("the Workflows board with an entry point open: list | board, When | Steps | Then (screenshot)", async ({ page }) => {
+  test("the Workflows board with an entry point open (Detailed): pane | board, Steps above When | Then (screenshot)", async ({ page }) => {
+    await withView(page);
     await mockApi(page);
     await page.goto(ENTRY);
     await untilReady(page);
     await expect(page.getByRole("heading", { level: 1, name: "Build image" })).toBeVisible();
-    // Two columns at 1280px: the list, then the board.
-    const list = (await page.getByRole("navigation", { name: "Workflows" }).boundingBox())!;
+    // Two columns at 1280px: the compact pane, then the board.
+    const list = (await page.locator("aside.wf-pane").boundingBox())!;
     const main = (await page.getByRole("main").boundingBox())!;
     expect(list.x + list.width).toBeLessThanOrEqual(main.x);
-    // The Simple view's three columns side by side: When | Steps | Then.
-    const x = async (name: string) => (await page.getByRole("heading", { level: 2, name, exact: true }).boundingBox())!.x;
-    const steps = (await page.getByRole("region", { name: "Steps of this workflow" }).boundingBox())!;
-    expect(await x("When")).toBeLessThan(steps.x);
-    expect(steps.x).toBeLessThan(await x("Then"));
+    // Detailed: the steps canvas, then the entry points below it, When left of Then.
+    const x = async (name: string) => (await page.getByRole("heading", { name, exact: true }).boundingBox())!.x;
+    const steps = (await page.getByLabel("Workflow canvas").boundingBox())!;
+    const editors = (await page.getByRole("region", { name: "Entry points and Then" }).boundingBox())!;
+    expect(steps.y).toBeLessThan(editors.y);
+    expect(await x("When")).toBeLessThan(await x("Then"));
     // Type scale: board h1 is Fraunces 40px, tabs 17px.
     const h1 = page.getByRole("heading", { level: 1 });
     expect(await h1.evaluate((el) => getComputedStyle(el).fontSize)).toBe("40px");
@@ -141,9 +144,9 @@ test.describe("culture-rules shell", () => {
     expect(
       await page.getByRole("link", { name: "Workflows", exact: true }).evaluate((el) => getComputedStyle(el).fontSize),
     ).toBe("17px");
-    // The entry point is open, and the view switch says Simple.
+    // The entry point is open, and the view switch says Detailed.
     await expect(page.getByRole("group", { name: "Entry point: Build and publish" })).toHaveAttribute("data-rule-id", "build-and-publish");
-    await expect(page.getByRole("group", { name: "Canvas view" }).getByRole("button", { name: "Simple" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("group", { name: "Canvas view" }).getByRole("button", { name: "Detailed" })).toHaveAttribute("aria-pressed", "true");
     await page.screenshot({ path: SCREENSHOT, fullPage: true });
   });
 });

@@ -9,7 +9,11 @@ import pytest
 
 from culture_rules.model.describe import (
     ACTION_WORDS,
+    CONDITION_FALLBACK,
+    CONDITION_WORDS_CAP,
+    _words,
     condition_text,
+    condition_words,
     describe_rule,
     describe_workflow,
     render,
@@ -20,6 +24,8 @@ from culture_rules.model.rule import Rule
 from culture_rules.model.workflow import Workflow
 
 EMAIL_SEND = "email.send"
+RULES_DOCS = Path(__file__).resolve().parents[2] / "docs" / "rules"
+SNAPSHOT = "condition_text_docs_rules.json"
 BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "pr-fixer"
 
 
@@ -648,3 +654,144 @@ def test_a_status_comment_action_says_so():
 def test_action_words_cover_the_newspaper_kinds():
     for kind in (EMAIL_SEND, "search.web", "llm.complete", "library.push"):
         assert kind in ACTION_WORDS, kind
+
+
+# --------------------------------------------------------------------------- condition_words (t5)
+
+_F = {"field": "fixer"}
+
+
+def _cmp(cmp: str, right: object = "x") -> dict:
+    return {"op": "compare", "cmp": cmp, "left": _F, "right": {"literal": right}}
+
+
+@pytest.mark.parametrize(
+    ("cmp", "words"),
+    [
+        ("==", "fixer is x"),
+        ("!=", "fixer is not x"),
+        ("<", "fixer is below 3"),
+        ("<=", "fixer is at most 3"),
+        (">", "fixer is above 3"),
+        (">=", "fixer is at least 3"),
+    ],
+)
+def test_condition_words_compare(cmp, words):
+    assert condition_words(_cmp(cmp, 3 if "3" in words else "x")) == words
+
+
+def test_condition_words_in_literal_and_var():
+    lit = {"op": "in", "value": _F, "items": {"literal": ["a", "qwen-fixer"]}}
+    assert condition_words(lit) == "fixer is one of a, qwen-fixer"
+    var = {"op": "in", "value": _F, "items": {"var": "fixers"}}
+    assert condition_words(var) == "fixer is one of vars.fixers"
+    none = {"op": "in", "value": _F, "items": {"literal": []}}
+    assert condition_words(none) == "fixer is one of nothing"
+
+
+@pytest.mark.parametrize(
+    ("items", "words"),
+    [
+        (["", "qwen-fixer"], "fixer is empty or qwen-fixer"),
+        (["qwen-fixer", ""], "fixer is empty or qwen-fixer"),
+        (["", "a", "b"], "fixer is empty or one of a, b"),
+        ([""], "fixer is empty"),
+    ],
+)
+def test_condition_words_say_the_empty_string_first_in_a_list(items, words):
+    """d13: an ``in`` list holding the empty string says ``empty`` first."""
+    assert condition_words({"op": "in", "value": _F, "items": {"literal": items}}) == words
+
+
+def test_condition_words_read_the_empty_string_as_empty_but_symbols_keep_it():
+    """d13: ``empty`` in words only; d19's condition_text keeps ``""``."""
+    eq = {"op": "compare", "cmp": "==", "left": _F, "right": {"literal": ""}}
+    ne = {**eq, "cmp": "!="}
+    assert condition_words(eq) == "fixer is empty"
+    assert condition_words(ne) == "fixer is not empty"
+    assert condition_text(eq) == 'fixer = ""'
+    lit = {"op": "in", "value": _F, "items": {"literal": ["", "qwen-fixer"]}}
+    assert condition_text(lit) == 'fixer ∈ {"", qwen-fixer}'
+
+
+def test_condition_words_exists_and_not_exists():
+    assert condition_words({"op": "exists", "arg": _F}) == "fixer is set"
+    not_set = {"op": "not", "arg": {"op": "exists", "arg": _F}}
+    assert condition_words(not_set) == "fixer is not set"
+
+
+def test_condition_words_not():
+    node = {"op": "not", "arg": _cmp("==")}
+    assert condition_words(node) == "it is not the case that fixer is x"
+
+
+def test_condition_words_matches():
+    node = {"op": "matches", "value": _F, "pattern": "a.*"}
+    assert condition_words(node) == "fixer matches /a.*/"
+
+
+def test_condition_words_and_or_nesting():
+    inner = {"op": "or", "args": [_cmp("=="), _cmp("!=")]}
+    node = {"op": "and", "args": [inner, {"op": "exists", "arg": _F}]}
+    assert condition_words(node) == "(fixer is x or fixer is not x) and fixer is set"
+    assert condition_words(inner) == "fixer is x or fixer is not x"
+
+
+def test_condition_words_malformed_never_raises():
+    assert condition_words("nope") == "?"
+    assert condition_words({"op": "bogus"}) == "bogus"
+    assert condition_words({}) == "?"
+
+
+def test_condition_words_over_cap_falls_back():
+    assert CONDITION_FALLBACK == "if its condition holds"
+    long = {"op": "and", "args": [_cmp("==", "v" * 40)] * 4}
+    assert len(_words(long)) > CONDITION_WORDS_CAP
+    assert condition_words(long) == CONDITION_FALLBACK
+    at_cap = {"op": "compare", "cmp": "==", "left": _F, "right": {"literal": "v" * 111}}
+    assert len(_words(at_cap)) == CONDITION_WORDS_CAP
+    assert condition_words(at_cap) == _words(at_cap)
+
+
+def test_condition_words_every_committed_condition_is_words_or_fallback():
+    for key, tree in _committed_conditions().items():
+        out = condition_words(tree)
+        assert out and "≠" not in out and "∈" not in out, key
+
+
+def test_condition_words_review_commit_reviewer():
+    tree = _load("workflows/review-commit.json")["steps"][0]["config"]["when"]
+    assert condition_words(tree) == CONDITION_FALLBACK
+
+
+def test_condition_words_pr_fix_fixer():
+    body = _load("workflows/pr-fix.json")["steps"][4]["body"]
+    assert condition_words(body[0]["config"]["when"]) == (
+        "fixer is not set or fixer is empty or qwen-fixer"
+    )
+    assert condition_words(body[1]["config"]["when"]) == "fixer is claude-fixer"
+
+
+def _committed_conditions() -> dict:
+    out: dict = {}
+
+    def walk(o, path):
+        if isinstance(o, dict):
+            if o.get("op") in ("compare", "and", "or", "not", "exists", "in", "matches"):
+                out[path] = o
+                return
+            for k, v in o.items():
+                walk(v, f"{path}/{k}")
+        elif isinstance(o, list):
+            for i, v in enumerate(o):
+                walk(v, f"{path}[{i}]")
+
+    for p in sorted(RULES_DOCS.rglob("*.json")):
+        walk(json.loads(p.read_text()), str(p.relative_to(RULES_DOCS.parents[1])))
+    return out
+
+
+def test_condition_text_is_byte_identical_over_docs_rules():
+    snap = json.loads((Path(__file__).parent / "snapshots" / SNAPSHOT).read_text())
+    now = {k: condition_text(v) for k, v in _committed_conditions().items()}
+    assert now == snap

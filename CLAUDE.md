@@ -37,21 +37,26 @@ plan. What exists today:
   `culture_rules/web_dist` and served by the API. CI has a `web` job.
   Rules are folded into Workflows; it is an editor change only, and rules
   keep their stored shape in the engine, API, CLI and MCP:
-  - the Workflows list groups workflows linked by continuations into chain
-    cards (starts when, continues into, runs, ends with, "was N rules"),
-    with a Chain view, "Rules without a workflow", New workflow and New rule;
+  - `/workflows` is an overview of full-width cards, one per workflow (name,
+    description or "No description yet", step count including loop bodies,
+    apps touched), with New workflow and New rule; deleted workflows are
+    restored or purged from the CLI/MCP only;
+  - an open workflow has a compact pane (a search box and workflow names)
+    that collapses to a rail; its header carries the enable switch and,
+    when continuations link it, "See it as one chain";
   - a workflow opens in one of three views, kept per viewer in
-    localStorage: **Simple** (When / Then, the default), **Detailed** (steps
-    and edges) and **Debug** (every port, type and reference, with upstream
-    and downstream highlighting);
-  - a rule shows as an entry point (When) of its workflow, or as a
-    continuation owned by the workflow it starts; the previous workflow
-    shows a read-only "Continues into" link;
+    localStorage: **Simple** (the default: the description and "How it
+    runs", the API's paragraph; a step opens its panel for the one-line
+    description and notes, a rule sentence opens that rule's entry-point
+    editor), **Detailed** (the workflow's notes on top, the canvas with its
+    legend, and the entry-point and Then editors) and **Debug** (every
+    port, type and reference, with upstream and downstream highlighting);
+  - a save sends the workflow's `revision`; a stale one reads "This
+    workflow changed since you opened it" with Reload;
   - a value every entry point's rule holds identically shows once; editing
     it writes rule by rule, re-reading each rule first and skipping one
     changed meanwhile;
-  - a rule with no workflow can be given a stored workflow with no steps
-    (D7); New rule does that at once;
+  - New rule gives the rule a stored workflow with no steps at once (D7);
   - old `/rules` and `/rules/<id>` links redirect to the workflow.
 - **Ops docs** in `docs/operations/` (replica set, backup, rules.culture.dev)
   and the executed walkthrough in `docs/demo.md`.
@@ -82,6 +87,26 @@ plan. What exists today:
   - the step option `config.on_error: "skip"`, which turns a failed step
     `skipped`;
   - the bundle `docs/rules/newspaper` (05:00 Asia/Jerusalem, ships disabled).
+- **Workflow phrases** (#69, spec
+  `docs/specs/2026-10-17-workflow-connecting-phrases.md`, deviations d1–d15
+  in `.devague/deliveries/workflow-connecting-phrases.json`):
+  - `description` on a workflow and a step is plain language (one line per
+    step, a short paragraph for the workflow); the new optional `notes` holds
+    technical text. `workflows migrate-notes [--apply]` moves old description
+    text into notes; the committed `docs/rules` workflows are migrated;
+  - `GET /workflows/{id}/describe` and `workflows describe` return the
+    description and a paragraph built from one phrase table
+    (`culture_rules/model/paragraph.py`, stdlib, no AI): one sentence per
+    line, the rule sentences ("It starts when …") and the Then side, then
+    the d19 numbered lines;
+  - a workflow carries a server-owned `revision`; `PUT /workflows/{id}`
+    needs `expected_revision` (409 `revision_conflict` otherwise), and
+    `workflows update` sends it (`--expected-revision`);
+  - trust takes a v1 or a v2 workflow digest (`TRUSTED_WORKFLOWS_V2`; v2
+    ignores description and notes);
+  - `rules migrate-orphans [--apply]` gives each workflow-less rule its own
+    stepless workflow; the rollout order runs both migrations
+    (`docs/operations/rollout.md`).
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for
@@ -130,8 +155,9 @@ Settled constraints that shape the architecture:
   (output → action input / downstream rule input) are graphical, with
   the textual reference form inspectable but never required.
 - **Exactly four primary tabs: Workflows | Actors | Variables | Statistics.**
-  There is no Rules tab: a rule is edited as an entry point of the workflow
-  it starts, in the Simple view. Variables are the shared values rules read
+  There is no Rules tab: a rule is an entry point of the workflow it
+  starts (a sentence in Simple, an entry-point editor in Detailed).
+  Variables are the shared values rules read
   as `vars.<name>`.
   Statistics is per-machine state and work (one lane per enrolled machine).
   Runs, history, ledger and inbox are never top-level navigation. They

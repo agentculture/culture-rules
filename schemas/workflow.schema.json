@@ -19,6 +19,11 @@
       "description": "Free text",
       "default": ""
     },
+    "notes": {
+      "type": "string",
+      "description": "Free text",
+      "default": ""
+    },
     "version": {
       "type": "integer",
       "description": "Definition version (>= 1)",
@@ -325,6 +330,11 @@
           "default": ""
         },
         "description": {
+          "type": "string",
+          "description": "Free text",
+          "default": ""
+        },
+        "notes": {
           "type": "string",
           "description": "Free text",
           "default": ""

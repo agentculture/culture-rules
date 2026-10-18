@@ -284,6 +284,20 @@ and `active_runs_total`, and adds a hint when there are any. Then either:
 The editor asks the same question: "Stop N current runs?".
 """
 
+_REVISION_NOTE = """\
+## Revisions (c34)
+
+Every stored workflow carries `revision`, server-owned metadata beside the
+definition (not a field of it; `version` is unrelated and keeps its meaning).
+Every write bumps it. `workflows update` sends the revision it read as
+`expected_revision`: `--expected-revision N`, else the `revision` a
+`workflows show` left in the body (never sent inside the definition), else the
+revision read just before the write. The API writes only when it equals the
+stored revision; otherwise it answers 409 `revision_conflict` naming
+`current_revision`, writes nothing, and the CLI exits 1: show the workflow
+again, reapply the change, and update with the new revision.
+"""
+
 _DESCRIBE_NOTE = """\
 ## Output
 
@@ -298,8 +312,12 @@ A rule reads `When` (the trigger), `If` / `and` / `or` (the condition, symbols
 `= ≠ < ≤ > ≥ ∈`, `not (…)`), `After`, `Supersedes`, `Run` (the workflow and its step
 count), `On` (placement), `Then`, `On failure`, `Key`, `Group`, `Disabled`. A
 workflow reads its steps numbered `1`, `2`, `3.1` ..., a loop's body one level
-deeper (a one-step body inline). API: `GET /rules/{id}/describe`,
-`GET /workflows/{id}/describe`.
+deeper (a one-step body inline). `workflows describe` prints the workflow's own
+description, then its paragraph (the rules that start it and its steps joined by fixed
+phrases, no AI, one sentence per line; a step with no description stands in by its name in
+`[ ]`, a disabled one marked `(disabled)`), then the numbered lines; `--json` and the MCP
+tool carry `description`, `paragraph` (`segments`, `text`), `entries` and `lines`. API:
+`GET /rules/{id}/describe`, `GET /workflows/{id}/describe`.
 """
 
 _ROLLOUT_NOTE = """\
@@ -375,6 +393,7 @@ _VERB_NOTES = {
     ("workflows", "describe"): _DESCRIBE_NOTE,
     ("rules", "disable"): _STOP_RUNS_NOTE,
     ("rules", "update"): _STOP_RUNS_NOTE,
+    ("workflows", "update"): _REVISION_NOTE,
     ("rules", "stop-runs"): _STOP_RUNS_NOTE,
     **{
         ("rollout", step): _ROLLOUT_NOTE

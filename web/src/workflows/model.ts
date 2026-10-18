@@ -355,11 +355,26 @@ export function nodePortNames(wf: WorkflowDef, node: string, side: "in" | "out")
 
 const withSteps = (wf: WorkflowDef, next: Step[]): WorkflowDef => ({ ...wf, steps: next });
 
+/** `steps` with `fn` applied to the step `id`, also inside loop bodies (a step opened from Simple may be nested). */
+function mapSteps(list: readonly Step[], id: string, fn: (s: Step) => Step): Step[] {
+  return list.map((s) => {
+    if (s.id === id) return fn(s);
+    return s.body ? { ...s, body: mapSteps(s.body, id, fn) } : s;
+  });
+}
+
+/** A step by id, at the top level or inside a loop body. */
+export function findStepDeep(list: readonly Step[] | undefined, id: string): Step | undefined {
+  for (const s of list ?? []) {
+    if (s.id === id) return s;
+    const inner = findStepDeep(s.body, id);
+    if (inner) return inner;
+  }
+  return undefined;
+}
+
 function mapStep(wf: WorkflowDef, id: string, fn: (s: Step) => Step): WorkflowDef {
-  return withSteps(
-    wf,
-    steps(wf).map((s) => (s.id === id ? fn(s) : s)),
-  );
+  return withSteps(wf, mapSteps(steps(wf), id, fn));
 }
 
 /** Exactly one of machine | actor | requirement, or null (the engine default). */

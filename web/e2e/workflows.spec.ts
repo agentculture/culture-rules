@@ -126,7 +126,7 @@ test.describe("Workflows tab", () => {
     await dialog.getByRole("radio", { name: "On a machine" }).check();
     await dialog.getByRole("combobox", { name: "Machine" }).selectOption("spark");
     await dialog.getByRole("button", { name: "Apply" }).click();
-    await expect(page.getByRole("button", { name: "on spark" })).toBeVisible();
+    await expect(step(page, "Review").getByRole("button", { name: "on spark" })).toBeVisible();
     // Fetch diff (spark) -> Review (now spark) is no longer a hop.
     await expect.poll(() => dash(edge(page, "fetch-diff.diff->review.diff"))).toBe("none");
     await expect(step(page, "Review")).toHaveAttribute("data-machine-slot", "0");
@@ -387,7 +387,7 @@ test.describe("Workflows tab", () => {
     await expect.poll(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("(i) on the head and the list row: mouse and keyboard, the API's lines, focus return (d19)", async ({ page }) => {
+  test("(i) on the head: mouse and keyboard, the API's lines, focus return (d19)", async ({ page }) => {
     await open(page);
     const head = page.locator(".wf-head");
     const about = head.getByRole("button", { name: "About Review PR" });
@@ -412,15 +412,6 @@ test.describe("Workflows tab", () => {
     await expect(panel).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(about).toBeFocused();
-    // The list row's (i) opens without opening the row (no navigation).
-    const url = page.url();
-    const list = page.getByRole("navigation", { name: "Workflows" });
-    await list.getByRole("button", { name: "About Review PR" }).click();
-    await expect(list.getByRole("dialog", { name: "About Review PR" }).getByTestId("about-lines")).toBeVisible();
-    expect(page.url()).toBe(url);
-    // A press elsewhere closes it.
-    await page.getByRole("heading", { level: 1, name: "Review PR" }).click();
-    await expect(list.getByRole("dialog", { name: "About Review PR" })).toBeHidden();
   });
 
   test("(i) panels stay inside the window beside a long description (d19)", async ({ page }) => {
@@ -448,7 +439,9 @@ test.describe("Workflows tab", () => {
     );
     for (const width of [1280, 1000, 800]) {
       await page.setViewportSize({ width, height: 880 });
-      for (const scope of [page.locator(".wf-head"), page.getByRole("navigation", { name: "Workflows" })]) {
+      // The head's (i) on the open workflow (the overview's chain section, with its row (i), is gone: d13).
+      for (const [path, scope] of [["/workflows?id=review-pr", page.locator(".wf-head")]] as const) {
+        await page.goto(path);
         const about = scope.getByRole("button", { name: "About Review PR" });
         await about.click();
         const panel = scope.getByRole("dialog", { name: "About Review PR" });

@@ -1,5 +1,5 @@
 {
-  "description": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex until the summary window closes (a failed or late summary leaves the results-only rendering), render the HTML and the EPUB, then deliver behind lease fences: the email (once per date, with a durable per-date key and the first rendered payload), the queue on the Xteink reader, the delivery record. Non-agentic: no bridge actor, no agent step.",
+  "description": "",
   "edges": [
     {
       "source": "inputs",
@@ -301,6 +301,7 @@
     }
   ],
   "name": "Daily newspaper",
+  "notes": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex until the summary window closes (a failed or late summary leaves the results-only rendering), render the HTML and the EPUB, then deliver behind lease fences: the email (once per date, with a durable per-date key and the first rendered payload), the queue on the Xteink reader, the delivery record. Non-agentic: no bridge actor, no agent step.",
   "outputs": [
     {
       "name": "message_id",
@@ -340,7 +341,7 @@
       "config": {
         "builtin": "newspaper.sections"
       },
-      "description": "newspaper.sections: parses and validates the newspaper_sections variable (fails the run naming the field, before any claim or search) and adds each section's search query: its queries joined with OR.",
+      "description": "",
       "enabled": true,
       "id": "sections",
       "inputs": [
@@ -354,6 +355,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Parse the sections",
+      "notes": "newspaper.sections: parses and validates the newspaper_sections variable (fails the run naming the field, before any claim or search) and adds each section's search query: its queries joined with OR.",
       "outputs": [
         {
           "description": "",
@@ -373,7 +375,7 @@
         "phase": "claim",
         "summary_window_s": 600
       },
-      "description": "newspaper.issue (claim): the local date of the slot in tz; deliver is false when the date was already delivered or another run's lease is live, and every later step is skipped. A run whose lease ran out is taken over. summaries_until is the slot plus config.summary_window_s (600 s: 06:40), after which no summary starts.",
+      "description": "",
       "enabled": true,
       "id": "claim",
       "inputs": [
@@ -399,6 +401,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Claim today's issue",
+      "notes": "newspaper.issue (claim): the local date of the slot in tz; deliver is false when the date was already delivered or another run's lease is live, and every later step is skipped. A run whose lease ran out is taken over. summaries_until is the slot plus config.summary_window_s (600 s: 06:40), after which no summary starts.",
       "outputs": [
         {
           "description": "",
@@ -456,7 +459,7 @@
               }
             }
           },
-          "description": "search.web through newspaper-search.",
+          "description": "",
           "enabled": true,
           "id": "search_web",
           "inputs": [
@@ -476,6 +479,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Brave search",
+          "notes": "search.web through newspaper-search.",
           "outputs": [
             {
               "description": "",
@@ -519,7 +523,7 @@
               }
             }
           },
-          "description": "newspaper.filter: what the issue may show.",
+          "description": "",
           "enabled": true,
           "id": "filter",
           "inputs": [
@@ -545,6 +549,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Filter the results",
+          "notes": "newspaper.filter: what the issue may show.",
           "outputs": [
             {
               "description": "",
@@ -561,7 +566,7 @@
       "config": {
         "items": "items"
       },
-      "description": "One iteration per section: search.web with the section's query, count and freshness, then newspaper.filter (must / must-not terms, site lists, dedupe, cap). Outputs one {results} object per section.",
+      "description": "",
       "enabled": true,
       "id": "search",
       "inputs": [
@@ -581,6 +586,7 @@
       "kind": "for_each",
       "max_iterations": 20,
       "name": "Search each section",
+      "notes": "One iteration per section: search.web with the section's query, count and freshness, then newspaper.filter (must / must-not terms, site lists, dedupe, cap). Outputs one {results} object per section.",
       "outputs": [
         {
           "description": "",
@@ -611,7 +617,6 @@
             "idempotent": true,
             "on_error": "skip",
             "when": {
-              "op": "and",
               "args": [
                 {
                   "cmp": "==",
@@ -624,19 +629,20 @@
                   }
                 },
                 {
-                  "op": "compare",
                   "cmp": "!=",
                   "left": {
                     "field": "item.results"
                   },
+                  "op": "compare",
                   "right": {
                     "literal": []
                   }
                 }
-              ]
+              ],
+              "op": "and"
             }
           },
-          "description": "llm.complete: the locked brief, no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool. Skipped for a section whose filtered results are empty: it needs no summary and renders \"No results.\".",
+          "description": "",
           "enabled": true,
           "id": "summary",
           "inputs": [
@@ -662,6 +668,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "cortex summary",
+          "notes": "llm.complete: the locked brief, no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool. Skipped for a section whose filtered results are empty: it needs no summary and renders \"No results.\".",
           "outputs": [
             {
               "description": "",
@@ -694,7 +701,7 @@
       "config": {
         "items": "items"
       },
-      "description": "One iteration per section: llm.complete on newspaper-llm (cortex, pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
+      "description": "",
       "enabled": true,
       "id": "summarise",
       "inputs": [
@@ -720,6 +727,7 @@
       "kind": "for_each",
       "max_iterations": 20,
       "name": "Summarise each section",
+      "notes": "One iteration per section: llm.complete on newspaper-llm (cortex, pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
       "outputs": [
         {
           "description": "",
@@ -747,7 +755,7 @@
           }
         }
       },
-      "description": "newspaper.render: the dated HTML email body and the EPUB; a summary that links outside its section's results is withheld, a section with no results says so.",
+      "description": "",
       "enabled": true,
       "id": "render",
       "inputs": [
@@ -785,6 +793,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Render the issue",
+      "notes": "newspaper.render: the dated HTML email body and the EPUB; a summary that links outside its section's results is withheld, a section with no results says so.",
       "outputs": [
         {
           "description": "",
@@ -825,6 +834,7 @@
       "body": [],
       "config": {
         "builtin": "newspaper.issue",
+        "email_actor": "newspaper-email",
         "phase": "before_email",
         "when": {
           "cmp": "==",
@@ -835,10 +845,9 @@
           "right": {
             "literal": true
           }
-        },
-        "email_actor": "newspaper-email"
+        }
       },
-      "description": "newspaper.issue (before_email): the email's fence. Renews this run's lease (claim_lost fails the run if another run took the date), freezes the date's first full request (recipients, the email actor's sender, subject, html) and answers it with the durable key newspaper:<date>:email. send is false when the date's email is already recorded sent (a takeover after a failed push), or when its first attempt is 23 hours old and unacknowledged: Resend's 24-hour key window may have closed, so the email is never resent and email_uncertain is reported. send_until (the first attempt plus 23 hours) bounds every send of the email step, a resumed retry included.",
+      "description": "",
       "enabled": true,
       "id": "email_gate",
       "inputs": [
@@ -882,6 +891,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Fence the email",
+      "notes": "newspaper.issue (before_email): the email's fence. Renews this run's lease (claim_lost fails the run if another run took the date), freezes the date's first full request (recipients, the email actor's sender, subject, html) and answers it with the durable key newspaper:<date>:email. send is false when the date's email is already recorded sent (a takeover after a failed push), or when its first attempt is 23 hours old and unacknowledged: Resend's 24-hour key window may have closed, so the email is never resent and email_uncertain is reported. send_until (the first attempt plus 23 hours) bounds every send of the email step, a resumed retry included.",
       "outputs": [
         {
           "description": "",
@@ -963,13 +973,14 @@
             "actor": "newspaper-email",
             "html": "inputs.html",
             "idempotency_key": "inputs.idempotency_key",
-            "subject": "inputs.subject",
-            "to": "inputs.to",
+            "not_after": "inputs.not_after",
             "sender": "inputs.sender",
-            "not_after": "inputs.not_after"
+            "subject": "inputs.subject",
+            "to": "inputs.to"
           }
         },
         "builtin": "action",
+        "on_error": "skip",
         "when": {
           "cmp": "==",
           "left": {
@@ -979,10 +990,9 @@
           "right": {
             "literal": true
           }
-        },
-        "on_error": "skip"
+        }
       },
-      "description": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's current allowlist. Sends the fence's frozen request (recipients, sender, subject, html) under the durable per-date idempotency key, so a resend is the identical request and Resend answers the first message id. not_after is the fence's send_until, checked before every attempt (a retry resumed after an outage included): past it the step fails email_window_passed and sends nothing. on_error skip lets the push fence judge any failure: it records the email uncertain only when the first attempt is past its 23-hour window, and otherwise fails the run, so no other email failure passes as delivered.",
+      "description": "",
       "enabled": true,
       "id": "email",
       "inputs": [
@@ -1032,6 +1042,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Email the issue",
+      "notes": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's current allowlist. Sends the fence's frozen request (recipients, sender, subject, html) under the durable per-date idempotency key, so a resend is the identical request and Resend answers the first message id. not_after is the fence's send_until, checked before every attempt (a retry resumed after an outage included): past it the step fails email_window_passed and sends nothing. on_error skip lets the push fence judge any failure: it records the email uncertain only when the first attempt is past its 23-hour window, and otherwise fails the run, so no other email failure passes as delivered.",
       "outputs": [
         {
           "description": "",
@@ -1064,7 +1075,7 @@
           }
         }
       },
-      "description": "newspaper.issue (before_push): records the sent email's message id for the date (so a takeover never emails again), then renews this run's lease before the push (claim_lost fails the run if another run took the date). The push goes ahead whether or not the email was sent: with no message id and the first attempt past its 23-hour window it records the email uncertain; with no message id inside the window it answers email_sent false and records nothing, so a re-run within the window retries only the email. push is false when the library already has the date's issue.",
+      "description": "",
       "enabled": true,
       "id": "push_gate",
       "inputs": [
@@ -1096,6 +1107,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Record the email, fence the push",
+      "notes": "newspaper.issue (before_push): records the sent email's message id for the date (so a takeover never emails again), then renews this run's lease before the push (claim_lost fails the run if another run took the date). The push goes ahead whether or not the email was sent: with no message id and the first attempt past its 23-hour window it records the email uncertain; with no message id inside the window it answers email_sent false and records nothing, so a re-run within the window retries only the email. push is false when the library already has the date's issue.",
       "outputs": [
         {
           "description": "the date's email; null when it is uncertain",
@@ -1152,7 +1164,6 @@
         },
         "builtin": "action",
         "when": {
-          "op": "and",
           "args": [
             {
               "cmp": "==",
@@ -1174,10 +1185,11 @@
                 "literal": true
               }
             }
-          ]
+          ],
+          "op": "and"
         }
       },
-      "description": "library.push through newspaper-library: upload the EPUB (kind article, the dated title) and queue it for the device (the input, else the actor's device_id). Skipped when the push fence answers push false: the library already has the date's issue.",
+      "description": "",
       "enabled": true,
       "id": "push",
       "inputs": [
@@ -1221,6 +1233,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Queue the EPUB on the reader",
+      "notes": "library.push through newspaper-library: upload the EPUB (kind article, the dated title) and queue it for the device (the input, else the actor's device_id). Skipped when the push fence answers push false: the library already has the date's issue.",
       "outputs": [
         {
           "description": "",
@@ -1265,7 +1278,7 @@
           }
         }
       },
-      "description": "newspaper.issue (record): stores the library progress (item and queue ids), then marks the date delivered with the message id once the email is sent or uncertain, so a later run for the same date sends nothing. An email that failed inside its window leaves the date claimed with its lease released: a re-run within 23 hours retries only the email and skips the push.",
+      "description": "",
       "enabled": true,
       "id": "record",
       "inputs": [
@@ -1309,6 +1322,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Record the delivery",
+      "notes": "newspaper.issue (record): stores the library progress (item and queue ids), then marks the date delivered with the message id once the email is sent or uncertain, so a later run for the same date sends nothing. An email that failed inside its window leaves the date claimed with its lease released: a re-run within 23 hours retries only the email and skips the push.",
       "outputs": [
         {
           "description": "",

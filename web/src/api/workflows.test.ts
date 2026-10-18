@@ -6,6 +6,7 @@ import {
   getRun,
   importDefinitions,
   importFromRepo,
+  isRevisionConflict,
   listRepos,
   listWorkflowRuns,
   putWorkflowDef,
@@ -60,9 +61,29 @@ describe("workflows API client", () => {
 
   it("PUT /workflows/{id} replaces a definition", async () => {
     const { fetchMock, calls } = mockFetch({ "/api/workflows/review-pr": { body: REVIEW_PR } });
-    await putWorkflowDef(REVIEW_PR);
+    await putWorkflowDef(REVIEW_PR, 3);
     expect(calls).toEqual(["/api/workflows/review-pr"]);
     expect(init(fetchMock).method).toBe("PUT");
+  });
+
+  it("PUT /workflows/{id} sends the revision it read as expected_revision, never inside the definition", async () => {
+    const { fetchMock } = mockFetch({ "/api/workflows/review-pr": { body: REVIEW_PR } });
+    await putWorkflowDef(REVIEW_PR, 3);
+    const body = JSON.parse(init(fetchMock).body as string);
+    expect(body.expected_revision).toBe(3);
+    expect(body).not.toHaveProperty("revision");
+  });
+
+  it("a stale revision is an ApiError that isRevisionConflict names", async () => {
+    mockFetch({
+      "/api/workflows/review-pr": {
+        status: 409,
+        body: { error: { code: "revision_conflict", message: "stale", errors: [] } },
+      },
+    });
+    const err = await putWorkflowDef(REVIEW_PR, 2).catch((e) => e);
+    expect(isRevisionConflict(err)).toBe(true);
+    expect(isRevisionConflict(new Error("x"))).toBe(false);
   });
 
   it("runs: list filtered to one workflow, one by id, start through a rule", async () => {

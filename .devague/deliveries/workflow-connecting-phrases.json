@@ -1,0 +1,640 @@
+{
+  "plan_slug": "workflow-connecting-phrases",
+  "schema_version": 2,
+  "created": "2026-10-17T19:24:42Z",
+  "updated": "2026-10-18T00:25:52Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "The plan's 'React Flow canvas' wording for today's Simple view becomes 'the fold layout: When entry cards, the fold-steps column, the Then column' in t1's criterion, h16/c19 and t14/h10/c13; Simple still ends up text only",
+      "task_ref": "t1",
+      "reason": "On main b146956 web/src/workflows/simple/SimpleView.tsx renders the fold three-column layout (lines 2-10, steps column at 76-94); React Flow is used only by Detailed and Debug",
+      "affects": [
+        "t14",
+        "c19",
+        "h16",
+        "c13",
+        "h10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t2 also changes culture_rules/actors/trusted.py: the v1 workflow_digest drops notes at the workflow and every step level (loop bodies included), as pre-notes code did by ignoring the unknown field",
+      "task_ref": "t2",
+      "reason": "Adding notes to the model changes to_dict, so every v1 digest changed and all trusted pins broke (177 failing tests); dropping notes restores every pinned digest (checked: pr-fix, publish-fix, review-commit, pr-fixer-single)",
+      "affects": [
+        "t4",
+        "c16",
+        "h33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t2's criterion 3 is met by schemas/workflow.schema.json, schemas/step.schema.json and web/src/api/workflows.ts; api/openapi.json and web/src/api/types.ts are untouched",
+      "task_ref": "t2",
+      "reason": "api/openapi.json carries no Workflow or Step schema (workflow bodies are free-form objects) and web/src/api/types.ts has only a summary type; the real definitions live in the schema files and web/src/api/workflows.ts",
+      "affects": [
+        "c11",
+        "h8"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Tests that used a description edit as their 'untrusted edit' example edit a non-prose field (name) instead; the pr-fixer-single fixture gets no v2 pin and stays trusted through v1",
+      "task_ref": "t4",
+      "reason": "Under confirmed c16 the v2 digest ignores description, so a description-only edit keeps trust by design; t4's 'tests/rules pass unchanged' cannot hold for those tests. The brief's v2 pin for the single fixture contradicted h33 (historical fixtures keep their role through v1)",
+      "affects": [
+        "c16",
+        "h13",
+        "h33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Consecutive steps that share the same config.when say it once: the group reads '<lead-in>: <sentence>; then <sentence>; then <sentence>.' where each grouped step after the first has its first letter lowercased and the previous step's final period dropped; h25 becomes 'no condition is repeated on consecutive steps that share it'. Cap stays 120; the t6 phrase table wording is approved",
+      "task_ref": "t6",
+      "reason": "Operator, 2026-10-17, after the demo and t6's output: the same condition repeated on consecutive steps ('Then, if fixer is claude-fixer:' x3) is noise; '; then' keeps a fixer's steps visibly together. h25's 'deliver at most twice' cannot hold honestly (email runs on send alone)",
+      "affects": [
+        "c28",
+        "h25",
+        "c30",
+        "h27"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "New work t21 (after t13): the workflows pane is compact (a search box on top, then workflow names only in short rows, easy to scroll; chain cards and counts leave the pane) and collapses to a button-width rail that toggles back, so the open workflow gets the width; t14's Simple text uses the full main width instead of a narrow column",
+      "task_ref": "t13",
+      "reason": "Operator, 2026-10-17, reviewing the demo at /workflows?id=pr-fix: the pane is narrow and long, it should be compact with a search box and toggle to button width; the paragraphs use half the screen",
+      "affects": [
+        "t14",
+        "t18",
+        "c12",
+        "h9",
+        "c13"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "Stale saves are detected with a server-stamped revision counter, not version: the stored workflow document carries 'revision' metadata outside the Workflow model, bumped by the server on every save; PUT /workflows/{id} sends the expected revision in a body field (expected_revision) and gets 409 naming the current revision on a mismatch or when it is missing. version, rule pins, import/export comparison and both trust digests are unchanged; o13 and h34 read 'revision' for 'version'",
+      "task_ref": "t9",
+      "reason": "Nothing bumps a workflow's version today (an ordinary model field the client sends; every committed workflow is still version 1), so an expected-version check protects nothing; version is also a rule-pinnable field the engine compares (engine/runs.py:1029) and import writes the bundle's version, so bumping it would break pins and let import reset it",
+      "affects": [
+        "c34",
+        "h34",
+        "t16",
+        "t11"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "Disabled rules and steps are shown with strike-through instead of words: the PHRASES entries 'disabled' and 'rule_disabled' go; a disabled step's or rule's segment carries disabled: true and keeps its normal phrase; paragraph.text carries no marker; the editor strikes those segments through; the CLI's human output strikes them through (ANSI on a terminal, ~~ ~~ otherwise); a disabled step never joins a '; then' group",
+      "task_ref": "t7",
+      "reason": "Operator, 2026-10-17: 'We can put strike-through on disabled rules/steps' (instead of 'but it is disabled' on every committed rule sentence)",
+      "affects": [
+        "t6",
+        "t8",
+        "t14",
+        "c37"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "New work t22 ports the deleted web/src/workflows/simple/SimpleView.test.tsx and EntryPoints.test.tsx (~2,500 lines) onto the entry-point and Then editors in Detailed (views/EntryEditors.tsx); t14 merges only together with t22, so the gate is never made green by deleting tests; t16 starts after them",
+      "task_ref": "t14",
+      "reason": "t14 removed the old When/Then board from Simple and deleted its two test files after 75 tests failed on DOM differences; the editors they covered still exist in Detailed (t15), so the coverage must move with them (operator: port before merge)",
+      "affects": [
+        "t15",
+        "t16",
+        "t18",
+        "c13",
+        "h10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "New work t23 restores in Detailed's entry editors (views/EntryEditors.tsx) the 8 behaviours the old Simple had and the test port (d9) found missing: live updates, the 'Stop N current runs?' offer, the delete-the-stepless-workflow offer, focus after delete and undo, an open entry after deleting the open one, the override count, state reset when the workflow changes, and ?entry=<rule> opening that entry; every REGRESSION it.fails/it.todo from the port becomes a plain passing test; the PR does not open while any remains. t14 and the port merge now together, with those sentinels",
+      "task_ref": "t15",
+      "reason": "The port of the 129 deleted Simple tests (d9): 106 pass, 22 fail on behaviours t15's EntryEditors dropped; operator, 2026-10-18: fix all before the PR",
+      "affects": [
+        "t14",
+        "c13",
+        "h10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "The paragraph reads one sentence per line with no colon after a lead-in: the step's text follows the lead-in with its first letter lowercased (all-caps and mixed-case first words such as PR, GitGuardian, EPUB kept); plain consecutive steps join one sentence with '; then' (with or without a shared condition); a new sentence starts at siblings ('At the same time'), a join ('Once both are done'), a condition change, a loop, a wait or a retry; a loop body continues the loop's sentence with '; each time,'; waits, retries and loop bounds become trailing clauses after the text. A missing description is stood in for by the step's name, else a generic line from the d19 vocabulary, marked as not written yet (italic/muted in the editor, [ ] in the CLI), and stays inside its group. The Then side says what happens directly: 'Where the chain ends here, it updates the chain's status comment on GitHub (as github-app).' / 'If it fails, it updates that comment with the failure.' The editor's description hint asks authors to start with a verb",
+      "task_ref": "t6",
+      "reason": "Operator, 2026-10-18, reviewing the paragraph: easier to read with a new line after each period and fewer ':'; use the step name (else a generic line) for a missing description; status comment option C",
+      "affects": [
+        "t7",
+        "t8",
+        "t14",
+        "c14",
+        "c30",
+        "c37"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "Rename steps in the committed docs/rules/pr-fixer/workflows/pr-fix.json so their names read as plain stand-ins: handoff_export_claude 'Pack the Claude commits for the hand-off', handoff_import_claude 'Hand off to spark2 to import the Claude commits', handoff_export 'Pack the Codex commits for the hand-off', handoff_import 'Hand off to spark2 to import the Codex commits', and the stale fix 'Agent and gate (up to 3 tries)' -> 'Fix and test, one try'; names are in the v2 trust digest, so pr-fix gains a new v2 pin and the old one stays while pinned runs may still push",
+      "task_ref": "t12",
+      "reason": "Operator, 2026-10-18: 'hand-off:' can be simpler without ':', like 'hand off to <actor> to ...'; chose renaming the steps (over generating from config); the fix step's name predates the one-try change",
+      "affects": [
+        "t4",
+        "c16",
+        "h33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 12
+    },
+    {
+      "id": "d13",
+      "what": "Review of the real build: (1) Simple shows no canvas legend; (2) the overview's 'Chains, rules without a workflow, deleted' section is removed and the cards use the full width; (3) Notes are visible at the top of Detailed; (4) disabled rules/steps read muted with a small 'disabled' tag instead of strike-through (amends d8; the CLI marks them '(disabled)'); (5) a loop's body always starts its own indented sentence ('Each time, \u2026'); (6) siblings read together in one sentence ('Then, at the same time, A and B.'); (7) an empty string in a condition reads 'empty'. What the removed section held moves: workflow-less rules are migrated once at rollout by a dry-run-by-default verb that gives each its own stepless workflow (the D7 move), a rule to drop is deleted from the CLI; the workflow page header carries the enable switch; restore/purge of deleted workflows stay CLI/MCP only; the chain view is linked from an open workflow's 'continues into' sentence",
+      "task_ref": "t13",
+      "reason": "Operator, 2026-10-18, reviewing the real branch build at 127.0.0.1:5199: legend, 13,000 px overview, hidden notes, hard-to-read strike-through, uneven loop and sibling sentences, '\"\"' in conditions; 'the cards in workflows don't use the full width and are narrow. No need for the second part \"Chains, rules without a workflow, deleted\", we need to migrate rules or delete them'",
+      "affects": [
+        "t14",
+        "t15",
+        "t6",
+        "t17",
+        "c12",
+        "c13"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 13
+    },
+    {
+      "id": "d14",
+      "what": "In Simple, selecting a step opens the same side panel Detailed opens for a step (StepEditor), editable, where the one-line description (and notes) are edited; this replaces Simple's inline editing. Selecting a rule sentence (what starts the workflow) opens the right pane with that rule's editor, including its enable/disable switch",
+      "task_ref": "t14",
+      "reason": "Operator, 2026-10-18: 'When selecting a step on the simple view, we should open the tab like in detailed. and make it editable. There we can edit description. And when selecting the rules, we should see the right pane as well, and be able to enable/disable'",
+      "affects": [
+        "t15",
+        "c13",
+        "h10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 14
+    },
+    {
+      "id": "d15",
+      "what": "Simple view design: quiet inline (direction A from the comparison page): lead-in phrases are teal text at regular weight with no filled chip; the joins inside a sentence ('; then', ' and', ',') read as plain text; the disabled pill sits before the sentence's period; the selected step gets a soft tint; a little space separates what starts the workflow, its steps and what happens afterwards",
+      "task_ref": "t14",
+      "reason": "Operator, 2026-10-18: the phrase highlight was too high-contrast; chose 'A quiet inline' after comparing A/B/C on real data at 127.0.0.1:5200",
+      "affects": [
+        "c13"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 15
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/model/test_paragraph.py::test_the_table_is_lead_ins_connectors_trailing_clauses_and_sentences; tests/model/test_paragraph.py::test_committed_paragraphs_use_only_table_phrases_and_verbatim_descriptions; tests/model/test_paragraph.py::test_steps_read_in_a_stable_topological_order; tests/test_boundaries.py::test_package_imports_with_culture_nodes_absent",
+      "behavior_text": "every joining phrase in all nine committed paragraphs is a PHRASES value with descriptions verbatim; step order is stable; the package imports stdlib-only",
+      "contract_text": "A pure, stdlib-only function: same workflow, same paragraph; every phrase from the one table",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/model/test_paragraph.py::test_an_unknown_kind_or_malformed_config_reads_as_the_d19_line; tests/model/test_paragraph.py::test_describing_never_raises; tests/model/test_paragraph.py::test_a_cycle_still_reads_every_step",
+      "behavior_text": "unknown kinds and malformed config yield the d19 line; junk input never raises; a cycle still reads every step",
+      "contract_text": "Never raises; an unknown step reads as its d19 line and the rest still renders",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/server/test_describe_api.py::test_workflow_describe_has_description_and_paragraph; tests/server/test_describe_api.py::test_empty_workflow_describes; tests/server/test_openapi_contract.py",
+      "behavior_text": "describe returns description, paragraph, entries and lines, also for an empty workflow; served schema equals api/openapi.json",
+      "contract_text": "GET /workflows/{id}/describe returns description, paragraph, entries and lines for every stored workflow; schema pinned",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "web/src/workflows/simple/SimpleView.test.tsx 'the visible text equals the API paragraph.text' + 'no joining phrase from the API table is written in the Simple sources'; web/e2e/workflows-described.spec.ts 'Simple text equals the API paragraph' (9 workflows); tests/model/test_describe_paragraphs_fixture.py::test_the_committed_e2e_fixture_equals_what_the_api_builds",
+      "behavior_text": "Simple's visible text equals the API paragraph for all nine committed workflows; Simple sources contain no table phrase; the e2e fixture equals what the API builds",
+      "contract_text": "The editor shows the API paragraph and never builds its own",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest 36 passed and Playwright workflows-described 16 passed against a fresh build at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/cli/test_migrate_verbs.py::test_workflows_migrate_notes_dry_run_then_apply; tests/test_surface_parity.py",
+      "behavior_text": "migrate-notes dry run then --apply through the CLI over the API; the CLI/MCP/openapi parity test passes with the verb present",
+      "contract_text": "CLI workflows migrate-notes and its MCP tool are kept identical; dry run by default, --apply, --json",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/server/test_migrate_routes.py::test_notes_dry_run_lists_and_writes_nothing; ::test_notes_apply_moves_audits_once_and_bumps_revision; ::test_notes_second_apply_changes_nothing; tests/model/test_migrate_notes.py::test_moves_workflow_steps_and_loop_bodies_byte_for_byte; ::test_a_node_with_notes_set_is_left_alone_per_node",
+      "behavior_text": "dry run writes nothing; apply moves byte for byte with one audit record per workflow; a second apply changes nothing; notes already set is left alone",
+      "contract_text": "migrate-notes: dry run writes nothing, apply moves byte for byte with one audited write, idempotent",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/io/test_exchange.py::test_import_keeps_stored_descriptions_when_committed_empty; ::test_import_merges_descriptions_but_still_imports_other_changes; ::test_import_committed_description_wins; ::test_import_committed_only_step_has_nothing_to_merge",
+      "behavior_text": "an empty committed description keeps the stored one; other fields still import; a non-empty committed description wins",
+      "contract_text": "Import never clears a stored non-empty description when the committed one is empty; other fields import as before",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/rules/test_trusted_workflow.py::test_a_run_matches_by_v1_or_v2_and_unknown_under_both_is_refused; ::test_v1_and_v2_matching_different_roles_fails_closed; ::test_a_digest_error_grants_no_role; ::test_v2_ignores_description_and_notes_at_every_level; ::test_moving_description_into_notes_keeps_v2_and_the_role; ::test_every_v2_source_is_pinned_in_its_role",
+      "behavior_text": "unknown digests refused, two-role match and digest errors fail closed; prose edits leave v2 unchanged; every committed pr-fixer definition is pinned in its role. The live half (chain runs after the rollout keep their role) is NOT checked: t20 has not run",
+      "contract_text": "workflow_role fails closed; committed chain runs keep their role; prose edits never change a digest",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files) (live rollout half unchecked)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_boundaries.py::test_engine_node_actors_never_read_workflow_or_step_text; ::test_display_text_scanner_detects_workflow_and_step_reads",
+      "behavior_text": "the scanner finds no description/notes reads under engine, node or actors, and is shown to detect such reads",
+      "contract_text": "Engine, node and actors never read description or notes; a test enforces it",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "web/src/workflows/list/overview.test.tsx 'renders one card per workflow ... no list pane', 'has an empty state with New workflow', 'has an error state naming what failed, and no cards'; web/e2e/workflows-described.spec.ts '/workflows: one card per workflow'",
+      "behavior_text": "one card per API workflow and no pane; empty and error states render",
+      "contract_text": "The overview lists exactly the API's workflows with empty and error states, never a blank page",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest and Playwright passed at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "web/src/workflows/list/overview.test.tsx 'takes app actors with a known surface ...', 'leaves out unknown ids, non-app actors and unknown surfaces', 'reads the committed newspaper: email and search apps'",
+      "behavior_text": "apps are app-kind actors with a known surface; unknown ids, non-app actors and unknown surfaces are left out",
+      "contract_text": "Apps touched shows only app actors with a known surface; unknown ids are never guessed",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest passed at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "tests/server/test_workflow_revision.py::test_stale_revision_is_409_naming_the_current_one_and_writes_nothing; ::test_missing_expected_revision_is_409_and_writes_nothing; ::test_two_clients_read_the_same_revision_first_wins_second_gets_409; tests/server/test_workflow_revision_mongo.py::test_two_writers_on_one_revision_exactly_one_wins_on_mongo",
+      "behavior_text": "stale or missing expected_revision is 409 naming the current one and writes nothing; two concurrent writers: exactly one wins, on MemoryStore and on Mongo",
+      "contract_text": "PUT writes only when expected equals stored revision, in the transaction; otherwise 409 and nothing written",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files) (Mongo tests ran, not skipped)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "tests/model/test_rule_paragraph.py::test_rule_sentence_per_trigger_kind; ::test_rule_sentence_condition_placement_and_disabled; ::test_rule_sentence_relationships; ::test_rule_sentence_never_raises; ::test_sentence_entries_are_table_values_ending_with_a_period",
+      "behavior_text": "rule sentences come from trigger, condition, placement and relationships via table words; junk never raises",
+      "contract_text": "A rule's sentence is built only from its config through the d19 vocabularies",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (351 passed in the obligation-backing files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T23:56:12",
+        "commit": "22447cb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o2",
+      "test_ref": "tests/model/test_paragraph.py::test_a_nested_loop_keeps_every_step_of_its_body; tests/model/test_rule_paragraph.py::test_rule_sentence_priority_that_is_not_a_whole_number_reads_0",
+      "behavior_text": "a stored nested loop (which the engine refuses to run) still reads every body step; a junk rule priority reads 0, never raw",
+      "contract_text": "Never raises; an unknown step reads as its d19 line and the rest still renders",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full pytest 6703 passed at the named commit (Qwen review 2 fixes)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-18T00:20:00",
+        "commit": "90ad22f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "consecutive steps sharing one condition join one sentence with '; then' instead of a condition per step",
+      "caused_by": [
+        "d5"
+      ],
+      "evidence_refs": [
+        "e1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "the Workflows list pane is compact with search and collapses to a rail; the overview is full-width cards only",
+      "caused_by": [
+        "d6"
+      ],
+      "evidence_refs": [
+        "e10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "workflows carry a server-owned revision; PUT needs expected_revision and a stale one is 409 revision_conflict (replaces the 'version' wording)",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [
+        "e12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "Simple reads one sentence per line, lead-ins without colons, stand-ins (step name, else a generic line) marked not written yet",
+      "caused_by": [
+        "d11"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "pr-fix step names renamed to plain stand-ins; a new v2 pin added, the old one kept",
+      "caused_by": [
+        "d12"
+      ],
+      "evidence_refs": [
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "added",
+      "behavior_text": "'rules migrate-orphans' gives each rule without a workflow a stored empty workflow at rollout; siblings read in one sentence, a loop body in its own; \"\" reads empty",
+      "caused_by": [
+        "d13"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "clicking a step in Simple opens the step panel; clicking a rule sentence opens the rule pane with its enable switch",
+      "caused_by": [
+        "d14"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "amended",
+      "behavior_text": "disabled steps and rules read muted with a small 'disabled' tag (not struck through); lead-ins in the accent colour, no highlight band",
+      "caused_by": [
+        "d15"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "added",
+      "behavior_text": "'python -m culture_rules.actors.trusted workflow-v2' prints the v2 digest new pins use (Qwen review 1 fix)",
+      "caused_by": [
+        "c16"
+      ],
+      "evidence_refs": [
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

@@ -80,11 +80,15 @@ const TABS: {
   /** What must be on screen before the sweep (beyond agent-state's ready). */
   settled?: (page: Page) => Promise<void>;
 }[] = [
-  // Rules are folded into Workflows: a rule is an entry point, open in the Simple view.
+  // Rules are folded into Workflows: a rule is an entry point, open in the Detailed view
+  // (Simple is text only).
   {
-    name: "Workflows (an entry point open, Simple)",
+    name: "Workflows (an entry point open, Detailed)",
     path: "/workflows?id=build-image&entry=build-and-publish",
-    mock: (page) => mockApi(page),
+    mock: async (page) => {
+      await withView(page, "detailed");
+      await mockApi(page);
+    },
     // The entry point opens once its rules load: sweep its controls too.
     settled: (page) => expect(page.getByRole("button", { name: "Collapse Build and publish" })).toBeVisible(),
   },
@@ -150,20 +154,44 @@ test.describe("d4: every control has a 44x44 hit area", () => {
     ["one workflow", [REVIEW_PR]],
     ["no workflows", []],
   ] as const) {
-    test(`Workflows tab: the list's rows and New button (${label})`, async ({ page }) => {
+    test(`Workflows tab: the overview's cards and New buttons (${label})`, async ({ page }) => {
       await mockApi(page);
       await mockWorkflowsApi(page, [...start]);
       await page.goto("/workflows");
       await expect.poll(async () => (await agentState(page)).status).toBe("ready");
-      const list = page.getByRole("navigation", { name: "Workflows" });
-      await expect(list.getByRole("button", { name: "New workflow" })).toBeVisible();
-      // One enable switch per stored workflow (its section on the folded list).
-      await expect(list.getByRole("switch")).toHaveCount(start.length);
-      expect(await smallHitAreas(page, 'nav[aria-label="Workflows"]')).toEqual([]);
-      // New workflow and New rule are large targets too: at least 44px tall.
-      for (const name of ["New workflow", "New rule"]) {
-        expect((await list.getByRole("button", { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      const overview = page.getByRole("region", { name: "Workflows overview" });
+      await expect(overview).toBeVisible();
+      // d13: no chain section and no switches here; the cards are the links.
+      await expect(page.getByRole("navigation", { name: "Chains and housekeeping" })).toHaveCount(0);
+      await expect(overview.getByRole("switch")).toHaveCount(0);
+      expect(await smallHitAreas(page, 'section[aria-label="Workflows overview"]')).toEqual([]);
+      // New workflow (and New rule, in the overview's header once workflows exist) are large
+      // targets too: at least 44px tall.
+      const names = start.length ? ["New workflow", "New rule"] : ["New workflow"];
+      for (const name of names) {
+        expect((await page.getByRole("button", { name }).first().boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }
     });
   }
+
+  test("Workflows tab: the open workflow's head, with its enable switch (d13)", async ({ page }) => {
+    await mockApi(page);
+    await mockWorkflowsApi(page, [REVIEW_PR]);
+    await page.goto("/workflows?id=review-pr");
+    await expect.poll(async () => (await agentState(page)).status).toBe("ready");
+    await expect(page.locator(".wf-head").getByRole("switch", { name: "Review PR enabled" })).toBeVisible();
+    expect(await smallHitAreas(page, ".wf-head")).toEqual([]);
+  });
+
+  test("Workflows tab: the compact pane and its collapsed rail", async ({ page }) => {
+    await withView(page, "detailed");
+    await mockApi(page);
+    await mockWorkflowsApi(page, [REVIEW_PR]);
+    await page.goto("/workflows?id=review-pr");
+    await expect.poll(async () => (await agentState(page)).status).toBe("ready");
+    expect(await smallHitAreas(page, "aside.wf-pane")).toEqual([]);
+    await page.getByRole("button", { name: "Hide workflows" }).click();
+    await expect(page.getByRole("button", { name: "Show workflows" })).toHaveAttribute("aria-expanded", "false");
+    expect(await smallHitAreas(page, "aside.wf-pane")).toEqual([]);
+  });
 });

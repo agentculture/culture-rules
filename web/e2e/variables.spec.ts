@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { createFakeApi } from "../src/rules/fake-api";
 import { mockRulesApi } from "./fixtures/rules";
+import { withView } from "./fixtures/view";
 
 async function untilReady(page: Page) {
   await expect
@@ -11,6 +12,7 @@ async function untilReady(page: Page) {
 
 test.describe("Variables tab", () => {
   test("lists variables with their history and the rules that use them", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     await mockRulesApi(page);
     await page.goto("/variables");
     await untilReady(page);
@@ -36,6 +38,7 @@ test.describe("Variables tab", () => {
   });
 
   test("an admin edits a list from the keyboard and a new version is appended", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     const api = await mockRulesApi(page);
     await page.goto("/variables");
     await untilReady(page);
@@ -50,6 +53,7 @@ test.describe("Variables tab", () => {
   });
 
   test("reduced motion: the list rows do not animate", async ({ page }) => {
+    await withView(page); // entry points are edited in Detailed
     await mockRulesApi(page);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/variables");
@@ -65,6 +69,7 @@ test.describe("Condition editor: variable picker", () => {
     const api = createFakeApi();
     // Train batch starts review-pr here, so it is that workflow's entry point (the fold's home for it).
     api.rules.find((r) => r.id === "train-batch")!.workflow = { id: "review-pr", inputs: {} };
+    await withView(page); // entry points are edited in Detailed
     await mockRulesApi(page, api);
     await page.goto("/workflows?id=review-pr&entry=train-batch");
     await untilReady(page);

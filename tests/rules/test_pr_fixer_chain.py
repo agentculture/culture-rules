@@ -546,11 +546,12 @@ def test_a_publish_run_started_by_hand_pushes_nothing(tmp_path, pem):
 
 
 def test_an_edited_pr_fix_workflow_is_never_reviewed_into_a_push(tmp_path):
-    """An admin tweaks the stored pr-fix (here only its description): its runs still fix
-    and gate, but its commit is not one a trusted chain may review or publish."""
+    """An admin tweaks the stored pr-fix (here only its name; prose such as description
+    is outside the v2 digest): its runs still fix and gate, but its commit is not one a
+    trusted chain may review or publish."""
     w = ChainWorld(tmp_path)
     wf = w.c.base.get("workflows", "pr-fix")
-    w.c.base.put("workflows", {**wf, "description": "tweaked"})
+    w.c.base.put("workflows", {**wf, "name": "tweaked"})
     w.fire()
     (fix,) = w.run_of("pr-fix")
     assert fix["status"] == "succeeded"
@@ -577,7 +578,7 @@ def test_a_reviewer_that_wrote_to_its_checkout_is_not_an_approval(tmp_path):
 def test_an_edited_review_commit_workflow_records_nothing_a_push_accepts(tmp_path):
     w = ChainWorld(tmp_path)
     wf = w.c.base.get("workflows", "review-commit")
-    w.c.base.put("workflows", {**wf, "description": "tweaked"})
+    w.c.base.put("workflows", {**wf, "name": "tweaked"})  # a non-prose edit (v2 digest)
     w.fire()
     (review,) = w.run_of("review-commit")
     assert review["status"] == "failed"

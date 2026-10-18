@@ -214,14 +214,4 @@ describe("Workflows: zoom and the (i) description (d19)", () => {
     await userEvent.click(within(head).getByRole("button", { name: "About Review PR" }));
     expect(await screen.findByText("The saved version.", undefined, { timeout: 5000 })).toBeInTheDocument();
   });
-
-  it("the list row's (i) opens the same description without leaving the open workflow", async () => {
-    renderWorkflows();
-    await loaded();
-    const list = screen.getByRole("navigation", { name: "Workflows" });
-    await userEvent.click(within(list).getByRole("button", { name: "About Review PR" }));
-    const panel = within(list).getByRole("dialog", { name: "About Review PR" });
-    expect((await within(panel).findByTestId("about-lines")).textContent).toBe(DESCRIBED.lines.join("\n"));
-    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
-  });
 });

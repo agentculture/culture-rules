@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Workflows from "./Workflows";
+import { PANE_KEY } from "../workflows/list/pane";
 import { getAgentState, resetAgentState } from "../agent-state/store";
 import * as client from "../api/client";
 import { defaultRoutes } from "../test/mockApi";
@@ -31,6 +32,14 @@ import {
  */
 const NOW = Date.parse("2026-10-03T12:00:00Z");
 
+const describeBody = (start: string) => ({
+  id: "review-pr",
+  kind: "workflow",
+  lines: [],
+  entries: [],
+  paragraph: { segments: [{ part: "start", keys: [], text: start }], text: start },
+});
+
 function routes(overrides: ApiRoutes = {}): ApiRoutes {
   return {
     "/api/whoami": { body: WHOAMI },
@@ -38,6 +47,7 @@ function routes(overrides: ApiRoutes = {}): ApiRoutes {
     "/api/machines": { body: { items: MACHINES } },
     "/api/workflows": { body: { items: WORKFLOW_DOCS } },
     "/api/workflows/review-pr": { body: REVIEW_PR },
+    "/api/workflows/review-pr/describe": { body: describeBody("It starts when github.pull_request_review arrives.") },
     "/api/actors": { body: { items: ACTORS } },
     "/api/runs": { body: { items: workflowRunsFor(NOW) } },
     "/api/repos": { body: { items: REPOS } },
@@ -88,9 +98,9 @@ describe("Workflows, folded (t8)", () => {
     renderAt(`/workflows?id=${REVIEW_PR_ID}&entry=${REVIEW_RULE_ID}`);
     const group = await screen.findByRole("group", { name: "Canvas view" });
     expect(within(group).getByRole("button", { name: "Simple" })).toHaveAttribute("aria-pressed", "true");
-    // The Simple view (not its placeholder) is mounted, with this workflow's entry point.
+    // The Simple view (not its placeholder) is mounted, with this workflow's paragraph.
     expect(screen.queryByText("The When / Then view is on its way.")).toBeNull();
-    expect((await screen.findAllByText("Review on approve")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("It starts when github.pull_request_review arrives.")).toBeInTheDocument();
     await waitFor(() =>
       expect(getAgentState().workflows).toMatchObject({
         selected: REVIEW_PR_ID,
@@ -107,18 +117,12 @@ describe("Workflows, folded (t8)", () => {
     renderAt("/workflows?entry=clean-caches");
     const place = await screen.findByRole("region", { name: "Rule without a workflow: Clean caches" });
     expect(within(place).getByRole("button", { name: /create its workflow/i })).toBeInTheDocument();
-    // The list names it under rules without a workflow too, linking back here.
-    const list = screen.getByRole("navigation", { name: "Workflows" });
-    expect(within(list).getByRole("link", { name: "Clean caches" })).toHaveAttribute(
-      "href",
-      "/workflows?entry=clean-caches",
-    );
     await waitFor(() => expect(getAgentState().workflows?.without_workflow).toContain("clean-caches"));
   });
 
   it("New rule opens the rule form in place of the Rules tab's", async () => {
     renderAt(`/workflows?id=${REVIEW_PR_ID}`);
-    const list = await screen.findByRole("navigation", { name: "Workflows" });
+    const list = await screen.findByRole("complementary");
     await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
     expect(await screen.findByText(/When does this happen\?/)).toBeInTheDocument();
     expect(where).toBe(`/workflows?id=${REVIEW_PR_ID}`);
@@ -126,7 +130,7 @@ describe("Workflows, folded (t8)", () => {
 
   it("while New rule or the D7 place is shown, the head names it and offers no workflow's delete or run", async () => {
     renderAt(`/workflows?id=${REVIEW_PR_ID}`);
-    const list = await screen.findByRole("navigation", { name: "Workflows" });
+    const list = await screen.findByRole("complementary");
     await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
     expect(await screen.findByRole("heading", { level: 1, name: "New rule" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete workflow" })).toBeNull();
@@ -204,7 +208,7 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
 
   it("the Simple view and the list share one live stream, and a rules change reaches both", async () => {
     renderAt(`/workflows?id=${REVIEW_PR_ID}`);
-    await screen.findByRole("group", { name: "Entry point: Review on approve" });
+    await screen.findByText("It starts when github.pull_request_review arrives.");
     const open = FakeEventSource.instances.filter((s) => !s.closed);
     expect(open).toHaveLength(1);
     const url = new URL(open[0].url, "http://x");
@@ -212,7 +216,8 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
       "asks", "rule_decisions", "rules", "runs", "workflows",
     ]);
 
-    // A new entry point for review-pr arrives: the list and the Simple view both show it.
+    // A new entry point for review-pr arrives: the Simple view reads its paragraph again.
+    api["/api/workflows/review-pr/describe"] = { body: describeBody("It starts when two things arrive.") };
     api["/api/rules"] = {
       body: {
         items: [
@@ -232,9 +237,7 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, LIVE_DEBOUNCE_MS + 30));
     });
-    expect(await screen.findByRole("group", { name: "Entry point: Late reviewer" })).toBeInTheDocument();
-    const list = screen.getByRole("navigation", { name: "Workflows" });
-    await waitFor(() => expect(within(list).getAllByRole("link", { name: "Late reviewer" }).length).toBeGreaterThan(0));
+    expect(await screen.findByText("It starts when two things arrive.")).toBeInTheDocument();
     expect(FakeEventSource.instances.filter((s) => !s.closed)).toHaveLength(1);
   });
 
@@ -243,14 +246,16 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
     const group = await screen.findByRole("group", { name: "Canvas view" });
     await userEvent.click(within(group).getByRole("button", { name: "Debug" }));
     await waitFor(() => expect(getAgentState().workflows?.view).toBe("debug"));
-    const list = screen.getByRole("navigation", { name: "Workflows" });
+    const list = screen.getByRole("complementary");
     await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
     await screen.findByRole("heading", { level: 1, name: "New rule" });
     await waitFor(() => expect(getAgentState().workflows?.view).toBeNull());
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(getAgentState().workflows?.view).toBe("debug"));
+  });
 
-    await userEvent.click(within(list).getByRole("link", { name: "Clean caches" }));
+  it("a rule without a workflow is reached by its ?entry= link (the overview no longer lists them), and reports no view", async () => {
+    renderAt("/workflows?entry=clean-caches");
     await screen.findByRole("heading", { level: 1, name: "Clean caches" });
     await waitFor(() => expect(getAgentState().workflows?.view).toBeNull());
   });
@@ -319,21 +324,17 @@ describe("Workflows, folded: the Rules board's page scenarios (t9)", () => {
     vi.restoreAllMocks();
   });
 
-  it("every rule is listed, as an entry point or under rules without a workflow, the first affordance New workflow / New rule", async () => {
+  it("the overview is the cards only: New workflow / New rule first, no chains, housekeeping, rules without a workflow or switches (d13)", async () => {
     renderAt("/workflows");
-    const list = await screen.findByRole("navigation", { name: "Workflows" });
-    const buttons = within(list).getAllByRole("button");
+    const overview = await screen.findByRole("region", { name: "Workflows overview" });
+    const buttons = within(overview).getAllByRole("button");
     expect(buttons.slice(0, 2).map((b) => b.textContent)).toEqual(["New workflow", "New rule"]);
-    await waitFor(() => expect(within(list).getByRole("link", { name: "Build and publish" })).toHaveAttribute(
-      "href",
-      "/workflows?id=build-image&entry=build-and-publish",
-    ));
-    const without = within(list).getByRole("region", { name: "Rules without a workflow" });
-    expect(within(without).getAllByRole("link").map((a) => a.textContent)).toEqual([
-      "Review on approve", "Clean caches", "Train batch", "Triage bugs",
-    ]);
-    // One stored workflow's switch per stored workflow; a rule's own switch is on its entry point.
-    expect(within(list).getAllByRole("switch")).toHaveLength(2);
+    await waitFor(() => expect(within(overview).getByRole("list", { name: "All workflows" })).toBeInTheDocument());
+    expect(within(overview).queryByRole("navigation")).toBeNull();
+    expect(within(overview).queryByRole("region", { name: "Rules without a workflow" })).toBeNull();
+    expect(within(overview).queryByRole("button", { name: /Show deleted|See it as one chain/ })).toBeNull();
+    expect(within(overview).queryByRole("switch")).toBeNull();
+    expect(overview).not.toHaveTextContent(/Chains|housekeeping|Rules without a workflow/);
   });
 
   it("reports ready in agent-state: the entry point open, and the deprecated rules alias with its stages", async () => {
@@ -373,5 +374,96 @@ describe("Workflows, folded: the Rules board's page scenarios (t9)", () => {
     expect((await screen.findAllByRole("alert"))[0]).toHaveTextContent("store unreachable");
     await waitFor(() => expect(getAgentState().status).toBe("ready"));
     expect(getAgentState().errors).toEqual(["store unreachable"]);
+  });
+});
+
+describe("Workflows overview and pane toggle (t13)", () => {
+  beforeEach(() => {
+    localStorage.removeItem(VIEW_MODE_KEY);
+    resetAgentState();
+    vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
+    vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
+    mockFetch(routes());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("with nothing open shows a card per workflow and no list pane", async () => {
+    renderAt("/workflows");
+    const cards = await screen.findByRole("list", { name: "All workflows" });
+    expect(within(cards).getAllByRole("listitem").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hide workflows" })).toBeNull();
+    expect(screen.queryByRole("complementary")).toBeNull();
+  });
+
+  it("opening a card shows the workflow with its pane", async () => {
+    const user = userEvent.setup();
+    renderAt("/workflows");
+    const cards = await screen.findByRole("list", { name: "All workflows" });
+    await user.click(within(cards).getAllByRole("link")[0]);
+    expect(await screen.findByRole("navigation", { name: "Workflows" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "All workflows" })).toBeNull();
+  });
+
+  it("the pane toggle is a button with aria-expanded that works by keyboard; All workflows returns", async () => {
+    const user = userEvent.setup();
+    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    const toggle = await screen.findByRole("button", { name: "Hide workflows" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("navigation", { name: "Workflows" })).toBeInTheDocument();
+    toggle.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
+    const shown = screen.getByRole("button", { name: "Show workflows" });
+    expect(shown).toHaveAttribute("aria-expanded", "false");
+    await user.keyboard(" ");
+    expect(screen.getByRole("navigation", { name: "Workflows" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide workflows" })).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByRole("link", { name: "← All workflows" }));
+    expect(await screen.findByRole("list", { name: "All workflows" })).toBeInTheDocument();
+  });
+
+  it("t21: the collapsed choice is remembered, and the open workflow remains with only the rail beside it", async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem(PANE_KEY);
+    const first = renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    await user.click(await screen.findByRole("button", { name: "Hide workflows" }));
+    expect(localStorage.getItem(PANE_KEY)).toBe("collapsed");
+    expect(screen.getByRole("complementary")).toHaveClass("wf-pane--rail");
+    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
+    first.unmount();
+    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    expect(await screen.findByRole("button", { name: "Show workflows" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Show workflows" }));
+    expect(localStorage.getItem(PANE_KEY)).toBe("expanded");
+  });
+
+  it("t21: the compact pane has no chain cards, counts or show-deleted; a linked workflow's head reaches its chain view (d13)", async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem(PANE_KEY);
+    // A rule that starts Review PR when Build image completes: the two are one chain.
+    const base = WORKFLOW_RULES.find((r) => r.workflow?.id === "build-image")!;
+    const continuation = {
+      ...base,
+      id: "after-build",
+      name: "After build",
+      workflow: { id: REVIEW_PR_ID },
+      trigger: { kind: "event", params: { type: "rules.run.succeeded" } },
+      condition: { op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "build-image" } },
+    };
+    mockFetch(routes({ "/api/rules": { body: { items: [...WORKFLOW_RULES, continuation] } } }));
+    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    const pane = await screen.findByRole("complementary");
+    expect(within(pane).queryByRole("button", { name: "Show deleted" })).toBeNull();
+    expect(within(pane).queryByRole("button", { name: "See it as one chain" })).toBeNull();
+    expect(within(pane).queryByRole("region", { name: "Rules without a workflow" })).toBeNull();
+    expect(pane).not.toHaveTextContent(/entry point|was \d+ rule/);
+    await user.click(await screen.findByRole("link", { name: "See it as one chain" }));
+    expect(await screen.findByRole("region", { name: "Chain view" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Back to/ })).toBeInTheDocument();
   });
 });

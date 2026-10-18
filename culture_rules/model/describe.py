@@ -28,8 +28,12 @@ __all__ = [
     "ACTION_WORDS",
     "BUILTIN_WORDS",
     "CMP_SYMBOLS",
+    "CMP_WORDS",
+    "CONDITION_FALLBACK",
+    "CONDITION_WORDS_CAP",
     "action_text",
     "condition_text",
+    "condition_words",
     "describe_rule",
     "describe_workflow",
     "render",
@@ -39,6 +43,22 @@ __all__ = [
 
 #: Comparison operators as symbols (``conclusion ≠ success``).
 CMP_SYMBOLS: dict[str, str] = {"==": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "≥"}
+
+#: Comparison operators as words (``conclusion is not success``).
+CMP_WORDS: dict[str, str] = {
+    "==": "is",
+    "!=": "is not",
+    "<": "is below",
+    "<=": "is at most",
+    ">": "is above",
+    ">=": "is at least",
+}
+
+#: The longest condition, in characters, that :func:`condition_words` spells out.
+CONDITION_WORDS_CAP = 120
+#: What :func:`condition_words` returns instead of a rendering longer than the cap. It carries
+#: its own ``if``, so a caller that otherwise writes ``If <words>:`` tests for it first.
+CONDITION_FALLBACK = "if its condition holds"
 
 #: Built-in ``code`` steps (``config.builtin``): a gloss appended after the name, or a
 #: replacement name. ``action`` is handled separately (it reads as its action kind).
@@ -190,6 +210,76 @@ def condition_text(node: Any, *, nested: bool = False) -> str:
     if op == "matches":
         return f"{_operand(node.get('value'))} matches /{node.get('pattern', '')}/"
     return str(op) if op else "?"
+
+
+#: How :func:`condition_words` says the empty string (d13): ``fixer is empty``, never ``""``.
+EMPTY_WORD = "empty"
+
+
+def _words_operand(o: Any) -> str:
+    """An operand in words: the empty string reads :data:`EMPTY_WORD`."""
+    if isinstance(o, Mapping) and o.get("literal") == "" and len(o) == 1:
+        return EMPTY_WORD
+    return _operand(o)
+
+
+def _words_in(value: Any, items: Any) -> str:
+    """``x is one of a, b``; a literal list reads bare, not braced. One holding the empty
+    string says it first (d13): ``x is empty``, ``x is empty or a``, ``x is empty or one of
+    a, b``."""
+    subject = _operand(value)
+    if not (isinstance(items, Mapping) and isinstance(items.get("literal"), list)):
+        return f"{subject} is one of {_operand(items)}"
+    values = items["literal"]
+    rest = [_literal(v) for v in values if v != ""]
+    if len(rest) == len(values):
+        return f"{subject} is one of {', '.join(rest) or 'nothing'}"
+    if not rest:
+        return f"{subject} is {EMPTY_WORD}"
+    others = rest[0] if len(rest) == 1 else "one of " + ", ".join(rest)
+    return f"{subject} is {EMPTY_WORD} or {others}"
+
+
+def _words(node: Any, *, nested: bool = False) -> str:
+    """The uncapped words behind :func:`condition_words`; the same shape as ``condition_text``."""
+    if not isinstance(node, Mapping):
+        return "?"
+    op = node.get("op")
+    if op == "compare":
+        word = CMP_WORDS.get(str(node.get("cmp")), str(node.get("cmp")))
+        return f"{_words_operand(node.get('left'))} {word} {_words_operand(node.get('right'))}"
+    if op in ("and", "or"):
+        args = node.get("args") if isinstance(node.get("args"), list) else []
+        text = f" {op} ".join(_words(a, nested=True) for a in args)
+        return f"({text})" if nested and len(args) > 1 else text
+    if op == "not":
+        arg = node.get("arg")
+        if isinstance(arg, Mapping) and arg.get("op") == "exists":  # the same truth, by definition
+            return f"{_operand(arg.get('arg'))} is not set"
+        return f"it is not the case that {_words(arg, nested=True)}"
+    if op == "exists":
+        return f"{_operand(node.get('arg'))} is set"
+    if op == "in":
+        return _words_in(node.get("value"), node.get("items"))
+    if op == "matches":
+        return f"{_operand(node.get('value'))} matches /{node.get('pattern', '')}/"
+    return str(op) if op else "?"
+
+
+def condition_words(node: Any) -> str:
+    """One condition tree as a phrase, without a leading ``If``: ``fixer is claude-fixer``.
+
+    The sibling of :func:`condition_text` (which keeps its symbols): the same operands, the
+    operators spelled out (``is``, ``is not``, ``is one of``, ``is set`` / ``is not set``,
+    ``matches``, ``and`` / ``or``); the empty string reads ``empty`` (d13: ``fixer is
+    empty``, and in a list it is said first, ``fixer is empty or qwen-fixer``, ``fixer is
+    empty or one of a, b``). ``not`` is written out in full, for the reason given at
+    :func:`_negated`. A rendering longer than ``CONDITION_WORDS_CAP`` is not shown: the
+    function itself returns ``CONDITION_FALLBACK`` (``if its condition holds``, which already
+    starts with ``if``). An unknown or malformed node reads as ``?``, never raises.
+    """
+    text = _words(node)
+    return CONDITION_FALLBACK if len(text) > CONDITION_WORDS_CAP else text
 
 
 def _negated(arg: Any) -> str:

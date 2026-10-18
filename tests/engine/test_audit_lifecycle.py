@@ -161,9 +161,11 @@ def test_every_mutating_verb_writes_exactly_one_entry_with_identity(verb, store,
     before = len(entries(store))
     call()
     new = entries(store)
-    assert len(new) == before + 1
+    # migrate_orphans audits the workflow it creates and the rule it repoints: two entries
+    expected = 2 if verb == "definitions.migrate_orphans" else 1
+    assert len(new) == before + expected
     mine = [e for e in new if e["verb"] == verb]
-    assert len(mine) == 1
+    assert len(mine) == expected
     assert isinstance(mine[0]["identity"], str)
     assert mine[0]["identity"].strip()
 

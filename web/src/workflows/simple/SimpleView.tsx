@@ -1,550 +1,424 @@
 /**
- * The Simple view (canvas Fold-Editor, spec c9): a workflow as When / Then.
+ * The Simple view (spec c13, h10): a workflow as text, no canvas and no cards.
  *
- *   When — every rule that starts this workflow, as an entry point (its
- *          trigger, condition, placement, attempt counting and enable switch);
- *          continuations are entry points too, owned by the workflow they
- *          start (D2).
- *   Then — continues into (read-only links to the workflows that start after
- *          this one), ends here (the chain-end action), on failure, and runs
- *          (run key and attempt budget).
+ *   - the workflow's own description (editable in place; a visible gap when empty);
+ *   - "How it runs": the paragraph from GET /workflows/{id}/describe, rendered from
+ *     its segments, one line per sentence (d11), with the fixed phrases highlighted and
+ *     a step with no description shown as its stand-in, italic and marked not written
+ *     yet. Nothing is composed here (o4): a segment reads `phrase shown tail`.
  *
- * The data is the fold model (web/src/fold/model.ts) over the same rules,
- * workflows, machines and actors the Rules tab loaded (useRulesData). Writes:
+ * The workflow's own description is edited in place: click the text, type, Enter or leave
+ * the field to save, Escape to cancel. A step's text opens the same side panel Detailed opens
+ * for it (d14), and a rule's sentence opens that rule's editor; both are mounted by the page
+ * (routes/Workflows.tsx). A save is the existing workflow save (PUT /workflows/{id}); the
+ * paragraph is read again after it, and after a rule or workflow change reaches the page's
+ * live feed.
  *
- *   - one entry point's fields go through the Rules tab's own forms and calls
- *     (RuleEditForm, AddStageForm, relationships, enable/disable), so a save
- *     is the same rule document the Rules tab made, and touches that rule only;
- *   - a value shared by every entry point (D3-D6) is edited once and fanned out
- *     through the fold writes (web/src/fold/writes.ts), rule by rule, with each
- *     rule's result shown — a failure keeps its old value as an override and
- *     offers a retry; a rule changed meanwhile is skipped and flagged;
- *   - a continuation's predecessor and an entry's attempt counting go through
- *     the fold writes too (savePredecessor, a one-rule shared edit);
- *   - a rule with no workflow is offered D7: a stepless workflow of its own.
+ * The entry points and the Then side (the old When / Then board) live in Detailed
+ * (../views/EntryEditors.tsx); a rule without a workflow is offered its D7 workflow
+ * in the page's own place (routes/Workflows.tsx).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { useLiveUpdates, type LiveChange } from "../../api/live";
-import type { Placement, Rule } from "../../api/types";
-import type { WorkflowDef } from "../../api/workflows";
-import { foldModel, predecessorTerms, type Continuation, type FoldEntry } from "../../fold/model";
-import { deleteUnusedWorkflow, type SharedRuleEdit } from "../../fold/writes";
-import { AddStageForm, NewRuleForm } from "../../rules/Forms";
-import { StopRunsNotice } from "../../rules/StopRunsNotice";
-import { useRulesData } from "../../rules/useRulesData";
-import "../../rules/rules.css";
-import { D7Offer } from "./D7Offer";
-import { ConditionRows, EntryCard, type Override } from "./EntryCard";
-import { PlacementForm } from "./SharedForms";
-import { useFocusReturn } from "./focus";
-import { useFrozen } from "./freeze";
-import { canonical, conditionRows, countsEdit, fieldOf, placementWords, split, triggerParts, valueText, withTerm, withoutEqualTerm, type Split } from "./text";
-import { ThenColumn } from "./ThenColumn";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getDescription } from "../../api/describe";
+import type { Paragraph, ParagraphSegment } from "../../api/types";
+import type { LiveChange } from "../../api/live";
+import {
+  REVISION_CONFLICT_MESSAGE,
+  getWorkflowDef,
+  isRevisionConflict,
+  putWorkflowDef,
+  type WorkflowDef,
+} from "../../api/workflows";
+import { toDefinition } from "../model";
 import { useFeedSubscription, type LiveFeed } from "./liveFeed";
-import { useFanout } from "./useFanout";
-import { WriteResults } from "./WriteResults";
-import "./simple.css";
-
-const LIVE_COLLECTIONS = ["rules", "runs", "asks", "rule_decisions"] as const;
-/** With a feed from the page, no stream of its own (an empty list opens none). */
-const NO_COLLECTIONS: readonly string[] = [];
-
-/** The fields an entry shows as an override when it differs from the workflow's value. */
-const OVERRIDE_FIELDS = ["placement", "action", "on_failure", "concurrency_key", "max_attempts"] as const;
+import "./simple-text.css";
 
 export interface SimpleViewProps {
-  workflowId: string;
-  /** The workflow's full definition, when the caller has it: its steps fill the middle column. */
-  def?: WorkflowDef | null;
-  /** The entry point to open first (`?entry=<rule id>`); a workflow-less rule's id shows its D7 offer. */
-  entry?: string | null;
-  /** Where a link to a workflow goes. */
-  hrefFor?: (workflowId: string) => string;
-  /** A D7 offer created this workflow for its rule. */
-  onCreated?: (workflowId: string) => void;
-  /** The workflow was deleted from here (after its last entry point went). */
-  onWorkflowDeleted?: (workflowId: string) => void;
-  /**
-   * Live changes from the page's own stream (it must carry rules, runs, asks and
-   * rule_decisions). Given, the view opens no EventSource of its own; absent, it opens one.
-   */
+  /** The stored workflow (its saved copy): the description and the steps' descriptions are edited on it. */
+  def: WorkflowDef;
+  /** Live changes from the page's own stream: a rule or workflow change reads the paragraph again. */
   live?: LiveFeed;
+  /** A save stored this definition (the page replaces its copy). */
+  onSaved?: (saved: WorkflowDef) => void;
+  /** The step whose panel is open: its words are highlighted. */
+  selectedStep?: string | null;
+  /** The rule whose editor is open: its sentence is highlighted. */
+  selectedRule?: string | null;
+  /** A step's text was chosen: the page opens its panel (and returns focus to `trigger`). */
+  onOpenStep?: (id: string, trigger: HTMLElement) => void;
+  /** A rule's sentence was chosen: the page opens its editor. */
+  onOpenRule?: (id: string, trigger: HTMLElement) => void;
 }
-
-const defaultHref = (id: string) => `/workflows?id=${encodeURIComponent(id)}`;
-
-/** The steps between When and Then: Start, each step with where it runs, End. */
-function Steps({ def }: Readonly<{ def: WorkflowDef }>) {
-  const steps = def.steps ?? [];
-  return (
-    <section className="fold-col fold-col--steps" aria-label="Steps of this workflow">
-      <ol className="fold-steps" aria-label="Steps">
-        <li className="fold-step fold-step--start" aria-label="Start">
-          <span aria-hidden="true">▶</span> Start
-        </li>
-        {steps.map((step) => (
-          <li key={step.id} className="fold-step" aria-label={step.name ?? step.id}>
-            <span className="fold-step__name">{step.name ?? step.id}</span>
-            <span className="fold-step__meta">
-              <span className="fold-term fold-term--field">{step.kind}</span>
-              <span className="fold-badge">{placementWords(step.placement).replace(/^on /, "")}</span>
-            </span>
-          </li>
-        ))}
-        {steps.length === 0 ? <li className="fold-step__empty">No steps yet: the entry points' actions are the whole run.</li> : null}
-        <li className="fold-step fold-step--end" aria-label="End">
-          End
-        </li>
-      </ol>
-    </section>
-  );
-}
-
-/** The words for the shared placement button and its override count. */
-function overrideCount(n: number) {
-  if (n === 0) return "";
-  const noun = n === 1 ? "override" : "overrides";
-  return ` · ${n} ${noun}`;
-}
-
-/** The continuations that start after this workflow: linked to it, after any, or naming it among several. */
-function onwardOf(continuations: readonly Continuation[], workflowId: string): Continuation[] {
-  return continuations.filter(
-    (c) => c.workflowId !== workflowId && (c.fromWorkflowId === workflowId || c.predecessor.kind === "any"
-      || (c.predecessor.kind === "ambiguous" && c.predecessor.workflowIds.includes(workflowId))),
-  );
-}
-
-/** The entry open until the reader chooses: the asked-for one if it is here, else the first. */
-function defaultOpenId(entries: readonly FoldEntry[], entry: string | null | undefined): string | null {
-  return entries.find((e) => e.rule.id === entry)?.rule.id ?? entries[0]?.rule.id ?? null;
-}
-
-/** The one event type every entry point listens for, if there is exactly one. */
-const soleType = (types: readonly string[]) => (types.length === 1 && types[0] ? types[0] : undefined);
-
-const emptyWords = (found: boolean, workflowId: string) => (found ? "No rule starts this workflow yet." : `No workflow ${workflowId}.`);
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** What a workflow delete did, in words. */
-function workflowDeleteNote(result: Awaited<ReturnType<typeof deleteUnusedWorkflow>>, name: string, workflowId: string): string {
-  if (result.status === "deleted") return `Deleted the workflow ${name}.`;
-  if (result.status === "in-use") {
-    const users = result.rules.map((r) => r.name);
-    const verb = users.length === 1 ? "uses" : "use";
-    return `Kept the workflow ${name}: ${users.join(", ")} still ${verb} it.`;
-  }
-  return `Could not delete ${workflowId}: ${errorMessage(result.error)}`;
-}
+/** The same hint the Detailed editor gives (d11). */
+const HINT = "Start with a verb, one line: 'Packs the commits for the hand-off.'";
 
-/** The undo notice after an entry point is deleted, with the D7 workflow delete when offered (c30). */
-function DeletedNotice({
-  name,
-  workflowName,
-  offerWorkflowDelete,
-  undoButton,
-  onUndo,
-  onDeleteWorkflow,
-  onDismiss,
-}: Readonly<{
-  name: string;
-  workflowName: string;
-  offerWorkflowDelete: boolean;
-  undoButton: RefObject<HTMLButtonElement>;
-  onUndo: () => void;
-  onDeleteWorkflow: () => void;
-  onDismiss: () => void;
-}>) {
-  return (
-    <output className="notice notice--undo">
-      <span>Deleted {name}</span>
-      <button ref={undoButton} type="button" className="btn" onClick={onUndo}>
-        Undo
-      </button>
-      {offerWorkflowDelete ? (
-        <button type="button" className="btn" onClick={onDeleteWorkflow}>
-          Delete the workflow {workflowName} too
-        </button>
-      ) : null}
-      <button type="button" className="icon-button icon-button--small" aria-label="Dismiss" onClick={onDismiss}>
-        ×
-      </button>
-    </output>
-  );
-}
+type Target = { kind: "workflow" } | null;
 
-/**
- * "Shared by every entry point": the placement and, when every entry holds it, the condition,
- * each edited once and fanned out. Rendered always (empty without rules) so its open forms
- * keep their state as before.
- */
-function SharedBlock({
-  rules,
-  data,
-  baselines,
-  placement,
-  conditionShared,
+/** Text that turns into a field when clicked; `placeholder` is the visible gap when it is empty. */
+function EditableText({
+  value,
+  display,
+  standin = false,
+  label,
+  multiline = false,
+  editing,
   busy,
-  fanOut,
-  conditionEach,
+  className,
+  onEdit,
+  onSave,
+  onCancel,
 }: Readonly<{
-  rules: Rule[];
-  data: ReturnType<typeof useRulesData>;
-  baselines: Record<string, { value: unknown }>;
-  placement: Split;
-  conditionShared: boolean;
+  value: string;
+  /** What shows when not editing: `value` or, when that is empty, this (the gap or stand-in). */
+  display: string;
+  /** The words are the API's stand-in for a missing description: italic, muted, cued. */
+  standin?: boolean;
+  label: string;
+  multiline?: boolean;
+  editing: boolean;
   busy: boolean;
-  fanOut: (label: string, edit: Record<string, unknown>, snapshots?: readonly Rule[]) => void;
-  conditionEach: (next: (rule: Rule) => Rule["condition"], snapshots?: readonly Rule[]) => void;
+  className?: string;
+  onEdit: () => void;
+  onSave: (next: string) => void;
+  onCancel: () => void;
 }>) {
-  const [placing, setPlacing] = useState(false);
-  const [addingShared, setAddingShared] = useState(false);
-  const placeButton = useFocusReturn<HTMLButtonElement>(placing);
-  const sharedAddButton = useFocusReturn<HTMLButtonElement>(addingShared);
-  // The placement and shared-condition forms keep what they were opened on (c27).
-  const placeAt = useFrozen(placing ? "placement" : null, { rules, placement: split(rules, "placement", baselines.placement) });
-  const conditionAt = useFrozen(addingShared ? "shared-condition" : null, rules);
-  if (rules.length === 0) return null;
-  // A shared condition's continuation term (identical on every entry) is never a removable row (c32).
-  const sharedCondition = conditionShared ? conditionRows(rules[0].condition, predecessorTerms(rules[0].condition)) : [];
-  return (
-    <fieldset aria-label="Shared by every entry point" className="fold-shared plain-group">
-      <button
-        ref={placeButton}
-        type="button"
-        className="fold-shared__placement"
-        aria-expanded={placing}
-        onClick={() => setPlacing((p) => !p)}
+  const [draft, setDraft] = useState(value);
+  const field = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
+  const done = useRef(false);
+  useEffect(() => {
+    if (!editing) return;
+    done.current = false;
+    setDraft(value);
+    field.current?.focus();
+    // value is read when the field opens only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+  if (!editing) {
+    return (
+      // A span, not a <button>: a button is an atomic inline box and would not wrap with the text.
+      <span
+        role="button"
+        tabIndex={busy ? -1 : 0}
+        aria-disabled={busy || undefined}
+        className={`sv-text ${standin ? "sv-standin" : value ? "" : "sv-gap"} ${className ?? ""}`.trim()}
+        title={label}
+        onClick={() => {
+          if (!busy) onEdit();
+        }}
+        onKeyDown={(e) => {
+          if (busy || (e.key !== "Enter" && e.key !== " ")) return;
+          e.preventDefault();
+          onEdit();
+        }}
       >
-        {placement.shared || placement.baseline
-          ? `evaluates ${placementWords(placement.value as Placement | null | undefined)}`
-          : "evaluates: differs per entry point"}{" "}
-        <span aria-hidden="true">▾</span>
-      </button>
-      <span className="fold-shared__count">{overrideCount(placement.overrides.length)}</span>
-      {placing ? (
-        <PlacementForm
-          value={placeAt.placement.value as Placement | null | undefined}
-          mixed={!placeAt.placement.shared && !placeAt.placement.baseline}
-          machines={data.machines}
-          busy={busy}
-          onSave={(next) => {
-            setPlacing(false);
-            fanOut("Placement", { placement: next }, placeAt.rules);
-          }}
-          onCancel={() => setPlacing(false)}
-        />
-      ) : null}
-      {conditionShared ? (
-        <>
-          <ConditionRows
-            rows={sharedCondition}
-            label="Every entry point only if all of"
-            busy={busy}
-            onRemove={(row) => {
-              sharedAddButton.current?.focus();
-              conditionEach((rule) => withoutEqualTerm(rule.condition, row.node!, predecessorTerms(rule.condition)));
-            }}
-          />
-          <button
-            ref={sharedAddButton}
-            type="button"
-            className="fold-add"
-            aria-label="Add a condition for every entry point"
-            aria-expanded={addingShared}
-            onClick={() => setAddingShared((a) => !a)}
-          >
-            <span aria-hidden="true">+</span> condition for every entry point
-          </button>
-          {addingShared ? (
-            <AddStageForm
-              rule={rules[0]}
-              workflows={data.workflows}
-              choice="condition"
-              onSave={(next) => {
-                conditionEach((rule) => withTerm(rule.condition, next.condition!), conditionAt);
-                return Promise.resolve(true);
-              }}
-              onCancel={() => setAddingShared(false)}
-            />
-          ) : null}
-        </>
-      ) : null}
-    </fieldset>
+        {display}
+        {standin ? <span className="sv-sr"> (not written yet)</span> : null}
+      </span>
+    );
+  }
+  const finish = (save: boolean) => {
+    if (done.current) return;
+    done.current = true;
+    if (save && draft.trim() !== value) onSave(draft.trim());
+    else onCancel();
+  };
+  const common = {
+    ref: field,
+    className: `sv-field ${className ?? ""}`.trim(),
+    "aria-label": label,
+    placeholder: HINT,
+    value: draft,
+    onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
+    onBlur: () => finish(true),
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") finish(false);
+      else if (e.key === "Enter" && (!multiline || e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        finish(true);
+      }
+    },
+  };
+  return multiline ? <textarea rows={3} {...common} /> : <input type="text" {...common} />;
+}
+
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+
+type Opening = Readonly<{
+  selectedStep?: string | null;
+  selectedRule?: string | null;
+  onOpenStep?: (id: string, trigger: HTMLElement) => void;
+  onOpenRule?: (id: string, trigger: HTMLElement) => void;
+}>;
+
+/** The small "disabled" tag after a disabled rule's or step's words (d13, amends d8). */
+const Pill = () => (
+  <span className="sv-pill" aria-hidden="true">
+    disabled
+  </span>
+);
+
+/** Words that open something when chosen: a span with a button role, so it wraps with the text. */
+function Opener({
+  label,
+  className,
+  selected,
+  onOpen,
+  children,
+}: Readonly<{
+  label: string;
+  className: string;
+  selected: boolean;
+  onOpen?: (trigger: HTMLElement) => void;
+  children: React.ReactNode;
+}>) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      className={`${className}${selected ? " sv-selected" : ""}`}
+      aria-pressed={selected}
+      title={label}
+      data-open-label={label}
+      onClick={(e) => onOpen?.(e.currentTarget)}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onOpen?.(e.currentTarget);
+      }}
+    >
+      {children}
+    </span>
   );
 }
 
-/** The overrides one entry carries: its own value of each D3-D6 field that differs. */
-function overridesOf(rule: Rule, splits: Map<string, ReturnType<typeof split>>): Override[] {
-  return OVERRIDE_FIELDS.flatMap((field) => {
-    const s = splits.get(field);
-    if (!s?.overrides.some((o) => o.rule.id === rule.id)) return [];
-    const text = valueText(field, fieldOf(rule, field));
-    return [{ field, text: field === "placement" ? text : `${labelOf(field)}: ${text}` }];
+/** Splits a disabled sentence's closing period off, so the tag sits before it (d15). */
+function beforePeriod(text: string, disabled: boolean): [string, string] {
+  return disabled && text.endsWith(".") ? [text.slice(0, -1), "."] : [text, ""];
+}
+
+/** One step's words in its sentence: `phrase shown tail`, nothing composed here (o4). */
+function StepPart({ seg, selectedStep, onOpenStep }: Readonly<{ seg: ParagraphSegment } & Opening>) {
+  const id = str(seg.step);
+  const phrase = str(seg.phrase);
+  const shown = str(seg.shown) || str(seg.text);
+  const [tail, period] = beforePeriod(str(seg.tail), seg.disabled === true);
+  const name = str(seg.name) || id;
+  const standin = seg.standin === true;
+  const selected = selectedStep === id;
+  return (
+    <span className={seg.disabled ? "sv-step sv-disabled" : "sv-step"} data-step={id}>
+      {seg.disabled ? <span className="sv-sr">Disabled step: </span> : null}
+      {phrase && seg.grouped === true ? (
+        // A join inside a sentence ("; then", " and", ",") reads as plain text (d15).
+        phrase
+      ) : phrase ? (
+        <span className="sv-phrase">{phrase}</span>
+      ) : null}
+      {phrase ? " " : ""}
+      {seg.fallback === true ? (
+        <span className="sv-fallback">{shown}</span>
+      ) : (
+        <Opener
+          label={`Open the step ${name}`}
+          className={standin ? "sv-text sv-standin" : "sv-text"}
+          selected={selected}
+          onOpen={(el) => onOpenStep?.(id, el)}
+        >
+          {shown}
+          {standin ? <span className="sv-sr"> (not written yet)</span> : null}
+        </Opener>
+      )}
+      {tail}
+      {seg.disabled ? <Pill /> : null}
+      {period}
+    </span>
+  );
+}
+
+/** A sentence that starts the workflow: it carries its rule's id and opens the rule's editor. */
+function RulePart({ seg, selectedRule, onOpenRule }: Readonly<{ seg: ParagraphSegment } & Opening>) {
+  const rule = str(seg.rule);
+  const [words, period] = beforePeriod(str(seg.text), seg.disabled === true);
+  const text = (
+    <>
+      {seg.disabled ? <span className="sv-sr">Disabled: </span> : null}
+      {words}
+    </>
+  );
+  return (
+    <span className={seg.disabled ? "sv-text-part sv-disabled" : "sv-text-part"} data-rule={rule || undefined}>
+      {rule ? (
+        <Opener
+          label={`Open the rule ${rule}`}
+          className="sv-text"
+          selected={selectedRule === rule}
+          onOpen={(el) => onOpenRule?.(rule, el)}
+        >
+          {text}
+        </Opener>
+      ) : (
+        text
+      )}
+      {seg.disabled ? <Pill /> : null}
+      {period}
+    </span>
+  );
+}
+
+/** The paragraph, one line per sentence (d11): the API's segments, grouped by `sentence`. */
+function Lines({ segments, ...rest }: Readonly<{ segments: ParagraphSegment[] } & Opening>) {
+  const lines: ParagraphSegment[][] = [];
+  let last: unknown;
+  segments.forEach((seg, i) => {
+    const key = seg.sentence ?? `own-${i}`;
+    if (lines.length === 0 || key !== last) lines.push([]);
+    lines[lines.length - 1].push(seg);
+    last = key;
   });
+  return (
+    <>
+      {lines.map((line, i) => {
+        const depth = Number(line[0].depth ?? 0);
+        // A little space where the paragraph moves from what starts it to its steps, and
+        // from its steps to what happens afterwards (d15).
+        const part = String(line[0].part ?? "step");
+        const band = i > 0 && part !== String(lines[i - 1][0].part ?? "step") ? " sv-line--band" : "";
+        return (
+          <p key={i} className={`${depth > 0 ? "sv-line sv-line--in" : "sv-line"}${band}`}>
+            {line.map((seg, j) =>
+              seg.part === "step" ? (
+                <StepPart key={j} seg={seg} {...rest} />
+              ) : (
+                <RulePart key={j} seg={seg} {...rest} />
+              ),
+            )}
+            {"\n"}
+          </p>
+        );
+      })}
+    </>
+  );
 }
 
-const LABELS: Record<string, string> = {
-  action: "ends here",
-  on_failure: "on failure",
-  concurrency_key: "run key",
-  max_attempts: "attempts",
-};
-const labelOf = (field: string) => LABELS[field] ?? field;
+export function SimpleView({ def, live, onSaved, ...opening }: Readonly<SimpleViewProps>) {
+  const workflowId = def.id;
+  const [paragraph, setParagraph] = useState<Paragraph | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const [target, setTarget] = useState<Target>(null);
+  const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // A save refused because the workflow changed meanwhile: the typed text stays in its field.
+  const [conflict, setConflict] = useState(false);
 
-/**
- * The Simple view of one workflow. Keyed by the workflow id inside, so opening another workflow
- * starts fresh (its first entry open, no earlier save results or baselines) without the caller
- * having to remember a `key`.
- */
-export function SimpleView(props: Readonly<SimpleViewProps>) {
-  return <WorkflowSimple key={props.workflowId} {...props} />;
-}
-
-function WorkflowSimple({
-  workflowId,
-  def,
-  entry,
-  hrefFor = defaultHref,
-  onCreated,
-  onWorkflowDeleted,
-  live: feed,
-}: Readonly<SimpleViewProps>) {
-  // undefined: not chosen yet (the asked-for entry, else the first, once the rules are in).
-  const [open, setOpen] = useState<string | null | undefined>(undefined);
-  const data = useRulesData(open ?? entry ?? undefined);
-  const { refreshRules, refreshAsks } = data;
-  const [historyTick, setHistoryTick] = useState(0);
+  // Read again when the stored definition changes (a save, a reload) or the live feed says a
+  // rule or workflow did.
+  const stored = useMemo(() => JSON.stringify(toDefinition(def)), [def]);
+  useEffect(() => {
+    const ctl = new AbortController();
+    getDescription("workflows", workflowId, ctl.signal)
+      .then((d) => {
+        setParagraph(d.paragraph ?? null);
+        setProblem(d.paragraph ? null : "The API sent no paragraph for this workflow.");
+      })
+      .catch((err) => {
+        if (!ctl.signal.aborted) setProblem(`Could not read how this workflow runs: ${errorMessage(err)}`);
+      });
+    return () => ctl.abort();
+  }, [workflowId, stored, tick]);
   const onLive = useCallback((changes: LiveChange[]) => {
-    const touched = new Set(changes.map((c) => c.collection));
-    if (touched.has("rules")) refreshRules();
-    if (touched.has("runs") || touched.has("asks")) refreshAsks();
-    if (touched.has("runs") || touched.has("rule_decisions")) setHistoryTick((n) => n + 1);
-  }, [refreshRules, refreshAsks]);
-  const live = useLiveUpdates(feed ? NO_COLLECTIONS : LIVE_COLLECTIONS, onLive);
-  useFeedSubscription(feed, onLive);
+    if (changes.some((c) => c.collection === "rules" || c.collection === "workflows")) setTick((n) => n + 1);
+  }, []);
+  useFeedSubscription(live, onLive);
 
-  const model = useMemo(() => foldModel(data.rules, data.workflows), [data.rules, data.workflows]);
-  const folded = model.workflows.find((w) => w.id === workflowId) ?? null;
-  const entries: FoldEntry[] = useMemo(() => folded?.entries ?? [], [folded]);
-  const rules = useMemo(() => entries.map((e) => e.rule), [entries]);
-
-  // Until the reader chooses, the asked-for entry (else the first) is open from the very first
-  // paint with rules; the effect only records it, so asks load for it too.
-  const openId = open === undefined ? defaultOpenId(entries, entry) : open;
-  useEffect(() => {
-    if (open === undefined && openId) setOpen(openId);
-  }, [open, openId]);
-
-  // A newly asked entry (an ?entry= link within the same workflow) opens, without a remount.
-  const [asked, setAsked] = useState(entry);
-  useEffect(() => {
-    if (entry === asked) return;
-    if (entry && !entries.some((e) => e.rule.id === entry)) return; // not loaded yet: try again
-    setAsked(entry);
-    if (entry) setOpen(entry);
-  }, [entry, asked, entries]);
-
-  // A D7 candidate named by `entry` keeps its offer on screen through the writes that end its candidacy.
-  const [candidate, setCandidate] = useState<Rule | null>(null);
-  const liveCandidate = model.d7Candidates.find((r) => r.id === entry) ?? null;
-  useEffect(() => {
-    if (liveCandidate && candidate?.id !== liveCandidate.id) setCandidate(liveCandidate);
-  }, [liveCandidate, candidate]);
-
-  const fanout = useFanout(refreshRules);
-  // Per field, the value the last shared edit wrote: until the next one, the rules that did not
-  // take it (a failed or skipped write) are the overrides, showing their old value.
-  const [baselines, setBaselines] = useState<Record<string, { value: unknown }>>({});
-  const [creating, setCreating] = useState(false);
-  const createButton = useFocusReturn<HTMLButtonElement>(creating);
-  const undoButton = useRef<HTMLButtonElement>(null);
-  const [focusEntry, setFocusEntry] = useState<string | null>(null);
-  const [deleted, setDeleted] = useState<{ rule: Rule; last: boolean } | null>(null);
-  const [workflowNote, setWorkflowNote] = useState<string | null>(null);
-
-  const splits = useMemo(
-    () => new Map(OVERRIDE_FIELDS.map((f) => [f, split(rules, f, baselines[f])])),
-    [rules, baselines],
-  );
-  const conditionShared = rules.length > 1 && rules.every((r) => r.condition && canonical(r.condition) === canonical(rules[0].condition));
-  const placement = splits.get("placement")!;
-  const types = [...new Set(rules.map((r) => (r.trigger.kind === "event" ? triggerParts(r.trigger).value : "")))];
-  const onward = onwardOf(model.continuations as Continuation[], workflowId);
-
-  /** Fan out to `snapshots`: by default the rules shown now, else what the form was opened on. */
-  const fanOut = (label: string, edit: Record<string, unknown>, snapshots: readonly Rule[] = rules) => {
-    setBaselines((b) => ({ ...b, ...Object.fromEntries(Object.entries(edit).map(([f, value]) => [f, { value }])) }));
-    void fanout.fanOut(label, snapshots, edit as SharedRuleEdit);
-  };
-  /**
-   * A shared condition edit, computed per rule from that rule's own condition, so each keeps its
-   * own data.workflow_id predecessor term (c32), also when re-applied to a rule changed meanwhile.
-   */
-  const conditionEach = (next: (rule: Rule) => Rule["condition"], snapshots: readonly Rule[] = rules) =>
-    void fanout.fanOutEach("Condition", ["condition"], snapshots, (rule) => ({ condition: next(rule) }) as SharedRuleEdit);
-  /** One entry's own value: a one-rule write through the fold writes, so it becomes an override. */
-  const override = (rule: Rule, label: string, edit: Record<string, unknown>) =>
-    fanout.fanOut(label, [rule], edit as SharedRuleEdit);
-  const counts = (rule: Rule) => {
-    const edit = countsEdit(rule);
-    if (edit) void override(rule, `${rule.name}: attempt counting`, edit);
-  };
-  const predecessor = (rule: Rule, id: string) => void fanout.predecessor(`${rule.name}: continues from`, rule, id);
-
-  const remove = async (rule: Rule) => {
-    const last = entries.length === 1 && entries[0].rule.id === rule.id;
-    if (!(await data.remove(rule))) return;
-    setDeleted({ rule, last });
-    requestAnimationFrame(() => undoButton.current?.focus());
-    if (openId === rule.id) setOpen(entries.find((e) => e.rule.id !== rule.id)?.rule.id ?? null);
-  };
-  const undo = async () => {
-    if (!deleted) return;
-    const doc = await data.restore(deleted.rule);
-    if (doc) {
-      setDeleted(null);
-      setOpen(doc.id);
-      setFocusEntry(doc.id);
+  const save = async (next: WorkflowDef) => {
+    setBusy(true);
+    setSaveError(null);
+    setConflict(false);
+    try {
+      const saved = await putWorkflowDef(toDefinition(next), def.revision ?? 0);
+      setTarget(null);
+      onSaved?.(saved);
+      setTick((n) => n + 1);
+    } catch (err) {
+      if (isRevisionConflict(err)) {
+        setConflict(true);
+      } else {
+        setSaveError(`Save failed: ${errorMessage(err)}`);
+        setTarget(null);
+      }
+    } finally {
+      setBusy(false);
     }
   };
-  const deleteWorkflow = async () => {
-    const name = def?.name ?? workflowId;
-    const result = await deleteUnusedWorkflow(workflowId);
-    if (result.status === "deleted" || result.status === "in-use") setDeleted(null);
-    setWorkflowNote(workflowDeleteNote(result, name, workflowId));
-    if (result.status === "deleted") onWorkflowDeleted?.(workflowId);
-    if (result.status === "in-use") refreshRules();
-  };
-  // Deleting the last entry point of a stepless (D7) workflow offers to delete the workflow too (c30).
-  const offerWorkflowDelete = deleted?.last && entries.length === 0 && def && (def.steps ?? []).length === 0;
-
-  const onCreate = async (doc: Rule) => {
-    const made = await data.create({ ...doc, workflow: { id: workflowId, inputs: {} } });
-    if (made) {
-      setCreating(false);
-      setOpen(made.id);
+  // Reload replaces the stored copy (and its revision); only now is the typed text let go.
+  const reload = async () => {
+    setBusy(true);
+    try {
+      onSaved?.(await getWorkflowDef(workflowId));
+      setConflict(false);
+      setTarget(null);
+      setTick((n) => n + 1);
+    } catch (err) {
+      setSaveError(`Reload failed: ${errorMessage(err)}`);
+    } finally {
+      setBusy(false);
     }
-    return made !== null;
+  };
+  const saveWorkflow = (description: string) => {
+    const { description: _old, ...rest } = def;
+    void save(description ? { ...rest, description } : rest);
   };
 
-  // After an undo, focus lands on the restored entry point's own toggle.
-  useEffect(() => {
-    if (!focusEntry) return;
-    const button = document.querySelector<HTMLElement>(`[data-rule-id="${CSS.escape(focusEntry)}"] .fold-entry__expand`);
-    if (!button) return;
-    button.focus();
-    setFocusEntry(null);
-  });
-
-  const alerts = [...data.loadErrors, ...(data.notice ? [data.notice] : [])];
+  const segments = paragraph?.segments ?? [];
 
   return (
-    <section className="fold-simple" aria-label="Simple view" data-live-flash={live.flash || undefined}>
-      {alerts.length > 0 ? (
+    <section className="sv" aria-label="Simple view">
+      {conflict ? (
         <p className="notice notice--error" role="alert">
-          {alerts.join(" · ")}
+          {REVISION_CONFLICT_MESSAGE}.{" "}
+          <button type="button" className="wf-button" disabled={busy} onClick={() => void reload()}>
+            Reload
+          </button>
         </p>
       ) : null}
-      {data.stopOffer ? (
-        <StopRunsNotice offer={data.stopOffer} onApprove={() => void data.stopRuns()} onDismiss={data.dismissStop} />
+      {saveError ? (
+        <p className="notice notice--error" role="alert">
+          {saveError}
+        </p>
       ) : null}
-      {deleted ? (
-        <DeletedNotice
-          name={deleted.rule.name}
-          workflowName={def?.name ?? workflowId}
-          offerWorkflowDelete={Boolean(offerWorkflowDelete)}
-          undoButton={undoButton}
-          onUndo={() => void undo()}
-          onDeleteWorkflow={() => void deleteWorkflow()}
-          onDismiss={() => setDeleted(null)}
-        />
-      ) : null}
-      {workflowNote ? <output className="notice">{workflowNote}</output> : null}
-      {fanout.batch ? (
-        <WriteResults batch={fanout.batch} busy={fanout.busy} onRetry={(id) => void fanout.retry(id)} onDismiss={fanout.dismiss} />
-      ) : null}
-      {candidate ? (
-        <D7Offer
-          rule={liveCandidate ?? candidate}
-          takenIds={data.workflows.map((w) => w.id)}
-          hrefFor={hrefFor}
-          onCreated={(id) => {
-            refreshRules();
-            onCreated?.(id);
-          }}
-        />
-      ) : null}
-
-      <div className="fold-board">
-        <section className="fold-col fold-col--when" aria-labelledby={`${workflowId}-when`}>
-          <div className="fold-col__head">
-            <h2 id={`${workflowId}-when`} className="fold-col__title">When</h2>
-            <button ref={createButton} type="button" className="fold-add fold-add--big" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              Entry point
-            </button>
-          </div>
-          {creating ? (
-            <NewRuleForm
-              actors={data.actors}
-              takenIds={data.rules.map((r) => r.id)}
-              onCancel={() => setCreating(false)}
-              onCreate={onCreate}
-            />
-          ) : null}
-
-          <SharedBlock
-            rules={rules}
-            data={data}
-            baselines={baselines}
-            placement={placement}
-            conditionShared={conditionShared}
-            busy={fanout.busy}
-            fanOut={fanOut}
-            conditionEach={conditionEach}
-          />
-
-          {entries.map((e) => (
-            <EntryCard
-              key={e.rule.id}
-              entry={e}
-              expanded={openId === e.rule.id}
-              onExpand={(next) => setOpen(next ? e.rule.id : null)}
-              data={data}
-              conditionShared={conditionShared}
-              overrides={overridesOf(e.rule, splits)}
-              busy={fanout.busy}
-              historyTick={historyTick}
-              onCounts={counts}
-              onPredecessor={predecessor}
-              onDelete={(rule) => void remove(rule)}
-              onOverride={override}
-            />
-          ))}
-          {data.loaded && entries.length === 0 ? (
-            <p className="fold-col__empty">{emptyWords(folded !== null, workflowId)}</p>
-          ) : null}
-        </section>
-
-        {def ? <Steps def={def} /> : null}
-
-        <ThenColumn
-          workflowId={workflowId}
-          rules={rules}
-          onward={onward}
-          workflows={data.workflows}
-          actors={data.actors}
-          triggerType={soleType(types)}
-          busy={fanout.busy}
-          hrefFor={hrefFor}
-          onFanOut={fanOut}
-          baselines={baselines}
+      <div className="sv-description" aria-label="Workflow description">
+        <EditableText
+          value={def.description?.trim() ?? ""}
+          display={def.description?.trim() || "No description yet"}
+          label="Edit the description of this workflow"
+          multiline
+          className="sv-lede"
+          editing={target?.kind === "workflow"}
+          busy={busy}
+          onEdit={() => setTarget({ kind: "workflow" })}
+          onSave={saveWorkflow}
+          onCancel={() => setTarget(null)}
         />
       </div>
+      <h2 className="sv-heading">How it runs</h2>
+      {problem ? (
+        <p className="notice notice--error" role="alert">
+          {problem}
+        </p>
+      ) : null}
+      {paragraph ? (
+        <div className="sv-para" data-testid="paragraph">
+          <Lines segments={segments} {...opening} />
+        </div>
+      ) : problem ? null : (
+        <p className="sv-loading" role="status">
+          Reading how it runs…
+        </p>
+      )}
     </section>
   );
 }

@@ -13,6 +13,12 @@ from culture_rules.cli.registry import Context, Param, Verb
 
 ID = Param("id", help="identifier of the item", required=True, positional=True)
 BODY = Param("body", type="object", help="the definition (JSON)", required=True)
+EXPECTED_REVISION = Param(
+    "expected_revision",
+    "integer",
+    "the revision the workflow was read at (default: the body's `revision`, else read now)",
+)
+_REVISIONED = frozenset({"workflows"})  # culture_rules.store.revision.REVISIONED
 _SUFFIXES = (".json", ".yaml", ".yml")
 
 
@@ -45,6 +51,27 @@ def write(
     }
     if preview:
         out["current"] = _api.call(lambda: ctx.client.request("GET", preview))
+    return out
+
+
+def _with_expected_revision(
+    ctx: Context, path: str, body: Any, expected: int | None
+) -> dict[str, Any]:
+    """The PUT body for a workflow: the definition plus ``expected_revision`` (c34).
+
+    The revision is the one the caller read: ``--expected-revision``, else the body's own
+    ``expected_revision``, else the ``revision`` a ``show`` left in the body (server-owned, so
+    it is never sent inside the definition), else the stored revision read now.
+    """
+    if not isinstance(body, dict):
+        raise CliError(EXIT_USER_ERROR, "--body must be a JSON object", "pass {...}")
+    out = {k: v for k, v in body.items() if k not in ("revision", "expected_revision")}
+    for candidate in (expected, body.get("expected_revision"), body.get("revision")):
+        if candidate is not None:
+            out["expected_revision"] = candidate
+            return out
+    current = _api.call(lambda: ctx.client.request("GET", path))
+    out["expected_revision"] = int(current.get("revision") or 0)
     return out
 
 
@@ -134,8 +161,10 @@ def definition_verbs(noun: str, singular: str, summary: str, *, exchange: bool) 
     def create(ctx: Context, body: dict) -> Any:
         return write(ctx, f"{noun} create", "POST", base, body)
 
-    def update(ctx: Context, id: str, body: dict) -> Any:
+    def update(ctx: Context, id: str, body: dict, expected_revision: int | None = None) -> Any:
         p = f"{base}/{seg(id)}"
+        if noun in _REVISIONED:
+            body = _with_expected_revision(ctx, p, body, expected_revision)
         return write(ctx, f"{noun} update", "PUT", p, body, preview=p)
 
     def action(name: str):
@@ -159,7 +188,15 @@ def definition_verbs(noun: str, singular: str, summary: str, *, exchange: bool) 
         ),
         v(noun, "show", f"Show one {singular}", show, (ID,)),
         v(noun, "create", f"Create a {singular}", create, (BODY,), True, "editor"),
-        v(noun, "update", f"Replace a {singular}", update, (ID, BODY), True, "editor"),
+        v(
+            noun,
+            "update",
+            f"Replace a {singular}",
+            update,
+            (ID, BODY, EXPECTED_REVISION) if noun in _REVISIONED else (ID, BODY),
+            True,
+            "editor",
+        ),
         v(noun, "enable", f"Enable a {singular}", action("enable"), (ID,), True, "editor"),
         v(noun, "disable", f"Disable a {singular}", action("disable"), (ID,), True, "editor"),
         v(

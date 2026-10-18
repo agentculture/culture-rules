@@ -16,8 +16,9 @@ code, services, robots, …). It ships as the PyPI distribution
 Python, and the visual editor in `web/` is a Node.js + React Flow app with
 four tabs: **Workflows | Actors | Variables | Statistics**.
 There is no Rules tab: each rule is shown and edited as an entry point
-of the workflow it starts, and a workflow opens in a Simple (When / Then),
-Detailed (steps) or Debug (ports and references) view.
+of the workflow it starts. A workflow opens in a Simple (its description
+and a plain-language paragraph), Detailed (notes, the steps canvas and the
+entry-point editors) or Debug (ports and references) view.
 
 **Status: the first mile is shipped on `main` (PR #4); the second
 mile (issues #5–#7) is built on `rules/second-mile`.** guildmaster provisioned the
@@ -49,6 +50,14 @@ On disk today:
   `llm.complete` (an OpenAI-compatible endpoint, a locked brief, no tools)
   and `library.push` (an EPUB to xteink); the step option
   `config.on_error: "skip"`; and the disabled bundle `docs/rules/newspaper`.
+- the workflow phrases (#69, spec
+  `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language
+  `description` plus an optional technical `notes` on workflows and steps,
+  `workflows migrate-notes [--apply]` (the committed `docs/rules` workflows
+  are migrated), `workflows describe` returning the description and a
+  paragraph from one phrase table (`culture_rules/model/paragraph.py`, no
+  AI), a server-owned workflow `revision` checked on save, v1 and v2 trust
+  digests, and `rules migrate-orphans [--apply]`.
 
 GitHub issue #1 was the build brief, and #2 the product model and UX. The
 spec is `docs/specs/2026-10-03-culture-rules-engine-editor.md`; the operator
@@ -87,7 +96,7 @@ Further settled constraints:
 - **Exactly four primary tabs: Workflows | Actors | Variables | Statistics.**
   There is no Rules tab: rules keep their stored shape in the engine, API,
   CLI and MCP, and the editor shows each one as a workflow's entry point
-  (Simple view) or a continuation. Statistics is per-machine state and work. Runs, history and
+  (a sentence in Simple, an editor in Detailed) or a continuation. Statistics is per-machine state and work. Runs, history and
   debugging appear only in context, never as a tab.
 
 ## Prompt files by harness

@@ -113,3 +113,52 @@ def test_rule_describe_without_a_workflow_reads_none(viewer, monkeypatch):
     client.get("/rules/pr-fixer-checks/describe")
     assert seen[:4] == [None, None, None, {}]
     assert seen[4]["id"] == "queue-add"
+
+
+def test_workflow_describe_has_description_and_paragraph(viewer):
+    from culture_rules.model.paragraph import workflow_paragraph
+
+    store, client = viewer
+    body = client.get("/workflows/pr-fix/describe").json()
+    wf = store.get("workflows", "pr-fix")
+    assert body["description"] == (wf.get("description") or "")
+    want = workflow_paragraph(wf, store.find("rules", {}))
+    assert body["paragraph"]["text"] == want["text"]  # None-valued keys are omitted on the wire
+    assert body["paragraph"]["segments"] == [
+        {k: v for k, v in seg.items() if v is not None} for seg in want["segments"]
+    ]
+    assert body["paragraph"]["segments"]
+    assert body["paragraph"]["text"]
+    assert "paragraph" not in client.get("/rules/pr-fixer-checks/describe").json()
+
+
+def test_workflow_describe_paragraph_ignores_deleted_rules(viewer):
+    store, client = viewer
+    rule = dict(store.get("rules", "pr-fixer-checks"))
+    with_rule = client.get("/workflows/queue-add/describe").json()["paragraph"]["text"]
+    store.put("rules", {**rule, "deleted_at": "2026-01-01T00:00:00Z"})
+    without = client.get("/workflows/queue-add/describe").json()["paragraph"]["text"]
+    assert with_rule != without
+
+
+def test_empty_workflow_describes(viewer):
+    store, client = viewer
+    store.put("workflows", {"id": "empty", "name": "empty", "steps": [], "edges": []})
+    body = client.get("/workflows/empty/describe").json()
+    assert body["description"] == ""
+    assert body["lines"] == []
+    assert isinstance(body["paragraph"]["text"], str)
+
+
+def test_disabled_survives_on_the_wire_only_when_true(viewer):
+    store, client = viewer
+    wf = store.get("workflows", "pr-fix")
+    first = wf["steps"][0]["id"]
+    store.put(
+        "workflows", {**wf, "steps": [{**wf["steps"][0], "enabled": False}, *wf["steps"][1:]]}
+    )
+    segs = client.get("/workflows/pr-fix/describe").json()["paragraph"]["segments"]
+    off = [s for s in segs if s.get("disabled")]
+    assert [s["step"] for s in off] == [first] and off[0]["part"] == "step"
+    assert all(s.get("disabled") is None for s in segs if s not in off)
+    assert "isabled" not in client.get("/workflows/pr-fix/describe").json()["paragraph"]["text"]

@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-10-18
+
+### Added
+
+- Workflow phrases (#69, spec `docs/specs/2026-10-17-workflow-connecting-phrases.md`, plan `docs/plans/2026-10-17-workflow-connecting-phrases.md`): `description` on a workflow and a step is plain language (one line per step, a short paragraph for the workflow), and a new optional `notes` field on Workflow and Step holds technical text (`schemas/workflow.schema.json`, `schemas/step.schema.json`)
+- `culture_rules/model/paragraph.py` (stdlib, no AI): one phrase table `PHRASES` builds a workflow's paragraph, one sentence per line with lead-ins and no colons ("First", "Then", "Then, at the same time,", "Once both are done,", "Each time, if …"), "; then" joins, waits, retries and loop bounds as trailing clauses, conditions in words (`describe.condition_words`; `""` reads "empty"), the rule sentences ("It starts when …") and the Then side ("Then it continues into …", "Where the chain ends here, it updates the chain's status comment on GitHub …"). A missing description is stood in for by the step's name (else a generic d19 line); disabled rules and steps are flagged
+- `GET /workflows/{id}/describe` and `culture-rules workflows describe` return the description and the paragraph before the d19 numbered lines; the CLI marks a stand-in `[ ]` and a disabled rule or step "(disabled)"; the MCP tool returns the same
+- `culture-rules workflows migrate-notes [--apply]` (`POST /workflows/migrate-notes`, admin, dry-run by default, an MCP tool): moves old description text into notes byte for byte, one audited write per workflow, a second apply reports 0
+- `culture-rules rules migrate-orphans [--apply]` (`POST /rules/migrate-orphans`, admin, dry-run by default, an MCP tool): gives each workflow-less rule its own stepless workflow (the D7 move); a rule pointing at a missing or deleted workflow is only listed as not adopted
+- A server-owned workflow `revision` (store metadata, not a model field), bumped on every write: `PUT /workflows/{id}` needs `expected_revision`, and a stale or missing one gets 409 `revision_conflict` naming `current_revision`; the client, `workflows update` (`--expected-revision`) and the MCP tool send it
+- A versioned workflow digest: `workflow_role` trusts a run whose v1 digest is in `TRUSTED_WORKFLOWS` or whose v2 digest (ignoring description and notes at every level) is in `TRUSTED_WORKFLOWS_V2`; one role either way, and it fails closed. v2 pins exist for the committed pr-fixer workflows
+- `python -m culture_rules.actors.trusted workflow-v2 < FILE` prints the v2 digest new pins use (`workflow` still prints v1)
+- Editor: `/workflows` is an overview of full-width cards (name, description or "No description yet", step count including loop bodies, apps touched: app actors on github, jira, discord, email, search), with New workflow and New rule; an open workflow has a compact pane (a search box and workflow names) that collapses to a rail
+
+### Changed
+
+- Editor, Simple (the default view) is text only: the workflow's description and "How it runs" in the quiet-inline style, rendered from the API's paragraph (the editor builds no phrase). Selecting a step opens the step panel (the one-line description, hint "Start with a verb", and notes); selecting a rule sentence opens that rule's entry-point editor (enable switch, Stop-runs offer). A stand-in reads italic and muted, a disabled rule or step muted with a small "disabled" tag
+- Editor, Detailed: the workflow's notes on top, the canvas with its legend, and the entry-point and Then editors Simple used to hold (live updates, the Stop-runs offer and the rest restored, d10). Debug is unchanged; old `/rules` links still redirect
+- Editor: the overview's chains, rules-without-a-workflow and deleted section is gone (deleted workflows are restored or purged from the CLI/MCP only); the workflow header carries the enable switch and "See it as one chain" when continuations link it; a stale save shows "This workflow changed since you opened it" with Reload
+- The committed `docs/rules` workflows are migrated (descriptions empty, notes hold the old text); `pr-fix`'s step names read as plain stand-ins (d12)
+- v1 workflow digest ignores `notes` (as pre-notes code ignored the unknown field), so the committed v1 pins keep matching
+- Rollout import keeps a stored description the committed file lacks
+- Rollout order (`culture-rules rollout plan`, `docs/operations/rollout.md`): idle, pause, upgrade every host, `workflows migrate-notes` (dry run, `--apply`, dry run reports 0), seed, import, `rules migrate-orphans` (dry run, `--apply`, dry run reports 0), enable, resume, verify
+- Docs: `CLAUDE.md`, `QWEN.md`, `AGENTS.override.md`, `AGENTS.colleague.md`, `README.md`, `web/README.md`, `docs/demo.md` and `docs/operations/pr-fixer.md` describe the overview, the three views, description and notes, the paragraph and the migrations
+- `docs/rules/pr-fixer/release.json` is 0.21.0, with no new rules or variables
+
+### Deviations
+
+Approved deviations d1–d15 of the plan (`.devague/deliveries/workflow-connecting-phrases.json`):
+
+- d1: the plan's "React Flow canvas" for the old Simple view reads "the fold layout" (When entry cards, steps column, Then column)
+- d2: the v1 workflow digest drops `notes` at every level, as pre-notes code ignored the unknown field
+- d3: notes are carried by the JSON schemas and `web/src/api/workflows.ts`; `api/openapi.json` and `web/src/api/types.ts` are untouched
+- d4: tests that used a description edit as their "untrusted edit" now edit `name`; the pr-fixer-single fixture stays trusted through v1
+- d5: consecutive steps that share a `config.when` say it once and join with "; then"
+- d6: new task t21, the compact workflows pane that collapses to a rail; Simple uses the full main width
+- d7: stale saves are caught by a server-stamped `revision`, not `version` (`expected_revision`, 409 naming the current one)
+- d8: disabled rules and steps flagged on the segment, not in words (strike-through; amended by d13)
+- d9: new task t22 ports the deleted Simple view tests onto Detailed's entry and Then editors
+- d10: new task t23 restores in Detailed's entry editors the 8 behaviours the old Simple had (live updates, Stop-runs offer and the rest)
+- d11: one sentence per line, lead-ins without colons, "; then" joins, trailing clauses, the step name as a stand-in for a missing description, the Then side in plain words, the "Start with a verb" hint
+- d12: `pr-fix`'s step names renamed to plain stand-ins, with a new v2 pin (the old one kept)
+- d13: no legend in Simple, no chains/rules-without-a-workflow/deleted section (rules adopted by `rules migrate-orphans`), full-width cards, notes on top of Detailed, a muted "disabled" tag instead of strike-through (CLI "(disabled)"), loop bodies and siblings read as their own sentences, `""` reads "empty", the enable switch in the header
+- d14: in Simple a step opens the step panel and a rule sentence opens that rule's editor
+- d15: Simple's quiet-inline design (teal lead-ins, plain joins, the disabled pill before the period, a soft tint on the selected step)
+
 ## [0.20.2] - 2026-10-13
 
 Docs and records only: no code, rule or variable changes.

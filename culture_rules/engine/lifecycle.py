@@ -8,7 +8,8 @@ the document for good and is allowed only for admins, and only with
 
 Tombstone fields live on the item document: ``deleted_at``, ``deleted_by``,
 ``restorable_until``. Each verb writes its mutation and exactly one audit entry
-in a single transaction. Standard-library only.
+in a single transaction; a workflow's soft delete and restore also bump its
+``revision`` (:mod:`culture_rules.store.revision`). Standard-library only.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
+from culture_rules.store import revision as rev
 from culture_rules.store.port import Document, StoragePort
 
 RETENTION = timedelta(days=30)
@@ -93,11 +95,12 @@ class Lifecycle:
             res = tx.update_if(
                 collection,
                 id,
-                {"deleted_at": None},
+                {"deleted_at": None, **rev.guard(collection, before)},
                 {
                     "deleted_at": _iso(now),
                     "deleted_by": identity,
                     "restorable_until": _iso(now + RETENTION),
+                    **rev.bump(collection, before),
                 },
             )
             if not res.won:
@@ -135,7 +138,12 @@ class Lifecycle:
                 raise LifecycleError(f"restore window expired for {collection}/{id}")
             if check is not None:
                 check(tx, before)
-            res = tx.update_if(collection, id, {"deleted_at": before["deleted_at"]}, _LIVE)
+            res = tx.update_if(
+                collection,
+                id,
+                {"deleted_at": before["deleted_at"], **rev.guard(collection, before)},
+                {**_LIVE, **rev.bump(collection, before)},
+            )
             if not res.won:
                 raise LifecycleError(f"{collection}/{id} changed concurrently")
             after = res.document
