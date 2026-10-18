@@ -2,7 +2,7 @@
   "plan_slug": "workflow-connecting-phrases",
   "schema_version": 2,
   "created": "2026-10-17T19:24:42Z",
-  "updated": "2026-10-17T23:57:25Z",
+  "updated": "2026-10-18T00:25:52Z",
   "deviations": [
     {
       "id": "d1",
@@ -489,6 +489,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 28
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o2",
+      "test_ref": "tests/model/test_paragraph.py::test_a_nested_loop_keeps_every_step_of_its_body; tests/model/test_rule_paragraph.py::test_rule_sentence_priority_that_is_not_a_whole_number_reads_0",
+      "behavior_text": "a stored nested loop (which the engine refuses to run) still reads every body step; a junk rule priority reads 0, never raw",
+      "contract_text": "Never raises; an unknown step reads as its d19 line and the rest still renders",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full pytest 6703 passed at the named commit (Qwen review 2 fixes)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-18T00:20:00",
+        "commit": "90ad22f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
     }
   ],
   "deltas": [
