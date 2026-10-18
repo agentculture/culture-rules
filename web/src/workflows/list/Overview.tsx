@@ -66,7 +66,7 @@ export function appsTouched(wf: WorkflowDef, model: FoldModel, actors: readonly 
     const known = APP_SURFACES.find((s) => s === surface);
     if (known) labels.add(SURFACE_LABEL[known]);
   }
-  return [...labels].sort();
+  return [...labels].sort((a, b) => a.localeCompare(b));
 }
 
 export interface OverviewProps {
