@@ -35,7 +35,7 @@ d14 (Simple opens the step panel and the rule pane), d15 quiet-inline design. Ga
    (t20's last criterion, o8's live half).
 3. Open: the Qwen reviewer on spark2 fails with JSON-RPC -32603 within ~15 s of session/prompt
    (runs run-c21a3ad5..., run-8b813e43...); cortex now runs on both Sparks behind the lobes
-   model-gear gateways, so check the endpoint in culture-fixer's `~/.qwen/settings.json`.
+   model-gear gateways, so check the cortex endpoint in the culture-fixer account's Qwen Code settings.
 
 ## Open notes
 
