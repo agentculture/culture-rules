@@ -753,14 +753,22 @@ def _seg(
     return seg
 
 
-def _body_items(loop: dict[str, Any], label: str) -> list[dict[str, Any]]:
+#: how deep nested loop bodies are read (the model's own nesting is bounded too)
+_MAX_LOOP_DEPTH = 8
+
+
+def _body_items(loop: dict[str, Any], label: str, depth: int = 1) -> list[dict[str, Any]]:
     body = _body(loop)
     ok = [_recognised(b) for b in body]
     leads = {i: [("each_time", {}) if i == 0 else ("then", {})] for i in range(len(body))}
     full = _level_leads(body, ok, leads)
-    return [
-        _item(b, full[i], ok[i], f"{label}.{i + 1}", 1, _sid(loop), i) for i, b in enumerate(body)
-    ]
+    items: list[dict[str, Any]] = []
+    for i, b in enumerate(body):
+        items.append(_item(b, full[i], ok[i], f"{label}.{i + 1}", depth, _sid(loop), i))
+        # the engine refuses a nested loop, but a stored one still reads every step
+        if b.get("kind") in _LOOPS and depth < _MAX_LOOP_DEPTH:
+            items += _body_items(b, f"{label}.{i + 1}", depth + 1)
+    return items
 
 
 def step_paragraph(workflow: Any) -> dict[str, Any]:
@@ -1038,7 +1046,10 @@ def _relationship_parts(rule: dict[str, Any]) -> list[Part]:
         parts.append(("rule_supersedes", {"rules": _names(sup)}))
     group = rule.get("exclusive_group")
     if isinstance(group, str) and group:
-        parts.append(("rule_group", {"group": group, "priority": rule.get("priority", 0)}))
+        priority = rule.get("priority")
+        if not isinstance(priority, int) or isinstance(priority, bool):
+            priority = 0  # the model's default; never a raw value in prose
+        parts.append(("rule_group", {"group": group, "priority": priority}))
     return parts
 
 

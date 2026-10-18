@@ -919,3 +919,29 @@ def test_daily_newspaper_render_joins_by_then_alone():
     assert p["render"][0] == "then"
     assert not any(k.startswith("once") for k in p["render"])
     assert p["email_gate"] == ["then_grouped"]
+
+
+def test_a_nested_loop_keeps_every_step_of_its_body():
+    """The engine refuses a nested loop, but a stored one still reads every step (review 2)."""
+    wf = {
+        "id": "w",
+        "name": "w",
+        "steps": [
+            {
+                "id": "outer",
+                "kind": "for_each",
+                "max_iterations": 2,
+                "body": [
+                    {
+                        "id": "inner",
+                        "kind": "retry_until",
+                        "max_iterations": 3,
+                        "body": [{"id": "x", "kind": "code", "description": "Do x."}],
+                    }
+                ],
+            }
+        ],
+    }
+    segments = step_paragraph(wf)["segments"]
+    assert [s["step"] for s in segments] == ["outer", "inner", "x"]
+    assert "do x" in step_paragraph(wf)["text"]

@@ -329,6 +329,12 @@ def test_rule_sentence_relationships():
     _assert_from_table(seg)
 
 
+@pytest.mark.parametrize("junk", ["high", None, True, 1.5, [2]])
+def test_rule_sentence_priority_that_is_not_a_whole_number_reads_0(junk):
+    seg = rule_sentence(_rule(exclusive_group="g", priority=junk))
+    assert seg["text"].endswith("of group g matches (priority 0).")
+
+
 @pytest.mark.parametrize(
     "outcome, words",
     [("succeeded", "succeeds"), ("failed", "fails"), ("cancelled", "ends (cancelled)")],
