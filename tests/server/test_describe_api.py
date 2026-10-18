@@ -159,6 +159,7 @@ def test_disabled_survives_on_the_wire_only_when_true(viewer):
     )
     segs = client.get("/workflows/pr-fix/describe").json()["paragraph"]["segments"]
     off = [s for s in segs if s.get("disabled")]
-    assert [s["step"] for s in off] == [first] and off[0]["part"] == "step"
+    assert [s["step"] for s in off] == [first]
+    assert off[0]["part"] == "step"
     assert all(s.get("disabled") is None for s in segs if s not in off)
     assert "isabled" not in client.get("/workflows/pr-fix/describe").json()["paragraph"]["text"]

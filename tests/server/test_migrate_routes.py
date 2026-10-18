@@ -134,10 +134,13 @@ def test_notes_apply_moves_audits_once_and_bumps_revision(client, store):
     _seed_notes(store)
     r = client.post("/workflows/migrate-notes", json={"apply": True}, headers=ALICE)
     assert r.status_code == 200, r.text
-    assert [w["id"] for w in r.json()["workflows"]] == ["old"] and r.json()["applied"] is True
+    assert [w["id"] for w in r.json()["workflows"]] == ["old"]
+    assert r.json()["applied"] is True
     doc = store.get(WORKFLOWS, "old")
-    assert doc["notes"] == " Keep\nme " and doc["description"] == ""
-    assert doc["steps"][0]["notes"] == "step" and doc["steps"][0]["description"] == ""
+    assert doc["notes"] == " Keep\nme "
+    assert doc["description"] == ""
+    assert doc["steps"][0]["notes"] == "step"
+    assert doc["steps"][0]["description"] == ""
     assert doc["revision"] == 4
     assert len(_audits(store, "old")) == 1
     for other in ("set", "clean", "gone"):
@@ -207,15 +210,19 @@ def test_orphans_apply_makes_d7_workflows_audited_and_is_idempotent(client, stor
         assert store.get(RULES, rid)["workflow"] == {"id": wid}
         wf = store.get("workflows", wid)
         assert wf["name"] == store.get(RULES, rid)["name"]
-        assert wf["steps"] == [] and wf["edges"] == []
+        assert wf["steps"] == []
+        assert wf["edges"] == []
         assert wf["revision"] == 1
-        assert len(_audit(store, rid)) == 1 and len(_audit(store, wid)) == 1
+        assert len(_audit(store, rid)) == 1
+        assert len(_audit(store, wid)) == 1
     # never written: dangling, deleted-workflow, deleted rule; nothing deleted
     assert store.get(RULES, "dangling")["workflow"] == {"id": "nowhere"}
     assert store.get(RULES, "tomb")["workflow"] == {"id": "w-dead"}
     assert "workflow" not in store.get(RULES, "gone")
-    assert _audit(store, "dangling") == [] and _audit(store, "tomb") == []
-    assert len(store.find(RULES)) == 7 and len(store.find("workflows")) == 6
+    assert _audit(store, "dangling") == []
+    assert _audit(store, "tomb") == []
+    assert len(store.find(RULES)) == 7
+    assert len(store.find("workflows")) == 6
     n = len(store.find("audit"))
     again = client.post("/rules/migrate-orphans", json={"apply": True}, headers=ALICE).json()
     assert again["rules"] == []

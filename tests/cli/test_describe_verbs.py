@@ -85,7 +85,8 @@ def test_describe_json_has_lines_and_entries(wire, seeded, capsys):  # noqa: F81
     assert out["lines"] == PR_FIX_WORKFLOW
     assert out["entries"][0]["step"] == "quiet"
     assert out["description"]
-    assert out["paragraph"]["text"] and out["paragraph"]["segments"]
+    assert out["paragraph"]["text"]
+    assert out["paragraph"]["segments"]
 
 
 def test_describe_unknown_id_is_a_user_error(wire, seeded, capsys):  # noqa: F811
@@ -147,14 +148,16 @@ def test_describe_marks_a_disabled_rule(wire, newspaper, capsys, monkeypatch, tt
         "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark (disabled).\nFirst reads "
     )
     assert body.count("(disabled)") == 1
-    assert "\x1b" not in out and "~~" not in out
+    assert "\x1b" not in out
+    assert "~~" not in out
     assert _unmarked(body, para) == para["text"]
 
 
 def test_describe_json_is_the_raw_payload_with_the_flag(wire, newspaper, capsys):  # noqa: F811
     out = jrun(capsys, "workflows", "describe", "daily-newspaper")
     assert out["paragraph"]["segments"][0]["disabled"] is True
-    assert "(disabled)" not in out["paragraph"]["text"] and "\x1b" not in out["paragraph"]["text"]
+    assert "(disabled)" not in out["paragraph"]["text"]
+    assert "\x1b" not in out["paragraph"]["text"]
 
 
 @pytest.mark.parametrize("tty", [False, True])

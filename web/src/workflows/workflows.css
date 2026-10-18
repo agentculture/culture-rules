@@ -993,6 +993,7 @@
 }
 
 .wf-field__hint {
+  display: block;
   margin: 4px 0 0;
   font-size: 14px;
   color: var(--ink-soft);
@@ -1412,10 +1413,6 @@
 .wf-trust-ask p {
   flex: 1 1 100%;
   margin: 0;
-}
-
-.wf-field__hint {
-  display: block;
 }
 
 /*

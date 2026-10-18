@@ -66,7 +66,8 @@ def test_workflows_migrate_notes_dry_run_then_apply(wire, store, capsys):  # noq
     _seed_notes(store)
     before = snapshot(store)
     out = jrun(capsys, "workflows", "migrate-notes")
-    assert out["dry_run"] is True and out["applied"] is False
+    assert out["dry_run"] is True
+    assert out["applied"] is False
     assert out["result"]["workflows"] == [{"id": "w", "name": "W", "nodes": ["workflow"]}]
     assert snapshot(store) == before
     out = jrun(capsys, "workflows", "migrate-notes", "--apply")

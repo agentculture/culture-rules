@@ -34,10 +34,13 @@ def _wf(**over):
 def test_moves_workflow_steps_and_loop_bodies_byte_for_byte():
     src = _wf()
     out = migrate_notes(src)
-    assert out["notes"] == src["description"] and out["description"] == ""
-    assert out["steps"][0]["notes"] == "step a" and out["steps"][0]["description"] == ""
+    assert out["notes"] == src["description"]
+    assert out["description"] == ""
+    assert out["steps"][0]["notes"] == "step a"
+    assert out["steps"][0]["description"] == ""
     inner = out["steps"][1]["body"][0]
-    assert inner["notes"] == "inner text" and inner["description"] == ""
+    assert inner["notes"] == "inner text"
+    assert inner["description"] == ""
     assert notes_changes(src) == ["workflow", "a", "inner"]
 
 
@@ -45,8 +48,10 @@ def test_a_node_with_notes_set_is_left_alone_per_node():
     src = _wf(notes="mine")
     src["steps"][0]["notes"] = "keep"
     out = migrate_notes(src)
-    assert out["notes"] == "mine" and out["description"] == src["description"]
-    assert out["steps"][0]["notes"] == "keep" and out["steps"][0]["description"] == "step a"
+    assert out["notes"] == "mine"
+    assert out["description"] == src["description"]
+    assert out["steps"][0]["notes"] == "keep"
+    assert out["steps"][0]["description"] == "step a"
     assert out["steps"][1]["body"][0]["notes"] == "inner text"  # other nodes still move
     assert notes_changes(src) == ["inner"]
 

@@ -124,12 +124,8 @@ function stampRule(api: FakeApi, rule: Rule, write = false): Rule {
   return stored;
 }
 
-function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResponse {
-  if (path === "/whoami") return json(200, WHOAMI);
-  if (path === "/rules") return json(200, { items: api.rules.map((rule) => stampRule(api, rule)) });
-  if (path === "/actors") return json(200, { items: ACTORS });
-  if (path === "/machines") return json(200, { items: MACHINES });
-  if (path === "/workflows") return json(200, { items: api.workflows });
+/** `GET /workflows/{id}` and `GET /rules/{id}`; null when `path` is neither. */
+function getOne(api: FakeApi, path: string): FakeResponse | null {
   const workflow = /^\/workflows\/([^/]+)$/.exec(path);
   if (workflow) {
     const found = api.workflows.find((w) => w.id === decodeURIComponent(workflow[1]));
@@ -140,6 +136,17 @@ function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResp
     const found = api.rules.find((r) => r.id === decodeURIComponent(rule[1]));
     return found ? json(200, stampRule(api, found)) : error(404, "not_found", path);
   }
+  return null;
+}
+
+function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResponse {
+  if (path === "/whoami") return json(200, WHOAMI);
+  if (path === "/rules") return json(200, { items: api.rules.map((rule) => stampRule(api, rule)) });
+  if (path === "/actors") return json(200, { items: ACTORS });
+  if (path === "/machines") return json(200, { items: MACHINES });
+  if (path === "/workflows") return json(200, { items: api.workflows });
+  const one = getOne(api, path);
+  if (one) return one;
   const described = /^\/rules\/([^/]+)\/describe$/.exec(path);
   if (described) return describeRule(api, described[1]);
   if (path === "/runs") return listRuns(api, query);

@@ -688,18 +688,24 @@ def _settle(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         it["joined"], it["sentence"] = joined, sentence
         prev = it
     for n, it in enumerate(items):
-        nxt = items[n + 1] if n + 1 < len(items) else None
-        if it["with_sibling"]:
-            key = "list_grouped" if nxt is not None and nxt["with_sibling"] else "and_grouped"
-            rest = [p for p in it["lead"] if p[0] in (*_IF_KEYS, "in_any_case")]
-            it["lead"] = [(key, {}), *rest]
-        elif it["joined"]:
-            it["lead"] = [("then_grouped", {})]
-        elif nxt is not None and nxt["with_sibling"] and not it["sib"][3]:
-            lead = it["lead"]
-            if lead[0][0] != "same_time":  # its join, then "at the same time"
-                it["lead"] = [lead[0], ("same_time", {}), *lead[1:]]
+        _connect(it, items[n + 1] if n + 1 < len(items) else None)
     return items
+
+
+def _connect(it: dict[str, Any], nxt: Mapping[str, Any] | None) -> None:
+    """Rewrite ``it``'s lead-in once :func:`_settle` knows its sentences: a continuing step's
+    lead-in becomes its connector, and the first of siblings read together (``nxt`` the step
+    after it, or ``None``) says ``at the same time`` after its join."""
+    if it["with_sibling"]:
+        key = "list_grouped" if nxt is not None and nxt["with_sibling"] else "and_grouped"
+        rest = [p for p in it["lead"] if p[0] in (*_IF_KEYS, "in_any_case")]
+        it["lead"] = [(key, {}), *rest]
+    elif it["joined"]:
+        it["lead"] = [("then_grouped", {})]
+    elif nxt is not None and nxt["with_sibling"] and not it["sib"][3]:
+        lead = it["lead"]
+        if lead[0][0] != "same_time":  # its join, then "at the same time"
+            it["lead"] = [lead[0], ("same_time", {}), *lead[1:]]
 
 
 def _segment(it: dict[str, Any], ends: bool) -> dict[str, Any]:

@@ -240,6 +240,14 @@ def _words_in(value: Any, items: Any) -> str:
     return f"{subject} is {EMPTY_WORD} or {others}"
 
 
+def _words_not(arg: Any) -> str:
+    """``not`` in words: ``x is not set`` for ``not exists``, else ``it is not the case
+    that ...`` (see :func:`_negated` for why nothing else folds)."""
+    if isinstance(arg, Mapping) and arg.get("op") == "exists":  # the same truth, by definition
+        return f"{_operand(arg.get('arg'))} is not set"
+    return f"it is not the case that {_words(arg, nested=True)}"
+
+
 def _words(node: Any, *, nested: bool = False) -> str:
     """The uncapped words behind :func:`condition_words`; the same shape as ``condition_text``."""
     if not isinstance(node, Mapping):
@@ -253,10 +261,7 @@ def _words(node: Any, *, nested: bool = False) -> str:
         text = f" {op} ".join(_words(a, nested=True) for a in args)
         return f"({text})" if nested and len(args) > 1 else text
     if op == "not":
-        arg = node.get("arg")
-        if isinstance(arg, Mapping) and arg.get("op") == "exists":  # the same truth, by definition
-            return f"{_operand(arg.get('arg'))} is not set"
-        return f"it is not the case that {_words(arg, nested=True)}"
+        return _words_not(node.get("arg"))
     if op == "exists":
         return f"{_operand(node.get('arg'))} is set"
     if op == "in":

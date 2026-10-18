@@ -149,6 +149,25 @@ def _expected_revision(body: Any) -> tuple[Any, Any]:
     return rest, value
 
 
+def _check_before(kind: str, ident: str, before: Any, expect_id: str | None) -> None:
+    """Refuse a save against what the transaction read: a create of an existing id, an update
+    of a missing or soft-deleted one."""
+    if expect_id is None and before is not None:
+        raise Conflict(f"{kind}/{ident} already exists")
+    if expect_id is not None:
+        if before is None:
+            raise NotFound(f"{kind}/{ident} does not exist")
+        if not _is_live(before):
+            raise Conflict(f"{kind}/{ident} is deleted; restore it first")
+
+
+def _check_revision(kind: str, ident: str, before: Any, expected: Any) -> None:
+    """Refuse an update whose ``expected`` revision is missing or not ``before``'s."""
+    current = rev.current_revision(before)
+    if expected is None or expected != current:
+        raise _revision_conflict(kind, ident, expected, current)
+
+
 class RuleReferenced(Conflict):
     """Other live rules still reference this rule (HTTP 409)."""
 
@@ -236,6 +255,24 @@ def _has_no_workflow(doc: Mapping[str, Any]) -> bool:
     """The fold's ``d7Candidates`` test (web/src/fold/model.ts): ``!rule.workflow?.id``."""
     ref = doc.get("workflow")
     return not (isinstance(ref, Mapping) and ref.get("id"))
+
+
+def _stranded(
+    rules: Iterable[Mapping[str, Any]], live: set[str], taken: set[str]
+) -> list[dict[str, Any]]:
+    """The rules whose workflow reference names no live workflow (``migrate_orphans``'s
+    ``not_adopted``): ``reason`` is ``deleted`` when the id is ``taken`` (soft-deleted),
+    else ``missing``."""
+    return [
+        {
+            "rule_id": r["id"],
+            "rule_name": r.get("name"),
+            "workflow_id": r["workflow"]["id"],
+            "reason": "deleted" if r["workflow"]["id"] in taken else "missing",
+        }
+        for r in rules
+        if not _has_no_workflow(r) and r["workflow"]["id"] not in live
+    ]
 
 
 def _notes_entry(doc: Mapping[str, Any]) -> dict[str, Any]:
@@ -362,20 +399,12 @@ class Definitions:
 
         def write(tx: Any) -> Document:
             before = tx.get(kind, ident)
-            if expect_id is None and before is not None:
-                raise Conflict(f"{kind}/{ident} already exists")
-            if expect_id is not None:
-                if before is None:
-                    raise NotFound(f"{kind}/{ident} does not exist")
-                if not _is_live(before):
-                    raise Conflict(f"{kind}/{ident} is deleted; restore it first")
+            _check_before(kind, ident, before, expect_id)
             if revisioned:
                 # compare inside the transaction: the put below replaces exactly the document
                 # read here, so a concurrent writer makes this attempt lose (and the retry
                 # re-reads and refuses with the revision it finds)
-                current = rev.current_revision(before)
-                if expected is None or expected != current:
-                    raise _revision_conflict(kind, ident, expected, current)
+                _check_revision(kind, ident, before, expected)
             if isinstance(obj, Rule):
                 self._check_rule_set(tx, obj)
             doc = self._stored(obj, ident)
@@ -512,16 +541,7 @@ class Definitions:
         docs = self._store.find("workflows")
         live = {d["id"] for d in docs if _is_live(d)}
         taken = {d["id"] for d in docs}
-        stranded = [
-            {
-                "rule_id": r["id"],
-                "rule_name": r.get("name"),
-                "workflow_id": r["workflow"]["id"],
-                "reason": "deleted" if r["workflow"]["id"] in taken else "missing",
-            }
-            for r in self.list("rules")
-            if not _has_no_workflow(r) and r["workflow"]["id"] not in live
-        ]
+        stranded = _stranded(self.list("rules"), live, taken)
         found: list[dict[str, Any]] = []
         for doc in self.list("rules"):
             if not _has_no_workflow(doc):

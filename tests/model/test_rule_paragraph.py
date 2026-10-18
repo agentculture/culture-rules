@@ -95,7 +95,8 @@ def _template_regex(template: str, first: bool) -> str:
 
 def _assert_from_table(seg: dict) -> None:
     """A rule or Then segment's text is exactly its PHRASES keys, composed."""
-    assert seg["keys"] and all(k in SENTENCE_KEYS for k in seg["keys"]), seg
+    assert seg["keys"], seg
+    assert all(k in SENTENCE_KEYS for k in seg["keys"]), seg
     pattern = ", ".join(_template_regex(PHRASES[k], i == 0) for i, k in enumerate(seg["keys"]))
     assert re.fullmatch(pattern + r"\.", seg["text"]), seg
 
@@ -109,7 +110,8 @@ def test_sentence_entries_are_table_values_ending_with_a_period():
         assert PHRASES[key].endswith("."), key
     # d11: the step paragraph's lead-ins, connectors and trailing clauses carry no colon
     joining = set(PHRASES) - SENTENCE_KEYS
-    assert joining and not any(PHRASES[k].endswith((":", ".")) for k in joining)
+    assert joining
+    assert not any(PHRASES[k].endswith((":", ".")) for k in joining)
 
 
 # --------------------------------------------------------------------------- the fold
@@ -122,7 +124,8 @@ def test_fold_entry_and_continuation():
         _rule("c", workflow=None),  # no workflow: a D7 candidate, folded nowhere
     ]
     fold = fold_rules(rules)
-    assert [(e["rule"]["id"], e["workflow_id"], e["kind"]) for e in fold] == [
+    actual = [(e["rule"]["id"], e["workflow_id"], e["kind"]) for e in fold]
+    assert actual == [
         ("a", "w1", "entry"),
         ("b", "w2", "continuation"),
     ]
@@ -203,7 +206,8 @@ def test_the_committed_entry_and_continuation_sets_by_hand():
     assert owned("review-commit", "continuation") == {"pr-fixer-review-commit"}
     assert owned("publish-fix", "continuation") == {"pr-fixer-publish"}
     assert owned("daily-newspaper", "entry") == {"daily-newspaper"}
-    assert {e["rule"]["id"] for e in onward_of(fold, "pr-fix")} == {
+    actual = {e["rule"]["id"] for e in onward_of(fold, "pr-fix")}
+    assert actual == {
         "pr-fixer-queue-progress-cancelled",
         "pr-fixer-queue-progress-failed",
         "pr-fixer-queue-progress-fixed",
@@ -232,7 +236,8 @@ def test_onward_includes_any_and_ambiguous_but_not_the_workflow_itself():
         _run_rule("self", "w1", target="w1"),
         _run_rule("other", "w8", target="w4"),
     ]
-    assert [e["rule"]["id"] for e in onward_of(fold_rules(rules), "w1")] == [
+    actual = [e["rule"]["id"] for e in onward_of(fold_rules(rules), "w1")]
+    assert actual == [
         "linked",
         "any",
         "amb",
@@ -277,8 +282,11 @@ def test_rule_sentence_condition_placement_and_disabled():
     )
     seg = rule_sentence(rule)
     assert seg["text"] == ("It starts when github.pr.opened arrives, if draft is false, on spark2.")
-    assert seg["disabled"] is True and "disabled" not in rule_sentence(_rule())
-    assert seg["rule"] == "r" and seg["enabled"] is False and seg["kind"] == "entry"
+    assert seg["disabled"] is True
+    assert "disabled" not in rule_sentence(_rule())
+    assert seg["rule"] == "r"
+    assert seg["enabled"] is False
+    assert seg["kind"] == "entry"
     _assert_from_table(seg)
     # d13: the CLI's mark, after the words and before the period
     assert mark_disabled(seg["text"]) == (
@@ -390,7 +398,8 @@ def _then(rules, onward=()):
 
 def test_then_noop_and_nothing_continues():
     segs = _then([_rule()])
-    assert [s["text"] for s in segs] == [
+    actual = [s["text"] for s in segs]
+    assert actual == [
         "Nothing continues from here.",
         "When it is done, nothing else happens.",
     ]
@@ -426,7 +435,8 @@ def test_then_action_on_failure_and_runs():
         max_attempts=3,
     )
     segs = _then([rule])
-    assert [s["text"] for s in segs] == [
+    actual = [s["text"] for s in segs]
+    assert actual == [
         "Nothing continues from here.",
         "Where the chain ends here, it updates the chain's status comment on GitHub"
         " (as github-app).",
@@ -486,7 +496,8 @@ def _comment(**kw: object) -> dict:
 )
 def test_then_status_comments_and_chain_ends(action, on_failure, texts):
     segs = _then([_rule(action=action, on_failure=on_failure)])
-    assert [s["text"] for s in segs[1:]] == texts
+    actual = [s["text"] for s in segs[1:]]
+    assert actual == texts
     assert not any(") (" in s["text"] for s in segs)  # no stacked brackets
     for seg in segs:
         _assert_from_table(seg)
@@ -500,7 +511,8 @@ def test_then_values_that_differ_per_rule():
         concurrency_key="k2",
     )
     segs = _then([a, b])
-    assert [s["text"] for s in segs] == [
+    actual = [s["text"] for s in segs]
+    assert actual == [
         "Nothing continues from here.",
         "When it is done, it runs noop or frobnicate, depending on the rule that started it.",
         "If it fails, it runs noop, depending on the rule that started it.",
@@ -511,7 +523,8 @@ def test_then_values_that_differ_per_rule():
 
 
 def test_then_with_no_rules_says_only_where_it_continues():
-    assert [s["text"] for s in _then([])] == ["Nothing continues from here."]
+    actual = [s["text"] for s in _then([])]
+    assert actual == ["Nothing continues from here."]
 
 
 # --------------------------------------------------------------------------- the paragraph
@@ -543,12 +556,14 @@ def test_workflow_paragraph_orders_starts_steps_then():
     }
     rules = [_rule("a"), _run_rule("c", "w0", target="w"), _run_rule("b", "w", target="w2")]
     out = workflow_paragraph(wf, rules)
-    assert [s["part"] for s in out["segments"]] == ["start", "start", "step", "then", "then"]
+    actual = [s["part"] for s in out["segments"]]
+    assert actual == ["start", "start", "step", "then", "then"]
     assert out["text"] == (
         "It starts when github.pr.opened arrives.\nIt starts when w0 succeeds."
         "\nFirst does it.\nThen it continues into w2.\nWhen it is done, nothing else happens."
     )
-    assert [s["sentence"] for s in out["segments"]] == [0, 1, 2, 3, 4]
+    actual = [s["sentence"] for s in out["segments"]]
+    assert actual == [0, 1, 2, 3, 4]
     assert step_paragraph(wf)["text"] in out["text"]
 
 
@@ -563,14 +578,16 @@ def test_pr_fix_paragraph_opens_with_its_starting_rule_and_ends_with_then():
     wf = _committed_workflow("pr-fix")
     out = workflow_paragraph(wf, rules)
     starts = [s for s in out["segments"] if s["part"] == "start"]
-    assert [s["rule"] for s in starts] == ["pr-fixer-dispatch"]
+    actual = [s["rule"] for s in starts]
+    assert actual == ["pr-fixer-dispatch"]
     assert out["text"].startswith(
         "It starts when rules.queue.dispatch arrives, if its condition holds, on spark2."
         "\nFirst waits for the pull request to settle, waiting 5 minutes"
     )
     steps = step_paragraph(wf)["text"]
     head, sep, tail = out["text"].partition(steps)
-    assert sep and head.endswith(".\n")
+    assert sep
+    assert head.endswith(".\n")
     assert tail.split("\n") == [
         "",
         "Then it continues into queue-progress, queue-add-capacity, queue-add or review-commit.",
@@ -605,4 +622,5 @@ def test_workflow_paragraph_does_not_mutate_its_inputs():
     wf = _committed_workflow("pr-fix")
     before = copy.deepcopy((rules, wf))
     workflow_paragraph(wf, rules)
-    assert (rules, wf) == before
+    actual = (rules, wf)
+    assert actual == before

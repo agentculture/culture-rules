@@ -137,10 +137,7 @@ def test_mcp_workflows_update_sends_the_revision(wire, store):
     out = call_tool("workflows_update", {"id": "wf", "body": _named("mcp"), "apply": True}, client)
     assert out["result"]["revision"] == 2
     assert wire.puts()[-1]["expected_revision"] == 1
+    stale = {"id": "wf", "body": _named("stale"), "expected_revision": 1, "apply": True}
     with pytest.raises(ToolError, match="revision 2"):
-        call_tool(
-            "workflows_update",
-            {"id": "wf", "body": _named("stale"), "expected_revision": 1, "apply": True},
-            client,
-        )
+        call_tool("workflows_update", stale, client)
     assert store.get("workflows", "wf")["name"] == "mcp"

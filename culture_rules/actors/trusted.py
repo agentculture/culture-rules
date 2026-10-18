@@ -58,6 +58,9 @@ __all__ = [
     "workflow_role",
 ]
 
+_DIGEST_PREFIX = "sha256:"
+"""The scheme prefix on every digest here, workflow (v1 and v2) and actor alike."""
+
 ROLE_SINGLE = "pr-fixer"
 """The d20 single workflow: fixes, gates, reviews and pushes in one run (its own review)."""
 ROLE_FIX = "pr-fix"
@@ -172,7 +175,7 @@ def workflow_digest(definition: Any) -> str | None:
     doc.pop("version", None)
     _drop_notes(doc)
     text = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return _DIGEST_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 _PROSE = ("description", "notes")
@@ -206,7 +209,7 @@ def workflow_digest_v2(definition: Any) -> str | None:
     doc.pop("version", None)
     _drop_prose(doc)
     text = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return _DIGEST_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def trusted_workflow_digests() -> frozenset[str]:
@@ -339,7 +342,7 @@ def actor_digest(doc: Any) -> str | None:
     text = json.dumps(
         _actor_projection(doc), sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return _DIGEST_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def actor_refusal(store: Any, actor_id: Any) -> tuple[str | None, str | None]:

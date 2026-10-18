@@ -57,6 +57,12 @@ const HINT = "Start with a verb, one line: 'Packs the commits for the hand-off.'
 
 type Target = { kind: "workflow" } | null;
 
+/** The words' look when not editing: the API's stand-in, the visible gap, or plain. */
+function textTone(standin: boolean, value: string): string {
+  if (standin) return "sv-standin";
+  return value ? "" : "sv-gap";
+}
+
 /** Text that turns into a field when clicked; `placeholder` is the visible gap when it is empty. */
 function EditableText({
   value,
@@ -98,12 +104,13 @@ function EditableText({
   }, [editing]);
   if (!editing) {
     return (
-      // A span, not a <button>: a button is an atomic inline box and would not wrap with the text.
-      <span
+      // A span, not a <button>: a button is an atomic inline box and would not wrap with the text
+      // (S6819 accepted: a <button>, even reset to `display: inline`, lays out as one unbreakable box).
+      <span // NOSONAR
         role="button"
         tabIndex={busy ? -1 : 0}
         aria-disabled={busy || undefined}
-        className={`sv-text ${standin ? "sv-standin" : value ? "" : "sv-gap"} ${className ?? ""}`.trim()}
+        className={`sv-text ${textTone(standin, value)} ${className ?? ""}`.trim()}
         title={label}
         onClick={() => {
           if (!busy) onEdit();
@@ -160,7 +167,10 @@ const Pill = () => (
   </span>
 );
 
-/** Words that open something when chosen: a span with a button role, so it wraps with the text. */
+/**
+ * Words that open something when chosen: a span with a button role, so it wraps with the text
+ * (S6819 accepted: a <button> lays out as one unbreakable inline box, whatever its `display`).
+ */
 function Opener({
   label,
   className,
@@ -175,7 +185,7 @@ function Opener({
   children: React.ReactNode;
 }>) {
   return (
-    <span
+    <span // NOSONAR
       role="button"
       tabIndex={0}
       className={`${className}${selected ? " sv-selected" : ""}`}
@@ -194,9 +204,21 @@ function Opener({
   );
 }
 
-/** Splits a disabled sentence's closing period off, so the tag sits before it (d15). */
-function beforePeriod(text: string, disabled: boolean): [string, string] {
-  return disabled && text.endsWith(".") ? [text.slice(0, -1), "."] : [text, ""];
+/** Splits a closing period off `text`: `[words, "."]`, or `[text, ""]` when it has none. */
+function splitPeriod(text: string): [string, string] {
+  return text.endsWith(".") ? [text.slice(0, -1), "."] : [text, ""];
+}
+
+/** A disabled segment's closing period comes off, so the tag sits before it (d15). */
+function beforePeriod(seg: ParagraphSegment, text: string): [string, string] {
+  return seg.disabled === true ? splitPeriod(text) : [text, ""];
+}
+
+/** A step's lead-in: a join inside a sentence ("; then", " and", ",") reads as plain text (d15). */
+function Lead({ seg, phrase }: Readonly<{ seg: ParagraphSegment; phrase: string }>) {
+  if (!phrase) return null;
+  if (seg.grouped === true) return <>{phrase}</>;
+  return <span className="sv-phrase">{phrase}</span>;
 }
 
 /** One step's words in its sentence: `phrase shown tail`, nothing composed here (o4). */
@@ -204,19 +226,14 @@ function StepPart({ seg, selectedStep, onOpenStep }: Readonly<{ seg: ParagraphSe
   const id = str(seg.step);
   const phrase = str(seg.phrase);
   const shown = str(seg.shown) || str(seg.text);
-  const [tail, period] = beforePeriod(str(seg.tail), seg.disabled === true);
+  const [tail, period] = beforePeriod(seg, str(seg.tail));
   const name = str(seg.name) || id;
   const standin = seg.standin === true;
   const selected = selectedStep === id;
   return (
     <span className={seg.disabled ? "sv-step sv-disabled" : "sv-step"} data-step={id}>
       {seg.disabled ? <span className="sv-sr">Disabled step: </span> : null}
-      {phrase && seg.grouped === true ? (
-        // A join inside a sentence ("; then", " and", ",") reads as plain text (d15).
-        phrase
-      ) : phrase ? (
-        <span className="sv-phrase">{phrase}</span>
-      ) : null}
+      <Lead seg={seg} phrase={phrase} />
       {phrase ? " " : ""}
       {seg.fallback === true ? (
         <span className="sv-fallback">{shown}</span>
@@ -241,7 +258,7 @@ function StepPart({ seg, selectedStep, onOpenStep }: Readonly<{ seg: ParagraphSe
 /** A sentence that starts the workflow: it carries its rule's id and opens the rule's editor. */
 function RulePart({ seg, selectedRule, onOpenRule }: Readonly<{ seg: ParagraphSegment } & Opening>) {
   const rule = str(seg.rule);
-  const [words, period] = beforePeriod(str(seg.text), seg.disabled === true);
+  const [words, period] = beforePeriod(seg, str(seg.text));
   const text = (
     <>
       {seg.disabled ? <span className="sv-sr">Disabled: </span> : null}
@@ -268,31 +285,44 @@ function RulePart({ seg, selectedRule, onOpenRule }: Readonly<{ seg: ParagraphSe
   );
 }
 
+/**
+ * A segment's key within its sentence, from its own data: a step's id, or the part, rule and
+ * sentence of the one segment a start or Then sentence has.
+ */
+function segmentKey(seg: ParagraphSegment): string {
+  if (seg.part === "step") return `step:${str(seg.step)}`;
+  return `${seg.part}:${str(seg.rule)}:${seg.sentence ?? ""}`;
+}
+
+type Line = { key: string; segs: ParagraphSegment[] };
+
 /** The paragraph, one line per sentence (d11): the API's segments, grouped by `sentence`. */
 function Lines({ segments, ...rest }: Readonly<{ segments: ParagraphSegment[] } & Opening>) {
-  const lines: ParagraphSegment[][] = [];
-  let last: unknown;
+  const lines: Line[] = [];
+  let line: Line | undefined;
   segments.forEach((seg, i) => {
-    const key = seg.sentence ?? `own-${i}`;
-    if (lines.length === 0 || key !== last) lines.push([]);
-    lines[lines.length - 1].push(seg);
-    last = key;
+    const key = seg.sentence === undefined ? `own-${i}` : `sentence-${seg.sentence}`;
+    if (line?.key !== key) {
+      line = { key, segs: [] };
+      lines.push(line);
+    }
+    line.segs.push(seg);
   });
   return (
     <>
-      {lines.map((line, i) => {
-        const depth = Number(line[0].depth ?? 0);
+      {lines.map(({ key, segs }, i) => {
+        const depth = Number(segs[0].depth ?? 0);
         // A little space where the paragraph moves from what starts it to its steps, and
         // from its steps to what happens afterwards (d15).
-        const part = String(line[0].part ?? "step");
-        const band = i > 0 && part !== String(lines[i - 1][0].part ?? "step") ? " sv-line--band" : "";
+        const part = String(segs[0].part ?? "step");
+        const band = i > 0 && part !== String(lines[i - 1].segs[0].part ?? "step") ? " sv-line--band" : "";
         return (
-          <p key={i} className={`${depth > 0 ? "sv-line sv-line--in" : "sv-line"}${band}`}>
-            {line.map((seg, j) =>
+          <p key={key} className={`${depth > 0 ? "sv-line sv-line--in" : "sv-line"}${band}`}>
+            {segs.map((seg) =>
               seg.part === "step" ? (
-                <StepPart key={j} seg={seg} {...rest} />
+                <StepPart key={segmentKey(seg)} seg={seg} {...rest} />
               ) : (
-                <RulePart key={j} seg={seg} {...rest} />
+                <RulePart key={segmentKey(seg)} seg={seg} {...rest} />
               ),
             )}
             {"\n"}
@@ -414,9 +444,11 @@ export function SimpleView({ def, live, onSaved, ...opening }: Readonly<SimpleVi
         <div className="sv-para" data-testid="paragraph">
           <Lines segments={segments} {...opening} />
         </div>
-      ) : problem ? null : (
-        <p className="sv-loading" role="status">
-          Reading how it runs…
+      ) : null}
+      {paragraph || problem ? null : (
+        // <output> is the status (polite live region); the <p> keeps the paragraph's spacing.
+        <p className="sv-loading">
+          <output>Reading how it runs…</output>
         </p>
       )}
     </section>

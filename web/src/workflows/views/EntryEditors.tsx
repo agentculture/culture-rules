@@ -390,10 +390,8 @@ function WorkflowEntryEditors({ workflow, hrefFor = defaultHref, entry, live: fe
     <section className="wf-entry-editors fold-simple" aria-label="Entry points and Then" data-live-flash={live.flash || undefined}>
       <h2 className="wf-panel__title">Entry points and Then</h2>
       {data.loadErrors.length > 0 ? (
-        // role status, not alert: the page already raises its own alert for a failed load
-        <p className="notice notice--error" role="status">
-          {data.loadErrors.join(" · ")}
-        </p>
+        // a status (<output>), not alert: the page already raises its own alert for a failed load
+        <output className="notice notice--error">{data.loadErrors.join(" · ")}</output>
       ) : null}
       {data.notice ? (
         // a refused write is announced once, here, as an alert (as the Simple view did)

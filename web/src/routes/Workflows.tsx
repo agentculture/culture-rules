@@ -805,6 +805,19 @@ function draftOf(
   return draft.def;
 }
 
+/**
+ * The chain `current` belongs to when continuations link it to other workflows, and the
+ * address of its Chain view; neither when it stands alone.
+ */
+function chainLinkOf(
+  model: FoldModel,
+  current: WorkflowDef | undefined | null,
+): { linkedChain: FoldModel["chains"][number] | undefined; chainHref: string | null } {
+  const chain = current ? model.chains.find((c) => c.workflowIds.includes(current.id)) : undefined;
+  if (!current || !chain || chain.workflowIds.length <= 1) return { linkedChain: undefined, chainHref: null };
+  return { linkedChain: chain, chainHref: `/workflows?id=${encodeURIComponent(current.id)}&chain=1` };
+}
+
 /** The list loaded and holds no live workflow. */
 function isEmptyList(loaded: { listed?: boolean } | null, workflows: WorkflowDef[]): boolean {
   return loaded !== null && Boolean(loaded.listed) && workflows.length === 0;
@@ -985,9 +998,7 @@ export function Workflows() {
 
   const workflow = draftOf(current, draft);
   // The chain this workflow belongs to, when it is linked to others by continuations.
-  const chain = current ? model.chains.find((c) => c.workflowIds.includes(current.id)) : undefined;
-  const linkedChain = chain && chain.workflowIds.length > 1 ? chain : undefined;
-  const chainHref = current && linkedChain ? `/workflows?id=${encodeURIComponent(current.id)}&chain=1` : null;
+  const { linkedChain, chainHref } = chainLinkOf(model, current);
   const empty = isEmptyList(loaded, workflows);
   // The canvas (and its view switch) is what the board shows: not New rule, the D7 place or New workflow.
   const showsCanvas = workflow !== null && !creatingRule && !creating && d7Rule === null;
@@ -1272,6 +1283,30 @@ export function Workflows() {
         }}
       />
     ) : null;
+  // Simple's right pane: the editor of the rule whose sentence was chosen.
+  const renderRulePanel = (): ReactNode =>
+    ruleOpen && view === "simple" && current ? (
+      <RulePanel
+        key={`${current.id}/${ruleOpen.id}`}
+        workflow={current}
+        ruleId={ruleOpen.id}
+        live={simpleFeed}
+        hrefFor={hrefFor}
+        returnFocus={ruleOpen.trigger}
+        onClose={() => setRuleOpen(null)}
+      />
+    ) : null;
+  // The run form, while it is open on a stored workflow.
+  const renderRunForm = (): ReactNode =>
+    runFormOpen && current ? (
+      <RunForm
+        key={current.id}
+        workflow={current}
+        returnFocus={runButton.current}
+        onStarted={onRunStarted}
+        onClose={() => setRunFormOpen(false)}
+      />
+    ) : null;
   // While New rule or the D7 place is shown, the head names it: no workflow's rename, delete or run.
   const aside = asideOf(creating, creatingRule, target);
 
@@ -1344,19 +1379,7 @@ export function Workflows() {
           onCloseEditor={closeEditor}
           simple={renderSimpleView()}
           view={view}
-          rulePanel={
-            ruleOpen && view === "simple" && current ? (
-              <RulePanel
-                key={`${current.id}/${ruleOpen.id}`}
-                workflow={current}
-                ruleId={ruleOpen.id}
-                live={simpleFeed}
-                hrefFor={hrefFor}
-                returnFocus={ruleOpen.trigger}
-                onClose={() => setRuleOpen(null)}
-              />
-            ) : null
-          }
+          rulePanel={renderRulePanel()}
           onNotes={(notes) => edit((wf) => ({ ...wf, notes }))}
           onModeChange={setView}
           entryEditors={{
@@ -1368,17 +1391,7 @@ export function Workflows() {
               setQuery({ id: null, entry: null, run: null });
             },
           }}
-          runForm={
-            runFormOpen && current ? (
-              <RunForm
-                key={current.id}
-                workflow={current}
-                returnFocus={runButton.current}
-                onStarted={onRunStarted}
-                onClose={() => setRunFormOpen(false)}
-              />
-            ) : null
-          }
+          runForm={renderRunForm()}
         />
       );
     }
@@ -1402,7 +1415,26 @@ export function Workflows() {
       writePaneCollapsed(!c);
       return !c;
     });
-  const body = overviewing ? null : renderBody();
+  // Nothing open: the overview cards, once the list has loaded.
+  const renderOverview = (): ReactNode => {
+    if (loaded === null) return null;
+    return (
+      <Overview
+        workflows={workflows}
+        model={model}
+        actors={loaded.actors}
+        error={loaded.listed ? null : (loaded.errors[0] ?? "unknown error")}
+        onNew={openNew}
+        newRef={newButton}
+        onNewRule={() => {
+          setCreating(false);
+          setCreatingRule(true);
+        }}
+        newRuleRef={newRuleButton}
+      />
+    );
+  };
+  const body = overviewing ? renderOverview() : renderBody();
   const trustDraft = trustAskDraft(askTrust, draft, aside);
   // No workflow's head (rename, delete, run) while naming a new one, an aside, or nothing open.
   const headless = creating || aside !== null || current === null;
@@ -1498,25 +1530,7 @@ export function Workflows() {
 
         {run?.doc?.status === "succeeded" && run.doc.outputs ? <RunOutputs outputs={run.doc.outputs} /> : null}
 
-        {overviewing ? (
-          loaded === null ? null : (
-            <Overview
-              workflows={workflows}
-              model={model}
-              actors={loaded.actors}
-              error={loaded.listed ? null : (loaded.errors[0] ?? "unknown error")}
-              onNew={openNew}
-              newRef={newButton}
-              onNewRule={() => {
-                setCreating(false);
-                setCreatingRule(true);
-              }}
-              newRuleRef={newRuleButton}
-            />
-          )
-        ) : (
-          body
-        )}
+        {body}
 
         <div className="wf-foot">
           {aside === null ? <RecentRuns runs={runs} runId={runId} params={params} now={now} /> : null}

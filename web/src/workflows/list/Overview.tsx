@@ -107,6 +107,41 @@ function Card({ wf, model, actors }: Readonly<{ wf: WorkflowDef; model: FoldMode
   );
 }
 
+/** Below the head: what went wrong, the first New workflow, or one card per workflow. */
+function OverviewBody({
+  workflows,
+  model,
+  actors,
+  error,
+  onNew,
+  newRef,
+}: Readonly<Pick<OverviewProps, "workflows" | "model" | "actors" | "error" | "onNew" | "newRef">>) {
+  if (error) {
+    return (
+      <p className="wf-overview__error" role="alert">
+        Could not list the workflows: {error}
+      </p>
+    );
+  }
+  if (workflows.length === 0) {
+    return (
+      <section className="wf-empty" aria-label="No workflows yet">
+        <button type="button" ref={newRef} className="wf-button wf-button--primary wf-button--large" onClick={onNew}>
+          New workflow
+        </button>
+        <p className="wf-empty__hint">Name it, then add steps with +.</p>
+      </section>
+    );
+  }
+  return (
+    <ul className="wf-tiles" aria-label="All workflows">
+      {workflows.map((wf) => (
+        <Card key={wf.id} wf={wf} model={model} actors={actors} />
+      ))}
+    </ul>
+  );
+}
+
 /** The Workflows tab with nothing open: one card per workflow, no list pane. */
 export function Overview({ workflows, model, actors, error, onNew, onNewRule, newRef, newRuleRef }: Readonly<OverviewProps>) {
   return (
@@ -129,24 +164,7 @@ export function Overview({ workflows, model, actors, error, onNew, onNewRule, ne
         </span>
         )}
       </header>
-      {error ? (
-        <p className="wf-overview__error" role="alert">
-          Could not list the workflows: {error}
-        </p>
-      ) : workflows.length === 0 ? (
-        <section className="wf-empty" aria-label="No workflows yet">
-          <button type="button" ref={newRef} className="wf-button wf-button--primary wf-button--large" onClick={onNew}>
-            New workflow
-          </button>
-          <p className="wf-empty__hint">Name it, then add steps with +.</p>
-        </section>
-      ) : (
-        <ul className="wf-tiles" aria-label="All workflows">
-          {workflows.map((wf) => (
-            <Card key={wf.id} wf={wf} model={model} actors={actors} />
-          ))}
-        </ul>
-      )}
+      <OverviewBody workflows={workflows} model={model} actors={actors} error={error} onNew={onNew} newRef={newRef} />
     </section>
   );
 }

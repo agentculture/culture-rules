@@ -756,7 +756,9 @@ def test_condition_words_over_cap_falls_back():
 def test_condition_words_every_committed_condition_is_words_or_fallback():
     for key, tree in _committed_conditions().items():
         out = condition_words(tree)
-        assert out and "≠" not in out and "∈" not in out, key
+        assert out, key
+        assert "≠" not in out, key
+        assert "∈" not in out, key
 
 
 def test_condition_words_review_commit_reviewer():

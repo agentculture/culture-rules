@@ -109,7 +109,8 @@ def test_the_fixture_has_a_workflow_and_a_step_with_no_description():
     segs = data["describe"]["publish-fix"]["paragraph"]["segments"]
     assert any(s.get("gap") for s in segs)
     reply = next(s for s in segs if s.get("step") == "reply")
-    assert reply["standin"] is True and reply["text"] == reply["name"]
+    assert reply["standin"] is True
+    assert reply["text"] == reply["name"]
 
 
 def test_c9_no_committed_workflow_falls_back_to_a_generated_line():

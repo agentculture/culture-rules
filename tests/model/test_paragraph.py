@@ -79,11 +79,13 @@ def _chain(*steps: dict) -> dict:
 def test_the_table_is_lead_ins_connectors_trailing_clauses_and_sentences():
     assert PHRASES
     for key, value in PHRASES.items():
-        assert isinstance(value, str) and not value.endswith(":"), key  # d11: no colon
+        assert isinstance(value, str), key
+        assert not value.endswith(":"), key  # d11: no colon
     every = LEAD_KEYS | JOIN_KEYS | TAIL_KEYS | STANDIN_KEYS | SENTENCE_KEYS | MARK_KEYS | {"by"}
     assert every == set(PHRASES)
     for key in LEAD_KEYS:  # a lead-in opens a sentence: capitalised, no closing punctuation
-        assert PHRASES[key][0].isupper() and PHRASES[key][-1] not in ".,;:", key
+        assert PHRASES[key][0].isupper(), key
+        assert PHRASES[key][-1] not in ".,;:", key
     for key in TAIL_KEYS:  # a trailing clause follows a comma: lower-case
         assert PHRASES[key][0].islower(), key
     assert {k: PHRASES[k] for k in JOIN_KEYS} == {
@@ -122,8 +124,10 @@ def test_same_predecessor_siblings_without_when_run_at_the_same_time():
     assert _phrases(wf) == {"a": "First", "b": "Then, at the same time,", "c": " and"}
     assert _text(wf) == "First a runs.\nThen, at the same time, b runs and c runs."
     seg = {s["step"]: s for s in step_paragraph(wf)["segments"]}
-    assert seg["b"]["keys"] == ["then", "same_time"] and seg["c"]["keys"] == ["and_grouped"]
-    assert seg["c"]["grouped"] is True and seg["b"]["grouped"] is False
+    assert seg["b"]["keys"] == ["then", "same_time"]
+    assert seg["c"]["keys"] == ["and_grouped"]
+    assert seg["c"]["grouped"] is True
+    assert seg["b"]["grouped"] is False
 
 
 def test_three_siblings_read_a_b_and_c():
@@ -429,7 +433,8 @@ def test_disabled_step_has_its_normal_phrase_and_a_flag_not_words():
     assert _phrases(wf)["a"] == "First"
     assert out["segments"][0]["disabled"] is True
     assert "isabled" not in out["text"]
-    assert "disabled" not in PHRASES and "rule_disabled" not in PHRASES
+    assert "disabled" not in PHRASES
+    assert "rule_disabled" not in PHRASES
     on = step_paragraph(_wf([_step("a")]))
     assert "disabled" not in on["segments"][0]
     assert on["text"] == out["text"]
@@ -509,9 +514,11 @@ def test_consecutive_steps_sharing_a_condition_join_one_sentence():
         True,
     )
     assert seg["c"]["text"] == "Packs the commits."  # the segment keeps it unchanged
-    assert seg["c"]["shown"] == "packs the commits" and seg["c"]["tail"] == ""
+    assert seg["c"]["shown"] == "packs the commits"
+    assert seg["c"]["tail"] == ""
     assert seg["d"]["tail"] == "."
-    assert seg["b"]["grouped"] is False and seg["e"]["grouped"] is False
+    assert seg["b"]["grouped"] is False
+    assert seg["e"]["grouped"] is False
     assert [seg[k]["sentence"] for k in "abcde"] == [0, 1, 1, 1, 2]
 
 
@@ -553,7 +560,9 @@ def test_a_stand_in_stays_inside_its_group():
     out = step_paragraph(wf)
     assert out["text"] == "First, if fixer is claude, one; then beta step; then three.\nThen end."
     seg = out["segments"][1]
-    assert seg["standin"] is True and seg["gap"] is True and seg["grouped"] is True
+    assert seg["standin"] is True
+    assert seg["gap"] is True
+    assert seg["grouped"] is True
     assert (seg["text"], seg["shown"]) == ("Beta step", "beta step")
     marked = render_marked(out, lambda c: c, lambda c: f"[{c}]")
     assert marked == "First, if fixer is claude, one; then [beta step]; then three.\nThen end."
@@ -629,14 +638,18 @@ def test_the_from_here_on_rule_is_unchanged():
 def test_an_empty_description_stands_in_with_the_step_name():
     wf = _wf([_step("a"), _step("b", name="Beta", description="")], _edges(("a", "b")))
     seg = step_paragraph(wf)["segments"][1]
-    assert seg["text"] == "Beta" and seg["standin"] is True and seg["phrase"] == "; then"
+    assert seg["text"] == "Beta"
+    assert seg["standin"] is True
+    assert seg["phrase"] == "; then"
     assert _text(wf) == "First a runs; then beta."
     wf = _wf([_step("a", description="")])  # no name: its generic line
     seg = step_paragraph(wf)["segments"][0]
-    assert seg["text"] == "code" and seg["standin"] is True
+    assert seg["text"] == "code"
+    assert seg["standin"] is True
     assert _text(wf) == "First code."
     written = step_paragraph(_wf([_step("a")]))["segments"][0]
-    assert written["standin"] is False and written["gap"] is False
+    assert written["standin"] is False
+    assert written["gap"] is False
 
 
 def test_standin_text_is_the_name_else_the_generic_line():
@@ -721,7 +734,9 @@ def test_generic_line_never_says_a_condition_or_free_text():
 def test_an_unknown_kind_or_malformed_config_reads_as_the_d19_line(bad):
     wf = _wf([_step("a"), bad], _edges(("a", "odd")))
     seg = step_paragraph(wf)["segments"][1]
-    assert seg["phrase"] == "" and seg["keys"] == [] and seg["fallback"] is True
+    assert seg["phrase"] == ""
+    assert seg["keys"] == []
+    assert seg["fallback"] is True
     assert seg["standin"] is False
     try:
         words = step_text(bad)
@@ -747,7 +762,8 @@ def test_an_unknown_kind_or_malformed_config_reads_as_the_d19_line(bad):
 )
 def test_describing_never_raises(junk):
     out = step_paragraph(junk)
-    assert isinstance(out["segments"], list) and isinstance(out["text"], str)
+    assert isinstance(out["segments"], list)
+    assert isinstance(out["text"], str)
 
 
 def test_a_cycle_still_reads_every_step():
@@ -817,7 +833,8 @@ def test_committed_paragraphs_use_only_table_phrases_and_verbatim_descriptions(w
     sentences: list[str] = []
     for i, seg in enumerate(segments):
         assert seg["fallback"] is False, seg  # every committed step has a phrase
-        assert seg["keys"] and all(k in PHRASES for k in seg["keys"])
+        assert seg["keys"]
+        assert all(k in PHRASES for k in seg["keys"])
         # the lead-in: its keys composed, then a comma unless it is one bare lead
         pattern = ""
         for j, k in enumerate(seg["keys"]):  # compose: a space after a bare comma (d13)
@@ -836,15 +853,18 @@ def test_committed_paragraphs_use_only_table_phrases_and_verbatim_descriptions(w
         # the text: the description verbatim, or the step's stand-in
         step = next(s for s in _all_steps(wf["steps"]) if s["id"] == seg["step"])
         if step["description"]:
-            assert seg["text"] == step["description"] and seg["standin"] is False
+            assert seg["text"] == step["description"]
+            assert seg["standin"] is False
         else:
-            assert seg["standin"] is True and seg["text"] == standin_text(step)
+            assert seg["standin"] is True
+            assert seg["text"] == standin_text(step)
             assert seg["text"] == step["name"]  # every committed step has a name
         # the two documented edits: first letter lowered, the final period dropped
         assert seg["shown"] == lower_first(seg["text"]).removesuffix(".")
         chunk = f"{seg['phrase']} {seg['shown']}{seg['tail']}"
         if seg["grouped"]:
-            assert sentences and seg["sentence"] == segments[i - 1]["sentence"]
+            assert sentences
+            assert seg["sentence"] == segments[i - 1]["sentence"]
             sentences[-1] += chunk
         else:
             assert seg["sentence"] == len(sentences)
@@ -879,7 +899,8 @@ def _paragraph(wid: str, written: bool = True) -> str:
 def test_review_commit_reads_depending_on_the_conditions():
     text = _paragraph("review-commit")
     assert "Depending on the conditions" in text
-    assert "at the same time" not in text.lower() and "once both" not in text.lower()
+    assert "at the same time" not in text.lower()
+    assert "once both" not in text.lower()
 
 
 def test_pr_fix_threads_and_sonar_run_at_the_same_time_then_join():

@@ -43,8 +43,9 @@ def test_current_stale_and_missing_on_mongo(mongo_store):
     assert defs.update("workflows", "wf", _named("one", 1), "alice")["revision"] == 2
     before = mongo_store.get("workflows", "wf")
     for expected in (1, None, 7):
+        stale = _named("stale", expected)
         with pytest.raises(RevisionConflict) as exc:
-            defs.update("workflows", "wf", _named("stale", expected), "alice")
+            defs.update("workflows", "wf", stale, "alice")
         assert exc.value.errors[0]["current_revision"] == 2
     assert mongo_store.get("workflows", "wf") == before
 
