@@ -102,6 +102,17 @@ class OldServer:
         return self.real(method, url, headers, body)
 
 
+class OldServerWithSite(OldServer):
+    """An older API serving the web build too: an unknown GET gets the site's catch-all."""
+
+    def __call__(self, method, url, headers, body):
+        path = url.split("?")[0]
+        if method == "GET" and path.endswith("/references"):
+            err = {"error": {"code": "not_found", "message": "no such route", "errors": []}}
+            return 404, json.dumps(err).encode()
+        return super().__call__(method, url, headers, body)
+
+
 # --------------------------------------------------------------------------- registry
 
 
@@ -382,3 +393,11 @@ def test_explain_and_learn_cover_the_new_verbs(capsys):
     assert rc == 0
     for name in ("enrol-models", "references", "repoint-actor"):
         assert name in out
+
+
+def test_references_on_an_old_server_with_the_site_mounted_is_too_old(store, monkeypatch, capsys):
+    client = seeded(store)
+    wire_to(monkeypatch, OldServerWithSite(Tap(client)))
+    assert jfail(capsys, 2, "actors", "references", "old")["message"] == TOO_OLD
+    out = jok(capsys, "actors", "disable", "old")
+    assert out["in_use"] == []

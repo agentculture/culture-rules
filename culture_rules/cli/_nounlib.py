@@ -28,6 +28,18 @@ def seg(value: str) -> str:
     return quote(str(value), safe="")
 
 
+# What an API that lacks a route answers: the framework's plain 404/405 (code ``error``), or,
+# with the web build mounted (culture_rules/server/static.py), its catch-all ``not_found``.
+_NO_ROUTE_MESSAGES = ("no such route", "no such API route")
+
+
+def missing_route(exc: ApiError) -> bool:
+    """True when ``exc`` says the API has no such route (an older server), not an unknown id."""
+    if exc.status in (404, 405) and exc.code == "error":
+        return True
+    return exc.status == 404 and exc.code == "not_found" and exc.message in _NO_ROUTE_MESSAGES
+
+
 def new_route(ctx: Context, since: str, fn: Any) -> Any:
     """Run ``fn`` (API calls) against a route that ships in ``since``; map an old server to exit 2.
 
@@ -40,7 +52,7 @@ def new_route(ctx: Context, since: str, fn: Any) -> Any:
         try:
             return fn()
         except ApiError as exc:
-            if exc.status in (404, 405) and exc.code == "error":
+            if missing_route(exc):
                 url = str(getattr(ctx.client, "base_url", "") or "the configured URL")
                 raise CliError(
                     EXIT_ENV_ERROR,

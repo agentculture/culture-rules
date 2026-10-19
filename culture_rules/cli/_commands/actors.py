@@ -12,6 +12,7 @@ from culture_rules.cli._nounlib import (
     ID,
     MODEL_ACTORS_SINCE,
     definition_verbs,
+    missing_route,
     new_route,
     seg,
     write,
@@ -227,7 +228,7 @@ def _disable(ctx: Context, id: str, force: bool = False) -> dict[str, Any]:
             try:
                 return ctx.client.request("GET", f"/actors/{seg(id)}/references")
             except ApiError as exc:
-                if exc.status in (404, 405) and exc.code == "error":
+                if missing_route(exc):
                     return {}  # an older API has no references route: the apply still guards
                 raise
 
