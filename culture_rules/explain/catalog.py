@@ -388,7 +388,43 @@ which is admin: with an editor token the step runs and reports it was not
 recorded.
 """
 
+_MODEL_ACTORS_NOTE = """\
+## Model actors (needs culture-rules >= 0.22.0)
+
+`actors enrol-models --gateway MACHINE --match GLOB [--pool MODEL=POOL] [--api-key grant:NAME]`
+asks the API to list the models the named gateways serve (the machines in the
+`model_gateways` variable, as `machine=URL`) and to plan one endpoint actor per model
+that matches a glob. `--gateway` and `--match` repeat; the gateway order is the priority;
+there is no default `--match`. `--pool MODEL=POOL` puts a model in a named concurrency
+pool (default: the model id). `--api-key` is a `grant:<NAME>` reference
+(default `grant:LOBES_GATEWAY_API_KEY`); a literal key is refused and never printed.
+Without `--apply` the server plans and writes nothing (`dry_run: true`); `--apply` creates
+or updates the actors and lists what it wrote and what failed (exit 1 if any failed).
+Re-running is idempotent. The result also names models served by more than one gateway
+(`also_served_by`) and actors whose model no gateway lists (`unseen`).
+
+`actors references ID` lists the workflows and rules that name an actor, with the step path
+and whether each is enabled. Read-only.
+
+`actors disable ID [--force]` is refused (exit 1, listing each workflow and rule) while an
+enabled workflow or rule uses the actor; `--force` disables it anyway. The dry-run shows the
+enabled referrers as `in_use`.
+
+`workflows repoint-actor ID --from A --to B [--expected-revision N] [--force]` points every
+action step (and the placement) that names `A` at `B`. Without `--expected-revision` the CLI
+reads the workflow's current revision first and sends it; a stale one is 409
+`revision_conflict` (exit 1). A trusted workflow is refused (`workflow_trusted`) unless
+`--force`, which drops its trust. The dry-run lists the changed step paths and warnings.
+
+Against an API older than 0.22.0 these routes do not exist and the verbs exit 2 with
+"server too old: needs culture-rules >= 0.22.0".
+"""
+
 _VERB_NOTES = {
+    ("actors", "enrol-models"): _MODEL_ACTORS_NOTE,
+    ("actors", "references"): _MODEL_ACTORS_NOTE,
+    ("actors", "disable"): _MODEL_ACTORS_NOTE,
+    ("workflows", "repoint-actor"): _MODEL_ACTORS_NOTE,
     ("rules", "describe"): _DESCRIBE_NOTE,
     ("workflows", "describe"): _DESCRIBE_NOTE,
     ("rules", "disable"): _STOP_RUNS_NOTE,
