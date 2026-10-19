@@ -57,3 +57,13 @@ def test_contract_covers_the_documented_surface():
         "/events/stream",
     ):
         assert p in paths, p
+
+
+def test_contract_carries_the_model_actor_routes_and_disable_force():
+    doc = json.loads(COMMITTED.read_text(encoding="utf-8"))
+    paths = doc["paths"]
+    assert "post" in paths["/actors/enrol-models"]
+    assert "get" in paths["/actors/{id}/references"]
+    assert "post" in paths["/workflows/{id}/repoint-actor"]
+    params = paths["/actors/{id}/disable"]["post"].get("parameters", [])
+    assert any(p["name"] == "force" and p["in"] == "query" for p in params)
