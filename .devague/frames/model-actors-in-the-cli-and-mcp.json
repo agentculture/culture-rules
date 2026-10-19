@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-19T04:16:08Z",
-  "updated": "2026-10-19T04:31:39Z",
+  "updated": "2026-10-19T04:58:36Z",
   "claims": [
     {
       "id": "c1",
@@ -152,13 +152,25 @@
     {
       "id": "c10",
       "kind": "requirement",
-      "text": "actors enrol-models takes repeatable --gateway MACHINE=URL and --api-key grant:NAME (default grant:LOBES_GATEWAY_API_KEY); the server resolves the grant reference to GET URL/v1/models, as GET /actors/{id}/discord/targets does for the bot token, and the actor stores params.api_key as the grant reference, never the value",
+      "text": "actors enrol-models takes repeatable --gateway MACHINE, each a key of the model_gateways variable (machine -> URL), in priority order, and --api-key grant:NAME (default grant:LOBES_GATEWAY_API_KEY); the server resolves the grant only after the gateway is found in model_gateways, GETs URL/v1/models, and the actor stores base_url = URL and params.api_key as the grant reference, never the value",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h6",
           "text": "A test asserts the bearer key comes only from the named environment variable, never appears in output, --json or the stored actor, and the stored params.api_key is grant:<name>",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h30",
+          "text": "A test asserts the bearer key is resolved on the server from the grant reference only, never appears in a response, --json output or the stored actor, and the stored params.api_key is the grant reference",
+          "status": "confirmed",
+          "instruction": ""
+        },
+        {
+          "id": "h31",
+          "text": "Tests: --gateway with a name missing from model_gateways is refused with exit 1 naming the known gateways; a model_gateways entry change is picked up on the next call; the site's panel offers the model_gateways entries as its gateway choices",
           "status": "confirmed",
           "instruction": ""
         }
@@ -179,6 +191,11 @@
           "text": "actors enrol-models takes repeatable --gateway MACHINE=URL; it GETs URL/v1/models with a bearer key read from an environment variable named by --api-key-env (default LOBES_GATEWAY_API_KEY, injected with grant run --inject), and the actor stores the key as params.api_key grant:<name>, never the value",
           "kind": "requirement",
           "reason": "server-side reading (c17 amended): the key no longer has to be on the CLI host"
+        },
+        {
+          "text": "actors enrol-models takes repeatable --gateway MACHINE=URL and --api-key grant:NAME (default grant:LOBES_GATEWAY_API_KEY); the server resolves the grant reference to GET URL/v1/models, as GET /actors/{id}/discord/targets does for the bot token, and the actor stores params.api_key as the grant reference, never the value",
+          "kind": "requirement",
+          "reason": "q5 decision (a): gateways come from the model_gateways variable, not free URLs"
         }
       ]
     },
@@ -320,7 +337,7 @@
         {
           "id": "h13",
           "text": "git diff main shows no change under culture_rules/server or api/openapi.json",
-          "status": "proposed",
+          "status": "rejected",
           "instruction": ""
         },
         {
@@ -446,7 +463,7 @@
         {
           "id": "h18",
           "text": "git diff main shows no change under culture_rules/node, culture_rules/engine or culture_rules/model/action_kinds.py",
-          "status": "proposed",
+          "status": "rejected",
           "instruction": ""
         },
         {
@@ -553,9 +570,193 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "enrol-models never sends a resolved secret to an arbitrary URL: it is admin-only (culture_rules/auth/policy.py defaults an unmatched POST to admin; keep it off _EDITOR_PATTERNS), and each --gateway must name an entry in an allow-listed set of model gateways rather than a free URL, so an editor cannot point the server, with grant:ANY_SECRET, at a host they control",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "Tests: an editor-role call to POST /actors/enrol-models is 403; a gateway URL outside the allowlist is refused before any secret is resolved (the resolver is never called); the bearer header is only ever sent to an allow-listed host",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "Where does the gateway allowlist live: (a) a shared variable model_gateways (machine -> URL, admin-written, read as vars.model_gateways) so --gateway takes a machine name, (b) server config (a flag or env on the API unit), or (c) only the URL hosts of enrolled machines plus loopback?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "(a) a shared variable model_gateways (machine -> URL), written by an admin and read as vars.model_gateways; --gateway takes a machine name from it (operator, 2026-10-19)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "The one-enabled-actor-per-model rule (c26) covers only endpoint actors, those whose params carry base_url (the llm.complete shape); bridge agents with a harness (qwen-fixer and qwen-reviewer both hold model cortex, enabled, live) are outside it, so the rule never refuses an edit to them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "A test with qwen-fixer and qwen-reviewer from the live actors snapshot (same model cortex, no base_url, both enabled) lets PUT and enable on either succeed; the live store passes a dry check of the rule before rollout (0 conflicts besides newspaper-llm)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "actors references and the disable guard also count placement.actor on steps and rules (culture_rules/model/placement.py: a step or rule placed on an actor runs on its machine); repoint-actor rewrites only action params.actor and reports placement references to A as warnings, never moving where a step runs",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "A test: a step placed on actor A shows in references with kind placement, blocks disable, and is listed but unchanged by repoint-actor",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "repoint-actor on a workflow whose v1 or v2 digest is in the trusted set warns in the dry run that the repoint drops its trust (culture_rules/actors/trusted.py: workflow_digest_v2 keeps step params, so a changed params.actor changes the digest), and refuses without --force",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "A test: repointing a trusted workflow fixture is refused without --force with the digest named, and with --force the new digest is shown so a trust update can follow",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Version skew fails clearly: a new CLI against a server without the endpoints exits 2 with a 'server too old, needs culture-rules >= the new version' hint (as rollout's no_rollouts_endpoints does), and the site hides the new controls when the endpoints answer 404",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "A test: each new verb against a 404 endpoint raises CliError exit 2 with the version hint; the web test with the endpoint mocked 404 shows no Add models panel",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Every write the new endpoints make goes through the server's Lifecycle (audit with the caller), one audit entry per actor created or updated and per workflow repointed, and the response lists the resulting ids and revisions",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "A test reads the audit log after an enrol-models apply and a repoint and finds one entry per change naming the caller",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "assumption",
+      "text": "llm.complete falls back to context.actor when params.actor is absent (node/actions/llm.py:3); references can only see explicit names, so an implicit use is invisible to references, repoint and the disable guard",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "enrol-models refuses (in the plan) a model whose id is already the id of a non-agent actor or of an agent actor without base_url, rather than overwriting it into an endpoint actor",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "A test: a model id equal to an existing app actor's id plans a refusal and leaves the actor byte-identical",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "decision",
+      "text": "q5: the gateway allowlist is the shared variable model_gateways (machine -> URL, admin-written); --gateway names a machine from it, never a free URL (operator, 2026-10-19)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
-  "open_vagueness": [],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Two concurrent creates or enables for the same model can both pass the check-then-write (no unique index on params.model in MongoDB); the runtime llm.complete check catches the pair, but both stay enabled until someone disables one",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "A repoint into actor A racing actors disable A can leave a step on a disabled actor; the step then fails at runtime as today (llm.complete on a disabled actor)",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
   "scope_entries": [
     {
       "id": "s1",
@@ -645,8 +846,89 @@
         "c17",
         "c22"
       ]
+    },
+    {
+      "id": "s11",
+      "surface": "challenge pass / security lens: culture_rules/server/app.py:975-1000 vs the new enrol endpoint",
+      "finding": "discord targets resolves the stored bot token and only calls Discord's fixed host; enrol-models would resolve a caller-named grant and send it to a caller-named URL: secret exfiltration unless the URL is allow-listed and the route admin-only",
+      "seeds": [
+        "c29",
+        "q5"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / migration lens: live actors (actors-live.json)",
+      "finding": "qwen-fixer and qwen-reviewer are both enabled agent actors with params.model cortex and no base_url; an unscoped c26 would refuse any later edit or enable of either",
+      "seeds": [
+        "c30"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / adjacent-systems lens: culture_rules/model/placement.py",
+      "finding": "Placement has an actor form (runs where the actor lives); c13/c15 only named params.actor, so a placement reference would be invisible and disable would strand it",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / adjacent-systems lens: culture_rules/actors/trusted.py:194-213",
+      "finding": "The v2 digest drops only prose (description, notes); step params stay in it, so any repoint breaks a pinned workflow's trust until its digest is re-pinned",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / operations lens: culture_rules/cli/_commands/rollout.py:225-262",
+      "finding": "rollout already detects a server without /rollouts (no_rollouts_endpoints, _rollouts_endpoints) and refuses clearly; the new verbs need the same guard. The runtime model_taken check only runs on nodes at the new version, so mixed-version nodes skip it during a rollout",
+      "seeds": [
+        "c33"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / concurrency lens: store writes for actors and workflows",
+      "finding": "Workflows have revision CAS (expected_revision); actors have none, so model uniqueness and the disable guard are check-then-write; residual risk parked, runtime check is the backstop",
+      "seeds": []
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / observability lens: culture_rules/server/app.py:729 (Lifecycle(store, audit))",
+      "finding": "Writes go through Lifecycle with an audit; the new composite endpoints must keep one audited write per object, not a bulk write that bypasses it",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / unstated-assumptions lens: culture_rules/node/actions/llm.py:3-4",
+      "finding": "params.actor is required but falls back to context.actor; implicit uses cannot be found statically",
+      "seeds": [
+        "c35"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / reversibility lens: the three live commands",
+      "finding": "Clean pass: each step reverses with existing verbs (repoint back, actors disable/enable, newspaper-llm stays disabled not deleted); residual: a re-enable of newspaper-llm is refused by model_taken until cortex-spark2 is disabled, which is the intended rule",
+      "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "provenance-missing",
+      "what": "Confirmed h6 on the operator's bulk approval without flagging that its text (key from an environment variable) went stale when c10 was amended to server-side grant resolution",
+      "skipped_check": "re-read honesty conditions after amending their claim",
+      "refs": [
+        "challenge pass / unstated-assumptions lens: frame h6 vs c10"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    }
+  ],
   "obligations": []
 }
