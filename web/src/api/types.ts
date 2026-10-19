@@ -391,7 +391,7 @@ export type ModelChangeAction = "create" | "update" | "unchanged" | "refused";
 
 /** One planned outcome per matched model (ModelChangeOut). */
 export interface ModelChange {
-  action: ModelChangeAction | string;
+  action: ModelChangeAction;
   id: string;
   reason?: string;
   /** create/update: the actor document to write. */
@@ -425,12 +425,12 @@ export interface EnrolModelsResult {
 
 /** A live workflow step or rule naming an actor (ActorReference). */
 export interface ActorReference {
-  kind: "workflow" | "rule" | string;
+  kind: "workflow" | "rule";
   id: string;
   /** The step path (e.g. `summarise.body[summary]`) or the rule field. */
   path: string;
   /** `action` (a step's `params.actor`) or `placement`. */
-  via: "action" | "placement" | string;
+  via: "action" | "placement";
   enabled: boolean;
 }
 

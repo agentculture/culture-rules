@@ -32,6 +32,33 @@ function grouped(items: readonly ActorReference[]): Group[] {
   return [...out.values()];
 }
 
+/** An endpoint actor is an agent that calls a model gateway (`params.base_url`). */
+const isEndpoint = (a: Actor) => {
+  const url = a.params?.base_url;
+  return a.kind === "agent" && typeof url === "string" && url !== "";
+};
+
+/** An app actor's surface (`params.surface`: github, email, search, ...), or "" for any other. */
+const surfaceOf = (a: Actor) => {
+  const surface = a.kind === "app" ? a.params?.surface : "";
+  return typeof surface === "string" ? surface : "";
+};
+
+/**
+ * The actors a Move may repoint to, as the server accepts them: enabled, not the actor
+ * itself, the same kind, an endpoint actor only for an endpoint actor, and an app actor
+ * only for one on the same surface.
+ */
+export const moveTargets = (actor: Actor, actors: readonly Actor[]) =>
+  actors.filter(
+    (a) =>
+      a.id !== actor.id &&
+      a.enabled !== false &&
+      a.kind === actor.kind &&
+      isEndpoint(a) === isEndpoint(actor) &&
+      surfaceOf(a) === surfaceOf(actor),
+  );
+
 type MoveState =
   | { phase: "reading" }
   | { phase: "open"; revision: number | null }
@@ -107,19 +134,25 @@ function MoveForm({
 
   return (
     <form className="used-by__move" onSubmit={submit} aria-label={`Move ${workflowId}`}>
-      <label htmlFor={`${uid}-to`} className="used-by__to">
-        To
-      </label>
-      <select id={`${uid}-to`} value={to} onChange={(e) => setTo(e.target.value)}>
-        {targets.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name}
-          </option>
-        ))}
-      </select>
-      <button type="submit" className="btn btn--primary" disabled={busy || !to || state.phase === "reading"}>
-        Move
-      </button>
+      {targets.length ? (
+        <>
+          <label htmlFor={`${uid}-to`} className="used-by__to">
+            To
+          </label>
+          <select id={`${uid}-to`} value={to} onChange={(e) => setTo(e.target.value)}>
+            {targets.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <button type="submit" className="btn btn--primary" disabled={busy || !to || state.phase === "reading"}>
+            Move
+          </button>
+        </>
+      ) : (
+        <p className="muted used-by__none">No other enabled {actor.kind} actor to move to.</p>
+      )}
       <button type="button" className="btn" onClick={onCancel}>
         Cancel
       </button>
@@ -171,7 +204,7 @@ export function UsedBy({
 }>) {
   const [moving, setMoving] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  const targets = actors.filter((a) => a.id !== actor.id && a.enabled !== false);
+  const targets = moveTargets(actor, actors);
   const groups = items ? grouped(items) : [];
 
   return (
