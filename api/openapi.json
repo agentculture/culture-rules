@@ -2873,11 +2873,11 @@
           },
           {
             "in": "query",
-            "name": "_flag",
+            "name": "force",
             "required": false,
             "schema": {
               "default": false,
-              "title": " Flag",
+              "title": "Force",
               "type": "boolean"
             }
           }
@@ -2971,16 +2971,6 @@
             "schema": {
               "title": "Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "_flag",
-            "required": false,
-            "schema": {
-              "default": true,
-              "title": " Flag",
-              "type": "boolean"
             }
           }
         ],

@@ -49,7 +49,7 @@ from culture_rules.model import describe
 from culture_rules.model.paragraph import workflow_paragraph
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
-from culture_rules.server import events, humans, static
+from culture_rules.server import actor_guards, events, humans, static
 from culture_rules.server import status as read_models
 from culture_rules.server.caching import NO_STORE, NoStoreByDefault
 from culture_rules.server.model_actors import register_model_actors as _register_model_actors
@@ -1746,6 +1746,8 @@ def _register_kind(
     )
     def create(body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
+        if kind == "actors":
+            actor_guards.check_save(store, body)
         return defs.create(kind, body, principal.identity, check=guards.save_check(principal))
 
     @app.get(
@@ -1769,6 +1771,8 @@ def _register_kind(
     )
     def update(id: str, body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
+        if kind == "actors":
+            actor_guards.check_save(store, body)
         before = store.get(kind, id) if kind == "rules" else None
         doc = defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
         if (
@@ -1781,9 +1785,23 @@ def _register_kind(
 
     for verb, flag in (("enable", True), ("disable", False)):
 
-        def toggle(id: str, identity: Identity, _flag: bool = flag):
-            doc = defs.set_enabled(kind, id, _flag, identity)
-            return _with_active_runs(store, doc) if kind == "rules" and not _flag else doc
+        if kind == "actors" and flag:
+
+            def toggle(id: str, identity: Identity):
+                actor_guards.check_enable(store, id)
+                return defs.set_enabled(kind, id, True, identity)
+
+        elif kind == "actors":
+
+            def toggle(id: str, identity: Identity, force: bool = False):
+                actor_guards.check_disable(store, id, force)
+                return defs.set_enabled(kind, id, False, identity)
+
+        else:
+
+            def toggle(id: str, identity: Identity, _flag: bool = flag):
+                doc = defs.set_enabled(kind, id, _flag, identity)
+                return _with_active_runs(store, doc) if kind == "rules" and not _flag else doc
 
         app.post(
             f"{path}/{verb}",
