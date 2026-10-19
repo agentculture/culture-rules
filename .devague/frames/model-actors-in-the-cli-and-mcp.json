@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-19T04:16:08Z",
-  "updated": "2026-10-19T04:59:36Z",
+  "updated": "2026-10-19T16:26:30Z",
   "claims": [
     {
       "id": "c1",
@@ -928,6 +928,17 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "t9: the four new MCP tools were checked only by the parity test's tool list, never called over the mcp stdio server",
+      "skipped_check": "a stdio call of each new MCP tool",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [
