@@ -53,6 +53,8 @@ value or a secret):
 * ``llm_deadline`` (not retryable) - ``not_after`` has passed;
 * ``llm_rejected`` (not retryable) - any other non-2xx answer;
 * ``llm_bad_response`` (not retryable) - not JSON, or no string message content;
+* ``model_taken`` (not retryable) - another enabled endpoint actor holds this actor's model
+  (``model_taken: <holder id>``; checked before any request);
 * ``llm_content_too_large``, ``invalid_request``, ``llm_actor_invalid``,
   ``actor_kind_mismatch``, ``secret_unresolved`` (not retryable) - before any request.
 
@@ -70,11 +72,13 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
+from culture_rules.actors.model_rule import model_holder
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.machine import load_bound_actor
+from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
     "DEFAULT_MAX_CONTENT_CHARS",
@@ -348,6 +352,9 @@ class LlmCompletePort:
         actor, _doc, failure = load_bound_actor(self._store, input, context)
         if failure is not None or actor is None:
             return failure or InvocationResult.failed("actor_not_found", retryable=False)
+        taken = self._model_taken(actor, _doc)
+        if taken is not None:
+            return taken
         try:
             result = self._complete(input, actor, deadline)
         except _Refused as exc:
@@ -355,6 +362,22 @@ class LlmCompletePort:
         if result.outcome == COMPLETED:
             self._ledger.put(idempotency_key, result)
         return result
+
+    def _model_taken(self, actor: Actor, doc: Mapping[str, Any] | None) -> InvocationResult | None:
+        """``model_taken: <holder>`` when another enabled endpoint actor holds the model this
+        request would use (``params.model``, else the actor's own ``model``)."""
+        candidate = dict(doc or {})
+        params = dict(candidate.get("params") or {})
+        effective = params.get(_MODEL) or actor.model
+        if isinstance(effective, str) and effective.strip():
+            params[_MODEL] = effective.strip()
+        candidate["params"] = params
+        candidate.setdefault("id", actor.id)
+        candidate.setdefault("kind", actor.kind)
+        holder = model_holder(self._store.find(ACTORS_COLLECTION, {"kind": "agent"}), candidate)
+        if holder is None:
+            return None
+        return InvocationResult.failed(f"model_taken: {holder}", retryable=False)
 
     def refuse_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:
         """The failure for work that must not start (``not_after`` passed or malformed).
