@@ -1772,7 +1772,7 @@ def _register_kind(
     def update(id: str, body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
         if kind == "actors":
-            actor_guards.check_save(store, body)
+            actor_guards.check_save(store, body, id)
         before = store.get(kind, id) if kind == "rules" else None
         doc = defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
         if (

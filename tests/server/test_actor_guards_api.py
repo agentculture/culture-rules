@@ -68,6 +68,14 @@ def test_update_to_a_held_model_is_refused_and_a_free_one_passes(store, client):
     )
 
 
+def test_update_without_a_body_id_is_an_id_mismatch_not_its_own_holder(store, client):
+    seed(store, actor("holder"))
+    body = actor("holder", description="x")
+    del body["id"]
+    r = client.put("/actors/holder", json=body, headers=ALICE)
+    assert "model_taken" not in error_codes(r), r.text
+
+
 def test_actors_outside_the_rule_never_conflict(store, client):
     seed(store, actor("holder"))
     # no base_url (mesh-reached): shares the model name freely

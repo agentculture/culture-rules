@@ -45,11 +45,15 @@ def _refuse_if_taken(store: StoragePort, candidate: dict[str, Any]) -> None:
     )
 
 
-def check_save(store: StoragePort, body: Any) -> None:
-    """Create or update: evaluate the body as it would be stored (enabled unless it says not)."""
+def check_save(store: StoragePort, body: Any, actor_id: str | None = None) -> None:
+    """Create or update: evaluate the body as it would be stored (enabled unless it says not).
+    On update the URL's id is the candidate's, so an actor never holds a model against itself
+    (a mismatched body id is refused later, as ``id_mismatch``)."""
     if not isinstance(body, dict):
         return  # validation reports it
     candidate = {**body, "enabled": body.get("enabled", True) is not False}
+    if actor_id is not None:
+        candidate["id"] = actor_id
     _refuse_if_taken(store, candidate)
 
 
