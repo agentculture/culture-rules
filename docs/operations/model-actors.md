@@ -16,7 +16,7 @@ repeated machine, a non-http(s) URL or an item without `=` is refused with 409
 
 ```bash
 culture-rules variables set model_gateways \
-  '["spark=http://127.0.0.1:8001", "spark2=http://<spark2-host>:8000"]' --apply
+  --value '["spark=http://127.0.0.1:8001", "spark2=http://<spark2-host>:8000"]' --apply
 ```
 
 `--gateway` takes a machine name from this list. A name that is not in it is
@@ -120,8 +120,8 @@ wrapper. Read each dry run before its `--apply`, and stop at the first refusal.
 1. Set the allowlist (admin): dry run, read it, then apply.
 
    ```bash
-   cr variables set model_gateways '["spark=http://127.0.0.1:8001"]'
-   cr variables set model_gateways '["spark=http://127.0.0.1:8001"]' --apply
+   cr variables set model_gateways --value '["spark=http://127.0.0.1:8001"]'
+   cr variables set model_gateways --value '["spark=http://127.0.0.1:8001"]' --apply
    ```
 
 2. Free the model. The dry run shows `in_use` (the workflow); `--force` is
