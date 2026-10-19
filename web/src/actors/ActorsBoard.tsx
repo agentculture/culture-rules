@@ -135,6 +135,144 @@ function InUseRefusal({
   );
 }
 
+/** The name, kind, machine and enable switch that head an actor's row. */
+function ActorHead({
+  actor,
+  slot,
+  enabled,
+  open,
+  pending,
+  onSelect,
+  onToggle,
+}: Readonly<{
+  actor: Actor;
+  slot: number | null;
+  enabled: boolean;
+  open: boolean;
+  pending: boolean;
+  onSelect: () => void;
+  onToggle: (next: boolean) => void;
+}>) {
+  return (
+    <div className="actor-row__head">
+      <button
+        type="button"
+        className="actor-row__name"
+        aria-expanded={open}
+        onClick={onSelect}
+      >
+        {actor.name}
+      </button>
+      <span className="actor-row__kind">{actor.kind}</span>
+      <span className="actor-row__machine">
+        {actor.machine ? (
+          <>
+            <MachineDot slot={slot} />
+            {actor.machine}
+          </>
+        ) : (
+          <span className="actor-row__anywhere">anywhere</span>
+        )}
+      </span>
+      <Switch
+        label={`${actor.name} enabled`}
+        checked={enabled}
+        disabled={pending}
+        onChange={onToggle}
+      />
+    </div>
+  );
+}
+
+/** Where the actor's config lives, plus its harness and model when it has them. */
+function ActorConfigLine({
+  actor,
+  onSource,
+}: Readonly<{ actor: Actor; onSource: (v: "repo" | "db") => void }>) {
+  return (
+    <div className="actor-row__config">
+      <SourceSwitch
+        value={actor.config_source === "repo" ? "repo" : "db"}
+        onChange={onSource}
+      />
+      <span className="mono">{configSourceText(actor)}</span>
+      {actor.harness ? (
+        <span>
+          <span className="muted">harness </span>
+          <strong>{actor.harness}</strong>
+        </span>
+      ) : null}
+      {actor.model ? (
+        <span>
+          <span className="muted">model </span>
+          <strong>{actor.model}</strong>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** The capability chips with the edit and delete controls, or the delete confirmation. */
+function ActorCaps({
+  actor,
+  busy,
+  confirming,
+  onEdit,
+  onAskDelete,
+  onCancelDelete,
+  onDelete,
+}: Readonly<{
+  actor: Actor;
+  busy: boolean;
+  confirming: boolean;
+  onEdit: () => void;
+  onAskDelete: () => void;
+  onCancelDelete: () => void;
+  onDelete: () => void;
+}>) {
+  return (
+    <div className="actor-row__caps">
+      <ul className="caps" aria-label="Capabilities">
+        {(actor.capabilities ?? []).map((cap) => (
+          <li key={cap} className="cap">
+            {cap}
+          </li>
+        ))}
+      </ul>
+      {confirming ? (
+        <fieldset className="actor-row__actions plain-group" aria-label={`Delete ${actor.name}?`}>
+          <span className="confirm-text">Delete {actor.name}?</span>
+          <button type="button" className="btn btn--danger" disabled={busy} onClick={onDelete}>
+            Confirm delete
+          </button>
+          <button type="button" className="btn" onClick={onCancelDelete}>
+            Cancel
+          </button>
+        </fieldset>
+      ) : (
+        <span className="actor-row__actions">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Edit ${actor.name}`}
+            onClick={onEdit}
+          >
+            <PencilIcon />
+          </button>
+          <button
+            type="button"
+            className="icon-button icon-button--danger"
+            aria-label={`Delete ${actor.name}`}
+            onClick={onAskDelete}
+          >
+            <TrashIcon />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 /**
  * The Actors tab — the 'Chosen — Actors' board (design canvas row 'Chosen'):
  * a large-type roster with a kind filter, one row per actor (name, kind,
@@ -392,33 +530,15 @@ export function ActorsBoard() {
               className={`actor-row plain-group${open ? " is-selected" : ""}${enabled ? "" : " is-disabled"}`}
               style={machineStyle(slot)}
             >
-              <div className="actor-row__head">
-                <button
-                  type="button"
-                  className="actor-row__name"
-                  aria-expanded={open}
-                  onClick={() => select(actor.id)}
-                >
-                  {actor.name}
-                </button>
-                <span className="actor-row__kind">{actor.kind}</span>
-                <span className="actor-row__machine">
-                  {actor.machine ? (
-                    <>
-                      <MachineDot slot={slot} />
-                      {actor.machine}
-                    </>
-                  ) : (
-                    <span className="actor-row__anywhere">anywhere</span>
-                  )}
-                </span>
-                <Switch
-                  label={`${actor.name} enabled`}
-                  checked={enabled}
-                  disabled={togglePending.has(actor.id)}
-                  onChange={(next) => void toggle(actor, next)}
-                />
-              </div>
+              <ActorHead
+                actor={actor}
+                slot={slot}
+                enabled={enabled}
+                open={open}
+                pending={togglePending.has(actor.id)}
+                onSelect={() => select(actor.id)}
+                onToggle={(next) => void toggle(actor, next)}
+              />
 
               {inUse?.actorId === actor.id ? (
                 <InUseRefusal
@@ -432,25 +552,7 @@ export function ActorsBoard() {
 
               {open ? (
                 <div className="actor-row__details">
-                  <div className="actor-row__config">
-                    <SourceSwitch
-                      value={actor.config_source === "repo" ? "repo" : "db"}
-                      onChange={(v) => void setSource(actor, v)}
-                    />
-                    <span className="mono">{configSourceText(actor)}</span>
-                    {actor.harness ? (
-                      <span>
-                        <span className="muted">harness </span>
-                        <strong>{actor.harness}</strong>
-                      </span>
-                    ) : null}
-                    {actor.model ? (
-                      <span>
-                        <span className="muted">model </span>
-                        <strong>{actor.model}</strong>
-                      </span>
-                    ) : null}
-                  </div>
+                  <ActorConfigLine actor={actor} onSource={(v) => void setSource(actor, v)} />
 
                   {editing === actor.id ? (
                     <ActorForm
@@ -461,45 +563,15 @@ export function ActorsBoard() {
                       onCancel={() => setEditing(null)}
                     />
                   ) : (
-                    <div className="actor-row__caps">
-                      <ul className="caps" aria-label="Capabilities">
-                        {(actor.capabilities ?? []).map((cap) => (
-                          <li key={cap} className="cap">
-                            {cap}
-                          </li>
-                        ))}
-                      </ul>
-                      {confirming === actor.id ? (
-                        <fieldset className="actor-row__actions plain-group" aria-label={`Delete ${actor.name}?`}>
-                          <span className="confirm-text">Delete {actor.name}?</span>
-                          <button type="button" className="btn btn--danger" disabled={busy} onClick={() => void remove(actor)}>
-                            Confirm delete
-                          </button>
-                          <button type="button" className="btn" onClick={() => setConfirming(null)}>
-                            Cancel
-                          </button>
-                        </fieldset>
-                      ) : (
-                        <span className="actor-row__actions">
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label={`Edit ${actor.name}`}
-                            onClick={() => setEditing(actor.id)}
-                          >
-                            <PencilIcon />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-button icon-button--danger"
-                            aria-label={`Delete ${actor.name}`}
-                            onClick={() => setConfirming(actor.id)}
-                          >
-                            <TrashIcon />
-                          </button>
-                        </span>
-                      )}
-                    </div>
+                    <ActorCaps
+                      actor={actor}
+                      busy={busy}
+                      confirming={confirming === actor.id}
+                      onEdit={() => setEditing(actor.id)}
+                      onAskDelete={() => setConfirming(actor.id)}
+                      onCancelDelete={() => setConfirming(null)}
+                      onDelete={() => void remove(actor)}
+                    />
                   )}
 
                   {modelRoutes === "present" && references?.actorId === actor.id ? (

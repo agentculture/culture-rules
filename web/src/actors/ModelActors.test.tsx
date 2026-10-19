@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Actors from "../routes/Actors";
+import type { Actor } from "../api/actors";
+import { moveTargets } from "./UsedBy";
 import { resetAgentState } from "../agent-state/store";
 import { resetWhoamiForTests } from "../hooks/useWhoami";
 import { MACHINES } from "../fixtures/rules-fixture";
@@ -357,6 +359,20 @@ describe("Actors board: model actors (t10)", () => {
       expect(calls.filter((c) => c.path === "/api/workflows/newspaper/repoint-actor").at(-1)?.body).toMatchObject({ force: true });
     });
 
+    it("says so when no other actor fits, instead of an empty select", async () => {
+      mockApi({ overrides: { "GET /api/actors": { status: 200, body: { items: ACTORS.filter((a) => a.id === "claude-code") } } } });
+      const user = userEvent.setup();
+      renderActors();
+      const usedBy = await screen.findByRole("region", { name: "Claude Code used by" });
+      await user.click(await within(usedBy).findByRole("button", { name: "Move newspaper" }));
+      const form = within(usedBy).getByRole("form", { name: "Move newspaper" });
+      expect(within(form).getByText("No other enabled agent actor to move to.")).toBeInTheDocument();
+      expect(within(form).queryByRole("combobox")).toBeNull();
+      expect(within(form).queryByRole("button", { name: "Move" })).toBeNull();
+      await user.click(within(form).getByRole("button", { name: "Cancel" }));
+      expect(within(usedBy).queryByRole("form")).toBeNull();
+    });
+
     it("viewers see Used by without Move", async () => {
       mockApi({ roles: ["viewer"] });
       renderActors();
@@ -494,5 +510,47 @@ describe("Actors board: model actors (t10)", () => {
       renderActors();
       expect(await screen.findByRole("button", { name: "Add models" })).toBeInTheDocument();
     });
+  });
+});
+
+describe("moveTargets", () => {
+  const actor = (id: string, extra: Partial<Actor> = {}): Actor => ({ id, name: id, kind: "agent", enabled: true, ...extra });
+  const endpoint = (id: string, extra: Partial<Actor> = {}) => actor(id, { params: { base_url: "http://gw:8000/v1" }, ...extra });
+  const ids = (list: Actor[]) => list.map((a) => a.id);
+
+  it("offers enabled actors of the same kind, never the actor itself", () => {
+    const from = actor("a");
+    const all = [from, actor("b"), actor("c", { enabled: false }), actor("d", { enabled: undefined }), actor("e", { kind: "human" })];
+    expect(ids(moveTargets(from, all))).toEqual(["b", "d"]);
+  });
+
+  it("an endpoint actor moves only to another endpoint actor", () => {
+    const from = endpoint("m1");
+    const all = [from, endpoint("m2"), actor("harness"), actor("blank", { params: { base_url: "" } })];
+    expect(ids(moveTargets(from, all))).toEqual(["m2"]);
+  });
+
+  it("a plain agent never moves to an endpoint actor", () => {
+    const from = actor("claude");
+    expect(ids(moveTargets(from, [from, endpoint("m1"), actor("codex")]))).toEqual(["codex"]);
+  });
+
+  it("an empty base_url is not an endpoint, and neither is a non-agent kind", () => {
+    const from = actor("blank", { params: { base_url: "" } });
+    expect(ids(moveTargets(from, [from, actor("codex"), endpoint("m1")]))).toEqual(["codex"]);
+    const svc = actor("s", { kind: "service", params: { base_url: "http://x" } });
+    expect(ids(moveTargets(svc, [svc, actor("s2", { kind: "service" })]))).toEqual(["s2"]);
+  });
+
+  it("an app actor moves only to an app actor on the same surface", () => {
+    const app = (id: string, surface: "search" | "email") => actor(id, { kind: "app", params: { surface } });
+    const from = app("search-a", "search");
+    const all = [from, app("search-b", "search"), app("mail", "email"), actor("agent")];
+    expect(ids(moveTargets(from, all))).toEqual(["search-b"]);
+  });
+
+  it("returns nothing when no actor fits", () => {
+    const from = actor("a");
+    expect(moveTargets(from, [from, actor("b", { enabled: false })])).toEqual([]);
   });
 });
