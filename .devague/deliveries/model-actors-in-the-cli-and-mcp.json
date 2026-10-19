@@ -2,7 +2,7 @@
   "plan_slug": "model-actors-in-the-cli-and-mcp",
   "schema_version": 2,
   "created": "2026-10-19T05:52:29Z",
-  "updated": "2026-10-19T21:59:02Z",
+  "updated": "2026-10-19T22:42:11Z",
   "deviations": [
     {
       "id": "d1",
@@ -87,7 +87,7 @@
         "t3"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 6
     }
