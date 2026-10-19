@@ -70,17 +70,19 @@ def test_repoint_rewrites_only_actions_and_does_not_mutate():
     assert deep["config"]["action"]["params"]["actor"] == "b9"
     assert new["steps"][0]["body"][1]["config"]["action"]["params"]["actor"] == "a2"
     assert new["steps"][1]["placement"] == {"actor": "a1"}
-    assert new["description"] == doc["description"] and new["notes"] == doc["notes"]
+    assert new["description"] == doc["description"]
+    assert new["notes"] == doc["notes"]
     assert any("placed" in w and "placement" in w for w in warnings)
     assert any("notes" in w and "deep" in w for w in warnings)
     assert any("workflow notes" in w for w in warnings)
 
 
 def test_repoint_no_match_raises_typed():
+    doc, empty = _wf(), {"id": "x", "steps": []}
     with pytest.raises(NoMatchingStep):
-        repoint_workflow(_wf(), "zzz", "b9")
+        repoint_workflow(doc, "zzz", "b9")
     with pytest.raises(ValueError):
-        repoint_workflow({"id": "x", "steps": []}, "a1", "b9")
+        repoint_workflow(empty, "a1", "b9")
 
 
 def test_notes_warning_matches_whole_actor_ids_only():

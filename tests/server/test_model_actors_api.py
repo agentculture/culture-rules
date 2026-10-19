@@ -122,7 +122,8 @@ def test_dry_run_is_the_default_and_apply_writes_one_audited_actor_each(store):
     ]
     assert body["failed"] == []
     stored = store.get("actors", "cortex-spark2")
-    assert stored["kind"] == "agent" and stored["machine"] == "spark"
+    assert stored["kind"] == "agent"
+    assert stored["machine"] == "spark"
     assert stored["params"]["base_url"] == SPARK
     assert stored["params"]["model"] == "cortex-spark2"
     assert stored["params"]["concurrency_pool"] == "qwen-spark2"
@@ -159,8 +160,10 @@ def test_unknown_gateway_is_refused_naming_the_known_ones_before_any_secret(stor
     assert r.status_code == 422
     err = r.json()["error"]
     assert err["code"] == "unknown_gateway"
-    assert "evil" in err["message"] and "spark, spark2" in err["message"]
-    assert resolved == [] and t.calls == []
+    assert "evil" in err["message"]
+    assert "spark, spark2" in err["message"]
+    assert resolved == []
+    assert t.calls == []
 
 
 def test_no_model_gateways_variable_refuses_with_no_known_names(store):
@@ -170,7 +173,8 @@ def test_no_model_gateways_variable_refuses_with_no_known_names(store):
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "unknown_gateway"
     assert "model_gateways" in r.json()["error"]["message"]
-    assert resolved == [] and t.calls == []
+    assert resolved == []
+    assert t.calls == []
 
 
 def test_a_model_gateways_change_is_picked_up_on_the_next_call(store):
@@ -195,6 +199,7 @@ def test_a_model_gateways_change_is_picked_up_on_the_next_call(store):
         ["spark=7"],
         "http://x",
         [f"spark={SPARK}", f"spark={SPARK2}"],
+        [f"spark={SPARK}", f" spark ={SPARK2}"],
         ["=http://127.0.0.1:1"],
     ],
 )
@@ -205,7 +210,17 @@ def test_a_malformed_allowlist_is_refused_before_any_secret(store, value):
     r = enrol(client)
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "invalid_model_gateways"
-    assert resolved == [] and t.calls == []
+    assert resolved == []
+    assert t.calls == []
+
+
+def test_allowlist_names_and_urls_are_read_stripped(store):
+    set_gateways(store, [f" spark = {SPARK} "])
+    t = default_gateways()
+    client, _ = make_client(store, t)
+    r = enrol(client)
+    assert r.status_code == 200, r.text
+    assert r.json()["gateways"][0]["url"] == SPARK
 
 
 def test_an_object_valued_allowlist_is_refused(store, monkeypatch):
@@ -223,7 +238,8 @@ def test_an_object_valued_allowlist_is_refused(store, monkeypatch):
     r = enrol(client)
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "invalid_model_gateways"
-    assert resolved == [] and t.calls == []
+    assert resolved == []
+    assert t.calls == []
 
 
 @pytest.mark.parametrize("key", ["sk-literal", "", "grant:"])
@@ -234,7 +250,8 @@ def test_api_key_must_be_a_grant_reference(store, key):
     r = enrol(client, api_key=key)
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "invalid_api_key"
-    assert resolved == [] and t.calls == []
+    assert resolved == []
+    assert t.calls == []
     assert "sk-literal" not in r.text  # a literal is never echoed back
 
 
@@ -244,7 +261,8 @@ def test_empty_match_is_422(store):
     client, resolved = make_client(store, t)
     r = enrol(client, match=[])
     assert r.status_code == 422
-    assert resolved == [] and t.calls == []
+    assert resolved == []
+    assert t.calls == []
 
 
 def test_bad_pool_is_422(store):
@@ -282,7 +300,8 @@ def test_an_unreachable_or_failing_gateway_is_502_naming_it(store):
     failing.status = 401
     client, _ = make_client(store, failing)
     r = enrol(client)
-    assert r.status_code == 502 and KEY not in r.text
+    assert r.status_code == 502
+    assert KEY not in r.text
 
 
 def test_a_model_held_by_another_enabled_endpoint_actor_is_refused_in_the_plan(store):
@@ -436,7 +455,8 @@ def test_repoint_dry_run_plans_paths_warnings_and_digest_without_writing(store):
     assert any("notes mention 'old'" in w for w in body["warnings"])
     assert any("placed on actor 'old'" in w for w in body["warnings"])
     assert body["revision"] == 1
-    assert body["digest"].startswith("sha256:") and body["digest_v2"].startswith("sha256:")
+    assert body["digest"].startswith("sha256:")
+    assert body["digest_v2"].startswith("sha256:")
     assert store.get("workflows", "news") == before
     assert len(store.find(AUDIT_COLLECTION)) == audits
 
@@ -476,7 +496,8 @@ def test_repoint_stale_revision_is_409_revision_conflict(store):
     r = client.post(
         "/workflows/news/repoint-actor", json={"from": "old", "to": "new"}, headers=ALICE
     )
-    assert r.status_code == 409 and r.json()["error"]["code"] == "revision_conflict"
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "revision_conflict"
     assert store.get("workflows", "news")["revision"] == 1
 
 
@@ -492,6 +513,56 @@ def test_repoint_refuses_a_missing_disabled_or_deleted_target(store):
     r = repoint(client)
     assert (r.status_code, r.json()["error"]["code"]) == (409, "target_deleted")
     assert store.get("workflows", "news")["revision"] == 1
+
+
+def _mismatch(r):
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "target_kind_mismatch"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        {"id": "pat", "name": "pat", "kind": "human", "schema_version": "1.0"},
+        {"id": "mesh", "name": "mesh", "kind": "agent", "params": {}, "schema_version": "1.0"},
+    ],
+)
+def test_repoint_refuses_a_target_that_cannot_run_the_steps(store, target):
+    client = seeded(store)
+    assert client.post("/actors", json=target, headers=ALICE).status_code == 201
+    _mismatch(repoint(client, to=target["id"], dry_run=False))
+    assert store.get("workflows", "news")["revision"] == 1
+
+
+def test_an_llm_step_needs_an_endpoint_target_even_when_the_old_actor_is_gone(store):
+    client = seeded(store)
+    mesh = {"id": "mesh", "name": "mesh", "kind": "agent", "params": {}, "schema_version": "1.0"}
+    assert client.post("/actors", json=mesh, headers=ALICE).status_code == 201
+    store.delete("actors", "old")
+    _mismatch(repoint(client, to="mesh"))
+
+
+def test_an_app_target_must_be_on_the_same_surface(store):
+    client, _ = make_client(store)
+    for id_, surface in (("brave", "search"), ("brave2", "search"), ("mail", "email")):
+        params = {"surface": surface, "actions": [], "events": [], "connection": {}}
+        store.put(
+            "actors",
+            {"id": id_, "name": id_, "kind": "app", "params": params, "schema_version": "1.0"},
+        )
+    step = {
+        "id": "search",
+        "kind": "code",
+        "config": {
+            "builtin": "action",
+            "action": {"kind": "search.web", "params": {"actor": "brave", "query": "q"}},
+        },
+    }
+    wf = {"id": "s", "name": "s", "steps": [step], "schema_version": "1.0"}
+    assert client.post("/workflows", json=wf, headers=ALICE).status_code == 201
+    _mismatch(repoint(client, id="s", **{"from": "brave", "to": "mail"}))
+    ok = repoint(client, id="s", **{"from": "brave", "to": "brave2"})
+    assert ok.status_code == 200, ok.text
 
 
 def test_repoint_with_no_matching_step_is_refused(store):
@@ -606,7 +677,8 @@ def test_the_real_transport_reads_at_most_one_byte_past_the_cap():
     cap = model_actors._MAX_BODY
     with _Gateway(body=b"x" * (cap + 4096)) as gw:
         status, body = model_actors.urllib_models_transport(f"{gw.url}/v1/models", {}, 5)
-    assert status == 200 and len(body) == cap + 1
+    assert status == 200
+    assert len(body) == cap + 1
 
 
 def test_a_partial_apply_answers_200_with_applied_and_failed(store, monkeypatch):
@@ -631,6 +703,7 @@ def test_a_partial_apply_answers_200_with_applied_and_failed(store, monkeypatch)
     body = r.json()
     assert body["applied"] == [{"id": "cortex-spark2", "action": "create"}]
     assert [(f["id"], f["action"]) for f in body["failed"]] == [("cortex-spark", "create")]
-    assert body["failed"][0]["code"] and body["failed"][0]["message"]
+    assert body["failed"][0]["code"]
+    assert body["failed"][0]["message"]
     assert store.get("actors", "cortex-spark") is None
     assert store.get("actors", "cortex-spark2") is not None

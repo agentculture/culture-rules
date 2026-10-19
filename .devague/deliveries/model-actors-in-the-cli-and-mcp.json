@@ -2,7 +2,7 @@
   "plan_slug": "model-actors-in-the-cli-and-mcp",
   "schema_version": 2,
   "created": "2026-10-19T05:52:29Z",
-  "updated": "2026-10-19T16:02:34Z",
+  "updated": "2026-10-19T21:59:02Z",
   "deviations": [
     {
       "id": "d1",
@@ -59,6 +59,37 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "the actor guards also cover restore and import (model_taken) and delete (actor_in_use, --force); repoint checks the target can run the repointed actions (llm.complete needs an endpoint actor; other kinds must match the action's actor kind); the run-time model_taken check refuses only actors newer than the holder (created_at, then id), so the oldest keeps serving",
+      "task_ref": "t5",
+      "reason": "code review of PR #72: restore/import could create a second holder, delete removed an in-use actor that disable refused, repoint accepted a target that fails at run time, and the symmetric run-time check stopped every actor on a shared model; approved by the operator 2026-10-20",
+      "affects": [
+        "t2",
+        "t4",
+        "t6",
+        "t9",
+        "t10",
+        "t11"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "the run-time model_taken winner is the holder with the lowest actor id, not the oldest by created_at (d5): actor documents carry no creation time",
+      "task_ref": "t6",
+      "reason": "d5 named created_at, but actor documents store no created_at (only updated_at, which changes on every save); the lowest id is deterministic, so every node picks the same winner",
+      "affects": [
+        "t3"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 6
     }
   ],
   "evidence": [],

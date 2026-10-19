@@ -8,21 +8,24 @@ Routing, auth context and I/O only; the logic lives in the pure modules:
 - ``POST /actors/enrol-models`` (admin, the route matrix's default for an unmatched POST)
   names gateways by machine. Each must be a machine of the shared variable
   ``model_gateways`` (machine -> URL: a list of ``"machine=URL"`` strings, since a variable
-  holds a scalar or a list of scalars; an object is read too), the allowlist an admin
+  holds a scalar or a list of scalars; an object is refused), the allowlist an admin
   writes, so the request can never point the server at a free URL. Only after every
   gateway passed the allowlist is the ``api_key`` grant resolved; the bearer goes only to
   those URLs' ``/v1/models``. The stored actors keep the grant reference, never the value,
   and no answer carries it.
 - ``GET /actors/{id}/references`` lists the live workflows and rules naming the actor.
 - ``POST /workflows/{id}/repoint-actor`` rewrites the workflow's action actor and saves it
-  through the same revisioned update ``PUT /workflows/{id}`` uses.
+  through the same revisioned update ``PUT /workflows/{id}`` uses. The new actor must be
+  able to do the work: the same kind as the old one (an ``app`` on the same surface), and
+  an endpoint actor when the old one is or a repointed step is ``llm.complete``.
 
 Writes go through :class:`~culture_rules.server.service.Definitions` (one audit entry per
 actor created or updated and per workflow repointed, naming the caller). Both write routes
 are dry runs unless ``dry_run`` is false.
 
 No ``from __future__ import annotations`` here: the route handlers are defined inside
-:func:`register_model_actors`, and FastAPI must see their dependency annotations evaluated.
+:func:`register_model_actors` (thin wrappers over the module functions), and FastAPI must
+see their dependency annotations evaluated.
 """
 
 import json
@@ -36,9 +39,14 @@ from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field
 
 from culture_rules.actors import model_enrol, secrets, trusted
-from culture_rules.actors.model_rule import model_holder
+from culture_rules.actors.model_rule import is_endpoint_actor, model_holder
 from culture_rules.auth import guards
-from culture_rules.model.references import NoMatchingStep, find_references, repoint_workflow
+from culture_rules.model.references import (
+    NoMatchingStep,
+    action_kinds,
+    find_references,
+    repoint_workflow,
+)
 from culture_rules.model.workflow import Workflow
 from culture_rules.server.service import (
     Conflict,
@@ -61,8 +69,8 @@ __all__ = [
 
 MODEL_GATEWAYS = "model_gateways"
 """The shared variable that allow-lists the gateways, machine -> base URL: a list of
-``"machine=URL"`` strings (or an object, should variables ever hold one)."""
-DEFAULT_API_KEY = "grant:LOBES_GATEWAY_API_KEY"
+``"machine=URL"`` strings (an object is refused: a variable holds scalars only)."""
+DEFAULT_API_KEY = model_enrol.DEFAULT_API_KEY
 _TIMEOUT_S = 10.0
 _MAX_BODY = 1024 * 1024
 
@@ -218,7 +226,7 @@ def _gateway_pairs(value: Any) -> list[tuple[Any, Any]] | None:
     """``model_gateways`` as (machine, URL) pairs, from a list of ``"machine=URL"`` strings
     (a variable holds a scalar or a list of scalars, never an object)."""
     if isinstance(value, list) and all(isinstance(i, str) and "=" in i for i in value):
-        return [tuple(i.split("=", 1)) for i in value]
+        return [tuple(part.strip() for part in i.split("=", 1)) for i in value]
     return None
 
 
@@ -234,7 +242,7 @@ def _gateway_allowlist(store: StoragePort) -> dict[str, str]:
     if (
         pairs is None
         or len(set(names)) != len(names)
-        or not all(isinstance(k, str) and k.strip() and _is_http_url(v) for k, v in pairs)
+        or not all(isinstance(k, str) and k and _is_http_url(v) for k, v in pairs)
     ):
         message = (
             f"the {MODEL_GATEWAYS} variable must map each machine to an http(s) URL "
@@ -245,7 +253,7 @@ def _gateway_allowlist(store: StoragePort) -> dict[str, str]:
             [{"path": MODEL_GATEWAYS, "code": "invalid_model_gateways", "message": message}],
             code="invalid_model_gateways",
         )
-    return {k.strip(): v for k, v in pairs}
+    return dict(pairs)
 
 
 def _chosen_gateways(store: StoragePort, names: list[str]) -> list[tuple[str, str]]:
@@ -276,7 +284,7 @@ def _list_models(transport: ModelsTransport, machine: str, url: str, key: str) -
         headers["Authorization"] = f"Bearer {key}"
     try:
         status, raw = transport(_models_url(url), headers, _TIMEOUT_S)
-    except Exception:  # noqa: BLE001 - unreachable, whatever the reason
+    except Exception:  # noqa: BLE001 - unreachable for any reason
         raise _GatewayUnavailable(f"gateway {machine} is unreachable") from None
     if status != 200:
         raise _GatewayUnavailable(f"gateway {machine} answered {status}")
@@ -304,18 +312,9 @@ def _hold_models(existing: list[dict[str, Any]], plan: model_enrol.ModelPlan) ->
         effective[change.id] = change.body
 
 
-def _trusted_digest(doc: Mapping[str, Any]) -> str | None:
-    """The pinned v1 or v2 digest ``doc`` hashes to, or None (read at call time)."""
-    v1 = trusted.workflow_digest(doc)
-    if v1 is not None and v1 in frozenset().union(*trusted.TRUSTED_WORKFLOWS.values()):
-        return v1
-    v2 = trusted.workflow_digest_v2(doc)
-    if v2 is not None and v2 in frozenset().union(*trusted.TRUSTED_WORKFLOWS_V2.values()):
-        return v2
-    return None
-
-
-def _check_target(store: StoragePort, to: str) -> None:
+def _check_target(store: StoragePort, frm: str, to: str, kinds: set[str]) -> None:
+    """``to`` must be live, enabled and able to do ``frm``'s work in the repointed steps
+    (``kinds``: their action kinds); otherwise 409 ``target_kind_mismatch``."""
     doc = store.get("actors", to)
     if doc is None:
         raise Invalid(f"actor {to!r} does not exist", code="target_not_found")
@@ -323,6 +322,30 @@ def _check_target(store: StoragePort, to: str) -> None:
         raise Conflict(f"actor {to!r} is deleted; restore it first", code="target_deleted")
     if doc.get("enabled") is False:
         raise Conflict(f"actor {to!r} is disabled; enable it first", code="target_disabled")
+    problem = _target_problem(store.get("actors", frm), doc, kinds)
+    if problem is not None:
+        raise Conflict(
+            f"actor {to!r} cannot take over from {frm!r}: {problem}", code="target_kind_mismatch"
+        )
+
+
+def _target_problem(
+    old: Mapping[str, Any] | None, new: Mapping[str, Any], kinds: set[str]
+) -> str | None:
+    """Why ``new`` cannot run what ``old`` ran (None when it can). ``old`` may be gone."""
+    new_doc, new_kind = dict(new), new.get("kind")
+    needs_endpoint = "llm.complete" in kinds
+    if old is not None:
+        old_kind = old.get("kind")
+        if new_kind != old_kind:
+            return f"it is a {new_kind} actor, {old.get('id')!r} is a {old_kind} actor"
+        surface = (old.get("params") or {}).get("surface")
+        if old_kind == "app" and (new.get("params") or {}).get("surface") != surface:
+            return f"it is not a {surface} app actor"
+        needs_endpoint = needs_endpoint or is_endpoint_actor(dict(old))
+    if needs_endpoint and not is_endpoint_actor(new_doc):
+        return "it is not an endpoint actor (an agent with params.base_url)"
+    return None
 
 
 def _definition(doc: Mapping[str, Any]) -> dict[str, Any]:
@@ -331,6 +354,140 @@ def _definition(doc: Mapping[str, Any]) -> dict[str, Any]:
         return Workflow.from_dict(dict(doc), strict=False).to_dict()
     except Exception as exc:  # noqa: BLE001 - an unparseable stored workflow
         raise Invalid(f"workflow does not parse: {exc}", code="invalid_workflow") from None
+
+
+# --------------------------------------------------------------------------- enrol
+
+
+def _resolve_key(resolve: Callable[[str], str], ref: str) -> str:
+    try:
+        return resolve(ref)
+    except Exception:  # noqa: BLE001 - never echo why: the text may hold a value
+        raise Conflict("the api_key grant cannot be read here", code="secret_unavailable") from None
+
+
+def _plan_enrolment(
+    store: StoragePort,
+    defs: Definitions,
+    resolve: Callable[[str], str],
+    fetch: ModelsTransport,
+    body: "EnrolModelsRequest",
+) -> tuple[list[tuple[str, str, list[str]]], model_enrol.ModelPlan]:
+    """The listed gateways and the enrolment plan (model holders already refused). Raises
+    :class:`_GatewayUnavailable` when a gateway does not list its models."""
+    try:
+        pools = model_enrol.parse_pools(body.pools)
+    except ValueError as exc:
+        raise Invalid(str(exc), code="invalid_pool") from None
+    if not secrets.is_secret_ref(body.api_key):
+        raise Invalid("api_key must be a grant:<NAME> reference", code="invalid_api_key")
+    chosen = _chosen_gateways(store, body.gateways)
+    key = _resolve_key(resolve, body.api_key)  # only after every gateway passed the allowlist
+    listed = [(m, url, _list_models(fetch, m, url, key)) for m, url in chosen]
+    existing = defs.list("actors", include_deleted=True)
+    plan = model_enrol.plan_model_enrolment(existing, listed, body.match, pools, body.api_key)
+    _hold_models(existing, plan)
+    return listed, plan
+
+
+def _apply_one(
+    defs: Definitions, principal: Any, change: model_enrol.ModelChange
+) -> dict[str, Any] | None:
+    """Write one planned actor; the refusal as a ``failed`` entry, or None when written."""
+    guards.check_definition(principal, "actors", change.body)
+    check = guards.save_check(principal)
+    try:
+        if change.action == "create":
+            defs.create("actors", change.body, principal.identity, check=check)
+        else:
+            defs.update("actors", change.id, change.body, principal.identity, check=check)
+    except ServiceError as exc:
+        return {"id": change.id, "action": change.action, "code": exc.code, "message": exc.message}
+    return None
+
+
+def _apply_plan(
+    defs: Definitions, principal: Any, plan: model_enrol.ModelPlan
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """``(applied, failed)``: each create or update is written on its own."""
+    applied: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for change in plan.changes:
+        if change.action not in ("create", "update") or change.body is None:
+            continue
+        failure = _apply_one(defs, principal, change)
+        if failure is None:
+            applied.append({"id": change.id, "action": change.action})
+        else:
+            failed.append(failure)
+    return applied, failed
+
+
+# --------------------------------------------------------------------------- repoint
+
+
+def _refuse_if_trusted(
+    id: str, doc: Mapping[str, Any], force: bool, warnings: list[str]
+) -> tuple[str | None, list[str]]:
+    """The pinned digest ``doc`` matches (None when untrusted) and the warnings; a trusted
+    workflow is 409 ``workflow_trusted`` unless ``force``."""
+    pinned = trusted.pinned_digest(doc)
+    if pinned is None:
+        return None, warnings
+    if not force:
+        message = (
+            f"workflows/{id} is trusted (digest {pinned}); a repoint changes its digest "
+            "and drops that trust: pass force to repoint anyway, then pin the new digest"
+        )
+        raise Conflict(
+            message,
+            [{"path": "digest", "code": "workflow_trusted", "message": pinned}],
+            code="workflow_trusted",
+        )
+    return pinned, [*warnings, f"repoint drops trust: {pinned} no longer matches"]
+
+
+def _repoint(
+    store: StoragePort, defs: Definitions, principal: Any, id: str, body: "RepointRequest"
+) -> dict[str, Any]:
+    doc = store.get("workflows", id)
+    if doc is None:
+        raise NotFound(f"workflows/{id} does not exist")
+    if doc.get("deleted_at"):
+        raise Conflict(f"workflows/{id} is deleted; restore it first")
+    _check_revision("workflows", id, doc, body.expected_revision)
+    if body.from_ == body.to:
+        raise Invalid("from and to name the same actor", code="same_actor")
+    definition = _definition(doc)
+    _check_target(store, body.from_, body.to, action_kinds(definition, body.from_))
+    try:
+        new_def, changed, warnings = repoint_workflow(definition, body.from_, body.to)
+    except NoMatchingStep as exc:
+        raise Invalid(str(exc), code="no_matching_step") from None
+    pinned, warnings = _refuse_if_trusted(id, doc, body.force, warnings)
+    revision = rev.current_revision(doc)
+    if not body.dry_run:
+        guards.check_definition(principal, "workflows", new_def)
+        stored = defs.update(
+            "workflows",
+            id,
+            {**new_def, "expected_revision": body.expected_revision},
+            principal.identity,
+            check=guards.save_check(principal),
+        )
+        revision = stored["revision"]
+    return {
+        "workflow_id": id,
+        "dry_run": body.dry_run,
+        "from": body.from_,
+        "to": body.to,
+        "changed": changed,
+        "warnings": warnings,
+        "revision": revision,
+        "digest": trusted.workflow_digest(new_def),
+        "digest_v2": trusted.workflow_digest_v2(new_def),
+        "trusted_digest": pinned,
+    }
 
 
 # --------------------------------------------------------------------------- routes
@@ -366,51 +523,10 @@ def register_model_actors(
         serve. The gateways must be keys of ``model_gateways``; the key grant is resolved
         only after that, and is sent only to those gateways."""
         try:
-            pools = model_enrol.parse_pools(body.pools)
-        except ValueError as exc:
-            raise Invalid(str(exc), code="invalid_pool") from None
-        if not secrets.is_secret_ref(body.api_key):
-            raise Invalid("api_key must be a grant:<NAME> reference", code="invalid_api_key")
-        chosen = _chosen_gateways(store, body.gateways)
-        try:
-            key = resolve(body.api_key)
-        except Exception:  # noqa: BLE001 - never echo why: the text may hold a value
-            raise Conflict(
-                "the api_key grant cannot be read here", code="secret_unavailable"
-            ) from None
-        try:
-            listed = [(m, url, _list_models(fetch, m, url, key)) for m, url in chosen]
+            listed, plan = _plan_enrolment(store, defs, resolve, fetch, body)
         except _GatewayUnavailable as exc:
             return _envelope(502, "gateway_unavailable", str(exc))
-        existing = defs.list("actors", include_deleted=True)
-        plan = model_enrol.plan_model_enrolment(existing, listed, body.match, pools, body.api_key)
-        _hold_models(existing, plan)
-        applied: list[dict[str, Any]] = []
-        failed: list[dict[str, Any]] = []
-        if not body.dry_run:
-            for change in plan.changes:
-                if change.action not in ("create", "update") or change.body is None:
-                    continue
-                guards.check_definition(principal, "actors", change.body)
-                check = guards.save_check(principal)
-                try:
-                    if change.action == "create":
-                        defs.create("actors", change.body, principal.identity, check=check)
-                    else:
-                        defs.update(
-                            "actors", change.id, change.body, principal.identity, check=check
-                        )
-                except ServiceError as exc:
-                    failed.append(
-                        {
-                            "id": change.id,
-                            "action": change.action,
-                            "code": exc.code,
-                            "message": exc.message,
-                        }
-                    )
-                    continue
-                applied.append({"id": change.id, "action": change.action})
+        applied, failed = ([], []) if body.dry_run else _apply_plan(defs, principal, plan)
         return {
             "dry_run": body.dry_run,
             "gateways": [{"machine": m, "url": u, "models": list(ids)} for m, u, ids in listed],
@@ -451,53 +567,6 @@ def register_model_actors(
         """Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies
         included; description, notes and placement untouched, reported as warnings). A
         missing or stale ``expected_revision`` is 409 ``revision_conflict``; a trusted
-        workflow is 409 ``workflow_trusted`` unless ``force``."""
-        doc = store.get("workflows", id)
-        if doc is None:
-            raise NotFound(f"workflows/{id} does not exist")
-        if doc.get("deleted_at"):
-            raise Conflict(f"workflows/{id} is deleted; restore it first")
-        _check_revision("workflows", id, doc, body.expected_revision)
-        if body.from_ == body.to:
-            raise Invalid("from and to name the same actor", code="same_actor")
-        _check_target(store, body.to)
-        try:
-            new_def, changed, warnings = repoint_workflow(_definition(doc), body.from_, body.to)
-        except NoMatchingStep as exc:
-            raise Invalid(str(exc), code="no_matching_step") from None
-        pinned = _trusted_digest(doc)
-        if pinned is not None:
-            message = (
-                f"workflows/{id} is trusted (digest {pinned}); a repoint changes its digest "
-                "and drops that trust: pass force to repoint anyway, then pin the new digest"
-            )
-            if not body.force:
-                raise Conflict(
-                    message,
-                    [{"path": "digest", "code": "workflow_trusted", "message": pinned}],
-                    code="workflow_trusted",
-                )
-            warnings = [*warnings, f"repoint drops trust: {pinned} no longer matches"]
-        revision = rev.current_revision(doc)
-        if not body.dry_run:
-            guards.check_definition(principal, "workflows", new_def)
-            stored = defs.update(
-                "workflows",
-                id,
-                {**new_def, "expected_revision": body.expected_revision},
-                principal.identity,
-                check=guards.save_check(principal),
-            )
-            revision = stored["revision"]
-        return {
-            "workflow_id": id,
-            "dry_run": body.dry_run,
-            "from": body.from_,
-            "to": body.to,
-            "changed": changed,
-            "warnings": warnings,
-            "revision": revision,
-            "digest": trusted.workflow_digest(new_def),
-            "digest_v2": trusted.workflow_digest_v2(new_def),
-            "trusted_digest": pinned,
-        }
+        workflow is 409 ``workflow_trusted`` unless ``force``; a ``to`` that cannot do the
+        work is 409 ``target_kind_mismatch``."""
+        return _repoint(store, defs, principal, id, body)

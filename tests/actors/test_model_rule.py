@@ -1,6 +1,11 @@
 """The model-holder rule: one endpoint actor per model."""
 
-from culture_rules.actors.model_rule import is_endpoint_actor, model_holder
+from culture_rules.actors.model_rule import (
+    effective_model,
+    is_endpoint_actor,
+    model_holder,
+    senior_holder,
+)
 
 QWEN_FIXER = {
     "id": "qwen-fixer",
@@ -87,3 +92,16 @@ def test_non_endpoint_candidate_never_conflicts():
 def test_candidate_without_model_never_conflicts():
     cand = {"id": "x", "kind": "agent", "params": {"base_url": "http://h"}}
     assert model_holder([_endpoint("a", "")], cand) is None
+
+
+def test_effective_model_reads_params_then_the_actor_model():
+    assert effective_model({"params": {"model": " m1 "}, "model": "m2"}) == "m1"
+    assert effective_model({"params": {}, "model": "m2"}) == "m2"
+    assert effective_model({"params": {"model": ""}}) is None
+
+
+def test_senior_holder_is_only_a_holder_with_a_lower_id():
+    actors = [_endpoint("b", "m"), _endpoint("c", "m")]
+    assert senior_holder(actors, _endpoint("a", "m")) is None
+    assert senior_holder(actors, _endpoint("c", "m")) == "b"
+    assert model_holder(actors, _endpoint("a", "m")) == "b"

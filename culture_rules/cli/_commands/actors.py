@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+from culture_rules.actors.model_enrol import DEFAULT_API_KEY, parse_pools
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
 from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
@@ -108,20 +109,16 @@ def _discord_targets(ctx: Context, id: str) -> dict[str, Any]:
     return _api.call(lambda: ctx.client.request("GET", f"/actors/{seg(id)}/discord/targets"))
 
 
-DEFAULT_API_KEY = "grant:LOBES_GATEWAY_API_KEY"
-
-
 def _check_pools(pools: list[str] | None) -> list[str]:
     """Each ``--pool`` must be ``MODEL=POOL``; the server re-checks, this fails before a request."""
-    out: list[str] = []
-    for item in pools or ():
-        model, sep, pool = str(item).partition("=")
-        if not sep or not model.strip() or not pool.strip():
-            raise CliError(
-                EXIT_USER_ERROR, f"bad --pool {item!r}", "use --pool MODEL=POOL (repeatable)"
-            )
-        out.append(f"{model.strip()}={pool.strip()}")
-    return out
+    items = [str(item) for item in pools or ()]
+    try:
+        parsed = parse_pools(items)
+    except ValueError as exc:
+        raise CliError(
+            EXIT_USER_ERROR, f"bad --pool: {exc}", "use --pool MODEL=POOL (repeatable)"
+        ) from None
+    return [f"{model}={pool}" for model, pool in parsed.items()]
 
 
 def _enrol_models_lines(ctx: Context, result: dict[str, Any]) -> list[str]:
@@ -215,58 +212,83 @@ def _in_use_message(actor: str, errors: list[dict]) -> str:
     return f"actor_in_use: {actor} is still used by:{rows}"
 
 
-def _disable(ctx: Context, id: str, force: bool = False) -> dict[str, Any]:
-    """Disable an actor; refused (exit 1) while enabled workflows or rules use it, unless forced.
+def _enabled_referrers(ctx: Context, id: str) -> list[dict[str, Any]]:
+    """The enabled workflows and rules naming ``id`` ([] from an API without the route)."""
 
-    A dry-run also lists the enabled referrers, so the refusal is visible before ``--apply``.
-    """
-    path = f"/actors/{seg(id)}/disable" + ("?force=true" if force else "")
+    def references() -> dict[str, Any]:
+        try:
+            return ctx.client.request("GET", f"/actors/{seg(id)}/references")
+        except ApiError as exc:
+            if missing_route(exc):
+                return {}  # an older API has no references route: the apply still guards
+            raise
+
+    return [i for i in _api.call(references).get("items") or [] if i.get("enabled")]
+
+
+def _guarded(ctx: Context, id: str, force: bool, verb: str, method: str, path: str) -> Any:
+    """Run ``actors disable`` or ``actors delete``: refused (exit 1) while enabled workflows
+    or rules use the actor, unless ``force``. A dry run lists those referrers first."""
+    path += "?force=true" if force else ""
     if not ctx.apply:
-        out = write(ctx, "actors disable", "POST", path, preview=f"/actors/{seg(id)}")
-
-        def references() -> dict[str, Any]:
-            try:
-                return ctx.client.request("GET", f"/actors/{seg(id)}/references")
-            except ApiError as exc:
-                if missing_route(exc):
-                    return {}  # an older API has no references route: the apply still guards
-                raise
-
-        refs = _api.call(references)
-        out["in_use"] = [i for i in refs.get("items") or [] if i.get("enabled")]
+        out = write(ctx, f"actors {verb}", method, path, preview=f"/actors/{seg(id)}")
+        out["in_use"] = _enabled_referrers(ctx, id)
         if out["in_use"] and not force:
             out["hint"] = "in use: --apply is refused unless you pass --force"
         return out
 
     def attempt() -> Any:
         try:
-            return ctx.client.request("POST", path)
+            return ctx.client.request(method, path)
         except ApiError as exc:
             if exc.code == "actor_in_use":
                 raise CliError(
                     EXIT_USER_ERROR,
                     _in_use_message(id, exc.errors),
-                    "repoint them (workflows repoint-actor) or pass --force to disable anyway",
+                    f"repoint them (workflows repoint-actor) or pass --force to {verb} anyway",
                 ) from exc
             raise
 
     result = _api.call(attempt)
-    return {"verb": "actors disable", "applied": True, "dry_run": False, "result": result}
+    return {"verb": f"actors {verb}", "applied": True, "dry_run": False, "result": result}
 
 
-_DISABLE_VERB = Verb(
-    NOUN,
-    "disable",
-    "Disable an actor (refused while enabled workflows or rules use it, unless --force)",
-    _disable,
-    (ID, Param("force", "boolean", "disable even if workflows or rules still use the actor")),
-    True,
-    "editor",
-)
+def _disable(ctx: Context, id: str, force: bool = False) -> dict[str, Any]:
+    """Disable an actor; refused (exit 1) while enabled workflows or rules use it, unless forced."""
+    return _guarded(ctx, id, force, "disable", "POST", f"/actors/{seg(id)}/disable")
+
+
+def _delete(ctx: Context, id: str, force: bool = False) -> dict[str, Any]:
+    """Soft-delete an actor; refused (exit 1) while enabled workflows or rules use it, unless
+    forced."""
+    return _guarded(ctx, id, force, "delete", "DELETE", f"/actors/{seg(id)}")
+
+
+_GUARDED_VERBS = {
+    "disable": Verb(
+        NOUN,
+        "disable",
+        "Disable an actor (refused while enabled workflows or rules use it, unless --force)",
+        _disable,
+        (ID, Param("force", "boolean", "disable even if workflows or rules still use the actor")),
+        True,
+        "editor",
+    ),
+    "delete": Verb(
+        NOUN,
+        "delete",
+        "Soft-delete an actor (restorable; refused while enabled workflows or rules use it, "
+        "unless --force)",
+        _delete,
+        (ID, Param("force", "boolean", "delete even if workflows or rules still use the actor")),
+        True,
+        "editor",
+    ),
+}
 
 VERBS: list[Verb] = [
     *(
-        _DISABLE_VERB if v.name == "disable" else v
+        _GUARDED_VERBS.get(v.name, v)
         for v in definition_verbs(
             NOUN, "actor", "Actors are who or what can perform work.", exchange=True
         )

@@ -1571,7 +1571,7 @@ def _register_exchange(
         response_model=ImportPlan,
         tags=["exchange"],
         operation_id="import_definitions",
-        responses={422: ERRORS[422]},
+        responses={409: ERRORS[409], 422: ERRORS[422]},
     )
     def import_definitions(body: ImportRequest, principal: Caller):
         if (body.files is None) == (body.repo is None):
@@ -1584,6 +1584,7 @@ def _register_exchange(
         else:
             files = body.files or {}
         guards.check_import(principal, files)
+        actor_guards.check_import(store, files)
         return defs.import_files(
             files, principal.identity, apply=body.apply, check=guards.save_check(principal)
         )
@@ -1711,6 +1712,52 @@ def _with_active_runs(store: StoragePort, doc: dict[str, Any]) -> dict[str, Any]
     return {**doc, "active_runs": listed, "active_runs_total": total}
 
 
+def _toggle_handler(kind: str, defs: Definitions, store: StoragePort, flag: bool):
+    """The enable or disable route handler for ``kind``. An actor's enable is refused
+    ``model_taken`` and its disable ``actor_in_use`` (unless ``force``); a rule's disable
+    lists its active runs (d17)."""
+    if kind == "actors" and flag:
+
+        def enable_actor(id: str, identity: Identity):
+            actor_guards.check_enable(store, kind, id)
+            return defs.set_enabled(kind, id, True, identity)
+
+        return enable_actor
+    if kind == "actors":
+
+        def disable_actor(id: str, identity: Identity, force: bool = False):
+            actor_guards.check_disable(store, kind, id, force)
+            return defs.set_enabled(kind, id, False, identity)
+
+        return disable_actor
+
+    def toggle(id: str, identity: Identity, _flag: bool = flag):
+        doc = defs.set_enabled(kind, id, _flag, identity)
+        return _with_active_runs(store, doc) if kind == "rules" and not _flag else doc
+
+    return toggle
+
+
+def _delete_handler(kind: str, defs: Definitions, life: Lifecycle, store: StoragePort):
+    """The soft-delete route handler for ``kind``: a rule other rules reference is refused,
+    and so is an actor enabled workflows or rules use (``actor_in_use``, unless ``force``)."""
+    if kind == "actors":
+
+        def delete_actor(id: str, identity: Identity, force: bool = False):
+            defs.get(kind, id)
+            actor_guards.check_delete(store, kind, id, force)
+            return life.soft_delete(kind, id, identity)
+
+        return delete_actor
+
+    def delete(id: str, identity: Identity):
+        defs.get(kind, id)
+        defs.guard_unreferenced(kind, id)
+        return life.soft_delete(kind, id, identity)
+
+    return delete
+
+
 def _register_kind(
     app: FastAPI,
     kind: str,
@@ -1746,8 +1793,7 @@ def _register_kind(
     )
     def create(body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
-        if kind == "actors":
-            actor_guards.check_save(store, body)
+        actor_guards.check_save(store, kind, body)
         return defs.create(kind, body, principal.identity, check=guards.save_check(principal))
 
     @app.get(
@@ -1771,8 +1817,7 @@ def _register_kind(
     )
     def update(id: str, body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
-        if kind == "actors":
-            actor_guards.check_save(store, body, id)
+        actor_guards.check_save(store, kind, body, id)
         before = store.get(kind, id) if kind == "rules" else None
         doc = defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
         if (
@@ -1784,25 +1829,6 @@ def _register_kind(
         return doc
 
     for verb, flag in (("enable", True), ("disable", False)):
-
-        if kind == "actors" and flag:
-
-            def toggle(id: str, identity: Identity):
-                actor_guards.check_enable(store, id)
-                return defs.set_enabled(kind, id, True, identity)
-
-        elif kind == "actors":
-
-            def toggle(id: str, identity: Identity, force: bool = False):
-                actor_guards.check_disable(store, id, force)
-                return defs.set_enabled(kind, id, False, identity)
-
-        else:
-
-            def toggle(id: str, identity: Identity, _flag: bool = flag):
-                doc = defs.set_enabled(kind, id, _flag, identity)
-                return _with_active_runs(store, doc) if kind == "rules" and not _flag else doc
-
         app.post(
             f"{path}/{verb}",
             tags=tag,
@@ -1810,19 +1836,15 @@ def _register_kind(
             responses=ERRORS,
             response_model=dict[str, Any],
             description=_DISABLE_RULE_NOTE if (kind, flag) == ("rules", False) else None,
-        )(toggle)
+        )(_toggle_handler(kind, defs, store, flag))
 
-    @app.delete(
+    app.delete(
         path,
         tags=tag,
         operation_id=f"delete_{one}",
         responses=ERRORS,
         response_model=dict[str, Any],
-    )
-    def delete(id: str, identity: Identity):
-        defs.get(kind, id)
-        defs.guard_unreferenced(kind, id)
-        return life.soft_delete(kind, id, identity)
+    )(_delete_handler(kind, defs, life, store))
 
     @app.post(
         f"{path}/restore",
@@ -1833,6 +1855,7 @@ def _register_kind(
     )
     def restore(id: str, identity: Identity):
         defs.get(kind, id)
+        actor_guards.check_restore(store, kind, id)
         return defs.restore(kind, id, identity, life)  # d7: the node-capability guard
 
     @app.post(

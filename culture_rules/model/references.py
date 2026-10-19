@@ -15,7 +15,7 @@ import re
 from collections.abc import Iterable, Iterator
 from typing import Any
 
-__all__ = ["NoMatchingStep", "find_references", "repoint_workflow"]
+__all__ = ["NoMatchingStep", "action_kinds", "find_references", "repoint_workflow"]
 
 
 class NoMatchingStep(ValueError):
@@ -45,38 +45,61 @@ def _placement_actor(placement: Any) -> Any:
     return placement.get("actor") if isinstance(placement, dict) else None
 
 
+def _step_action(step: dict[str, Any]) -> Any:
+    config = step.get("config")
+    return config.get("action") if isinstance(config, dict) else None
+
+
+def _workflow_refs(wf: dict[str, Any], actor_id: str) -> Iterator[tuple[str, str]]:
+    """(path, via) for each step of ``wf`` that names ``actor_id``."""
+    for path, step in _walk(wf.get("steps")):
+        if _action_actor(_step_action(step)) == actor_id:
+            yield path, "action"
+        if _placement_actor(step.get("placement")) == actor_id:
+            yield path, "placement"
+
+
+def _rule_refs(rule: dict[str, Any], actor_id: str) -> Iterator[tuple[str, str]]:
+    """(path, via) for each part of ``rule`` that names ``actor_id``."""
+    for key in ("action", "on_failure"):
+        if _action_actor(rule.get(key)) == actor_id:
+            yield key, "action"
+    if _placement_actor(rule.get("placement")) == actor_id:
+        yield "placement", "placement"
+
+
+def _ref(kind: str, doc: dict[str, Any], path: str, via: str) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "id": doc.get("id"),
+        "path": path,
+        "via": via,
+        "enabled": bool(doc.get("enabled", True)),
+    }
+
+
 def find_references(
     actor_id: str, workflows: Iterable[dict[str, Any]], rules: Iterable[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """Every workflow step and rule that names ``actor_id``, by action or by placement."""
-    found: list[dict[str, Any]] = []
-
-    def add(kind: str, doc: dict[str, Any], path: str, via: str) -> None:
-        found.append(
-            {
-                "kind": kind,
-                "id": doc.get("id"),
-                "path": path,
-                "via": via,
-                "enabled": bool(doc.get("enabled", True)),
-            }
-        )
-
-    for wf in workflows:
-        for path, step in _walk(wf.get("steps")):
-            config = step.get("config")
-            action = config.get("action") if isinstance(config, dict) else None
-            if _action_actor(action) == actor_id:
-                add("workflow", wf, path, "action")
-            if _placement_actor(step.get("placement")) == actor_id:
-                add("workflow", wf, path, "placement")
-    for rule in rules:
-        for key in ("action", "on_failure"):
-            if _action_actor(rule.get(key)) == actor_id:
-                add("rule", rule, key, "action")
-        if _placement_actor(rule.get("placement")) == actor_id:
-            add("rule", rule, "placement", "placement")
+    found = [
+        _ref("workflow", wf, path, via)
+        for wf in workflows
+        for path, via in _workflow_refs(wf, actor_id)
+    ]
+    found += [
+        _ref("rule", rule, path, via) for rule in rules for path, via in _rule_refs(rule, actor_id)
+    ]
     return found
+
+
+def action_kinds(doc: dict[str, Any], actor_id: str) -> set[str]:
+    """The action kinds (``llm.complete``, ...) of the steps whose action names ``actor_id``."""
+    return {
+        str(action.get("kind"))
+        for _path, step in _walk(doc.get("steps"))
+        if _action_actor(action := _step_action(step)) == actor_id
+    }
 
 
 def _mentions(text: str, actor_id: str) -> bool:
@@ -99,8 +122,7 @@ def repoint_workflow(
     changed: list[str] = []
     warnings: list[str] = []
     for path, step in _walk(new.get("steps")):
-        config = step.get("config")
-        action = config.get("action") if isinstance(config, dict) else None
+        action = _step_action(step)
         if _action_actor(action) == frm:
             action["params"]["actor"] = to
             changed.append(path)

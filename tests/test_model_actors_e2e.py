@@ -61,7 +61,8 @@ def test_enrol_two_models_repoint_then_disable_the_old_actor(monkeypatch, capsys
 
     # the workflow still names the old actor: disabling it is refused
     err = jfail(capsys, 1, "actors", "disable", "old", "--apply")
-    assert "actor_in_use" in err["message"] and "workflow daily" in err["message"]
+    assert "actor_in_use" in err["message"]
+    assert "workflow daily" in err["message"]
     assert store.get("actors", "old")["enabled"] is True
 
     # repoint the workflow (dry run, then apply); references now show nothing for old

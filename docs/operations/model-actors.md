@@ -59,7 +59,9 @@ tool named `<noun>_<verb>` (`actors_enrol-models`, `actors_references`,
   held by a non-agent actor, an agent without `base_url` or a deleted actor is
   planned as `refused`. Actors have no revisions, so the result lists
   ids and actions, not revision numbers.
-- The result also lists `unseen` (endpoint actors whose model no gateway lists).
+- The result also lists `unseen`: endpoint actors on the named gateways (their
+  `params.base_url` is a gateway URL) whose model none of them lists. Actors on
+  gateways you did not name are not judged.
   A create or update that would take a model another enabled actor holds is
   planned as `refused` (`model_taken: <holder> (disable it first)`).
 - The dry run lists the plan and writes nothing; `--apply` writes each actor
@@ -72,14 +74,18 @@ tool named `<noun>_<verb>` (`actors_enrol-models`, `actors_references`,
 by action (`params.actor`) or by placement (`placement.actor`), with the step
 path and whether the referrer is enabled. Read-only.
 
-**`actors disable ID [--force]`** is refused (409 `actor_in_use`, exit 1,
-listing each referrer) while an enabled workflow or rule names the actor, by
-action or by placement. Disabled and deleted referrers do not count. The dry
-run shows the enabled referrers as `in_use`. `--force` disables it anyway.
+**`actors disable ID [--force]`** and **`actors delete ID [--force]`** are
+refused (409 `actor_in_use`, exit 1, listing each referrer) while an enabled
+workflow or rule names the actor, by action or by placement. Disabled and
+deleted referrers do not count. The dry run shows the enabled referrers as
+`in_use`. `--force` goes ahead anyway.
 
 **`workflows repoint-actor WF --from A --to B [--expected-revision N] [--force]
 [--apply]`** rewrites every action step in WF whose `params.actor` is `A` to
-`B`, and saves the workflow. `B` must exist and be enabled. Without
+`B`, and saves the workflow. `B` must exist, be enabled and be able to run the
+steps: the same kind as `A` (an `app` actor on the same surface), and an
+endpoint actor when `A` is one or a repointed step is `llm.complete`; otherwise
+409 `target_kind_mismatch`. Without
 `--expected-revision` the CLI reads the workflow's revision first; a stale one
 is 409 `revision_conflict`. Descriptions and notes are not changed, and a step
 *placed* on `A` is listed as a warning and left where it is. A workflow with no
@@ -93,11 +99,15 @@ the new one.
 One **enabled** endpoint actor per model. An endpoint actor is an `agent` actor
 with a non-empty `params.base_url`; a disabled or deleted actor holds nothing.
 
-- Creating or updating an enabled endpoint actor, or enabling one, whose
-  `params.model` another enabled endpoint actor holds is refused: 409
-  `model_taken`, naming the holder. Saving the actor disabled is fine.
+- An actor's model is `params.model`, else its own `model` field.
+- Creating, updating, enabling or restoring an enabled endpoint actor whose
+  model another enabled endpoint actor holds is refused: 409 `model_taken`,
+  naming the holder. Saving the actor disabled is fine. An import is checked
+  with the bundle laid over the store, so a bundle that disables one holder and
+  adds the next passes.
 - At run time `llm.complete` refuses a step whose actor shares its model with
-  another enabled endpoint actor (`model_taken`).
+  another enabled endpoint actor whose id sorts first (`model_taken`). If two
+  actors ever end up sharing a model, the lowest id keeps serving.
 - Actors without `base_url` are outside the rule: `qwen-fixer` and
   `qwen-reviewer` are mesh-reached agents and both hold the model `cortex`.
 

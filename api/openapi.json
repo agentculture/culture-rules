@@ -2596,6 +2596,16 @@
               "title": "Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -2670,7 +2680,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Delete",
+        "summary": "Delete Actor",
         "tags": [
           "actors"
         ]
@@ -2954,7 +2964,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Toggle",
+        "summary": "Disable Actor",
         "tags": [
           "actors"
         ]
@@ -3046,7 +3056,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Toggle",
+        "summary": "Enable Actor",
         "tags": [
           "actors"
         ]
@@ -4198,6 +4208,16 @@
               }
             },
             "description": "Role not held"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
           },
           "422": {
             "content": {
@@ -9308,7 +9328,7 @@
     },
     "/workflows/{id}/repoint-actor": {
       "post": {
-        "description": "Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies\nincluded; description, notes and placement untouched, reported as warnings). A\nmissing or stale ``expected_revision`` is 409 ``revision_conflict``; a trusted\nworkflow is 409 ``workflow_trusted`` unless ``force``.",
+        "description": "Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies\nincluded; description, notes and placement untouched, reported as warnings). A\nmissing or stale ``expected_revision`` is 409 ``revision_conflict``; a trusted\nworkflow is 409 ``workflow_trusted`` unless ``force``; a ``to`` that cannot do the\nwork is 409 ``target_kind_mismatch``.",
         "operationId": "repoint_workflow_actor",
         "parameters": [
           {

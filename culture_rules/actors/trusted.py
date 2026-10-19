@@ -51,7 +51,9 @@ __all__ = [
     "actor_refusal",
     "doc_refusal",
     "is_pinned",
+    "pinned_digest",
     "trusted_workflow_digests",
+    "trusted_workflow_digests_v2",
     "workflow_digest",
     "workflow_digest_v2",
     "workflow_refusal",
@@ -215,6 +217,22 @@ def workflow_digest_v2(definition: Any) -> str | None:
 def trusted_workflow_digests() -> frozenset[str]:
     """Every trusted v1 digest, whatever its role."""
     return frozenset().union(*TRUSTED_WORKFLOWS.values())
+
+
+def trusted_workflow_digests_v2() -> frozenset[str]:
+    """Every trusted v2 digest, whatever its role."""
+    return frozenset().union(*TRUSTED_WORKFLOWS_V2.values())
+
+
+def pinned_digest(definition: Mapping[str, Any]) -> str | None:
+    """The trusted v1 or v2 digest ``definition`` hashes to (read at call time), or None."""
+    v1 = workflow_digest(definition)
+    if v1 is not None and v1 in trusted_workflow_digests():
+        return v1
+    v2 = workflow_digest_v2(definition)
+    if v2 is not None and v2 in trusted_workflow_digests_v2():
+        return v2
+    return None
 
 
 def workflow_role(run: Mapping[str, Any] | None) -> str | None:

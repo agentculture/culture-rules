@@ -124,10 +124,12 @@ def test_the_four_verbs_are_registered_with_roles():
         ("workflows", "repoint-actor", True),
     ]:
         v = REGISTRY.get(noun, name)
-        assert v is not None and v.mutating is mutating
+        assert v is not None
+        assert v.mutating is mutating
     assert REGISTRY.get("actors", "disable").tool_name == "actors_disable"
-    names = {p.name for p in REGISTRY.get("actors", "disable").params}
-    assert names == {"id", "force"}
+    for name in ("disable", "delete"):
+        names = {p.name for p in REGISTRY.get("actors", name).params}
+        assert names == {"id", "force"}
 
 
 # --------------------------------------------------------------------------- enrol-models
@@ -136,7 +138,8 @@ def test_the_four_verbs_are_registered_with_roles():
 def test_enrol_models_dry_run_asks_the_server_for_a_plan(gw, store, capsys):
     tap, _ = gw
     out = jok(capsys, *ENROL)
-    assert out["dry_run"] is True and out["applied"] is False
+    assert out["dry_run"] is True
+    assert out["applied"] is False
     assert [c["id"] for c in out["result"]["changes"]] == ["cortex-spark"]
     assert tap.posts("/enrol-models") == [
         {
@@ -149,7 +152,10 @@ def test_enrol_models_dry_run_asks_the_server_for_a_plan(gw, store, capsys):
     ]
     assert store.find("actors") == []
     rc, text, _ = run(capsys, *ENROL)
-    assert rc == 0 and "cortex-spark" in text and "create" in text and "--apply" in text
+    assert rc == 0
+    assert "cortex-spark" in text
+    assert "create" in text
+    assert "--apply" in text
 
 
 def test_enrol_models_apply_commits_and_sends_pools_and_key(gw, store, capsys):
@@ -163,7 +169,8 @@ def test_enrol_models_apply_commits_and_sends_pools_and_key(gw, store, capsys):
         "grant:OTHER",
         "--apply",
     )
-    assert out["applied"] is True and out["dry_run"] is False
+    assert out["applied"] is True
+    assert out["dry_run"] is False
     body = tap.posts("/enrol-models")[0]
     assert body["dry_run"] is False
     assert body["pools"] == ["cortex-spark=lane"]
@@ -243,9 +250,12 @@ def test_references_lists_what_uses_an_actor(store, monkeypatch, capsys):
     assert out["actor_id"] == "old"
     assert {(i["kind"], i["id"]) for i in out["items"]} == {("workflow", "news")}
     rc, text, _ = run(capsys, "actors", "references", "old")
-    assert rc == 0 and "workflow news" in text and "summarise.body[summary]" in text
+    assert rc == 0
+    assert "workflow news" in text
+    assert "summarise.body[summary]" in text
     rc, text, _ = run(capsys, "actors", "references", "new")
-    assert rc == 0 and "no references" in text
+    assert rc == 0
+    assert "no references" in text
 
 
 def test_references_unknown_actor_stays_a_user_error(store, monkeypatch, capsys):
@@ -272,7 +282,8 @@ def test_disable_refusal_lists_the_referrers_and_force_goes_through(store, monke
     assert {i["id"] for i in out["in_use"]} == {"news"}
     assert store.get("actors", "old")["enabled"] is True
     err = jfail(capsys, 1, "actors", "disable", "old", "--apply")
-    assert "workflow news" in err["message"] and "actor_in_use" in err["message"]
+    assert "workflow news" in err["message"]
+    assert "actor_in_use" in err["message"]
     assert "--force" in err["remediation"]
     assert store.get("actors", "old")["enabled"] is True
     out = jok(capsys, "actors", "disable", "old", "--force", "--apply")
@@ -287,6 +298,22 @@ def test_disable_without_referrers_keeps_its_positional_id(store, monkeypatch, c
     out = jok(capsys, "actors", "disable", "new", "--apply")
     assert out["applied"] is True
     assert store.get("actors", "new")["enabled"] is False
+
+
+def test_delete_refusal_lists_the_referrers_and_force_goes_through(store, monkeypatch, capsys):
+    client = seeded(store)
+    tap = wire_to(monkeypatch, Tap(client))
+    out = jok(capsys, "actors", "delete", "old")
+    assert out["dry_run"] is True
+    assert {i["id"] for i in out["in_use"]} == {"news"}
+    err = jfail(capsys, 1, "actors", "delete", "old", "--apply")
+    assert "actor_in_use" in err["message"]
+    assert "--force to delete anyway" in err["remediation"]
+    assert not store.get("actors", "old").get("deleted_at")
+    out = jok(capsys, "actors", "delete", "old", "--force", "--apply")
+    assert out["applied"] is True
+    assert store.get("actors", "old")["deleted_at"]
+    assert any(m == "DELETE" and u == "/actors/old?force=true" for m, u, _ in tap.calls)
 
 
 class FailsReferences:
@@ -306,7 +333,8 @@ def test_disable_dry_run_on_an_old_server_lists_no_referrers(store, monkeypatch,
     client = seeded(store)
     wire_to(monkeypatch, OldServer(Tap(client)))
     out = jok(capsys, "actors", "disable", "old")
-    assert out["dry_run"] is True and out["in_use"] == []
+    assert out["dry_run"] is True
+    assert out["in_use"] == []
 
 
 def test_disable_dry_run_does_not_read_a_failed_lookup_as_not_in_use(store, monkeypatch, capsys):
@@ -325,21 +353,25 @@ def test_repoint_dry_run_reads_the_revision_and_asks_for_a_plan(store, monkeypat
     client = seeded(store)
     tap = wire_to(monkeypatch, Tap(client))
     out = jok(capsys, *REPOINT)
-    assert out["dry_run"] is True and out["applied"] is False
+    assert out["dry_run"] is True
+    assert out["applied"] is False
     assert out["result"]["changed"] == ["summarise.body[summary]"]
     assert tap.posts("/repoint-actor") == [
         {"from": "old", "to": "new", "expected_revision": 1, "force": False, "dry_run": True}
     ]
     assert store.get("workflows", "news")["revision"] == 1
     rc, text, _ = run(capsys, *REPOINT)
-    assert rc == 0 and "summarise.body[summary]" in text and "--apply" in text
+    assert rc == 0
+    assert "summarise.body[summary]" in text
+    assert "--apply" in text
 
 
 def test_repoint_apply_writes_and_honours_expected_revision(store, monkeypatch, capsys):
     client = seeded(store)
     tap = wire_to(monkeypatch, Tap(client))
     out = jok(capsys, *REPOINT, "--expected-revision", "1", "--apply")
-    assert out["applied"] is True and out["result"]["revision"] == 2
+    assert out["applied"] is True
+    assert out["result"]["revision"] == 2
     assert tap.posts("/repoint-actor")[0]["dry_run"] is False
     assert not any(m == "GET" and u == "/workflows/news" for m, u, _ in tap.calls)
     assert store.get("workflows", "news")["revision"] == 2

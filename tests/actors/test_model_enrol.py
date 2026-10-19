@@ -47,12 +47,16 @@ def test_plans_only_match_hits_with_the_enrolled_shape():
         "unsloth/Qwen3.8-27B-NVFP4",
     }
     hf = next(c for c in plan.changes if c.id == "unsloth/Qwen3.8-27B-NVFP4")
-    assert hf.action == "refused" and "not a valid actor id" in hf.reason
+    assert hf.action == "refused"
+    assert "not a valid actor id" in hf.reason
     assert {c.action for c in plan.changes if c is not hf} == {"create"}
     body = next(c.body for c in plan.changes if c.id == "cortex-spark")
-    assert body["id"] == "cortex-spark" and body["name"]
-    assert body["kind"] == "agent" and body["machine"] == "spark"
-    assert body["enabled"] is True and body["config_source"] == "db"
+    assert body["id"] == "cortex-spark"
+    assert body["name"]
+    assert body["kind"] == "agent"
+    assert body["machine"] == "spark"
+    assert body["enabled"] is True
+    assert body["config_source"] == "db"
     assert body["schema_version"] == "1.0"
     assert body["params"] == {
         "base_url": "http://localhost:8000/v1",
@@ -72,7 +76,8 @@ def test_first_gateway_wins_and_later_ones_are_also_served_by():
     gws = [("spark", "http://a/v1", ["cortex-spark"]), ("thor", "http://b/v1", ["cortex-spark"])]
     plan = plan_model_enrolment([], gws, ["cortex-*"])
     (change,) = plan.changes
-    assert change.body["machine"] == "spark" and change.body["params"]["base_url"] == "http://a/v1"
+    assert change.body["machine"] == "spark"
+    assert change.body["params"]["base_url"] == "http://a/v1"
     assert plan.also_served_by == {"cortex-spark": ["thor"]}
 
 
@@ -81,7 +86,7 @@ def test_unseen_endpoint_actors_are_reported_never_disabled():
         "id": "old-model",
         "name": "old-model",
         "kind": "agent",
-        "params": {"base_url": "http://x/v1", "model": "old-model"},
+        "params": {"base_url": "http://localhost:8000/v1/", "model": "old-model"},
         "enabled": True,
     }
     mesh = {"id": "spark-culture", "name": "n", "kind": "agent", "params": {}}
@@ -89,8 +94,19 @@ def test_unseen_endpoint_actors_are_reported_never_disabled():
     assert plan.unseen == ["old-model"]
     assert all(c.id != "old-model" for c in plan.changes)
     # a model listed by a gateway but outside --match is seen, not unseen
-    listed = dict(held, id="worker-thor", params={"base_url": "http://x", "model": "worker-thor"})
+    listed = dict(held, id="worker-thor", params={**held["params"], "model": "worker-thor"})
     assert plan_model_enrolment([listed], GW, MATCH).unseen == []
+
+
+def test_actors_on_gateways_not_asked_are_not_unseen():
+    elsewhere = {
+        "id": "worker-orin",
+        "name": "worker-orin",
+        "kind": "agent",
+        "params": {"base_url": "http://127.0.0.1:9000/v1", "model": "worker-orin"},
+        "enabled": True,
+    }
+    assert plan_model_enrolment([elsewhere], GW, MATCH).unseen == []
 
 
 def test_pool_defaults_to_model_with_override():
@@ -132,10 +148,12 @@ def test_update_touches_only_enrolled_fields():
     before = copy.deepcopy(have)
     plan = plan_model_enrolment([have], GW, ["cortex-spark"], api_key=KEY)
     (change,) = plan.changes
-    assert change.action == "update" and have == before
+    assert change.action == "update"
+    assert have == before
     body = change.body
     assert (body["name"], body["description"]) == ("My cortex", "hand written")
-    assert body["capabilities"] == ["chat"] and body["enabled"] is False
+    assert body["capabilities"] == ["chat"]
+    assert body["enabled"] is False
     assert body["machine"] == "spark"
     assert body["params"]["extra"] == {"keep": 1}
     assert body["params"]["base_url"] == "http://localhost:8000/v1"
@@ -165,7 +183,9 @@ def test_conflicting_holder_is_refused_and_untouched(held):
     before = copy.deepcopy(held)
     plan = plan_model_enrolment([held], GW, ["cortex-spark"])
     (change,) = plan.changes
-    assert change.action == "refused" and change.body is None and change.reason
+    assert change.action == "refused"
+    assert change.body is None
+    assert change.reason
     assert held == before
 
 

@@ -72,7 +72,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from culture_rules.actors.model_rule import model_holder
+from culture_rules.actors.model_rule import senior_holder
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
@@ -364,17 +364,14 @@ class LlmCompletePort:
         return result
 
     def _model_taken(self, actor: Actor, doc: Mapping[str, Any] | None) -> InvocationResult | None:
-        """``model_taken: <holder>`` when another enabled endpoint actor holds the model this
-        request would use (``params.model``, else the actor's own ``model``)."""
+        """``model_taken: <holder>`` when another enabled endpoint actor with a lower id holds
+        the model this request would use (``params.model``, else the actor's own ``model``).
+        Of two actors sharing a model, the lowest id keeps serving."""
         candidate = dict(doc or {})
-        params = dict(candidate.get("params") or {})
-        effective = params.get(_MODEL) or actor.model
-        if isinstance(effective, str) and effective.strip():
-            params[_MODEL] = effective.strip()
-        candidate["params"] = params
         candidate.setdefault("id", actor.id)
         candidate.setdefault("kind", actor.kind)
-        holder = model_holder(self._store.find(ACTORS_COLLECTION, {"kind": "agent"}), candidate)
+        candidate.setdefault("model", actor.model)
+        holder = senior_holder(self._store.find(ACTORS_COLLECTION, {"kind": "agent"}), candidate)
         if holder is None:
             return None
         return InvocationResult.failed(f"model_taken: {holder}", retryable=False)

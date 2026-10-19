@@ -19,8 +19,9 @@ Rules the plan keeps:
   (the model layer's :func:`~culture_rules.model.validate.validate`), an id held by a
   non-agent actor, by an agent actor without ``params.base_url``, or by a soft-deleted actor.
   The existing document is never touched.
-* An existing endpoint actor (agent with ``params.base_url``) whose model no gateway lists is
-  reported as ``unseen``; it is never disabled.
+* An existing endpoint actor (agent with ``params.base_url``) on one of the listed gateways
+  (its ``base_url`` is the gateway URL) whose model none of them lists is reported as
+  ``unseen``; it is never disabled. Actors on gateways the call did not list are not judged.
 """
 
 from __future__ import annotations
@@ -36,6 +37,8 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.validate import validate
 
 DEFAULT_MAX_CONCURRENCY = 1
+#: The gateway key reference ``enrol-models`` sends when none is given (the CLI and API share it).
+DEFAULT_API_KEY = "grant:LOBES_GATEWAY_API_KEY"
 # An actor id is one URL path segment (/actors/{id}); a model id like "org/name" is not one.
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -80,10 +83,11 @@ class ModelPlan:
 
 
 def parse_pools(items: Iterable[str]) -> dict[str, str]:
-    """``["model=pool", ...]`` -> ``{model: pool}``; a malformed item is a ``ValueError``."""
+    """``["model=pool", ...]`` -> ``{model: pool}`` (each side stripped); a malformed item is a
+    ``ValueError``."""
     out: dict[str, str] = {}
     for item in items:
-        model, sep, pool = item.partition("=")
+        model, sep, pool = (part.strip() for part in str(item).partition("="))
         if not sep or not model or not pool:
             raise ValueError(f"invalid pool {item!r}; expected model=pool")
         out[model] = pool
@@ -137,6 +141,17 @@ def _build(body: dict[str, Any]) -> tuple[Actor | None, list[str]]:
         return None, [str(exc)]
 
 
+def _held_refusal(have: Mapping[str, Any]) -> str:
+    """Why an existing actor with the model's id cannot be updated ("" when it can)."""
+    if have.get("deleted_at") or have.get("deleted"):
+        return "held by a soft-deleted actor; restore or purge"
+    if have.get("kind") != "agent":
+        return f"id held by a {have.get('kind')} actor"
+    if not (have.get("params") or {}).get("base_url"):
+        return "id held by an agent actor without base_url"
+    return ""
+
+
 def _plan_one(
     model: str,
     machine: str,
@@ -151,12 +166,9 @@ def _plan_one(
         if problems:
             return ModelChange("refused", model, None, f"invalid actor: {problems[0]}")
         return ModelChange("create", model, body, f"served by {machine}")
-    if have.get("deleted_at") or have.get("deleted"):
-        return ModelChange("refused", model, None, "held by a soft-deleted actor; restore or purge")
-    if have.get("kind") != "agent":
-        return ModelChange("refused", model, None, f"id held by a {have.get('kind')} actor")
-    if not (have.get("params") or {}).get("base_url"):
-        return ModelChange("refused", model, None, "id held by an agent actor without base_url")
+    refusal = _held_refusal(have)
+    if refusal:
+        return ModelChange("refused", model, None, refusal)
     old_params = have.get("params") or {}
     wanted = _wanted_params(model, url, pool, api_key, old_params)
     if api_key is None and "api_key" in old_params:
@@ -169,6 +181,46 @@ def _plan_one(
     if not changed:
         return ModelChange("unchanged", model, None, "")
     return ModelChange("update", model, body, "changed " + ", ".join(changed))
+
+
+def _winners(
+    gateways: Sequence[Gateway], plan: ModelPlan
+) -> tuple[dict[str, tuple[str, str]], set[str]]:
+    """Each served model's first gateway ``(machine, url)``, and every served model id; later
+    gateways serving a model are recorded on ``plan.also_served_by``."""
+    winner: dict[str, tuple[str, str]] = {}
+    served: set[str] = set()
+    for machine, url, models in gateways:
+        for model in models:
+            served.add(model)
+            if model not in winner:
+                winner[model] = (machine, url)
+            elif machine not in plan.also_served_by.setdefault(model, []):
+                plan.also_served_by[model].append(machine)
+    return winner, served
+
+
+def _norm_url(url: Any) -> str:
+    return url.strip().rstrip("/") if isinstance(url, str) else ""
+
+
+def _unseen(
+    by_id: Mapping[str, dict[str, Any]], gateways: Sequence[Gateway], served: set[str]
+) -> list[str]:
+    """Live endpoint actors on one of the asked gateways (by ``params.base_url``) whose model
+    none of them lists. Actors on gateways this call did not ask are not judged."""
+    asked = {_norm_url(url) for _machine, url, _models in gateways}
+    out = []
+    for ident, have in sorted(by_id.items()):
+        params = have.get("params") or {}
+        if (
+            _is_endpoint(have)
+            and not (have.get("deleted_at") or have.get("deleted"))
+            and _norm_url(params.get("base_url")) in asked
+            and params.get("model") not in served
+        ):
+            out.append(ident)
+    return out
 
 
 def plan_model_enrolment(
@@ -188,27 +240,12 @@ def plan_model_enrolment(
     pools = pools or {}
     plan = ModelPlan()
     by_id = {d["id"]: d for d in existing}
-    winner: dict[str, tuple[str, str]] = {}
-    served: set[str] = set()
-    for machine, url, models in gateways:
-        for model in models:
-            served.add(model)
-            if model in winner:
-                if machine not in plan.also_served_by.setdefault(model, []):
-                    plan.also_served_by[model].append(machine)
-            else:
-                winner[model] = (machine, url)
+    winner, served = _winners(gateways, plan)
     for model, (machine, url) in winner.items():
         if not any(fnmatch.fnmatchcase(model, g) for g in match):
             plan.also_served_by.pop(model, None)
             continue
         pool = pools.get(model) or model
         plan.changes.append(_plan_one(model, machine, url, pool, api_key, by_id.get(model)))
-    for ident, have in sorted(by_id.items()):
-        if (
-            _is_endpoint(have)
-            and not (have.get("deleted_at") or have.get("deleted"))
-            and (have.get("params") or {}).get("model") not in served
-        ):
-            plan.unseen.append(ident)
+    plan.unseen = _unseen(by_id, gateways, served)
     return plan

@@ -33,7 +33,9 @@ def test_create_names_the_holder_and_says_to_disable_it_first(store, client):
     seed(store, actor("holder"))
     r = client.post("/actors", json=actor("second"), headers=ALICE)
     assert r.status_code == 409, r.text
-    assert "model_taken" in r.text and "holder" in r.text and "disable holder first" in r.text
+    assert "model_taken" in r.text
+    assert "holder" in r.text
+    assert "disable holder first" in r.text
     assert store.get("actors", "second") is None
 
 
@@ -42,7 +44,8 @@ def test_create_disabled_is_allowed_and_enables_once_the_holder_is_disabled(stor
     r = client.post("/actors", json=actor("second", enabled=False), headers=ALICE)
     assert r.status_code == 201, r.text
     r = client.post("/actors/second/enable", headers=ALICE)
-    assert r.status_code == 409 and "holder" in r.text
+    assert r.status_code == 409
+    assert "holder" in r.text
     assert store.get("actors", "second")["enabled"] is False
     assert client.post("/actors/holder/disable", headers=ALICE).status_code == 200
     assert client.post("/actors/second/enable", headers=ALICE).status_code == 200
@@ -53,7 +56,8 @@ def test_update_to_a_held_model_is_refused_and_a_free_one_passes(store, client):
     seed(store, actor("holder"))
     seed(store, actor("other", model="m2"))
     r = client.put("/actors/other", json=actor("other", model="m1"), headers=ALICE)
-    assert r.status_code == 409 and "model_taken" in r.text
+    assert r.status_code == 409
+    assert "model_taken" in r.text
     assert store.get("actors", "other")["params"]["model"] == "m2"
     assert (
         client.put("/actors/other", json=actor("other", model="m3"), headers=ALICE).status_code
@@ -119,7 +123,8 @@ def test_disable_lists_enabled_workflow_and_rule_references(store, client):
     store.put("rules", {"id": "r-place", "placement": {"actor": "bot"}})
     r = client.post("/actors/bot/disable", headers=ALICE)
     assert r.status_code == 409, r.text
-    assert error_codes(r) and set(error_codes(r)) == {"actor_in_use"}
+    assert error_codes(r)
+    assert set(error_codes(r)) == {"actor_in_use"}
     found = {(e["path"], e["message"]) for e in r.json()["error"]["errors"]}
     assert found == {
         ("workflows/wf", "workflow wf uses bot (action at a)"),
@@ -146,4 +151,75 @@ def test_force_disables_anyway(store, client, force):
     store.put("rules", {"id": "r1", "placement": {"actor": "bot"}})
     assert client.post("/actors/bot/disable", headers=ALICE).status_code == 409
     r = client.post(f"/actors/bot/disable?force={force}", headers=ALICE)
-    assert r.status_code == 200 and store.get("actors", "bot")["enabled"] is False
+    assert r.status_code == 200
+    assert store.get("actors", "bot")["enabled"] is False
+
+
+# --------------------------------------------------------------------------- restore, import
+
+
+def test_restore_of_a_second_holder_is_refused_until_the_holder_is_disabled(store, client):
+    seed(store, actor("old"))
+    assert client.delete("/actors/old", headers=ALICE).status_code == 200
+    seed(store, actor("new"))
+    r = client.post("/actors/old/restore", headers=ALICE)
+    assert r.status_code == 409, r.text
+    assert error_codes(r) == ["model_taken"]
+    assert store.get("actors", "old")["deleted_at"]
+    assert client.post("/actors/new/disable", headers=ALICE).status_code == 200
+    assert client.post("/actors/old/restore", headers=ALICE).status_code == 200
+
+
+def _files(*docs):
+    import json
+
+    return {f"actors/{d['id']}.json": json.dumps({**d, "schema_version": "1.0"}) for d in docs}
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_import_of_a_second_holder_is_refused(store, client, apply):
+    seed(store, actor("holder"))
+    r = client.post(
+        "/import", json={"files": _files(actor("second")), "apply": apply}, headers=ALICE
+    )
+    assert r.status_code == 409, r.text
+    assert error_codes(r) == ["model_taken"]
+    assert r.json()["error"]["errors"][0]["path"] == "actors/second"
+    assert store.get("actors", "second") is None
+
+
+def test_import_that_disables_the_holder_and_adds_the_next_passes(store, client):
+    seed(store, actor("holder"))
+    files = _files(actor("holder", enabled=False), actor("second"))
+    r = client.post("/import", json={"files": files, "apply": True}, headers=ALICE)
+    assert r.status_code == 200, r.text
+    assert store.get("actors", "holder")["enabled"] is False
+    assert store.get("actors", "second")["enabled"] is True
+
+
+def test_import_of_two_holders_of_one_model_is_refused(store, client):
+    r = client.post("/import", json={"files": _files(actor("a"), actor("b"))}, headers=ALICE)
+    assert r.status_code == 409, r.text
+    assert set(error_codes(r)) == {"model_taken"}
+
+
+# --------------------------------------------------------------------------- delete
+
+
+def test_delete_of_an_actor_in_use_is_refused(store, client):
+    seed(store, actor("bot", model=None, enabled=False))
+    put_workflow(store)
+    r = client.delete("/actors/bot", headers=ALICE)
+    assert r.status_code == 409, r.text
+    assert set(error_codes(r)) == {"actor_in_use"}
+    assert "force=true to delete anyway" in r.json()["error"]["message"]
+    assert not store.get("actors", "bot").get("deleted_at")
+
+
+def test_delete_with_force_or_without_enabled_referrers_passes(store, client):
+    seed(store, actor("bot", model=None))
+    seed(store, actor("idle", model=None))
+    put_workflow(store)
+    assert client.delete("/actors/idle", headers=ALICE).status_code == 200
+    assert client.delete("/actors/bot?force=true", headers=ALICE).status_code == 200
+    assert store.get("actors", "bot")["deleted_at"]
