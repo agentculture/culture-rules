@@ -1,23 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   createActor,
   deleteActor,
+  disableActor,
+  getActorReferences,
+  inUseReferrers,
+  isMissingRoute,
   listActors,
   setActorEnabled,
   updateActor,
   type Actor,
+  type InUseReferrer,
 } from "../api/actors";
 import { ApiError, listMachines } from "../api/client";
 import GuidedNotice from "../components/GuidedNotice";
 import { settleAll } from "../api/settle";
-import type { Machine } from "../api/types";
+import type { ActorReference, Machine } from "../api/types";
+import { useWhoami } from "../hooks/useWhoami";
 import { setAgentState } from "../agent-state/store";
 import { machineColors } from "../culture-design/chart";
 import { MachineDot, Switch, machineStyle } from "../culture-design/stages";
 import { usePending } from "../usePending";
 import { useTabReady } from "../routes/useTabReady";
 import { ActorForm } from "./ActorForm";
+import { AddModelsPanel } from "./AddModelsPanel";
+import { UsedBy, referrerHref } from "./UsedBy";
 import { FILTERS, configSourceText, filterActors, kindOfFilter, type KindFilter } from "./actors-view";
 import "./actors.css";
 
@@ -74,6 +82,59 @@ function SourceSwitch({
   );
 }
 
+/** An actor's Used by answer, tagged with the actor it belongs to. */
+interface References {
+  actorId: string;
+  items: ActorReference[] | null;
+  error: string | null;
+}
+
+/**
+ * Whether this server has the model-actor routes (Add models, Used by, Move, the in-use
+ * refusal): learned from the first `GET /actors/{id}/references` answer. A missing route
+ * (an older server, decision c33) hides those controls.
+ */
+type ModelRoutes = "unknown" | "present" | "missing";
+
+/** A refused disable: the workflows and rules still naming the actor. */
+function InUseRefusal({
+  actor,
+  referrers,
+  busy,
+  onForce,
+  onKeep,
+}: Readonly<{
+  actor: Actor;
+  referrers: InUseReferrer[];
+  busy: boolean;
+  onForce: () => void;
+  onKeep: () => void;
+}>) {
+  return (
+    <div className="actor-inuse" role="alert">
+      <p className="actor-inuse__text">
+        {actor.name} is still used by{" "}
+        {referrers.map((r, i) => (
+          <span key={`${r.kind}/${r.id}`}>
+            {i > 0 ? ", " : null}
+            {r.kind === "rule" ? "rule " : null}
+            <Link to={referrerHref(r.kind, r.id)}>{r.id}</Link>
+          </span>
+        ))}
+        . Move them to another actor first, or disable it anyway.
+      </p>
+      <span className="actor-inuse__actions">
+        <button type="button" className="btn btn--danger" disabled={busy} onClick={onForce}>
+          Disable anyway
+        </button>
+        <button type="button" className="btn" onClick={onKeep}>
+          Keep enabled
+        </button>
+      </span>
+    </div>
+  );
+}
+
 /**
  * The Actors tab — the 'Chosen — Actors' board (design canvas row 'Chosen'):
  * a large-type roster with a kind filter, one row per actor (name, kind,
@@ -94,6 +155,16 @@ export function ActorsBoard() {
   const [editing, setEditing] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const whoami = useWhoami();
+  const role = whoami.status === "signed-in" ? whoami.role : null;
+  const [modelRoutes, setModelRoutes] = useState<ModelRoutes>("unknown");
+  /** Once a route is known missing, stop asking (an older server never grows it mid-session). */
+  const missingRef = useRef(false);
+  const [references, setReferences] = useState<References | null>(null);
+  const [refsVersion, setRefsVersion] = useState(0);
+  const [addingModels, setAddingModels] = useState(false);
+  /** A disable refused while the actor is in use: who still uses it. */
+  const [inUse, setInUse] = useState<{ actorId: string; referrers: InUseReferrer[] } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -127,6 +198,42 @@ export function ActorsBoard() {
   const requested = params.get("id");
   const selected = shown.find((a) => a.id === requested) ?? shown[0] ?? null;
 
+  // Used by for the selected actor; the first answer also says whether the routes exist.
+  // With no actor to ask about, a placeholder id still tells a real not_found from a
+  // missing route.
+  const probeId = actors === null ? null : selected?.id ?? "-";
+  useEffect(() => {
+    if (probeId === null || missingRef.current) return;
+    const controller = new AbortController();
+    getActorReferences(probeId, controller.signal).then(
+      (answer) => {
+        if (controller.signal.aborted) return;
+        setModelRoutes("present");
+        setReferences({ actorId: probeId, items: answer.items, error: null });
+      },
+      (err) => {
+        if (controller.signal.aborted) return;
+        if (isMissingRoute(err)) {
+          missingRef.current = true;
+          setModelRoutes("missing");
+          setReferences(null);
+          return;
+        }
+        setModelRoutes("present");
+        const gone = err instanceof ApiError && err.status === 404;
+        setReferences({ actorId: probeId, items: gone ? [] : null, error: gone ? null : errorText(err) });
+      },
+    );
+    return () => controller.abort();
+  }, [probeId, refsVersion]);
+
+  const reloadActors = useCallback(() => {
+    listActors().then(
+      (next) => setActors(next),
+      (err) => setActionError(errorText(err)),
+    );
+  }, []);
+
   const errors = [...loadErrors, ...(actionError ? [actionError] : [])];
   useTabReady("actors", actors !== null, errors);
   useEffect(() => {
@@ -140,6 +247,7 @@ export function ActorsBoard() {
   const select = (id: string) => {
     setEditing(null);
     setConfirming(null);
+    setInUse(null);
     setParams({ id }, { replace: true });
   };
 
@@ -151,7 +259,8 @@ export function ActorsBoard() {
     try {
       await work();
     } catch (err) {
-      if (guided && err instanceof ApiError) setSaveError(err);
+      // model_taken names the actor holding the model: the server's words say who.
+      if (guided && err instanceof ApiError && err.code !== "model_taken") setSaveError(err);
       else setActionError(errorText(err));
     } finally {
       setBusy(false);
@@ -162,10 +271,22 @@ export function ActorsBoard() {
     setActors((current) => (current ?? []).map((a) => (a.id === next.id ? next : a)));
 
   const { pending: togglePending, run: runToggle } = usePending();
-  const toggle = (actor: Actor, enabled: boolean) =>
+  const toggle = (actor: Actor, enabled: boolean, force = false) =>
     runToggle(actor.id, () =>
       act(async () => {
-        await setActorEnabled(actor.id, enabled);
+        if (enabled || modelRoutes === "missing") {
+          await setActorEnabled(actor.id, enabled);
+        } else {
+          try {
+            await disableActor(actor.id, force);
+          } catch (err) {
+            const referrers = inUseReferrers(err);
+            if (!referrers) throw err;
+            setInUse({ actorId: actor.id, referrers });
+            return;
+          }
+        }
+        setInUse(null);
         replace({ ...actor, enabled });
       }),
     );
@@ -216,6 +337,16 @@ export function ActorsBoard() {
             {label}
           </button>
         ))}
+        {role === "admin" && modelRoutes === "present" ? (
+          <button
+            type="button"
+            className="btn btn--large actors-toolbar__models"
+            aria-expanded={addingModels}
+            onClick={() => setAddingModels((v) => !v)}
+          >
+            Add models
+          </button>
+        ) : null}
         <button type="button" className="btn btn--primary btn--large actors-toolbar__add" onClick={() => setEditing("new")}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
@@ -231,6 +362,10 @@ export function ActorsBoard() {
       ) : null}
 
       {saveError ? <GuidedNotice error={saveError} /> : null}
+
+      {addingModels && modelRoutes === "present" ? (
+        <AddModelsPanel onClose={() => setAddingModels(false)} onApplied={reloadActors} />
+      ) : null}
 
       {editing === "new" ? (
         <div className="actor-card actor-card--new">
@@ -284,6 +419,16 @@ export function ActorsBoard() {
                   onChange={(next) => void toggle(actor, next)}
                 />
               </div>
+
+              {inUse?.actorId === actor.id ? (
+                <InUseRefusal
+                  actor={actor}
+                  referrers={inUse.referrers}
+                  busy={togglePending.has(actor.id)}
+                  onForce={() => void toggle(actor, false, true)}
+                  onKeep={() => setInUse(null)}
+                />
+              ) : null}
 
               {open ? (
                 <div className="actor-row__details">
@@ -356,6 +501,17 @@ export function ActorsBoard() {
                       )}
                     </div>
                   )}
+
+                  {modelRoutes === "present" && references?.actorId === actor.id ? (
+                    <UsedBy
+                      actor={actor}
+                      items={references.items}
+                      error={references.error}
+                      actors={all}
+                      canMove={role === "editor" || role === "admin"}
+                      onMoved={() => setRefsVersion((v) => v + 1)}
+                    />
+                  ) : null}
                 </div>
               ) : null}
             </fieldset>
