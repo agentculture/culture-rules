@@ -20,7 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - The newspaper bundle summarises on the `cortex-spark2` actor instead of `newspaper-llm`; an install with the earlier actor moves once (disable `newspaper-llm --force`, enrol, repoint, check)
-- CI's `test` job runs on `ubuntu-24.04` instead of `ubuntu-latest`: on the ubuntu-26.04 runner image the Mongo rig's mongod rarely started within its 60 s deadline, failing every Mongo-backed test
+- CI's `test` job runs on `ubuntu-24.04` instead of `ubuntu-latest`. Runner images on kernel 7.0 (ubuntu-26.04, and ubuntu-24.04 from 20261018) leave the Mongo test rig's mongod unreachable past its 60 s start deadline; the rig now keeps a failed container until cleanup and reports its state and log tail
 - `culture-rules learn`, the `explain` notes and the four harness prompt files (`CLAUDE.md`, `QWEN.md`, `AGENTS.override.md`, `AGENTS.colleague.md`) describe the model-actor verbs
 
 ## [0.21.0] - 2026-10-18

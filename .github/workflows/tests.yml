@@ -8,9 +8,10 @@ on:
 
 jobs:
   test:
-    # ubuntu-24.04, not ubuntu-latest: on the ubuntu-26.04 image (kernel 7.0, Docker 29) the
-    # Mongo rig's mongod rarely answers within its 60 s start deadline, so every Mongo-backed
-    # test fails with connection refused (PR #72, 2026-10-19).
+    # ubuntu-24.04, not ubuntu-latest. Runner images on kernel 7.0 (ubuntu-26.04, and
+    # ubuntu-24.04 from 20261018) leave the Mongo rig's mongod unreachable past its 60 s start
+    # deadline, so the Mongo-backed tests fail with connection refused (PR #72, 2026-10-19);
+    # the rig now reports the container's state and log when that happens.
     runs-on: ubuntu-24.04
     permissions:
       contents: read
