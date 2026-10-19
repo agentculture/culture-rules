@@ -1,4 +1,11 @@
-import { getJson, items, request } from "./client";
+import { ApiError, getJson, items, request } from "./client";
+import type {
+  ActorReferences,
+  EnrolModelsRequest,
+  EnrolModelsResult,
+  RepointRequest,
+  RepointResult,
+} from "./types";
 
 /**
  * Actor routes of the culture-rules HTTP API (api/openapi.json: `/actors`,
@@ -118,6 +125,14 @@ export const deleteActor = (id: string) => request<unknown>("DELETE", `/actors/$
 export const setActorEnabled = (id: string, enabled: boolean) =>
   request<unknown>("POST", `/actors/${enc(id)}/${enabled ? "enable" : "disable"}`);
 
+/**
+ * `POST /actors/{id}/disable`. Without `force` a server that has the actor guards refuses
+ * while an enabled workflow or rule still names the actor (409 `actor_in_use`, see
+ * `inUseReferrers`); `force` disables it anyway.
+ */
+export const disableActor = (id: string, force = false) =>
+  request<unknown>("POST", `/actors/${enc(id)}/disable${force ? "?force=true" : ""}`);
+
 /** A text channel a Discord bot can post to; `visible` is false for a private channel it was not added to. */
 export interface DiscordChannel {
   id: string;
@@ -138,3 +153,109 @@ export interface DiscordTargets {
 /** `GET /actors/{id}/discord/targets`: the servers and channels a Discord app actor's bot can post to. */
 export const getDiscordTargets = (actorId: string, signal?: AbortSignal) =>
   getJson<DiscordTargets>(`/actors/${enc(actorId)}/discord/targets`, signal);
+
+/* ------------------------------------------------------------------ model actors (t10) */
+
+/** `POST /actors/enrol-models` (admin): plan (`dry_run`, the default) or apply. */
+export const enrolModels = (body: EnrolModelsRequest, signal?: AbortSignal) =>
+  request<EnrolModelsResult>("POST", "/actors/enrol-models", body, signal);
+
+/** `GET /actors/{id}/references`: the live workflow steps and rules naming the actor. */
+export const getActorReferences = (id: string, signal?: AbortSignal) =>
+  getJson<ActorReferences>(`/actors/${enc(id)}/references`, signal);
+
+/**
+ * `POST /workflows/{id}/repoint-actor` (editor), applied: every step action naming `from`
+ * names `to`. A stale `expected_revision` is 409 `revision_conflict`; a trusted workflow is
+ * 409 `workflow_trusted` unless `force`.
+ */
+export const repointWorkflowActor = (
+  workflowId: string,
+  body: Pick<RepointRequest, "from" | "to" | "expected_revision" | "force">,
+  signal?: AbortSignal,
+) =>
+  request<RepointResult>(
+    "POST",
+    `/workflows/${enc(workflowId)}/repoint-actor`,
+    { from: body.from, to: body.to, expected_revision: body.expected_revision, force: body.force ?? false, dry_run: false },
+    signal,
+  );
+
+/** One allow-listed model gateway: a machine and its base URL. */
+export interface ModelGateway {
+  machine: string;
+  url: string;
+}
+
+/**
+ * The `model_gateways` variable's value as gateways: a list of `"machine=URL"` strings
+ * (approved deviation d4). Any other form (an object, an item without `=`) is null, as the
+ * server refuses it too.
+ */
+export function parseModelGateways(value: unknown): ModelGateway[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: ModelGateway[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.includes("=")) return null;
+    const at = item.indexOf("=");
+    out.push({ machine: item.slice(0, at).trim(), url: item.slice(at + 1) });
+  }
+  return out;
+}
+
+/** `GET /variables/model_gateways` as gateways; null when the variable is unset. */
+export async function getModelGateways(signal?: AbortSignal): Promise<ModelGateway[] | null> {
+  try {
+    const variable = await getJson<{ value?: unknown }>("/variables/model_gateways", signal);
+    const gateways = parseModelGateways(variable.value);
+    if (gateways === null) {
+      throw new ApiError(
+        409,
+        "invalid_model_gateways",
+        'model_gateways must be a list of "machine=URL" strings',
+      );
+    }
+    return gateways;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404 && err.code === "not_found") return null;
+    throw err;
+  }
+}
+
+/** What the web build's catch-all answers for an `/api` path that is no route (static.py). */
+const NO_ROUTE_MESSAGES = new Set(["no such API route", "no such route"]);
+
+/**
+ * The route itself is missing: a server older than the model-actor routes (decision c33).
+ * FastAPI's generic `{"detail": ...}` 404/405 carries no envelope (code `http_error`); with
+ * the web build mounted, an unknown `/api` GET is a `not_found` envelope saying "no such API
+ * route". A real `not_found` (an actor that does not exist) is neither.
+ */
+export function isMissingRoute(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  if ((err.status === 404 || err.status === 405) && err.code === "http_error") return true;
+  return err.status === 404 && err.code === "not_found" && NO_ROUTE_MESSAGES.has(err.message);
+}
+
+/** A workflow or rule an `actor_in_use` refusal names. */
+export interface InUseReferrer {
+  kind: "workflow" | "rule";
+  id: string;
+}
+
+/**
+ * The referrers of a 409 `actor_in_use` refusal (its `errors[].path` is `workflows/<id>` or
+ * `rules/<id>`), each once and in order; null for any other failure.
+ */
+export function inUseReferrers(err: unknown): InUseReferrer[] | null {
+  if (!(err instanceof ApiError) || err.code !== "actor_in_use") return null;
+  const seen = new Set<string>();
+  const out: InUseReferrer[] = [];
+  for (const entry of err.errors) {
+    const m = /^(workflows|rules)\/(.+)$/.exec(entry.path);
+    if (!m || seen.has(entry.path)) continue;
+    seen.add(entry.path);
+    out.push({ kind: m[1] === "workflows" ? "workflow" : "rule", id: m[2] });
+  }
+  return out;
+}

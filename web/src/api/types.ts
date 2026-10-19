@@ -361,3 +361,108 @@ export interface PurgeResult {
   id: string;
   applied: boolean;
 }
+
+/*
+ * Model actors (api/openapi.json: EnrolModelsRequest/Result, ActorReferences,
+ * RepointRequest/Result; culture_rules/server/model_actors.py).
+ */
+
+/** `POST /actors/enrol-models` (admin). Writes nothing unless `dry_run` is false. */
+export interface EnrolModelsRequest {
+  /** Machines, each a key of the `model_gateways` variable; the first listed wins a model. */
+  gateways: string[];
+  /** fnmatch globs; only hits are enrolled. */
+  match: string[];
+  /** `model=pool` overrides (the default pool is the model id). */
+  pools?: string[];
+  /** A `grant:NAME` reference; the server defaults it to `grant:LOBES_GATEWAY_API_KEY`. */
+  api_key?: string;
+  dry_run?: boolean;
+}
+
+/** One gateway's `/v1/models` answer (GatewayModels). */
+export interface GatewayModels {
+  machine: string;
+  url: string;
+  models: string[];
+}
+
+export type ModelChangeAction = "create" | "update" | "unchanged" | "refused";
+
+/** One planned outcome per matched model (ModelChangeOut). */
+export interface ModelChange {
+  action: ModelChangeAction | string;
+  id: string;
+  reason?: string;
+  /** create/update: the actor document to write. */
+  body?: Record<string, unknown> | null;
+}
+
+export interface AppliedActor {
+  id: string;
+  action: string;
+}
+
+export interface FailedActor {
+  id: string;
+  action: string;
+  code: string;
+  message: string;
+}
+
+/** The answer of `POST /actors/enrol-models` (EnrolModelsResult). */
+export interface EnrolModelsResult {
+  dry_run: boolean;
+  gateways: GatewayModels[];
+  changes: ModelChange[];
+  /** model -> the other gateways that list it too. */
+  also_served_by: Record<string, string[]>;
+  /** Endpoint actors whose model no gateway lists. */
+  unseen: string[];
+  applied?: AppliedActor[];
+  failed?: FailedActor[];
+}
+
+/** A live workflow step or rule naming an actor (ActorReference). */
+export interface ActorReference {
+  kind: "workflow" | "rule" | string;
+  id: string;
+  /** The step path (e.g. `summarise.body[summary]`) or the rule field. */
+  path: string;
+  /** `action` (a step's `params.actor`) or `placement`. */
+  via: "action" | "placement" | string;
+  enabled: boolean;
+}
+
+/** `GET /actors/{id}/references` (ActorReferences). */
+export interface ActorReferences {
+  actor_id: string;
+  items: ActorReference[];
+}
+
+/** `POST /workflows/{id}/repoint-actor` (editor). */
+export interface RepointRequest {
+  from: string;
+  to: string;
+  /** The workflow revision read; missing or stale is 409 `revision_conflict`. */
+  expected_revision: number | null;
+  /** Repoint a trusted workflow anyway (drops trust). */
+  force?: boolean;
+  dry_run?: boolean;
+}
+
+/** The answer of `POST /workflows/{id}/repoint-actor` (RepointResult). */
+export interface RepointResult {
+  workflow_id: string;
+  dry_run: boolean;
+  from: string;
+  to: string;
+  /** Step paths whose action actor changes. */
+  changed: string[];
+  warnings: string[];
+  /** Dry run: the current revision; applied: the new one. */
+  revision: number;
+  digest: string | null;
+  digest_v2: string | null;
+  trusted_digest?: string | null;
+}
