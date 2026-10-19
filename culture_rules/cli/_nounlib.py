@@ -45,7 +45,7 @@ def new_route(ctx: Context, since: str, fn: Any) -> Any:
                 raise CliError(
                     EXIT_ENV_ERROR,
                     f"server too old: needs culture-rules >= {since}",
-                    f"the API at {url} lacks this endpoint; upgrade it (docs/operations/rollout.md)",
+                    f"the API at {url} lacks this route; upgrade it (docs/operations/rollout.md)",
                 ) from exc
             raise
 
