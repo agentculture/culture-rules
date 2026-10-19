@@ -133,14 +133,15 @@ wrapper. Read each dry run before its `--apply`, and stop at the first refusal.
    ```
 
 3. Enrol the two spark lanes (`cortex-spark`, `cortex-spark2`). Check the plan
-   lists both as `create` and nothing `refused`. The default key is
+   lists exactly those two as `create` and nothing `refused`; if the gateway
+   serves another `cortex-*` model, stop and narrow the glob. The default key is
    `grant:LOBES_GATEWAY_API_KEY`; the pool `qwen-spark2` is set for
    `cortex-spark2` so it shares the PR fixer's pool.
 
    ```bash
-   cr actors enrol-models --gateway spark --match 'cortex-spark*' \
+   cr actors enrol-models --gateway spark --match 'cortex-*' \
      --pool cortex-spark2=qwen-spark2
-   cr actors enrol-models --gateway spark --match 'cortex-spark*' \
+   cr actors enrol-models --gateway spark --match 'cortex-*' \
      --pool cortex-spark2=qwen-spark2 --apply
    ```
 
