@@ -56,7 +56,7 @@ slug: `model-actors-in-the-cli-and-mcp` · status: `exported` · from frame: `mo
 
 ### t6 — Runtime `model_taken` refusal in llm.complete (`culture_rules`/node/actions/llm.py)
 
-- instruction: Import `model_holder` from `culture_rules`/actors/`model_rule.py`. Check after `load_bound_actor` and before the HTTP call; the failure string follows the module's '<code>: <detail>' convention.
+- instruction: Import `model_holder` from `culture_rules`/actors/`model_rule.py`. Check after `load_bound_actor` and before the HTTP call; the failure string follows the module's `'<code>: <detail>'` convention.
 - depends on: t3
 - covers: c23, h20
 - acceptance:
