@@ -60,7 +60,7 @@ slug: `model-actors-in-the-cli-and-mcp` · status: `exported` · from frame: `mo
 - depends on: t3
 - covers: c23, h20
 - acceptance:
-  - llm.complete fails the step with '`model_taken`: <holder>' when another enabled endpoint actor holds its actor's model; tests/node (llm action tests) seed two holders in MemoryStore and assert the failure, and the existing llm tests pass unchanged
+  - llm.complete fails the step with `'model_taken: <holder>'` when another enabled endpoint actor holds its actor's model; tests/node (llm action tests) seed two holders in MemoryStore and assert the failure, and the existing llm tests pass unchanged
   - git diff main touches `culture_rules`/node only in node/actions/llm.py and `culture_rules`/engine not at all
 
 ### t7 — Newspaper bundle on cortex-spark2 (docs/rules/newspaper, docs/operations/newspaper.md, bundle tests)
