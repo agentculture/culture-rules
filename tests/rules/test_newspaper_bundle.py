@@ -38,7 +38,7 @@ WORKFLOW = "daily-newspaper"
 EMAIL, SEARCH, LLM, LIBRARY = (
     "newspaper-email",
     "newspaper-search",
-    "newspaper-llm",
+    "cortex-spark2",
     "newspaper-library",
 )
 GATE_STEP, EMAIL_STEP = "email_gate", "email"
