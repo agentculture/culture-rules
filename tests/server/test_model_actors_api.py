@@ -546,3 +546,91 @@ def test_repoint_of_a_v1_trusted_workflow_is_refused_without_force(store, monkey
     assert r.status_code == 200
     assert r.json()["trusted_digest"] == v1
     assert r.json()["digest"] != v1
+
+
+# --------------------------------------------------------------------------- the real transport
+
+
+class _Gateway:
+    """A loopback HTTP server: ``/v1/models`` redirects (or answers ``body``); hits recorded."""
+
+    def __init__(self, body: bytes | None = None) -> None:
+        import http.server
+        import threading
+
+        outer = self
+        self.hits: list[tuple[str, str | None]] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 - the stdlib's name
+                outer.hits.append((self.path, self.headers.get("Authorization")))
+                if body is None and self.path == "/v1/models":
+                    self.send_response(302)
+                    self.send_header("Location", "/elsewhere")
+                    self.end_headers()
+                    return
+                payload = body if body is not None else b"{}"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *_):
+                pass
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def test_the_real_transport_surfaces_a_redirect_and_never_follows_it():
+    from culture_rules.server.model_actors import urllib_models_transport
+
+    with _Gateway() as gw:
+        status, _ = urllib_models_transport(f"{gw.url}/v1/models", {"Authorization": "Bearer x"}, 5)
+    assert status == 302
+    assert gw.hits == [("/v1/models", "Bearer x")]  # the bearer never reached /elsewhere
+
+
+def test_the_real_transport_reads_at_most_one_byte_past_the_cap():
+    from culture_rules.server import model_actors
+
+    cap = model_actors._MAX_BODY
+    with _Gateway(body=b"x" * (cap + 4096)) as gw:
+        status, body = model_actors.urllib_models_transport(f"{gw.url}/v1/models", {}, 5)
+    assert status == 200 and len(body) == cap + 1
+
+
+def test_a_partial_apply_answers_200_with_applied_and_failed(store, monkeypatch):
+    """Each actor is written on its own: one refused write (here an invalid body; live, a
+    model_taken race) is listed under ``failed`` and the others still land."""
+    from culture_rules.server import model_actors
+
+    real = model_actors.model_enrol.plan_model_enrolment
+
+    def spoiled(*args, **kwargs):
+        plan = real(*args, **kwargs)
+        for change in plan.changes:
+            if change.id == "cortex-spark" and change.body is not None:
+                change.body["kind"] = "not-a-kind"
+        return plan
+
+    monkeypatch.setattr(model_actors.model_enrol, "plan_model_enrolment", spoiled)
+    set_gateways(store, {"spark": SPARK})
+    client, _ = make_client(store, default_gateways())
+    r = enrol(client, dry_run=False)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["applied"] == [{"id": "cortex-spark2", "action": "create"}]
+    assert [(f["id"], f["action"]) for f in body["failed"]] == [("cortex-spark", "create")]
+    assert body["failed"][0]["code"] and body["failed"][0]["message"]
+    assert store.get("actors", "cortex-spark") is None
+    assert store.get("actors", "cortex-spark2") is not None

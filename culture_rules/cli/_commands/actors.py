@@ -297,7 +297,7 @@ VERBS: list[Verb] = [
             ),
         ),
         True,
-        "editor",
+        "admin",
     ),
     Verb(
         NOUN,

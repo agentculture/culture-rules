@@ -36,8 +36,8 @@ applies at once.
 | `workflows repoint-actor WF --from A --to B` | editor | points a workflow's steps at another actor |
 
 Writes are dry-run unless `--apply`; every verb takes `--json`; each has an MCP
-tool of the same name (`actors_enrol_models`, `actors_references`,
-`actors_disable`, `workflows_repoint_actor`).
+tool named `<noun>_<verb>` (`actors_enrol-models`, `actors_references`,
+`actors_disable`, `workflows_repoint-actor`).
 
 **`actors enrol-models --gateway MACHINE (repeatable) --match GLOB (repeatable)
 [--pool MODEL=POOL] [--api-key grant:NAME] [--apply]`**
@@ -64,6 +64,9 @@ tool of the same name (`actors_enrol_models`, `actors_references`,
   planned as `refused` (`model_taken: <holder> (disable it first)`).
 - The dry run lists the plan and writes nothing; `--apply` writes each actor
   (audited, naming you) and lists `applied` and `failed`. Exit 1 if any failed.
+  Each actor is written on its own, so one refusal (an invalid body, or a
+  `model_taken` from a write that landed after the plan was made) does not undo
+  the others; fix the cause and re-run, since enrolment is idempotent.
 
 **`actors references ID`** lists each workflow step and rule naming the actor,
 by action (`params.actor`) or by placement (`placement.actor`), with the step
