@@ -118,7 +118,7 @@ A failure never echoes a response body, a header value or a secret.
 
 ## In the newspaper bundle
 
-`docs/rules/newspaper/actors/newspaper-llm.json` is an LLM actor on machine
+`docs/rules/newspaper/actors/cortex-spark2.json` is an LLM actor on machine
 `spark`. It points at the lobes gateway on spark's loopback with model
 `cortex-spark2` and `grant:LOBES_GATEWAY_API_KEY`, in pool `qwen-spark2` with
 `max_concurrency: 1`. That pool is shared with the PR fixer, so each

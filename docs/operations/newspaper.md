@@ -14,7 +14,7 @@ format, and it ships **disabled**:
 |---|---|
 | `actors/newspaper-email.json` | app actor, surface `email`: Resend, sender `newsletter-no-reply` on `culture.dev`, **empty** recipient allowlist |
 | `actors/newspaper-search.json` | app actor, surface `search`: Brave web search |
-| `actors/newspaper-llm.json` | agent actor: the OpenAI-compatible lobes gateway, model `cortex-spark2`, pool `qwen-spark2`, `max_concurrency: 1` |
+| `actors/cortex-spark2.json` | agent actor: the OpenAI-compatible lobes gateway, model `cortex-spark2`, pool `qwen-spark2`, `max_concurrency: 1` |
 | `actors/newspaper-library.json` | service actor: the xteink library API |
 | `workflows/daily-newspaper.json` | the workflow (below) |
 | `rules/daily-newspaper.json` | schedule `0 5 * * *`, tz `Asia/Jerusalem`, placed on spark, disabled |
@@ -44,7 +44,7 @@ step is a built-in or an action:
    must and must-not terms and site lists, then dedupes and caps the results.
    A result whose URL does not parse is dropped; the others are kept.
 4. `summarise` is a `for_each` over the filtered results. `summary`
-   (`llm.complete` on `newspaper-llm`) writes one bullet per result, each
+   (`llm.complete` on `cortex-spark2`) writes one bullet per result, each
    linking its source. The brief is locked in code and the request sends no
    tools. Its `not_after` is `summaries_until`: no summary starts after it.
    A section whose filtered results are empty skips its summary (its `when`
@@ -181,7 +181,7 @@ from an injected `CULTURE_RULES_SECRET_<NAME>` variable and otherwise with
 |---|---|---|
 | `RESEND_API_KEY` | `newspaper-email` | the Resend API key (both sender domains are verified on it) |
 | `BRAVE_API_KEY` | `newspaper-search` | the Brave Search API subscription token |
-| `LOBES_GATEWAY_API_KEY` | `newspaper-llm` | the lobes gateway's bearer key |
+| `LOBES_GATEWAY_API_KEY` | `cortex-spark2` | the lobes gateway's bearer key |
 | `XTEINK_PUSH_API_KEY` | `newspaper-library` | an xteink `xtk_` key |
 
 Store each one hidden, with the value read from stdin:
@@ -216,7 +216,7 @@ name.
 
 Both base URLs are spark-local services:
 
-- `newspaper-llm`: `params.base_url` is `http://127.0.0.1:8001`, the lobes
+- `cortex-spark2`: `params.base_url` is `http://127.0.0.1:8001`, the lobes
   gateway. `params.model` must stay `cortex-spark2`: the gateway's first
   model is a small one, and the port never relies on a default.
 - `newspaper-library`: `params.base_url` is `http://127.0.0.1:8780`, xteink.

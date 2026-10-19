@@ -37,7 +37,7 @@
           "depth": 0,
           "label": "4",
           "step": "summarise",
-          "text": "for each item (≤20): llm.complete as newspaper-llm, when deliver = true and results ≠ {} (≤2 attempts)"
+          "text": "for each item (≤20): llm.complete as cortex-spark2, when deliver = true and results ≠ {} (≤2 attempts)"
         },
         {
           "depth": 0,
@@ -84,7 +84,7 @@
         "3 search — for each item (≤20):",
         "  3.1 search_web — search.web as newspaper-search, when deliver = true (≤3 attempts)",
         "  3.2 filter — builtin newspaper.filter, when deliver = true",
-        "4 summarise — for each item (≤20): llm.complete as newspaper-llm, when deliver = true and results ≠ {} (≤2 attempts)",
+        "4 summarise — for each item (≤20): llm.complete as cortex-spark2, when deliver = true and results ≠ {} (≤2 attempts)",
         "5 render — builtin newspaper.render, when deliver = true",
         "6 email_gate — builtin newspaper.issue, when deliver = true",
         "7 email — email.send as newspaper-email, when send = true (≤3 attempts)",
@@ -5201,7 +5201,7 @@
                 "action": {
                   "kind": "llm.complete",
                   "params": {
-                    "actor": "newspaper-llm",
+                    "actor": "cortex-spark2",
                     "content": "inputs.item.results",
                     "max_tokens": 2000,
                     "not_after": "inputs.not_after"
@@ -5321,7 +5321,7 @@
           "kind": "for_each",
           "max_iterations": 20,
           "name": "Summarise each section",
-          "notes": "One iteration per section: llm.complete on newspaper-llm (cortex, pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
+          "notes": "One iteration per section: llm.complete on cortex-spark2 (pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
           "outputs": [
             {
               "description": "",
