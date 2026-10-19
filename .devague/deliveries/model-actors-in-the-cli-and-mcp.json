@@ -2,7 +2,7 @@
   "plan_slug": "model-actors-in-the-cli-and-mcp",
   "schema_version": 2,
   "created": "2026-10-19T05:52:29Z",
-  "updated": "2026-10-19T05:52:30Z",
+  "updated": "2026-10-19T16:02:34Z",
   "deviations": [
     {
       "id": "d1",
@@ -31,6 +31,34 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "enrol-models responses list actor ids and actions (create/update), not revisions",
+      "task_ref": "t4",
+      "reason": "actors carry no revision field in the store; only workflows do (repoint-actor returns the new workflow revision). Adding actor revisions is a store/model change beyond this spec. Operator approved.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "model_gateways is a list of 'machine=URL' strings, not a machine->URL object",
+      "task_ref": "t4",
+      "reason": "variables hold only a JSON scalar or a list of scalars (culture_rules/model/variable.py validate_variable_value); objects are refused. Operator chose the list form (d3 a) over extending variables.",
+      "affects": [
+        "t10",
+        "t11",
+        "t12",
+        "c10",
+        "c37"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
