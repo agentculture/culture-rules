@@ -70,6 +70,22 @@ rule sentences and the Then side. Workflow saves carry a server-owned
 migrate-orphans [--apply]` gives each workflow-less rule its own stepless
 workflow.
 
+The **model actors** work (spec
+`docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`, setup
+`docs/operations/model-actors.md`) adds four verbs, also MCP tools and
+Actors-page features. `culture-rules actors enrol-models --gateway MACHINE
+--match GLOB` (repeatable; admin) plans, then with `--apply` writes, one
+endpoint actor per matched model served by the gateways in the shared variable
+`model_gateways` (a list of `"machine=URL"` strings, the allowlist; the grant
+is resolved only after it passes). `actors references ID` lists what names an
+actor, `actors disable ID [--force]` is refused with `actor_in_use` while an
+enabled workflow or rule uses it, and `workflows repoint-actor WF --from A
+--to B` moves a workflow (a trusted one needs `--force`). The model rule: one
+enabled endpoint actor (one with `params.base_url`) per model (409
+`model_taken`, and again at run time in `llm.complete`); mesh agents without
+`base_url` are outside it. An older server answers exit 2. The newspaper
+bundle summarises on `cortex-spark2`.
+
 Two GitHub issues carried the design:
 
 - **#1** is the build brief: repo shape, packaging/CI pitfalls, and the

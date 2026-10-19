@@ -218,7 +218,11 @@ Both base URLs are spark-local services:
 
 - `cortex-spark2`: `params.base_url` is `http://127.0.0.1:8001`, the lobes
   gateway. `params.model` must stay `cortex-spark2`: the gateway's first
-  model is a small one, and the port never relies on a default.
+  model is a small one, and the port never relies on a default. Instead of
+  importing it, you can enrol it from the gateway
+  (`actors enrol-models --gateway spark --match 'cortex-spark*'`); an install
+  that still has the earlier actor `newspaper-llm` needs the one-time move in
+  [`model-actors.md`](model-actors.md).
 - `newspaper-library`: `params.base_url` is `http://127.0.0.1:8780`, xteink.
 
 An action step runs where its actor lives (`machine: spark`), so these

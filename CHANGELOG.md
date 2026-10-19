@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-10-19
+
+### Added
+
+- Model actors (spec `docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`, setup `docs/operations/model-actors.md`): `culture-rules actors enrol-models --gateway MACHINE --match GLOB [--pool MODEL=POOL] [--api-key grant:NAME] [--apply]` (`POST /actors/enrol-models`, admin, dry-run by default) plans and writes one endpoint actor per matched model; `actors references ID` (`GET /actors/{id}/references`) lists the workflows and rules that name an actor, by action or placement; `workflows repoint-actor WF --from A --to B` (`POST /workflows/{id}/repoint-actor`, a trusted workflow needs `--force`). All are MCP tools; an older server answers exit 2 'server too old'
+- `actors disable ID --force` (`?force=true`): without it, `POST /actors/{id}/disable` is refused with 409 `actor_in_use` while an enabled workflow or rule names the actor
+- The shared variable `model_gateways`, a list of `machine=URL` strings, is the allowlist of gateways `enrol-models` may call; the `--api-key` grant is resolved only after the allowlist check and the bearer goes to the listed URL only
+- The model rule: one enabled endpoint actor (an `agent` actor with `params.base_url`) per `params.model`; create, update and enable refuse a second one with 409 `model_taken` naming the holder, and `llm.complete` refuses it again at run time. Mesh agents without `base_url` are outside the rule
+- Actors page: Add models (admin), Used by with Move (editor), and Disable showing the in-use refusal with Disable anyway; hidden on a server older than 0.22.0
+- `docs/operations/model-actors.md`: the verbs, `model_gateways`, the model rule and the one-time newspaper move runbook
+
+### Changed
+
+- The newspaper bundle summarises on the `cortex-spark2` actor instead of `newspaper-llm`; an install with the earlier actor moves once (disable `newspaper-llm --force`, enrol, repoint, check)
+- `culture-rules learn`, the `explain` notes and the four harness prompt files (`CLAUDE.md`, `QWEN.md`, `AGENTS.override.md`, `AGENTS.colleague.md`) describe the model-actor verbs
+
 ## [0.21.0] - 2026-10-18
 
 ### Added

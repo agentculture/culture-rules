@@ -72,6 +72,11 @@ its current runs: the write reports them as active_runs with a hint, and
 rules stop-runs <id> --apply cancels them (status cancelled, nothing more is pushed).
 rules describe <id> and workflows describe <id> print a definition in plain words,
 built only from its config (When/If/Run/Then lines; numbered steps), never by AI.
+actors enrol-models --gateway <machine> --match <glob> plans (then, with --apply, writes)
+one endpoint actor per model a gateway in the model_gateways variable serves; actors
+references <id> lists what uses an actor; actors disable <id> is refused while an enabled
+workflow or rule uses it unless --force; workflows repoint-actor <wf> --from A --to B moves
+a workflow. One enabled endpoint actor per model (model_taken). Needs server >= 0.22.0.
 The rollout noun rolls this CLI's release out to every node, one step per verb:
 rollout plan --wheel <whl> prints the steps (writes nothing), then rollout idle,
 pause, upgrade --host <name> --wheel <whl> (install.sh over ssh, or the shared
