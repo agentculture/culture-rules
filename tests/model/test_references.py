@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from culture_rules.actors.references import NoMatchingStep, find_references, repoint_workflow
+from culture_rules.model.references import NoMatchingStep, find_references, repoint_workflow
 
 
 def _act(actor):
@@ -84,7 +84,7 @@ def test_repoint_no_match_raises_typed():
 
 
 def test_notes_warning_matches_whole_actor_ids_only():
-    from culture_rules.actors.references import _mentions
+    from culture_rules.model.references import _mentions
 
     assert _mentions("llm.complete on a1 (pool p)", "a1")
     assert _mentions("ends with a1.", "a1")
