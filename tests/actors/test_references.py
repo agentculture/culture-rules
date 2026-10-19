@@ -81,3 +81,13 @@ def test_repoint_no_match_raises_typed():
         repoint_workflow(_wf(), "zzz", "b9")
     with pytest.raises(ValueError):
         repoint_workflow({"id": "x", "steps": []}, "a1", "b9")
+
+
+def test_notes_warning_matches_whole_actor_ids_only():
+    from culture_rules.actors.references import _mentions
+
+    assert _mentions("llm.complete on a1 (pool p)", "a1")
+    assert _mentions("ends with a1.", "a1")
+    assert not _mentions("llm.complete on a10", "a1")
+    assert not _mentions("on cortex-spark2", "cortex-spark")
+    assert not _mentions("on xa1", "a1")

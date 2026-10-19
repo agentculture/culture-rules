@@ -46,7 +46,9 @@ def test_plans_only_match_hits_with_the_enrolled_shape():
         "reranker-spark2",
         "unsloth/Qwen3.8-27B-NVFP4",
     }
-    assert {c.action for c in plan.changes} == {"create"}
+    hf = next(c for c in plan.changes if c.id == "unsloth/Qwen3.8-27B-NVFP4")
+    assert hf.action == "refused" and "not a valid actor id" in hf.reason
+    assert {c.action for c in plan.changes if c is not hf} == {"create"}
     body = next(c.body for c in plan.changes if c.id == "cortex-spark")
     assert body["id"] == "cortex-spark" and body["name"]
     assert body["kind"] == "agent" and body["machine"] == "spark"
@@ -103,7 +105,8 @@ def test_pool_defaults_to_model_with_override():
 def test_second_run_plans_zero_changes():
     first = plan_model_enrolment([], GW, MATCH, api_key=KEY)
     second = plan_model_enrolment(apply([], first), GW, MATCH, api_key=KEY)
-    assert {c.action for c in second.changes} == {"unchanged"}
+    assert {c.action for c in second.changes} == {"unchanged", "refused"}
+    assert [c.id for c in second.changes if c.action == "refused"] == ["unsloth/Qwen3.8-27B-NVFP4"]
     assert len(second.changes) == len(first.changes)
 
 

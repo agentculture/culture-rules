@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import copy
 import fnmatch
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -35,6 +36,9 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.validate import validate
 
 DEFAULT_MAX_CONCURRENCY = 1
+# An actor id is one URL path segment (/actors/{id}); a model id like "org/name" is not one.
+_SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
 _PARAMS = ("base_url", "model", "concurrency_pool", "max_concurrency", "api_key")
 # Fields kept on an update body (server-owned ones such as timestamps are dropped).
 _FIELDS = (
@@ -117,6 +121,9 @@ def _create_body(model: str, machine: str, params: dict[str, Any]) -> dict[str, 
 
 
 def _id_errors(body: dict[str, Any]) -> list[str]:
+    ident = body.get("id")
+    if isinstance(ident, str) and ident and not _SAFE_ID.match(ident):
+        return [f"id {ident!r} is not a valid actor id (letters, digits, '.', '_', '-')"]
     actor, errors = _build(body)
     if actor is None:
         return errors

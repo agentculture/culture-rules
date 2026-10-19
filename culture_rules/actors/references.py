@@ -11,6 +11,7 @@ each loop level. A rule's path is ``action``, ``on_failure`` or ``placement``.
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -78,6 +79,12 @@ def find_references(
     return found
 
 
+def _mentions(text: str, actor_id: str) -> bool:
+    """Whether ``text`` names ``actor_id`` as a whole id (``a1`` does not match ``a10``)."""
+    pattern = r"(?<![A-Za-z0-9._-])" + re.escape(actor_id) + r"(?![A-Za-z0-9_-]|\.[A-Za-z0-9])"
+    return re.search(pattern, text) is not None
+
+
 def repoint_workflow(
     doc: dict[str, Any], frm: str, to: str
 ) -> tuple[dict[str, Any], list[str], list[str]]:
@@ -98,12 +105,12 @@ def repoint_workflow(
             action["params"]["actor"] = to
             changed.append(path)
         notes = step.get("notes")
-        if isinstance(notes, str) and frm in notes:
+        if isinstance(notes, str) and _mentions(notes, frm):
             warnings.append(f"step {path} notes mention {frm!r}; notes were not changed")
         if _placement_actor(step.get("placement")) == frm:
             warnings.append(f"step {path} is placed on actor {frm!r}; placement was not changed")
     notes = new.get("notes")
-    if isinstance(notes, str) and frm in notes:
+    if isinstance(notes, str) and _mentions(notes, frm):
         warnings.append(f"workflow notes mention {frm!r}; notes were not changed")
     if not changed:
         raise NoMatchingStep(str(doc.get("id")), frm)
