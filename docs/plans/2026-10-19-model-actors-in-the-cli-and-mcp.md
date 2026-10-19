@@ -87,7 +87,7 @@ slug: `model-actors-in-the-cli-and-mcp` · status: `exported` · from frame: `mo
 - covers: c16, h12, c1, h1, c33, h27
 - acceptance:
   - each verb is dry-run by default, --apply commits, --json works, errors are CliError with exit 1 (user) or 2 (environment); actors enrol-models takes repeatable --gateway, --match, --pool model=pool and --api-key
-  - against a server that 404s the new routes each verb exits 2 with a 'server too old: needs culture-rules >= <version>' hint (as rollout's `no_rollouts_endpoints`)
+  - against a server that 404s the new routes each verb exits 2 with a `'server too old: needs culture-rules >= <version>'` hint (as rollout's `no_rollouts_endpoints`)
   - explain catalog entries and a learn mention exist; the MCP parity test lists the four tools; uv run teken cli doctor . --strict is green
 
 ### t10 — Actors page: Add models from a gateway, Used by, Move to another actor, in-use Disable (web/src/actors, web/src/api/actors.ts)
