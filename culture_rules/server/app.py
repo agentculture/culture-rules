@@ -52,6 +52,7 @@ from culture_rules.ops.nodename import node_name
 from culture_rules.server import events, humans, static
 from culture_rules.server import status as read_models
 from culture_rules.server.caching import NO_STORE, NoStoreByDefault
+from culture_rules.server.model_actors import register_model_actors as _register_model_actors
 from culture_rules.server.repos import RepoTarget, repos_from_env
 from culture_rules.server.rollouts import ROLLOUTS_COLLECTION, Rollouts
 from culture_rules.server.service import (
@@ -709,6 +710,7 @@ def create_app(
     repos: Sequence[RepoTarget] | None = None,
     resolve_secret: Callable[[str], str] | None = None,
     discord_transport: Any = None,
+    models_transport: Any = None,
 ) -> FastAPI:
     """Build the API over ``store``. Holds configuration only, never request state.
 
@@ -718,7 +720,9 @@ def create_app(
     nothing is mounted when it does not exist). ``repos`` are the definition repositories
     clients may name (default: ``CULTURE_RULES_REPOS``, see :mod:`culture_rules.server.repos`).
     ``resolve_secret`` and ``discord_transport`` replace the grant resolver and the Discord
-    HTTP transport behind ``GET /actors/{id}/discord/targets`` (tests).
+    HTTP transport behind ``GET /actors/{id}/discord/targets`` (tests); ``models_transport``
+    replaces the gateways' ``/v1/models`` transport behind ``POST /actors/enrol-models``,
+    which resolves its key grant through ``resolve_secret`` too (tests).
     """
     ensure = getattr(store, "ensure_collections", None)
     if callable(ensure):
@@ -772,6 +776,7 @@ def create_app(
     _register_hooks(app, store)
     _register_bridge_callbacks(app, store)
     _register_discord_targets(app, store, resolve_secret, discord_transport)
+    _register_model_actors(app, store, defs, resolve_secret, models_transport)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
     app.add_middleware(NoStoreByDefault)
