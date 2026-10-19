@@ -222,11 +222,17 @@ def _disable(ctx: Context, id: str, force: bool = False) -> dict[str, Any]:
     path = f"/actors/{seg(id)}/disable" + ("?force=true" if force else "")
     if not ctx.apply:
         out = write(ctx, "actors disable", "POST", path, preview=f"/actors/{seg(id)}")
-        try:
-            refs = ctx.client.request("GET", f"/actors/{seg(id)}/references")
-            out["in_use"] = [i for i in refs.get("items") or [] if i.get("enabled")]
-        except ApiError:
-            out["in_use"] = []  # an older API has no references route: the apply still guards
+
+        def references() -> dict[str, Any]:
+            try:
+                return ctx.client.request("GET", f"/actors/{seg(id)}/references")
+            except ApiError as exc:
+                if exc.status in (404, 405) and exc.code == "error":
+                    return {}  # an older API has no references route: the apply still guards
+                raise
+
+        refs = _api.call(references)
+        out["in_use"] = [i for i in refs.get("items") or [] if i.get("enabled")]
         if out["in_use"] and not force:
             out["hint"] = "in use: --apply is refused unless you pass --force"
         return out

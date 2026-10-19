@@ -278,6 +278,33 @@ def test_disable_without_referrers_keeps_its_positional_id(store, monkeypatch, c
     assert store.get("actors", "new")["enabled"] is False
 
 
+class FailsReferences:
+    """The references read answers ``status`` with the server's own error envelope."""
+
+    def __init__(self, real, status):
+        self.real, self.status = real, status
+
+    def __call__(self, method, url, headers, body):
+        if url.split("?")[0].endswith("/references"):
+            err = {"error": {"code": "internal", "message": "boom", "errors": []}}
+            return self.status, json.dumps(err).encode()
+        return self.real(method, url, headers, body)
+
+
+def test_disable_dry_run_on_an_old_server_lists_no_referrers(store, monkeypatch, capsys):
+    client = seeded(store)
+    wire_to(monkeypatch, OldServer(Tap(client)))
+    out = jok(capsys, "actors", "disable", "old")
+    assert out["dry_run"] is True and out["in_use"] == []
+
+
+def test_disable_dry_run_does_not_read_a_failed_lookup_as_not_in_use(store, monkeypatch, capsys):
+    client = seeded(store)
+    wire_to(monkeypatch, FailsReferences(Tap(client), 500))
+    err = jfail(capsys, 1, "actors", "disable", "old")
+    assert "boom" in err["message"]
+
+
 # --------------------------------------------------------------------------- repoint-actor
 
 REPOINT = ["workflows", "repoint-actor", "news", "--from", "old", "--to", "new"]
