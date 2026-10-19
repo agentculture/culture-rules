@@ -208,7 +208,8 @@ def test_a_malformed_allowlist_is_refused_before_any_secret(store, value):
     assert resolved == [] and t.calls == []
 
 
-def test_an_object_valued_allowlist_is_read_too(store, monkeypatch):
+def test_an_object_valued_allowlist_is_refused(store, monkeypatch):
+    """d4: model_gateways is a list of "machine=URL" strings only; an object fails closed."""
     real = store.get_variable
 
     def fake(name):
@@ -217,10 +218,12 @@ def test_an_object_valued_allowlist_is_read_too(store, monkeypatch):
         return real(name)
 
     monkeypatch.setattr(store, "get_variable", fake)
-    client, _ = make_client(store, default_gateways())
+    t = default_gateways()
+    client, resolved = make_client(store, t)
     r = enrol(client)
-    assert r.status_code == 200, r.text
-    assert r.json()["gateways"][0]["url"] == SPARK
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "invalid_model_gateways"
+    assert resolved == [] and t.calls == []
 
 
 @pytest.mark.parametrize("key", ["sk-literal", "", "grant:"])

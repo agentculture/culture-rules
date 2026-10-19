@@ -215,10 +215,8 @@ def _is_http_url(value: Any) -> bool:
 
 
 def _gateway_pairs(value: Any) -> list[tuple[Any, Any]] | None:
-    """``model_gateways`` as (machine, URL) pairs: an object, or (what the variable model can
-    hold today: a scalar or a list of scalars) a list of ``"machine=URL"`` strings."""
-    if isinstance(value, dict):
-        return list(value.items())
+    """``model_gateways`` as (machine, URL) pairs, from a list of ``"machine=URL"`` strings
+    (a variable holds a scalar or a list of scalars, never an object)."""
     if isinstance(value, list) and all(isinstance(i, str) and "=" in i for i in value):
         return [tuple(i.split("=", 1)) for i in value]
     return None
@@ -240,7 +238,7 @@ def _gateway_allowlist(store: StoragePort) -> dict[str, str]:
     ):
         message = (
             f"the {MODEL_GATEWAYS} variable must map each machine to an http(s) URL "
-            '(a list of "machine=URL" strings, or an object)'
+            '(a list of "machine=URL" strings)'
         )
         raise Conflict(
             message,
