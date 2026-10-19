@@ -30,7 +30,9 @@ plan. What exists today:
   loopback listener, service tokens on a LAN listener, and roles.
 - **The CLI** over the API: the noun groups `rules`, `workflows`, `actors`,
   `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
-  identity verbs. Writes are dry-run by default, `--apply` commits.
+  identity verbs. Writes are dry-run by default, `--apply` commits. The model
+  verbs are `actors enrol-models|references|disable` and `workflows
+  repoint-actor` (below).
 - **The MCP server** (`culture-rules mcp`, the `mcp` extra) serves the same
   verbs as tools. A parity test keeps CLI and MCP identical.
 - **The web editor** in `web/`, built into the wheel as
@@ -107,6 +109,22 @@ plan. What exists today:
   - `rules migrate-orphans [--apply]` gives each workflow-less rule its own
     stepless workflow; the rollout order runs both migrations
     (`docs/operations/rollout.md`).
+- **Model actors** (spec `docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`,
+  setup `docs/operations/model-actors.md`):
+  - `actors enrol-models --gateway MACHINE --match GLOB` (repeatable; admin)
+    plans, then with `--apply` writes, one endpoint actor per matched model
+    served by the gateways in the shared variable `model_gateways` (a list of
+    `"machine=URL"` strings, the allowlist; the grant is resolved only after
+    it passes), `actors references ID` lists what names an actor,
+    `actors disable ID [--force]` is refused with `actor_in_use` while an
+    enabled workflow or rule uses it, and `workflows repoint-actor WF --from A
+    --to B` moves a workflow (a trusted one needs `--force`);
+  - the model rule: one enabled endpoint actor (one with `params.base_url`)
+    per model (409 `model_taken`, and again at run time in `llm.complete`);
+    mesh agents without `base_url` are outside it;
+  - the same verbs are MCP tools, and the Actors page has Add models, Used by
+    with Move, and Disable anyway; an older server answers exit 2;
+  - the newspaper bundle summarises on `cortex-spark2`.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

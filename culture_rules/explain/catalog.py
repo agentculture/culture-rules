@@ -411,10 +411,11 @@ enabled workflow or rule uses the actor; `--force` disables it anyway. The dry-r
 enabled referrers as `in_use`.
 
 `workflows repoint-actor ID --from A --to B [--expected-revision N] [--force]` points every
-action step (and the placement) that names `A` at `B`. Without `--expected-revision` the CLI
-reads the workflow's current revision first and sends it; a stale one is 409
-`revision_conflict` (exit 1). A trusted workflow is refused (`workflow_trusted`) unless
-`--force`, which drops its trust. The dry-run lists the changed step paths and warnings.
+action step that names `A` at `B` (a step placed on `A` is only warned about). Without
+`--expected-revision` the CLI reads the workflow's current revision first and sends it; a
+stale one is 409 `revision_conflict` (exit 1). A trusted workflow is refused
+(`workflow_trusted`) unless `--force`, which drops its trust. The dry-run lists the changed
+step paths and warnings.
 
 Against an API older than 0.22.0 these routes do not exist and the verbs exit 2 with
 "server too old: needs culture-rules >= 0.22.0".
