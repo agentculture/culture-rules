@@ -8,7 +8,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not ubuntu-latest: on the ubuntu-26.04 image (kernel 7.0, Docker 29) the
+    # Mongo rig's mongod rarely answers within its 60 s start deadline, so every Mongo-backed
+    # test fails with connection refused (PR #72, 2026-10-19).
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     # Promote SONAR_TOKEN to job env so the SonarCloud step can gate on
