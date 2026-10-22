@@ -10,6 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Close out workflow-connecting-phrases (#69): the operator approved evidence e1-e14, deltas b1-b9 and lapse l2; t20 rolled 0.21.0 out live (4 nodes, rollout verify passed, migrate-notes moved 10 workflows byte for byte), filed as e15 and e16; the delivery summary records it, with the first post-rollout pr-fix chain run still to observe
+- CI: the `test` job runs on `ubuntu-24.04`, not `ubuntu-latest`; runner images on kernel 7.0 leave the Mongo rig's mongod unreachable, so the Mongo-backed tests fail or hang (the same pin as #72)
 
 ## [0.21.0] - 2026-10-18
 
