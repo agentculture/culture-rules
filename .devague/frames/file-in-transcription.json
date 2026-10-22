@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-22T21:32:54Z",
-  "updated": "2026-10-22T21:42:58Z",
+  "updated": "2026-10-22T21:47:19Z",
   "claims": [
     {
       "id": "c1",
@@ -903,5 +903,186 @@
     }
   ],
   "lapses": [],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "model/action_kinds.py ACTION_KINDS + node/runner.py default_ports",
+      "behavior": "audio.transcribe is a catalogued kind with typed params (actor, audio_path, audio_sha256, output_dir required; language, model optional) and resolves to a port under action:audio.transcribe; a non-agent actor fails actor_kind_mismatch, a base_url with credentials/query/non-http fails stt_actor_invalid",
+      "source_text": "audio.transcribe is a new action kind (culture_rules/model/action_kinds.py _k entry, a port in culture_rules/node/actions/, registered as action:audio.transcribe in node/runner.py default_ports) on an agent actor whose params mirror llm.complete: base_url, model, api_key grant:..., concurrency_pool, max_concurrency; validation reuses llm.py's _base_url_problem and grant resolve",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "audio.transcribe port: input path checks",
+      "behavior": "audio_path must resolve (following symlinks) inside the actor's params.audio_root and output_dir inside params.output_root; otherwise path_refused before any read or ffmpeg call; an actor with no root set refuses every path",
+      "source_text": "audio.transcribe reads its audio file only under an allowlisted root set in the actor's params and refuses a path outside it or a symlink that resolves outside it (error code path_refused); nothing in culture_rules does this today, so the containment code is new (the only precedent is io/gitrepo.py:56-60, resolve() + is_relative_to)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "audio.transcribe port: HTTP transport",
+      "behavior": "each window is one multipart POST to base_url + /v1/audio/transcriptions with fields file and language (when given), Authorization Bearer from the grant, no proxy, no redirects; the key never appears in outputs or error messages",
+      "source_text": "the upload is a multipart POST to <base_url>/v1/audio/transcriptions with the fields file and language, built with the existing encode_multipart in node/actions/library.py:123-148 (stdlib only, no new runtime dependency)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c6",
+      "seam": "split module (ffprobe/ffmpeg)",
+      "behavior": "a file longer than one window yields contiguous, non-overlapping windows whose durations sum to the file's within 0.1 s, cut at a detected silence when one falls in the search span, else at the hard limit",
+      "source_text": "long audio (over 600 s or 16 MiB) is split by ffmpeg on the runner host into windows under both caps, cut at silences where ffmpeg silencedetect finds one, each window sent separately, and every segment's start/end offset by its window's start; ffmpeg/ffprobe are system binaries called through subprocess argv lists (no shell, the nosec B603 convention), present on spark at /usr/bin",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c28",
+      "seam": "split module window limits",
+      "behavior": "no window exceeds 480 s or 16 MiB as sent (16 kHz mono PCM16 WAV)",
+      "source_text": "windows are re-encoded to 16 kHz mono PCM16 WAV (32 000 bytes/s), so the 16 MiB upload cap binds at about 524 s before the 600 s cap does; windows are at most 480 s long, cut earlier at a silence when one falls in the last 60 s of the window",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c7",
+      "seam": "audio.transcribe port: reply parsing",
+      "behavior": "a {text} reply becomes one segment spanning its window; a reply with segments keeps them with start/end offset by the window start; anything else fails stt_bad_response",
+      "source_text": "the result file shape is {schema: 1, audio_sha256, model, language, duration, segments: [{start, end, text}], created_at}; while lobes returns only {text}, each window becomes one segment covering the window, and a later verbose_json response (lobes-cli#328) drops finer segments into the same list with no schema change",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c32",
+      "seam": "result file builder",
+      "behavior": "an empty window reply is kept as a segment with text ''; the file carries window_count and empty_window_count",
+      "source_text": "silent gaps stay visible: a window whose reply text is empty is kept as a segment with empty text, and the result file carries window_count and empty_window_count, because lobes drops low-confidence 30 s chunks (MIN_AVG_LOGPROB) without saying so until lobes-cli#328's dropped[] ships",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c8",
+      "seam": "result file writer",
+      "behavior": "the result is written to a same-directory temp file then os.replace'd to <output_dir>/<audio_sha256>/transcript.<model-slug>.json; outputs are exactly result_path, result_sha256 (of the bytes on disk), audio_sha256, model, language, segment_count, window_count, empty_window_count \u2014 no transcript text",
+      "source_text": "the action writes `<output_dir>/<audio_sha256>/transcript.<model-slug>.json` atomically (temp file then rename) under an allowlisted output root, and returns only scalars (result_path, result_sha256, audio_sha256, model, language, segment_count) so the transcript never sits in run state or in the rules.run.succeeded event",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c9",
+      "seam": "audio.transcribe port: no-op check",
+      "behavior": "when the target file exists with matching audio_sha256 and model and the input audio hashes to audio_sha256, the port returns that file's outputs with zero endpoint calls and no ffmpeg run",
+      "source_text": "re-running the same (audio_sha256, model) is a cheap no-op: when the result file exists and its recorded audio_sha256 and model match, the action returns the existing file's outputs without calling the endpoint",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c31",
+      "seam": "audio.transcribe port: input validation",
+      "behavior": "audio_sha256 not matching ^[0-9a-f]{64}$ fails invalid_request before any filesystem call; an audio file whose sha256 differs fails audio_mismatch before any endpoint call",
+      "source_text": "audio_sha256 must be 64 lowercase hex characters (invalid_request otherwise) before it forms any path, and the action hashes the audio file and refuses a mismatch with audio_mismatch before transcribing, not only on the no-op path",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c29",
+      "seam": "audio.transcribe port: work directory",
+      "behavior": "per-window replies are stored atomically in a work dir keyed by (audio_sha256, model); a retried attempt sends only missing windows; the work dir is removed after the final rename",
+      "source_text": "a retry resumes rather than restarts: each window's reply is kept in a work directory under the output root keyed by (audio_sha256, model), a retried attempt sends only the windows still missing, and the work directory is removed after the final rename",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c10",
+      "seam": "audio.transcribe port: error mapping",
+      "behavior": "connection errors, 5xx, 408 and 429 fail stt_unavailable retryable; other 4xx (413 included) stt_rejected; ffmpeg/ffprobe decode failure or the endpoint's 400 invalid_audio audio_undecodable; each not retryable except stt_unavailable",
+      "source_text": "failures end the run failed with distinct error codes: stt_unavailable (retryable: connection error, 5xx, 408, 429), stt_rejected (other 4xx incl. 413), audio_undecodable (ffmpeg/ffprobe or the endpoint's 400 invalid_audio), path_refused, plus the shared actor_kind_mismatch/secret_unresolved/stt_actor_invalid",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c33",
+      "seam": "audio.transcribe port: tool check",
+      "behavior": "ffmpeg or ffprobe missing from the node's PATH fails ffmpeg_missing, not retryable, naming the binary, before any endpoint call",
+      "source_text": "a missing ffmpeg or ffprobe on the actor's machine fails at once with ffmpeg_missing (not retryable), naming the binary, instead of a generic error",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c11",
+      "seam": "docs/rules/pocket-transcribe bundle + tests/rules/test_pocket_transcribe_bundle.py",
+      "behavior": "the bundle imports into a MemoryStore with no errors, the rule disabled, event trigger params.type pocketsync.recording.landed, concurrency key stt:{trigger.data.audio_sha256}, workflow inputs/outputs as specified, description and notes set, and a clean secrets scan",
+      "source_text": "a transcribe-file workflow (inputs audio_path, audio_sha256, language optional, model optional, output_dir; exported outputs result_path, result_sha256, audio_sha256, model, language, segment_count) ships in a bundle docs/rules/pocket-transcribe/ with actors/, workflows/, rules/ and variables like docs/rules/newspaper, the rule disabled, triggered by event type pocketsync.recording.landed with concurrency key stt:{trigger.data.audio_sha256}, and a bundle test like tests/rules/test_newspaper_bundle.py",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c30",
+      "seam": "bundle transcribe step",
+      "behavior": "the transcribe step's timeout_s is >= 14400",
+      "source_text": "the bundle's transcribe step sets timeout_s 14400 explicitly, because the engine default DEFAULT_TIMEOUT_S is 3600 s (engine/runs.py:306) and the longest landed recording is 3.8 h; with resume, a timed-out attempt continues on retry",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c25",
+      "seam": "engine: event -> run -> rules.run.succeeded",
+      "behavior": "a synthetic pocketsync.recording.landed event with the rule enabled, a fake STT transport and generated audio produces a run whose rules.run.succeeded event carries the outputs in data.outputs, and the file exists on disk",
+      "source_text": "with the bundle imported and its rule enabled, a pocketsync.recording.landed event makes a run on the STT actor's machine that writes `<output_dir>/<audio_sha256>/transcript.<model-slug>.json` and ends rules.run.succeeded with result_path, result_sha256, audio_sha256, model, language and segment_count in data.outputs; the same audio and model again is a no-op, and a different model writes a second file beside it",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c13",
+      "seam": "workflows run transcribe-file (start_workflow)",
+      "behavior": "a direct run with model=X writes transcript.<slug(X)>.json beside an existing file for another model, leaving that file byte-identical",
+      "source_text": "re-transcribe with a newer model is a direct workflows run transcribe-file --input model=... (cli/_commands/workflows.py:31-73, start_workflow typed inputs); since the file name carries the model slug, older results stay beside it",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c14",
+      "seam": "describe.py ACTION_WORDS, web ActionPicker/types, docs/actors/stt.md + README row",
+      "behavior": "describe renders an audio.transcribe step with its actor; the picker offers the kind with agent actors carrying base_url; web typecheck and vitest pass; the guide exists and is linked",
+      "source_text": "the new kind is wired everywhere the catalogue reaches: model/describe.py ACTION_WORDS, web/src/rules/ActionPicker.tsx (label/params table and an actorsFor case), web/src/api/types.ts kind union, tests/node/test_default_ports.py, an actor guide docs/actors/stt.md with a row in docs/actors/README.md; api/openapi.json has no action-kind enum, and CLI/MCP parity follows ACTION_KINDS with no extra registration",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c15",
+      "seam": "server/model_actors.py needs_endpoint + actors/model_rule.py",
+      "behavior": "an enabled agent actor serving audio.transcribe is an endpoint actor for model_taken and references, the same as llm.complete",
+      "source_text": "an STT agent actor counts as a model endpoint actor for the model_taken rule and actors references/repoint (actors/model_rule.py is_endpoint_actor, server/model_actors.py:337 needs_endpoint = 'llm.complete' in kinds), so needs_endpoint grows to include audio.transcribe",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o20",
+      "claim_id": "c18",
+      "seam": "PR diff",
+      "behavior": "no new code opens a Mongo client outside culture-rules' store or reads Pocket's transcript.json",
+      "source_text": "culture-rules never writes pocketsync-mongo or any recordings store, and never reads Pocket's transcript as input to its own; it reads the landed audio file and writes only its own result file",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }

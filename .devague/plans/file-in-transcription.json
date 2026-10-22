@@ -1,0 +1,553 @@
+{
+  "slug": "file-in-transcription",
+  "title": "File-in transcription",
+  "frame_slug": "file-in-transcription",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-22T21:43:48Z",
+  "updated": "2026-10-22T21:48:00Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-rules transcribes a given audio file: an audio.transcribe action on an agent actor sends the file to an OpenAI-compatible speech-to-text endpoint (the lobes gateway), splits long audio, and a disabled transcribe-file bundle, fired by pocketsync.recording.landed, writes a timestamped transcript file and exports scalar outputs for whoever reads it next",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "the announcement ships whole: the action kind, the long-audio split, the disabled bundle and the result file all exist in the PR, and none of #73 items 4-9 do",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "audio.transcribe is a new action kind (culture_rules/model/action_kinds.py _k entry, a port in culture_rules/node/actions/, registered as action:audio.transcribe in node/runner.py default_ports) on an agent actor whose params mirror llm.complete: base_url, model, api_key grant:..., concurrency_pool, max_concurrency; validation reuses llm.py's _base_url_problem and grant resolve",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "audio.transcribe appears in ACTION_KINDS with typed params (actor, audio_path, audio_sha256, output_dir, language, model) and has a port registered under action:audio.transcribe, so test_default_ports passes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "audio.transcribe reads its audio file only under an allowlisted root set in the actor's params and refuses a path outside it or a symlink that resolves outside it (error code path_refused); nothing in culture_rules does this today, so the containment code is new (the only precedent is io/gitrepo.py:56-60, resolve() + is_relative_to)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "a path outside the root, a '..' escape and a symlink inside the root pointing outside it are all refused with path_refused before any byte is read or sent; the output_dir is held to its own allowlisted root the same way",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "the upload is a multipart POST to <base_url>/v1/audio/transcriptions with the fields file and language, built with the existing encode_multipart in node/actions/library.py:123-148 (stdlib only, no new runtime dependency)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the request is multipart with file and language fields to <base_url>/v1/audio/transcriptions with Authorization Bearer from the grant, no proxy, no redirects; the key never appears in errors or outputs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "long audio (over 600 s or 16 MiB) is split by ffmpeg on the runner host into windows under both caps, cut at silences where ffmpeg silencedetect finds one, each window sent separately, and every segment's start/end offset by its window's start; ffmpeg/ffprobe are system binaries called through subprocess argv lists (no shell, the nosec B603 convention), present on spark at /usr/bin",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "windows are cut at detected silences when one falls in the search span and at the hard limit otherwise; window boundaries never overlap or drop audio, so the windows' durations sum to the file's duration within 0.1 s",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "the result file shape is {schema: 1, audio_sha256, model, language, duration, segments: [{start, end, text}], created_at}; while lobes returns only {text}, each window becomes one segment covering the window, and a later verbose_json response (lobes-cli#328) drops finer segments into the same list with no schema change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "a plain {text} reply becomes exactly one segment {start: window start, end: window end, text}; a verbose_json reply with segments is offset and kept as-is; schema stays 1 in both cases",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "the action writes `<output_dir>/<audio_sha256>/transcript.<model-slug>.json` atomically (temp file then rename) under an allowlisted output root, and returns only scalars (result_path, result_sha256, audio_sha256, model, language, segment_count) so the transcript never sits in run state or in the rules.run.succeeded event",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the result file is written to a temp file in the same directory and renamed, so a killed run leaves no partial transcript.*.json; the outputs carry result_sha256 of the bytes on disk",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "re-running the same (audio_sha256, model) is a cheap no-op: when the result file exists and its recorded audio_sha256 and model match, the action returns the existing file's outputs without calling the endpoint",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "the no-op check reads the existing file's audio_sha256 and model fields and also verifies the input audio's sha256 matches audio_sha256 before trusting either; a mismatch re-transcribes and replaces the file",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "failures end the run failed with distinct error codes: stt_unavailable (retryable: connection error, 5xx, 408, 429), stt_rejected (other 4xx incl. 413), audio_undecodable (ffmpeg/ffprobe or the endpoint's 400 invalid_audio), path_refused, plus the shared actor_kind_mismatch/secret_unresolved/stt_actor_invalid",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "each failure maps to exactly one code and only stt_unavailable is retryable; a run that fails ends in rules.run.failed with that code in error_code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "a transcribe-file workflow (inputs audio_path, audio_sha256, language optional, model optional, output_dir; exported outputs result_path, result_sha256, audio_sha256, model, language, segment_count) ships in a bundle docs/rules/pocket-transcribe/ with actors/, workflows/, rules/ and variables like docs/rules/newspaper, the rule disabled, triggered by event type pocketsync.recording.landed with concurrency key stt:{trigger.data.audio_sha256}, and a bundle test like tests/rules/test_newspaper_bundle.py",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the bundle imports cleanly into a MemoryStore with the rule disabled, passes the secrets scan, its workflow uses description and notes, and the rule's concurrency key is stt:{trigger.data.audio_sha256}",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "re-transcribe with a newer model is a direct workflows run transcribe-file --input model=... (cli/_commands/workflows.py:31-73, start_workflow typed inputs); since the file name carries the model slug, older results stay beside it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "a direct run with model=X writes transcript.<slug(X)>.json and leaves an existing file for another model untouched",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "the new kind is wired everywhere the catalogue reaches: model/describe.py ACTION_WORDS, web/src/rules/ActionPicker.tsx (label/params table and an actorsFor case), web/src/api/types.ts kind union, tests/node/test_default_ports.py, an actor guide docs/actors/stt.md with a row in docs/actors/README.md; api/openapi.json has no action-kind enum, and CLI/MCP parity follows ACTION_KINDS with no extra registration",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "the editor's action picker offers audio.transcribe only with agent actors whose params carry base_url, and the web typecheck and vitest pass; docs/actors/stt.md exists with a README row",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "boundary",
+      "text": "culture-rules never writes pocketsync-mongo or any recordings store, and never reads Pocket's transcript as input to its own; it reads the landed audio file and writes only its own result file",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "no new code opens a Mongo connection outside culture-rules' own store, and no step reads Pocket's transcript.json",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "audience",
+      "text": "pocketsync, which emits pocketsync.recording.landed and reads the result file back, and the operator, who enrols the STT actor, imports and enables the bundle; plus any later workflow that holds a path to an audio file",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "pocketsync can build its side from the committed docs alone: the event name and data fields, the workflow inputs, the result-file shape and the six outputs are written down in one place",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "before_state",
+      "text": "only Pocket's own transcript exists; pocketsync's README (:26) lists re-running STT as a non-goal, no culture-rules action can send audio to the lobes STT route, and nothing in culture_rules reads a rule-supplied file path",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "on main b3a3025 there is no audio.transcribe kind and no code posting to /v1/audio/transcriptions",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "why_it_matters",
+      "text": "our own Hebrew-capable, timestamped transcript unblocks pocketsync own-transcription, and putting it in a generic file-in workflow keeps processing out of pocketsync, which shrinks to pull, webhook, events and its own store (#73)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "transcribe-file has no input or step that names Pocket; only the bundled rule's trigger and input mapping do",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "after_state",
+      "text": "with the bundle imported and its rule enabled, a pocketsync.recording.landed event makes a run on the STT actor's machine that writes `<output_dir>/<audio_sha256>/transcript.<model-slug>.json` and ends rules.run.succeeded with result_path, result_sha256, audio_sha256, model, language and segment_count in data.outputs; the same audio and model again is a no-op, and a different model writes a second file beside it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the after-state is proven by a test that drives a synthetic pocketsync.recording.landed event through the engine to a rules.run.succeeded event, not only by unit tests of the port",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "success_signal",
+      "text": "in tests with a fake STT server and synthetic audio: a 1500 s file is sent as at least 3 windows each <= 600 s and <= 16 MiB, every segment's start is offset by its window start within 0.05 s; a second run of the same (audio_sha256, model) makes 0 endpoint calls; 4 failure cases (endpoint down, undecodable audio, path outside the root, symlink escaping the root) end failed with 4 distinct error codes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the long-audio test really exceeds both caps' logic: the fake server refuses a window over 600 s or 16 MiB with 413, so an unsplit upload would fail the test",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "success_signal",
+      "text": "after rollout, one real recording longer than 600 s transcribes on spark through a direct workflows run transcribe-file with segment_count >= 2 and a Hebrew transcript the operator reads as usable",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "the live check uses a direct run on a file the operator picks; it does not need pocketsync to emit events first",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "windows are re-encoded to 16 kHz mono PCM16 WAV (32 000 bytes/s), so the 16 MiB upload cap binds at about 524 s before the 600 s cap does; windows are at most 480 s long, cut earlier at a silence when one falls in the last 60 s of the window",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "no window sent in the tests is longer than 480 s or larger than 16 MiB, including the last one",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "a retry resumes rather than restarts: each window's reply is kept in a work directory under the output root keyed by (audio_sha256, model), a retried attempt sends only the windows still missing, and the work directory is removed after the final rename",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "a test fails one window mid-file with a retryable error and the retry sends only that window and the ones after it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "the bundle's transcribe step sets timeout_s 14400 explicitly, because the engine default DEFAULT_TIMEOUT_S is 3600 s (engine/runs.py:306) and the longest landed recording is 3.8 h; with resume, a timed-out attempt continues on retry",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "the bundle test reads the transcribe step's timeout_s and asserts it is at least 14400",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "audio_sha256 must be 64 lowercase hex characters (invalid_request otherwise) before it forms any path, and the action hashes the audio file and refuses a mismatch with audio_mismatch before transcribing, not only on the no-op path",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "a crafted audio_sha256 such as '../../etc' never reaches a filesystem call, and a file whose hash differs from the event's is never sent to the endpoint",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "silent gaps stay visible: a window whose reply text is empty is kept as a segment with empty text, and the result file carries window_count and empty_window_count, because lobes drops low-confidence 30 s chunks (MIN_AVG_LOGPROB) without saying so until lobes-cli#328's dropped[] ships",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "a fake reply of empty text for one window yields a segment with text '' at that window's times and empty_window_count 1",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "a missing ffmpeg or ffprobe on the actor's machine fails at once with ffmpeg_missing (not retryable), naming the binary, instead of a generic error",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "a test with ffmpeg absent from PATH ends failed with ffmpeg_missing and no endpoint call",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Audio split module: ffprobe duration, silence-aware windows of at most 480 s, WAV window extraction",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "plan_windows(1500, silences) returns contiguous non-overlapping windows covering 0..1500 within 0.1 s, none longer than 480 s, cut at a silence inside the last 60 s of a window when one exists, else at 480 s",
+        "a 480 s window extracted as 16 kHz mono PCM16 WAV is under 16 MiB (asserted on the real file)",
+        "require_tools() with a PATH lacking ffmpeg raises naming ffmpeg; tests skip cleanly when ffmpeg is not installed"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h11",
+        "c28",
+        "h20"
+      ],
+      "instruction": "New stdlib module culture_rules/node/actions/audio_split.py, tests in tests/node/test_audio_split.py. Functions: require_tools() -> raises a ToolMissing naming ffmpeg or ffprobe (shutil.which); probe_duration(path) via ffprobe; plan_windows(duration, silences, max_s=480, search_s=60) pure function returning [(start, end)]; detect_silences(path) via ffmpeg silencedetect parsing stderr; extract_window(path, start, end, dest) writing 16 kHz mono PCM16 WAV. subprocess argv lists only, timeouts, '# nosec B603'. Tests generate audio with ffmpeg (sine + silence gaps, lavfi) in tmp_path and skip with a reason when ffmpeg is absent; plan_windows is tested without ffmpeg. Never commit audio."
+    },
+    {
+      "id": "t2",
+      "summary": "Transcript result file: schema-1 builder, model slug, atomic write, existing-result read, per-window work dir",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "build_result with one plain-text window at 480-960 s yields one segment {start 480, end 960}; a segments reply at window start 480 shifts each segment by 480; an empty reply yields a '' segment and empty_window_count 1",
+        "write_atomic leaves no partial transcript file when the write raises midway (temp file removed), and returns the sha256 of the file on disk",
+        "WorkDir put/get round-trips per window, survives a new WorkDir instance (resume), and clear() removes it"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h13",
+        "c32",
+        "h24",
+        "c29",
+        "h21"
+      ],
+      "instruction": "New stdlib module culture_rules/node/actions/transcript_file.py, tests in tests/node/test_transcript_file.py. model_slug(model) replaces every char outside [A-Za-z0-9._-] with '-'. result_path(output_dir, audio_sha256, model). build_result(audio_sha256, model, language, duration, windows) where windows is a list of (start, end, reply) and a reply is {text} or {text, segments[]}: plain text -> one segment spanning the window, segments offset by window start, empty text kept as '' segment; adds window_count, empty_window_count, schema 1, created_at. write_atomic(path, doc) via NamedTemporaryFile(dir=same dir) + os.replace, returns sha256 of the bytes written. read_existing(path) returns the doc or None. WorkDir(output_dir, audio_sha256, model): get(i)/put(i, reply) atomic per-window JSON, clear() removes the dir."
+    },
+    {
+      "id": "t3",
+      "summary": "Catalogue the audio.transcribe kind: ACTION_KINDS, describe phrase, endpoint-actor rule",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ACTION_KINDS['audio.transcribe'] has the six typed params with the right required flags, and validate refuses a step missing audio_path",
+        "describe renders an audio.transcribe step with its actor and file in one line",
+        "an enabled agent actor referenced by an audio.transcribe step counts as an endpoint actor for model_taken and actor takeover, with a test"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c2",
+        "h8",
+        "c23",
+        "h3"
+      ],
+      "instruction": "culture_rules/model/action_kinds.py: add _k('audio.transcribe', ...) with ParamSpec actor/audio_path/audio_sha256/output_dir (string, required) and language/model (string, optional); update the module docstring list of kinds needing params.actor. culture_rules/model/describe.py ACTION_WORDS: an entry naming the file (e.g. ('audio_path', 'of {}')). server/model_actors.py:337 needs_endpoint and actors/model_rule.py is_endpoint_actor: treat audio.transcribe like llm.complete (frame assumption c15, confirmed). Tests: tests/model/test_action_kinds.py, tests/model/test_describe.py, the model-rule/takeover tests. This task runs after t5 so the port is already registered and tests/node/test_default_ports.py (every catalogued kind has a port) stays green on both sides of the merge."
+    },
+    {
+      "id": "t4",
+      "summary": "Editor: audio.transcribe in the action picker and web types",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the picker lists audio.transcribe, offers only agent actors with base_url for it, and web typecheck plus vitest pass"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h18"
+      ],
+      "instruction": "web/src/api/types.ts kind union + comment; web/src/rules/ActionPicker.tsx label/params table entry and an actorsFor case offering enabled agent actors whose params carry base_url (as llm.complete does); a vitest case beside ActionPicker.newspaper.test.tsx. Run npm run typecheck and vitest in web/."
+    },
+    {
+      "id": "t5",
+      "summary": "The audio.transcribe port: actor checks, path roots, hash checks, split, upload, resume, error codes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a generated 1500 s file is sent as >= 4 windows each <= 480 s and <= 16 MiB, and every segment start equals its window start within 0.05 s; an unsplit upload would get 413 from the fake",
+        "a second run with the same audio and model makes 0 transport calls and returns the same outputs",
+        "a retryable 503 on window 3 of 4 fails stt_unavailable retryable; the retry sends only windows 3 and 4",
+        "path outside audio_root, a symlink escaping it, an output_dir outside output_root -> path_refused; a bad audio_sha256 -> invalid_request; changed bytes -> audio_mismatch; ffmpeg missing -> ffmpeg_missing; garbage audio -> audio_undecodable; 400 from the endpoint -> stt_rejected; connection refused -> stt_unavailable; none of them calls the endpoint except the last two",
+        "tests/node/test_default_ports.py passes with the kind registered; the api key never appears in any output or error"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c2",
+        "h8",
+        "c3",
+        "h9",
+        "c4",
+        "h10",
+        "c7",
+        "h12",
+        "c9",
+        "h14",
+        "c10",
+        "h15",
+        "c26",
+        "h6",
+        "c29",
+        "h21",
+        "c31",
+        "h23",
+        "c33",
+        "h25"
+      ],
+      "instruction": "New culture_rules/node/actions/stt.py modelled on node/actions/llm.py (LlmCompletePort): check_stt_actor (agent kind, base_url via llm._base_url_problem, model, grant api_key, audio_root, output_root), _Refused `<code>: <detail>` errors, ReplayLedger, injectable transport reusing library.encode_multipart and a no-proxy no-redirect urllib opener; per-request timeout min(remaining deadline, 900 s). Order: validate audio_sha256 regex -> roots (resolve strict, is_relative_to) -> require_tools -> stream-hash the audio (audio_mismatch) -> existing result no-op -> probe/plan/extract windows into a TemporaryDirectory -> for each window not in WorkDir: POST, parse, WorkDir.put -> build_result, write_atomic, WorkDir.clear -> completed outputs. Register 'action:audio.transcribe' in node/runner.py default_ports and update its docstring (the catalogue entry lands in t3, after this task; a port with no catalogue entry is harmless). tests/node/test_audio_transcribe.py calls the port directly with a fake transport that answers 413 for a body over 16 MiB or a WAV over 600 s."
+    },
+    {
+      "id": "t6",
+      "summary": "The pocket-transcribe bundle, the event-to-run-event flow test, actor guide and setup doc",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the bundle imports into a MemoryStore with 0 errors, the rule disabled, secrets scan clean, transcribe step timeout_s >= 14400, and the workflow names no Pocket field",
+        "a synthetic pocketsync.recording.landed event with the rule enabled ends in rules.run.succeeded whose data.outputs carry the eight outputs, and the file exists",
+        "a direct run with another model writes a second file and leaves the first byte-identical",
+        "docs/actors/stt.md and docs/operations/pocket-transcribe.md exist, lint clean, and the README table links stt.md"
+      ],
+      "deps": [
+        "t5",
+        "t3"
+      ],
+      "covers": [
+        "c11",
+        "h16",
+        "c13",
+        "h17",
+        "c14",
+        "h18",
+        "c22",
+        "h2",
+        "c24",
+        "h4",
+        "c25",
+        "h5",
+        "c30",
+        "h22"
+      ],
+      "instruction": "docs/rules/pocket-transcribe/: actors/ (an STT agent actor example with grant:LOBES_GATEWAY_API_KEY, audio_root/output_root, pool and max_concurrency 1 \u2014 no live values beyond localhost), workflows/transcribe-file.json (generic: inputs audio_path, audio_sha256, language, model, output_dir; one audio.transcribe step with timeout_s 14400; outputs result_path, result_sha256, audio_sha256, model, language, segment_count, window_count, empty_window_count; description plain, notes technical, no Pocket words), rules/pocket-transcribe.json (enabled false, event params.type pocketsync.recording.landed, concurrency_key stt:{trigger.data.audio_sha256}, inputs mapped from trigger.data, output_dir as a variable), variables.json + seed-variables.sh like newspaper. tests/rules/test_pocket_transcribe_bundle.py mirrors test_newspaper_bundle.py. tests/node/test_transcribe_file_flow.py drives a synthetic event through MemoryStore + executor + fake transport to rules.run.succeeded, and a direct start_workflow with another model. docs/actors/stt.md (llm.md format; the model must match lobes STT_MODEL) + a README row; docs/operations/pocket-transcribe.md naming pocketsync and the operator, the event fields, inputs, file shape and outputs. Regenerate tests/fixtures/fold_docs_rules.json / describe fixtures if their tests require it."
+    },
+    {
+      "id": "t7",
+      "summary": "Release 0.23.0: version bump, changelog, CLAUDE.md and harness files in step, scope check",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "version is 0.23.0 with a CHANGELOG entry; the four harness files mention the kind; scripts/harness-smoke.py --stage config passes",
+        "the full suite, black, isort, flake8, bandit, markdownlint, scan-secrets and teken doctor --strict pass",
+        "the diff adds no Mongo client outside the store and no items 4-9 code"
+      ],
+      "deps": [
+        "t4",
+        "t6"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c18",
+        "h19"
+      ],
+      "instruction": "version-bump minor (pyproject.toml, CHANGELOG.md, uv.lock); add the audio.transcribe kind and pocket-transcribe bundle to CLAUDE.md, AGENTS.override.md, AGENTS.colleague.md and QWEN.md in step; run the full lint set and uv run pytest -n auto; grep the diff for MongoClient/pymongo and transcript.json reads; confirm no text.embed/segments.chunk/text.classify/text.translate/transcript.compare code landed."
+    },
+    {
+      "id": "t8",
+      "summary": "Live check after merge: roll out 0.23.0, enrol the STT actor, transcribe one long recording by a direct run",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a direct run on a real recording over 600 s ends succeeded with segment_count >= 2, and the operator reads the Hebrew transcript as usable; evidence filed"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c27",
+        "h7"
+      ],
+      "instruction": "Operator-gated. After merge: rollout via the CLI (each step checked); confirm with the operator the gateway's stt route works (park v1) and the actor's machine/model/pool (park v3); import the bundle (rule stays disabled); run workflows run transcribe-file on one landed mp3 over 600 s the operator picks; file evidence. Ask before any sparkrun run/stop."
+    }
+  ],
+  "risks": [],
+  "obligations": []
+}
