@@ -25,13 +25,17 @@ d14 (Simple opens the step panel and the rule pane), d15 quiet-inline design. Ga
 - /validate-delivery: evidence e1-e14, deltas b1-b9 filed (proposed; operator to confirm).
 - /summarize-delivery: docs/deliveries/2026-10-17-workflow-connecting-phrases.md (run: partial).
 
-## Next
+## Next (2026-10-18, after the rollout)
 
-1. Operator: confirm e1-e14, b1-b9 (and lapse l2); review and merge PR #70.
-2. t20 live rollout from the operator's shell: idle, pause, upgrade every host,
-   `workflows migrate-notes` (dry run, --apply, dry run = 0), seed, import,
-   `rules migrate-orphans` (dry run, --apply, dry run = 0), enable, resume, verify.
-3. Live PR fixer: Qwen reviewer fails with JSON-RPC -32603 (two hand-backs on #70).
+1. Done: PR #70 merged (2be3b8d); the operator approved e1-e14, b1-b9 and l2; t20 rolled 0.21.0
+   out live (rollout verify passed; migrate-notes moved 10 workflows, 51/51 texts byte for byte;
+   migrate-orphans had 0), filed as e15 and e16 (approved 2026-10-19). Closeout PR on
+   `rules/workflow-phrases-closeout` (0.21.1).
+2. Open: watch the next pr-fix chain run on 0.21.0; it must not end in `workflow_not_trusted`
+   (t20's last criterion, o8's live half).
+3. Open: the Qwen reviewer on spark2 fails with JSON-RPC -32603 within ~15 s of session/prompt
+   (runs run-c21a3ad5..., run-8b813e43...); cortex now runs on both Sparks behind the lobes
+   model-gear gateways, so check the cortex endpoint in the culture-fixer account's Qwen Code settings.
 
 ## Open notes
 

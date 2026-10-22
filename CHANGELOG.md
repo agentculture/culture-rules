@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-10-18
+
+### Changed
+
+- Close out workflow-connecting-phrases (#69): the operator approved evidence e1-e14, deltas b1-b9 and lapse l2; t20 rolled 0.21.0 out live (4 nodes, rollout verify passed, migrate-notes moved 10 workflows byte for byte), filed as e15 and e16; the delivery summary records it, with the first post-rollout pr-fix chain run still to observe
+- CI: the `test` job runs on `ubuntu-24.04`, not `ubuntu-latest`, while kernel 7.0 runner images are checked (the same pin as #72)
+
+### Fixed
+
+- Mongo test rigs: mongod 8.0 refuses to start on a kernel reporting 6.19 to 7.0.13 (TCMalloc and rseq, SERVER-121912), which GitHub's kernel 7.0 runner images do, so the Mongo-backed tests failed or hung; both rigs now pass `GLIBC_TUNABLES=glibc.pthread.rseq=1`, which turns off TCMalloc's per-CPU caches and with them the check
+
 ## [0.21.0] - 2026-10-18
 
 ### Added
