@@ -1,0 +1,6 @@
+{
+  "transcripts_dir": {
+    "description": "The directory transcripts go under (inside the STT actor's output_root); seed-variables.sh expands a leading ~/ to the seeding user's home",
+    "value": "~/.local/share/culture-rules/transcripts"
+  }
+}

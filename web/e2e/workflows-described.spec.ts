@@ -4,7 +4,7 @@ import { DESCRIBED, DESCRIBED_WORKFLOWS, mockDescribedApi, stepIds } from "./fix
 
 /**
  * Behavioural check of the workflow descriptions and the joined paragraph (plan t18; c21/h18,
- * c22/h19, c9): the committed nine workflows, served with the REAL API's describe paragraphs
+ * c22/h19, c9): the committed ten workflows, served with the REAL API's describe paragraphs
  * (e2e/fixtures/describe-paragraphs.json, regenerated and compared by
  * tests/model/test_describe_paragraphs_fixture.py). Fails if a description, the paragraph, a
  * step, or the Notes is missing, or if the page shows a phrase the API did not send.
@@ -35,8 +35,8 @@ const paragraph = (page: Page) => page.getByTestId("paragraph");
 const WORKFLOWS = DESCRIBED_WORKFLOWS.map((w) => w.id);
 
 test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
-  test("the fixture has the nine committed workflows, one with no description and a step with none", () => {
-    expect(WORKFLOWS).toHaveLength(9);
+  test("the fixture has the ten committed workflows, one with no description and a step with none", () => {
+    expect(WORKFLOWS).toHaveLength(10);
     expect(DESCRIBED_WORKFLOWS.filter((w) => !w.description?.trim()).map((w) => w.id)).toEqual(["daily-newspaper"]);
     const gaps = Object.values(DESCRIBED).flatMap((d) => d.paragraph.segments.filter((s) => s.gap));
     expect(gaps.length).toBeGreaterThan(0);
@@ -46,7 +46,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     await open(page, "/workflows");
     await expect(page.locator("aside.wf-pane")).toHaveCount(0);
     const cards = page.getByRole("list", { name: "All workflows" }).getByRole("listitem");
-    await expect(cards).toHaveCount(9);
+    await expect(cards).toHaveCount(10);
     for (const wf of DESCRIBED_WORKFLOWS) {
       const card = page.getByRole("link", { name: new RegExp(`^${wf.name}`) }).first();
       const expected = wf.description?.trim() || "No description yet";

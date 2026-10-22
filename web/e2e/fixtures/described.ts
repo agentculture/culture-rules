@@ -8,7 +8,7 @@ import { mockApi } from "./api";
 import { mockWorkflowsApi, type Recorded } from "./workflows";
 
 /**
- * The nine committed workflows (docs/rules) and their rules with the written descriptions
+ * The ten committed workflows (docs/rules) and their rules with the written descriptions
  * applied, and what the real API answers for each `GET /workflows/{id}/describe`. The JSON is
  * generated from Python (tests/model/test_describe_paragraphs_fixture.py regenerates it and fails
  * on drift), so the mock serves the paragraph exactly as `workflow_paragraph` builds it.
@@ -50,7 +50,7 @@ export function stepIds(steps: readonly Step[] | undefined): string[] {
   return (steps ?? []).flatMap((s) => [s.id, ...stepIds(s.body)]);
 }
 
-/** Compose after nothing: serves the shared API, the nine workflows, their rules and describes. */
+/** Compose after nothing: serves the shared API, the ten workflows, their rules and describes. */
 export async function mockDescribedApi(page: Page): Promise<Recorded[]> {
   await mockApi(page);
   const calls = await mockWorkflowsApi(page, DESCRIBED_WORKFLOWS);

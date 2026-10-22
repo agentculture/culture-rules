@@ -1,0 +1,23 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "audio.transcribe endpoint: the lobes gateway on spark, model ivrit-ai/whisper-large-v3-turbo (it must equal the gateway's STT_MODEL: lobes ignores the model field), pool stt-spark. audio_root and output_root ship as /home/OPERATOR placeholders: set them to the node user's real paths before enabling the rule (docs/operations/pocket-transcribe.md).",
+  "enabled": true,
+  "harness": null,
+  "id": "whisper-he",
+  "kind": "agent",
+  "machine": "spark",
+  "model": null,
+  "name": "whisper-he",
+  "params": {
+    "api_key": "grant:LOBES_GATEWAY_API_KEY",
+    "audio_root": "/home/OPERATOR/.local/share/pocketsync/files",
+    "base_url": "http://127.0.0.1:8001",
+    "concurrency_pool": "stt-spark",
+    "max_concurrency": 1,
+    "model": "ivrit-ai/whisper-large-v3-turbo",
+    "output_root": "/home/OPERATOR/.local/share/culture-rules/transcripts"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}
