@@ -20,8 +20,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - The newspaper bundle summarises on the `cortex-spark2` actor instead of `newspaper-llm`; an install with the earlier actor moves once (disable `newspaper-llm --force`, enrol, repoint, check)
-- CI's `test` job runs on `ubuntu-24.04` instead of `ubuntu-latest`. Runner images on kernel 7.0 (ubuntu-26.04, and ubuntu-24.04 from 20261018) leave the Mongo test rig's mongod unreachable past its 60 s start deadline; the rig now keeps a failed container until cleanup and reports its state and log tail
+- CI's `test` job runs on `ubuntu-latest` again: with 0.21.1's `GLIBC_TUNABLES=glibc.pthread.rseq=1` mongod 8.0 starts on the kernel 7.0 runner images. The Mongo test rig keeps a container whose mongod exits and, when mongod does not come up, reports the container's state and log tail
 - `culture-rules learn`, the `explain` notes and the four harness prompt files (`CLAUDE.md`, `QWEN.md`, `AGENTS.override.md`, `AGENTS.colleague.md`) describe the model-actor verbs
+
+## [0.21.1] - 2026-10-18
+
+### Changed
+
+- Close out workflow-connecting-phrases (#69): the operator approved evidence e1-e14, deltas b1-b9 and lapse l2; t20 rolled 0.21.0 out live (4 nodes, rollout verify passed, migrate-notes moved 10 workflows byte for byte), filed as e15 and e16; the delivery summary records it, with the first post-rollout pr-fix chain run still to observe
+- CI: the `test` job runs on `ubuntu-24.04`, not `ubuntu-latest`, while kernel 7.0 runner images are checked (the same pin as #72)
+
+### Fixed
+
+- Mongo test rigs: mongod 8.0 refuses to start on a kernel reporting 6.19 to 7.0.13 (TCMalloc and rseq, SERVER-121912), which GitHub's kernel 7.0 runner images do, so the Mongo-backed tests failed or hung; both rigs now pass `GLIBC_TUNABLES=glibc.pthread.rseq=1`, which turns off TCMalloc's per-CPU caches and with them the check
 
 ## [0.21.0] - 2026-10-18
 
