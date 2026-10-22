@@ -35,7 +35,7 @@ needs_ffmpeg = pytest.mark.skipif(
 
 LOCAL = "http://127.0.0.1:8001"
 MODEL = "ivrit-ai/whisper-large-v3-turbo"
-SECRET = "sk-test-SECRET-VALUE-123"
+FAKE_BEARER = "sk-test-bearer-value-123"
 KEY_REF = "grant:STT_KEY"
 MAX_BODY = 16 * 1024 * 1024
 MAX_WAV_S = 600.0
@@ -206,7 +206,7 @@ class Env:
 
     def _secret(self, name: str) -> str:
         self.secret_lookups.append(name)
-        return SECRET
+        return FAKE_BEARER
 
     def new_port(self) -> AudioTranscribePort:
         return AudioTranscribePort(self.store, transport=self.transport, secret_runner=self._secret)
@@ -230,7 +230,7 @@ def _failed(res, code, *, retryable=False):
     assert res.outcome == FAILED, res
     assert res.error.split(":", 1)[0] == code, res.error
     assert res.retryable is retryable, res
-    assert SECRET not in res.error
+    assert FAKE_BEARER not in res.error
     return res
 
 
@@ -249,7 +249,7 @@ def test_a_1500s_file_is_sent_as_capped_windows_with_offset_segments(tmp_path, l
         assert call["seconds"] <= 480 + 0.05
         assert call["size"] <= MAX_BODY
         assert call["url"] == LOCAL + "/v1/audio/transcriptions"
-        assert call["headers"]["Authorization"] == "Bearer " + SECRET
+        assert call["headers"]["Authorization"] == "Bearer " + FAKE_BEARER
         assert call["fields"] == ["file", "language"]
         assert call["language"] == "he"
         assert call["file_type"] == "audio/wav"
@@ -640,7 +640,7 @@ def test_a_secret_failure_is_secret_unresolved(tmp_path, short_audio):
     env = Env(tmp_path, short_audio)
 
     def broken(_name):
-        raise RuntimeError(SECRET)
+        raise RuntimeError(FAKE_BEARER)
 
     port = AudioTranscribePort(env.store, transport=env.transport, secret_runner=broken)
     _failed(env.invoke(port=port), "secret_unresolved")
@@ -667,8 +667,8 @@ def test_a_passed_deadline_sends_nothing(tmp_path, short_audio):
 def test_the_key_never_appears_in_outputs_or_files(tmp_path, short_audio):
     env = Env(tmp_path, short_audio)
     res = env.invoke()
-    assert SECRET not in json.dumps(res.output)
-    assert SECRET not in Path(res.output["result_path"]).read_text()
+    assert FAKE_BEARER not in json.dumps(res.output)
+    assert FAKE_BEARER not in Path(res.output["result_path"]).read_text()
     assert env.secret_lookups == ["STT_KEY"]
 
 
@@ -703,7 +703,7 @@ def test_the_urllib_transport_posts_multipart_to_a_local_server(tmp_path, short_
         assert res.outcome == COMPLETED, res
         assert seen == {
             "path": "/v1/audio/transcriptions",
-            "auth": "Bearer " + SECRET,
+            "auth": "Bearer " + FAKE_BEARER,
             "parts": ["file", "language"],
         }
     finally:

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-22T21:32:54Z",
-  "updated": "2026-10-22T21:47:19Z",
+  "updated": "2026-10-22T22:08:42Z",
   "claims": [
     {
       "id": "c1",
@@ -902,7 +902,41 @@
       "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "t5's task agent wrote tests and implementation together; the brief's test-first step (each test seen failing before the code) was skipped, so only the long-file split assertion is proven able to fail (by a mutation run)",
+      "skipped_check": "red run of tests/node/test_audio_transcribe.py before stt.py existed",
+      "refs": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "provenance-missing",
+      "what": "t1's task agent returned a final report reading only 'placeholder' (no files, test counts or divergences); t1 was accepted on the main agent's own re-run of its tests and lint and a read of the code, not on the agent's account",
+      "skipped_check": "task agent final report",
+      "refs": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "control-absent",
+      "what": "the main agent's after-merge gate for t1/t2/t5 ran only tests/node, tests/model and tests/rules, so tests/test_scan_secrets.py failing on t5's test literal was missed until t3's full-suite run",
+      "skipped_check": "full uv run pytest -n auto after each merge",
+      "refs": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",
