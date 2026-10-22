@@ -171,8 +171,12 @@ recorded on the PR with a screenshot.
   `src/api/rules.ts`.
 - **Actors** (`/actors?id=`) is the 'Chosen — Actors' board: a
   large-type roster with a kind filter, one row per actor, expanding
-  inline to edit (`PUT /actors/{id}`), enable/disable and delete. Code:
-  `src/actors/`, `src/api/actors.ts`.
+  inline to edit (`PUT /actors/{id}`), enable/disable and delete. It also
+  has **Add models** (admin: gateways, globs and pools, the server's plan,
+  then Apply), **Used by** with **Move** (the actor's references; repoint a
+  workflow) and the in-use Disable refusal with **Disable anyway**; these are
+  hidden on a server older than 0.22.0. Code: `src/actors/` (`AddModelsPanel.tsx`,
+  `UsedBy.tsx`), `src/api/actors.ts`.
 - **Variables** (`/variables`) holds the shared values rules read as
   `vars.<name>`. Code: `src/routes/Variables.tsx`.
 - **Statistics** (`/statistics`) is the 'Chosen — Statistics' board: one

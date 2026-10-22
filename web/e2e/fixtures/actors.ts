@@ -28,6 +28,16 @@ export async function mockActorsApi(page: Page): Promise<ActorCall[]> {
     const raw = request.postData();
     const body = raw ? JSON.parse(raw) : undefined;
     calls.push({ method, path: url.pathname, body });
+    // The current API's Used by route; nothing in this fixture references an actor.
+    const refs = method === "GET" ? url.pathname.match(/^\/api\/actors\/([^/]+)\/references$/) : null;
+    if (refs) {
+      const known = actors.some((a) => a.id === decodeURIComponent(refs[1]));
+      return route.fulfill(
+        known
+          ? json(200, { actor_id: decodeURIComponent(refs[1]), items: [] })
+          : json(404, { error: { code: "not_found", message: `actors/${refs[1]} does not exist`, errors: [] } }),
+      );
+    }
     const m = url.pathname.match(/^\/api\/actors(?:\/([^/]+)(?:\/(enable|disable))?)?$/);
     if (!m) return route.fulfill(json(404, { error: { code: "not_found", message: url.pathname, errors: [] } }));
     const [, id, verb] = m;

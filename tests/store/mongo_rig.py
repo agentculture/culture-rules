@@ -155,8 +155,7 @@ def start(workdir: Path) -> Rig:
     _run(
         "docker",
         "run",
-        "-d",
-        "--rm",
+        "-d",  # no --rm: a mongod that exits keeps its log until stop() removes it
         "--network",
         "host",
         "--name",
@@ -173,10 +172,30 @@ def start(workdir: Path) -> Rig:
     rig = Rig(name, port, workdir / "ca.pem", workdir)
     try:
         _bootstrap(rig, MongoClient, PyMongoError)
+    except Exception as exc:
+        why = _diagnose(rig)
+        stop(rig)
+        raise RuntimeError(f"mongod in {name} did not come up: {exc}\n{why}") from exc
     except BaseException:
         stop(rig)
         raise
     return rig
+
+
+def _diagnose(rig: Rig) -> str:
+    """The container's state and the tail of its log, for a start that failed in CI."""
+    state = _run(
+        "docker",
+        "inspect",
+        "-f",
+        "status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} "
+        "error={{.State.Error}}",
+        rig.container,
+        check=False,
+        timeout=30,
+    )
+    logs = _run("docker", "logs", "--tail", "40", rig.container, check=False, timeout=30)
+    return f"{state.stdout.strip() or state.stderr.strip()}\n{logs.stdout}{logs.stderr}"
 
 
 def _bootstrap(rig: Rig, mongo_client, pymongo_error) -> None:

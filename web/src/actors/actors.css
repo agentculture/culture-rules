@@ -475,3 +475,243 @@
     grid-template-columns: 1fr auto;
   }
 }
+
+/* ---------- model actors (t10): Add models, Used by, Move, in-use refusal ---------- */
+
+.actors-toolbar__models {
+  margin-left: auto;
+  background: var(--surface);
+}
+
+.actors-toolbar__models + .actors-toolbar__add {
+  margin-left: 0;
+}
+
+.models-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.models-panel__gateways {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.models-panel__empty {
+  margin: 0;
+  font-size: 17px;
+}
+
+.models-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.models-plan__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.models-plan__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 16px;
+}
+
+.models-plan__item:last-child {
+  border-bottom: 0;
+}
+
+.models-plan__action {
+  flex: none;
+  width: 92px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.models-plan__item[data-action="create"] .models-plan__action,
+.models-plan__item[data-action="update"] .models-plan__action {
+  color: var(--accent);
+}
+
+.models-plan__item[data-action="refused"] .models-plan__action {
+  color: var(--danger);
+}
+
+.models-plan__id {
+  font-size: 18px;
+}
+
+.models-plan__note {
+  margin: 0;
+  font-size: 15px;
+}
+
+.models-plan__done {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.used-by {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.used-by__title {
+  margin: 0;
+  font: 600 15px var(--font-body);
+  color: var(--ink-soft);
+}
+
+.used-by__none {
+  margin: 0;
+  font-size: 16px;
+}
+
+.used-by__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.used-by__item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.used-by__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  min-height: 44px;
+}
+
+.used-by__kind {
+  flex: none;
+  width: 72px;
+  font-size: 15px;
+}
+
+.used-by__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--ink);
+  font: 600 20px var(--font-display);
+}
+
+.used-by__link:hover {
+  color: var(--accent);
+}
+
+.used-by__paths {
+  flex: 1;
+  min-width: 0;
+}
+
+.used-by__move-button {
+  margin-left: auto;
+  height: 44px;
+}
+
+.used-by__move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--bg);
+}
+
+.used-by__to {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.used-by__move select {
+  height: 44px;
+  min-width: 200px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 16px var(--font-body);
+}
+
+.used-by__move .btn {
+  height: 44px;
+}
+
+.used-by__notice {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.used-by__done {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.actor-inuse {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--danger-tint);
+  color: var(--ink);
+}
+
+.actor-inuse__text {
+  flex: 1 1 360px;
+  margin: 0;
+  font-size: 16px;
+}
+
+.actor-inuse__text a {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.actor-inuse__actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.actor-inuse .btn {
+  height: 44px;
+}
+
+.models-panel .btn,
+.models-plan .btn {
+  height: 44px;
+}
+
+/* A danger button on a danger-tint notice keeps its edge. */
+.actor-inuse .btn--danger,
+.used-by__notice .btn--danger {
+  box-shadow: inset 0 0 0 2px var(--danger);
+}

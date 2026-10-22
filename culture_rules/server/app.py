@@ -49,9 +49,10 @@ from culture_rules.model import describe
 from culture_rules.model.paragraph import workflow_paragraph
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
-from culture_rules.server import events, humans, static
+from culture_rules.server import actor_guards, events, humans, static
 from culture_rules.server import status as read_models
 from culture_rules.server.caching import NO_STORE, NoStoreByDefault
+from culture_rules.server.model_actors import register_model_actors as _register_model_actors
 from culture_rules.server.repos import RepoTarget, repos_from_env
 from culture_rules.server.rollouts import ROLLOUTS_COLLECTION, Rollouts
 from culture_rules.server.service import (
@@ -709,6 +710,7 @@ def create_app(
     repos: Sequence[RepoTarget] | None = None,
     resolve_secret: Callable[[str], str] | None = None,
     discord_transport: Any = None,
+    models_transport: Any = None,
 ) -> FastAPI:
     """Build the API over ``store``. Holds configuration only, never request state.
 
@@ -718,7 +720,9 @@ def create_app(
     nothing is mounted when it does not exist). ``repos`` are the definition repositories
     clients may name (default: ``CULTURE_RULES_REPOS``, see :mod:`culture_rules.server.repos`).
     ``resolve_secret`` and ``discord_transport`` replace the grant resolver and the Discord
-    HTTP transport behind ``GET /actors/{id}/discord/targets`` (tests).
+    HTTP transport behind ``GET /actors/{id}/discord/targets`` (tests); ``models_transport``
+    replaces the gateways' ``/v1/models`` transport behind ``POST /actors/enrol-models``,
+    which resolves its key grant through ``resolve_secret`` too (tests).
     """
     ensure = getattr(store, "ensure_collections", None)
     if callable(ensure):
@@ -772,6 +776,7 @@ def create_app(
     _register_hooks(app, store)
     _register_bridge_callbacks(app, store)
     _register_discord_targets(app, store, resolve_secret, discord_transport)
+    _register_model_actors(app, store, defs, resolve_secret, models_transport)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
     app.add_middleware(NoStoreByDefault)
@@ -1566,7 +1571,7 @@ def _register_exchange(
         response_model=ImportPlan,
         tags=["exchange"],
         operation_id="import_definitions",
-        responses={422: ERRORS[422]},
+        responses={409: ERRORS[409], 422: ERRORS[422]},
     )
     def import_definitions(body: ImportRequest, principal: Caller):
         if (body.files is None) == (body.repo is None):
@@ -1579,6 +1584,7 @@ def _register_exchange(
         else:
             files = body.files or {}
         guards.check_import(principal, files)
+        actor_guards.check_import(store, files)
         return defs.import_files(
             files, principal.identity, apply=body.apply, check=guards.save_check(principal)
         )
@@ -1706,6 +1712,52 @@ def _with_active_runs(store: StoragePort, doc: dict[str, Any]) -> dict[str, Any]
     return {**doc, "active_runs": listed, "active_runs_total": total}
 
 
+def _toggle_handler(kind: str, defs: Definitions, store: StoragePort, flag: bool):
+    """The enable or disable route handler for ``kind``. An actor's enable is refused
+    ``model_taken`` and its disable ``actor_in_use`` (unless ``force``); a rule's disable
+    lists its active runs (d17)."""
+    if kind == "actors" and flag:
+
+        def enable_actor(id: str, identity: Identity):
+            actor_guards.check_enable(store, kind, id)
+            return defs.set_enabled(kind, id, True, identity)
+
+        return enable_actor
+    if kind == "actors":
+
+        def disable_actor(id: str, identity: Identity, force: bool = False):
+            actor_guards.check_disable(store, kind, id, force)
+            return defs.set_enabled(kind, id, False, identity)
+
+        return disable_actor
+
+    def toggle(id: str, identity: Identity, _flag: bool = flag):
+        doc = defs.set_enabled(kind, id, _flag, identity)
+        return _with_active_runs(store, doc) if kind == "rules" and not _flag else doc
+
+    return toggle
+
+
+def _delete_handler(kind: str, defs: Definitions, life: Lifecycle, store: StoragePort):
+    """The soft-delete route handler for ``kind``: a rule other rules reference is refused,
+    and so is an actor enabled workflows or rules use (``actor_in_use``, unless ``force``)."""
+    if kind == "actors":
+
+        def delete_actor(id: str, identity: Identity, force: bool = False):
+            defs.get(kind, id)
+            actor_guards.check_delete(store, kind, id, force)
+            return life.soft_delete(kind, id, identity)
+
+        return delete_actor
+
+    def delete(id: str, identity: Identity):
+        defs.get(kind, id)
+        defs.guard_unreferenced(kind, id)
+        return life.soft_delete(kind, id, identity)
+
+    return delete
+
+
 def _register_kind(
     app: FastAPI,
     kind: str,
@@ -1741,6 +1793,7 @@ def _register_kind(
     )
     def create(body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
+        actor_guards.check_save(store, kind, body)
         return defs.create(kind, body, principal.identity, check=guards.save_check(principal))
 
     @app.get(
@@ -1764,6 +1817,7 @@ def _register_kind(
     )
     def update(id: str, body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
+        actor_guards.check_save(store, kind, body, id)
         before = store.get(kind, id) if kind == "rules" else None
         doc = defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
         if (
@@ -1775,11 +1829,6 @@ def _register_kind(
         return doc
 
     for verb, flag in (("enable", True), ("disable", False)):
-
-        def toggle(id: str, identity: Identity, _flag: bool = flag):
-            doc = defs.set_enabled(kind, id, _flag, identity)
-            return _with_active_runs(store, doc) if kind == "rules" and not _flag else doc
-
         app.post(
             f"{path}/{verb}",
             tags=tag,
@@ -1787,19 +1836,15 @@ def _register_kind(
             responses=ERRORS,
             response_model=dict[str, Any],
             description=_DISABLE_RULE_NOTE if (kind, flag) == ("rules", False) else None,
-        )(toggle)
+        )(_toggle_handler(kind, defs, store, flag))
 
-    @app.delete(
+    app.delete(
         path,
         tags=tag,
         operation_id=f"delete_{one}",
         responses=ERRORS,
         response_model=dict[str, Any],
-    )
-    def delete(id: str, identity: Identity):
-        defs.get(kind, id)
-        defs.guard_unreferenced(kind, id)
-        return life.soft_delete(kind, id, identity)
+    )(_delete_handler(kind, defs, life, store))
 
     @app.post(
         f"{path}/restore",
@@ -1810,6 +1855,7 @@ def _register_kind(
     )
     def restore(id: str, identity: Identity):
         defs.get(kind, id)
+        actor_guards.check_restore(store, kind, id)
         return defs.restore(kind, id, identity, life)  # d7: the node-capability guard
 
     @app.post(

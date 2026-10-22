@@ -384,3 +384,31 @@ def test_editor_can_edit_other_fields_of_a_machine_with_an_unchanged_install(wor
     assert client.post(
         "/machines", json=machine(name="orin"), headers=hdr["editor"]
     ).status_code == (201)
+
+
+# ------------------------------------------------------------------ model actors routes
+
+
+def test_enrol_models_is_admin_only(world):
+    _, client, hdr, _ = world
+    for role in ("viewer", "editor"):
+        r = client.post("/actors/enrol-models", json={}, headers=hdr[role])
+        assert r.status_code == 403, (role, r.text)
+    r = client.post("/actors/enrol-models", json={}, headers=hdr["admin"])
+    assert r.status_code != 403, r.text
+
+
+def test_actor_references_is_a_viewer_read(world):
+    _, client, hdr, _ = world
+    r = client.get("/actors/no-such/references", headers=hdr["viewer"])
+    assert r.status_code != 403, r.text
+
+
+def test_repoint_actor_is_editor_and_a_viewer_gets_403(world):
+    _, client, hdr, _ = world
+    body = {"from": "a", "to": "b"}
+    r = client.post("/workflows/no-such/repoint-actor", json=body, headers=hdr["viewer"])
+    assert r.status_code == 403, r.text
+    for role in ("editor", "admin"):
+        r = client.post("/workflows/no-such/repoint-actor", json=body, headers=hdr[role])
+        assert r.status_code != 403, (role, r.text)

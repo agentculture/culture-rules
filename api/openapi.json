@@ -36,6 +36,82 @@
         "title": "ActiveRun",
         "type": "object"
       },
+      "ActorReference": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "workflow | rule",
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "description": "step path (summarise.body[summary]) or the rule field",
+            "title": "Path",
+            "type": "string"
+          },
+          "via": {
+            "description": "action | placement",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "path",
+          "via",
+          "enabled"
+        ],
+        "title": "ActorReference",
+        "type": "object"
+      },
+      "ActorReferences": {
+        "properties": {
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActorReference"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "actor_id",
+          "items"
+        ],
+        "title": "ActorReferences",
+        "type": "object"
+      },
+      "AppliedActor": {
+        "properties": {
+          "action": {
+            "description": "create | update",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "action"
+        ],
+        "title": "AppliedActor",
+        "type": "object"
+      },
       "Ask": {
         "additionalProperties": true,
         "description": "A human ask (``asks`` collection, culture_rules/actors/human.py).",
@@ -370,6 +446,118 @@
         "title": "DiscordTargets",
         "type": "object"
       },
+      "EnrolModelsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "default": "grant:LOBES_GATEWAY_API_KEY",
+            "description": "grant:<NAME> reference; stored as the reference only",
+            "title": "Api Key",
+            "type": "string"
+          },
+          "dry_run": {
+            "default": true,
+            "description": "true = plan only, write nothing",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "gateways": {
+            "description": "machines, each a key of the model_gateways variable; first listed wins",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Gateways",
+            "type": "array"
+          },
+          "match": {
+            "description": "fnmatch globs; only hits are enrolled",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Match",
+            "type": "array"
+          },
+          "pools": {
+            "description": "model=pool overrides (default pool: the model id)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Pools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "gateways",
+          "match"
+        ],
+        "title": "EnrolModelsRequest",
+        "type": "object"
+      },
+      "EnrolModelsResult": {
+        "properties": {
+          "also_served_by": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Also Served By",
+            "type": "object"
+          },
+          "applied": {
+            "items": {
+              "$ref": "#/components/schemas/AppliedActor"
+            },
+            "title": "Applied",
+            "type": "array"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ModelChangeOut"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/FailedActor"
+            },
+            "title": "Failed",
+            "type": "array"
+          },
+          "gateways": {
+            "items": {
+              "$ref": "#/components/schemas/GatewayModels"
+            },
+            "title": "Gateways",
+            "type": "array"
+          },
+          "unseen": {
+            "description": "endpoint actors whose model no gateway lists",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unseen",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dry_run",
+          "gateways",
+          "changes",
+          "also_served_by",
+          "unseen"
+        ],
+        "title": "EnrolModelsResult",
+        "type": "object"
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -461,6 +649,60 @@
           "files"
         ],
         "title": "ExportResult",
+        "type": "object"
+      },
+      "FailedActor": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "code",
+          "message"
+        ],
+        "title": "FailedActor",
+        "type": "object"
+      },
+      "GatewayModels": {
+        "properties": {
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine",
+          "url",
+          "models"
+        ],
+        "title": "GatewayModels",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -818,6 +1060,43 @@
           }
         },
         "title": "MigrateRequest",
+        "type": "object"
+      },
+      "ModelChangeOut": {
+        "properties": {
+          "action": {
+            "description": "create | update | unchanged | refused",
+            "title": "Action",
+            "type": "string"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "create/update: the actor document to write",
+            "title": "Body"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "id"
+        ],
+        "title": "ModelChangeOut",
         "type": "object"
       },
       "NotAdopted": {
@@ -1205,6 +1484,142 @@
           "items"
         ],
         "title": "RepoList",
+        "type": "object"
+      },
+      "RepointRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "default": true,
+            "description": "true = plan only, write nothing",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the workflow revision read; missing or stale is 409",
+            "title": "Expected Revision"
+          },
+          "force": {
+            "default": false,
+            "description": "repoint a trusted workflow anyway (drops trust)",
+            "title": "Force",
+            "type": "boolean"
+          },
+          "from": {
+            "description": "the actor steps name today",
+            "minLength": 1,
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "an existing, enabled actor",
+            "minLength": 1,
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "RepointRequest",
+        "type": "object"
+      },
+      "RepointResult": {
+        "properties": {
+          "changed": {
+            "description": "step paths whose action actor changes",
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the repointed definition's v1 trust digest",
+            "title": "Digest"
+          },
+          "digest_v2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the repointed definition's v2 trust digest",
+            "title": "Digest V2"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "revision": {
+            "description": "dry run: the current revision; applied: the new one",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          },
+          "trusted_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the pinned digest a forced repoint drops, if any",
+            "title": "Trusted Digest"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "workflow_id": {
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "dry_run",
+          "from",
+          "to",
+          "changed",
+          "warnings",
+          "revision",
+          "digest",
+          "digest_v2"
+        ],
+        "title": "RepointResult",
         "type": "object"
       },
       "Rollout": {
@@ -1978,6 +2393,96 @@
         ]
       }
     },
+    "/actors/enrol-models": {
+      "post": {
+        "description": "Plan (dry run) or apply one endpoint actor per matching model the named gateways\nserve. The gateways must be keys of ``model_gateways``; the key grant is resolved\nonly after that, and is sent only to those gateways.",
+        "operationId": "enrol_models",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrolModelsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrolModelsResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A gateway did not list its models"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Enrol Models",
+        "tags": [
+          "actors"
+        ]
+      }
+    },
     "/actors/{actor_id}/discord/targets": {
       "get": {
         "description": "The servers and text channels a Discord app actor's bot can post to.",
@@ -2091,6 +2596,16 @@
               "title": "Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -2165,7 +2680,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Delete",
+        "summary": "Delete Actor",
         "tags": [
           "actors"
         ]
@@ -2368,11 +2883,11 @@
           },
           {
             "in": "query",
-            "name": "_flag",
+            "name": "force",
             "required": false,
             "schema": {
               "default": false,
-              "title": " Flag",
+              "title": "Force",
               "type": "boolean"
             }
           }
@@ -2449,7 +2964,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Toggle",
+        "summary": "Disable Actor",
         "tags": [
           "actors"
         ]
@@ -2466,16 +2981,6 @@
             "schema": {
               "title": "Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "_flag",
-            "required": false,
-            "schema": {
-              "default": true,
-              "title": " Flag",
-              "type": "boolean"
             }
           }
         ],
@@ -2551,7 +3056,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Toggle",
+        "summary": "Enable Actor",
         "tags": [
           "actors"
         ]
@@ -2659,6 +3164,87 @@
           }
         ],
         "summary": "Purge",
+        "tags": [
+          "actors"
+        ]
+      }
+    },
+    "/actors/{id}/references": {
+      "get": {
+        "description": "The live workflow steps (loop bodies included) and rules naming the actor, by\naction ``params.actor`` or by ``placement.actor``.",
+        "operationId": "actor_references",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorReferences"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Actor References",
         "tags": [
           "actors"
         ]
@@ -3622,6 +4208,16 @@
               }
             },
             "description": "Role not held"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
           },
           "422": {
             "content": {
@@ -8725,6 +9321,107 @@
           }
         ],
         "summary": "Purge",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/workflows/{id}/repoint-actor": {
+      "post": {
+        "description": "Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies\nincluded; description, notes and placement untouched, reported as warnings). A\nmissing or stale ``expected_revision`` is 409 ``revision_conflict``; a trusted\nworkflow is 409 ``workflow_trusted`` unless ``force``; a ``to`` that cannot do the\nwork is 409 ``target_kind_mismatch``.",
+        "operationId": "repoint_workflow_actor",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepointResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Repoint Actor",
         "tags": [
           "workflows"
         ]

@@ -218,6 +218,9 @@ CLI. A parity test keeps the two surfaces identical.
 - [`docs/operations/newspaper.md`](docs/operations/newspaper.md): the daily
   newspaper (#53): grants, actors, variables, import and the first run. The
   actor guides are in [`docs/actors/`](docs/actors/README.md).
+- [`docs/operations/model-actors.md`](docs/operations/model-actors.md): enrol a
+  gateway's models as actors, `model_gateways`, the one-actor-per-model rule,
+  repointing a workflow, and the one-time newspaper move.
 
 ## Background
 

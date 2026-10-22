@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-10-19
+
+### Added
+
+- Model actors (spec `docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`, setup `docs/operations/model-actors.md`): `culture-rules actors enrol-models --gateway MACHINE --match GLOB [--pool MODEL=POOL] [--api-key grant:NAME] [--apply]` (`POST /actors/enrol-models`, admin, dry-run by default) plans and writes one endpoint actor per matched model; `actors references ID` (`GET /actors/{id}/references`) lists the workflows and rules that name an actor, by action or placement; `workflows repoint-actor WF --from A --to B` (`POST /workflows/{id}/repoint-actor`, a trusted workflow needs `--force`). All are MCP tools; an older server answers exit 2 'server too old'
+- `actors disable ID --force` and `actors delete ID --force` (`?force=true`): without it, `POST /actors/{id}/disable` and `DELETE /actors/{id}` are refused with 409 `actor_in_use` while an enabled workflow or rule names the actor
+- The shared variable `model_gateways`, a list of `machine=URL` strings, is the allowlist of gateways `enrol-models` may call; the `--api-key` grant is resolved only after the allowlist check and the bearer goes to the listed URL only
+- The model rule: one enabled endpoint actor (an `agent` actor with `params.base_url`) per model (`params.model`, else the actor's `model`); create, update, enable, restore and import refuse a second one with 409 `model_taken` naming the holder (an import is checked with its bundle laid over the store). At run time `llm.complete` lets the holder with the lowest id serve and refuses the others, so two actors already sharing a model never stop it. Mesh agents without `base_url` are outside the rule
+- `workflows repoint-actor` refuses a target that cannot run the steps with 409 `target_kind_mismatch`: it must be the same kind as the old actor (an `app` on the same surface) and an endpoint actor when the old one is or a step is `llm.complete`; the Actors page's Move offers only such targets
+- Actors page: Add models (admin), Used by with Move (editor), and Disable showing the in-use refusal with Disable anyway; hidden on a server older than 0.22.0
+- `docs/operations/model-actors.md`: the verbs, `model_gateways`, the model rule and the one-time newspaper move runbook
+
+### Changed
+
+- The newspaper bundle summarises on the `cortex-spark2` actor instead of `newspaper-llm`; an install with the earlier actor moves once (disable `newspaper-llm --force`, enrol, repoint, check)
+- CI's `test` job runs on `ubuntu-latest` again: with 0.21.1's `GLIBC_TUNABLES=glibc.pthread.rseq=1` mongod 8.0 starts on the kernel 7.0 runner images. The Mongo test rig keeps a container whose mongod exits and, when mongod does not come up, reports the container's state and log tail
+- `culture-rules learn`, the `explain` notes and the four harness prompt files (`CLAUDE.md`, `QWEN.md`, `AGENTS.override.md`, `AGENTS.colleague.md`) describe the model-actor verbs
+
 ## [0.21.1] - 2026-10-18
 
 ### Changed

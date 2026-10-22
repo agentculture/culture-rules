@@ -8,11 +8,7 @@ on:
 
 jobs:
   test:
-    # ubuntu-24.04, not ubuntu-latest. On kernel 7.0 runner images (ubuntu-26.04, and
-    # ubuntu-24.04 from 20261018) mongod 8.0 refuses to start (SERVER-121912); the Mongo rigs
-    # now pass GLIBC_TUNABLES=glibc.pthread.rseq=1 (tests/store/mongo_rig.py), and this pin
-    # stays until a kernel 7.0 run has passed with it.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     # Promote SONAR_TOKEN to job env so the SonarCloud step can gate on

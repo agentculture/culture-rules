@@ -1,0 +1,98 @@
+{
+  "plan_slug": "model-actors-in-the-cli-and-mcp",
+  "schema_version": 2,
+  "created": "2026-10-19T05:52:29Z",
+  "updated": "2026-10-19T22:42:11Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "references.py lives in culture_rules/model/references.py (test in tests/model/test_references.py), not culture_rules/actors/",
+      "task_ref": "t2",
+      "reason": "tests/test_boundaries.py keeps engine, node and actors from reading workflow/step notes; the c14 notes-mention warning reads them, and culture_rules/model already holds the workflow-text readers (describe.py, paragraph.py); operator approved 2026-10-19",
+      "affects": [
+        "t4",
+        "c13",
+        "c14"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t6 changed one existing fixture: _pooled_store() in tests/node/test_llm_complete.py gives the fixer actor its own model (fixer-model); no assertion changed",
+      "task_ref": "t6",
+      "reason": "the fixture seeded two enabled endpoint actors on model qwen-test, which the approved one-model rule (c26) now refuses at runtime; operator approved 2026-10-19",
+      "affects": [
+        "c26"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "enrol-models responses list actor ids and actions (create/update), not revisions",
+      "task_ref": "t4",
+      "reason": "actors carry no revision field in the store; only workflows do (repoint-actor returns the new workflow revision). Adding actor revisions is a store/model change beyond this spec. Operator approved.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "model_gateways is a list of 'machine=URL' strings, not a machine->URL object",
+      "task_ref": "t4",
+      "reason": "variables hold only a JSON scalar or a list of scalars (culture_rules/model/variable.py validate_variable_value); objects are refused. Operator chose the list form (d3 a) over extending variables.",
+      "affects": [
+        "t10",
+        "t11",
+        "t12",
+        "c10",
+        "c37"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "the actor guards also cover restore and import (model_taken) and delete (actor_in_use, --force); repoint checks the target can run the repointed actions (llm.complete needs an endpoint actor; other kinds must match the action's actor kind); the run-time model_taken check refuses only actors newer than the holder (created_at, then id), so the oldest keeps serving",
+      "task_ref": "t5",
+      "reason": "code review of PR #72: restore/import could create a second holder, delete removed an in-use actor that disable refused, repoint accepted a target that fails at run time, and the symmetric run-time check stopped every actor on a shared model; approved by the operator 2026-10-20",
+      "affects": [
+        "t2",
+        "t4",
+        "t6",
+        "t9",
+        "t10",
+        "t11"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "the run-time model_taken winner is the holder with the lowest actor id, not the oldest by created_at (d5): actor documents carry no creation time",
+      "task_ref": "t6",
+      "reason": "d5 named created_at, but actor documents store no created_at (only updated_at, which changes on every save); the lowest id is deterministic, so every node picks the same winner",
+      "affects": [
+        "t3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

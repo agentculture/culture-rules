@@ -1,0 +1,21 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "llm.complete endpoint: lobes gateway on spark, model cortex-spark2, pool qwen-spark2.",
+  "enabled": true,
+  "harness": null,
+  "id": "cortex-spark2",
+  "kind": "agent",
+  "machine": "spark",
+  "model": null,
+  "name": "cortex-spark2",
+  "params": {
+    "api_key": "grant:LOBES_GATEWAY_API_KEY",
+    "base_url": "http://127.0.0.1:8001",
+    "concurrency_pool": "qwen-spark2",
+    "max_concurrency": 1,
+    "model": "cortex-spark2"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

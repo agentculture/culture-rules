@@ -16,7 +16,7 @@ from typing import Any
 from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from culture_rules.client.http import DEFAULT_API_URL, ApiClient, ApiError, ApiUnreachable
 
-__all__ = ["call", "make_client"]
+__all__ = ["call", "make_client", "to_cli_error"]
 
 ENV_URL = "CULTURE_RULES_API_URL"
 ENV_TOKEN = "CULTURE_RULES_TOKEN"  # nosec B105 - the name of the variable, not a secret
@@ -58,15 +58,18 @@ def call(fn: Callable[[], Any]) -> Any:
             remediation=f"start the API with 'culture-rules serve' or set {ENV_URL}",
         ) from exc
     except ApiError as exc:
-        detail = "; ".join(
-            f"{e.get('path') or '-'}: {e.get('message', '')}" for e in exc.errors[:5]
-        )
-        raise CliError(
-            code=EXIT_USER_ERROR,
-            message=f"{exc.message} ({exc.code}, HTTP {exc.status})"
-            + (f" [{detail}]" if detail else ""),
-            remediation=_hint(exc),
-        ) from exc
+        raise to_cli_error(exc) from exc
+
+
+def to_cli_error(exc: ApiError) -> CliError:
+    """The user-facing error for an API error response (exit 1)."""
+    detail = "; ".join(f"{e.get('path') or '-'}: {e.get('message', '')}" for e in exc.errors[:5])
+    return CliError(
+        code=EXIT_USER_ERROR,
+        message=f"{exc.message} ({exc.code}, HTTP {exc.status})"
+        + (f" [{detail}]" if detail else ""),
+        remediation=_hint(exc),
+    )
 
 
 def _hint(exc: ApiError) -> str:

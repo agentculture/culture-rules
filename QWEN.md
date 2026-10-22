@@ -50,6 +50,22 @@ On disk today:
   `llm.complete` (an OpenAI-compatible endpoint, a locked brief, no tools)
   and `library.push` (an EPUB to xteink); the step option
   `config.on_error: "skip"`; and the disabled bundle `docs/rules/newspaper`.
+- the model actors (spec
+  `docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`, setup
+  `docs/operations/model-actors.md`): `actors enrol-models --gateway MACHINE
+  --match GLOB` (repeatable; admin) plans, then with `--apply` writes, one
+  endpoint actor per matched model served by the gateways in the shared
+  variable `model_gateways` (a list of `"machine=URL"` strings, the
+  allowlist; the grant is resolved only after it passes), `actors references
+  ID` lists what names an actor, `actors disable ID [--force]` is refused with
+  `actor_in_use` while an enabled workflow or rule uses it, and `workflows
+  repoint-actor WF --from A --to B` moves a workflow (a trusted one needs
+  `--force`). The model rule: one enabled endpoint actor (one with
+  `params.base_url`) per model (409 `model_taken`, and again at run time in
+  `llm.complete`); mesh agents without `base_url` are outside it. The verbs
+  are MCP tools, the Actors page has Add models, Used by with Move, and
+  Disable anyway, an older server answers exit 2, and the newspaper bundle
+  summarises on `cortex-spark2`.
 - the workflow phrases (#69, spec
   `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language
   `description` plus an optional technical `notes` on workflows and steps,

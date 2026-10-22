@@ -373,6 +373,7 @@ def test_errors_never_carry_the_response_body():
 def _pooled_store(cap=1):
     fixer = _actor("qwen-spark2", kind="agent", concurrency_pool=POOL, max_concurrency=cap)
     fixer["params"]["bridge_url"] = "http://127.0.0.1:9"
+    fixer["params"]["model"] = "fixer-model"  # one enabled endpoint actor per model
     return _store(fixer, _actor(concurrency_pool=POOL, max_concurrency=4))
 
 
@@ -732,3 +733,53 @@ def test_a_ledger_needs_room_for_one_result():
 
     with pytest.raises(ValueError):
         ReplayLedger(0)
+
+
+# ---- the model-holder rule at run time ----------------------------------------------------
+
+
+def test_fails_model_taken_when_another_enabled_endpoint_actor_holds_the_model():
+    store = _store(_actor("llm"), _actor("holder", base_url="http://127.0.0.1:8002"))
+    port, transport = _port(store)
+    result = _invoke(port)
+    assert result.outcome == FAILED
+    assert result.error == "model_taken: holder"
+    assert transport.calls == []
+
+
+def test_model_taken_uses_the_actor_model_field_when_params_model_is_absent():
+    own = _actor("llm")
+    own["params"].pop("model")
+    own["model"] = MODEL
+    port, transport = _port(_store(own, _actor("holder")))
+    result = _invoke(port)
+    assert result.error == "model_taken: holder"
+    assert transport.calls == []
+
+
+def test_of_two_actors_sharing_a_model_the_lowest_id_keeps_serving():
+    """Two enabled endpoint actors already on one model (an old import, a check-to-write
+    race): only the one whose id sorts later is refused, so the model keeps serving."""
+    port, transport = _port(_store(_actor("llm"), _actor("zz-newer")))
+    assert _invoke(port).outcome == COMPLETED
+    assert len(transport.calls) == 1
+    refused = _invoke(port, key="k2", actor="zz-newer")
+    assert refused.error == "model_taken: llm"
+    assert len(transport.calls) == 1
+
+
+def test_a_top_level_model_holder_blocks_a_params_model_candidate():
+    holder = _actor("holder")
+    holder["params"].pop("model")
+    holder["model"] = MODEL
+    port, transport = _port(_store(_actor("llm"), holder))
+    assert _invoke(port).error == "model_taken: holder"
+    assert transport.calls == []
+
+
+def test_a_disabled_holder_does_not_block():
+    holder = _actor("holder")
+    holder["enabled"] = False
+    port, transport = _port(_store(_actor("llm"), holder))
+    assert _invoke(port).outcome == COMPLETED
+    assert len(transport.calls) == 1

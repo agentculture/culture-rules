@@ -15,8 +15,11 @@ from pathlib import Path
 from culture_rules.actors.trusted import (
     ROLE_SINGLE,
     TRUSTED_WORKFLOWS,
+    TRUSTED_WORKFLOWS_V2,
+    pinned_digest,
     trusted_workflow_digests,
     workflow_digest,
+    workflow_digest_v2,
     workflow_refusal,
     workflow_role,
 )
@@ -467,3 +470,13 @@ def test_the_pre_rename_pr_fix_stays_trusted_in_its_role_beside_the_renamed_one(
     assert old in TRUSTED_WORKFLOWS_V2[ROLE_FIX]
     assert workflow_digest_v2(_load(V2_SOURCES[ROLE_FIX])) in TRUSTED_WORKFLOWS_V2[ROLE_FIX]
     assert workflow_digest_v2(_load(V2_SOURCES[ROLE_FIX])) != old
+
+
+def test_pinned_digest_names_the_v1_or_v2_digest_a_definition_matches(monkeypatch):
+    doc = {**workflow_doc(), "id": "probe-not-trusted", "name": "probe-not-trusted"}
+    assert pinned_digest(doc) is None
+    v1, v2 = workflow_digest(doc), workflow_digest_v2(doc)
+    monkeypatch.setitem(TRUSTED_WORKFLOWS_V2, "probe", frozenset({v2}))
+    assert pinned_digest(doc) == v2
+    monkeypatch.setitem(TRUSTED_WORKFLOWS, "probe", frozenset({v1}))
+    assert pinned_digest(doc) == v1
