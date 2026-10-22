@@ -39,7 +39,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field
 
 from culture_rules.actors import model_enrol, secrets, trusted
-from culture_rules.actors.model_rule import is_endpoint_actor, model_holder
+from culture_rules.actors.model_rule import ENDPOINT_KINDS, is_endpoint_actor, model_holder
 from culture_rules.auth import guards
 from culture_rules.model.references import (
     NoMatchingStep,
@@ -334,7 +334,7 @@ def _target_problem(
 ) -> str | None:
     """Why ``new`` cannot run what ``old`` ran (None when it can). ``old`` may be gone."""
     new_doc, new_kind = dict(new), new.get("kind")
-    needs_endpoint = "llm.complete" in kinds
+    needs_endpoint = any(kind in kinds for kind in ENDPOINT_KINDS)
     if old is not None:
         old_kind = old.get("kind")
         if new_kind != old_kind:

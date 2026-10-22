@@ -102,6 +102,7 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "email.send": (("subject", _QUOTED),),
     "search.web": (("query", _QUOTED),),
     "llm.complete": (),
+    "audio.transcribe": (("audio_path", "of {}"),),
     "library.push": (("device_id", "to device {}"),),
     "noop": (),
 }
