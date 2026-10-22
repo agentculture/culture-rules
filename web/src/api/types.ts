@@ -102,13 +102,14 @@ export type ActionKind =
   | "email.send"
   | "search.web"
   | "llm.complete"
-  | "library.push";
+  | "library.push"
+  | "audio.transcribe";
 
 /**
  * An action. A param may be a literal, a reference (`trigger.data.number`), a `{"$ref"}` object
  * or a `{{ }}` template. `params.actor` names the credentialed or executing actor (required
  * for discord.message, github.comment, jira.comment, http.call, machine.command, email.send,
- * search.web, llm.complete and library.push). `message`
+ * search.web, llm.complete, library.push and audio.transcribe). `message`
  * sends on the Culture mesh; a stored `message` that still names a Discord actor is the older
  * form of `discord.message`.
  */

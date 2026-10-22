@@ -111,6 +111,10 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     label: "Summarise with a language model",
     params: { actor: RS, content: { type: "any", required: true }, max_tokens: I, temperature: { type: "number" } },
   },
+  "audio.transcribe": {
+    label: "Transcribe an audio file",
+    params: { actor: RS, audio_path: RS, audio_sha256: RS, output_dir: RS, language: S, model: S },
+  },
   "library.push": {
     label: "Send a book to the e-reader library",
     params: { actor: RS, content_base64: RS, title: RS, author: S, device_id: S },
@@ -207,7 +211,7 @@ const hasBaseUrl = (a: Actor) => enabled(a) && typeof a.params?.base_url === "st
 /**
  * Enabled actors able to perform `kind`: app actors by declared actions (email and search by
  * surface), runners by command, an OpenAI-compatible agent (one with a `base_url`) for
- * llm.complete and any other actor with a `base_url` (the library service) for library.push.
+ * llm.complete and audio.transcribe, and any other actor with a `base_url` (the library service) for library.push.
  */
 export function actorsFor(kind: string, actors: Actor[]): Actor[] {
   switch (canonical(kind)) {
@@ -220,6 +224,8 @@ export function actorsFor(kind: string, actors: Actor[]): Actor[] {
     case "search.web":
       return actors.filter((a) => onSurface(a, "search"));
     case "llm.complete":
+      return actors.filter((a) => a.kind === "agent" && hasBaseUrl(a));
+    case "audio.transcribe":
       return actors.filter((a) => a.kind === "agent" && hasBaseUrl(a));
     case "library.push":
       return actors.filter((a) => a.kind !== "agent" && a.kind !== "app" && hasBaseUrl(a));
