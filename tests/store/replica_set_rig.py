@@ -70,6 +70,7 @@ def start(workdir: Path, template: dict) -> ReplicaSet:
             name = f"culture-rules-rs-{host}-{uuid.uuid4().hex[:6]}"
             mongo_rig._run(
                 *("docker", "run", "-d", "--network", "host", "--name", name),
+                *mongo_rig.DOCKER_ENV,
                 *("-v", f"{workdir}:/certs:ro", "--entrypoint", "bash", mongo_rig.IMAGE),
                 *("-c", _mongod_script(ports[host], template["_id"])),
             )

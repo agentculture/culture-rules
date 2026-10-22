@@ -20,6 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 IMAGE = "mongo:8.0"
+# mongod 8.0 refuses to start on a kernel that reports 6.19 to 7.0.13 (TCMalloc per-CPU caches
+# and rseq, SERVER-121912), which the kernel 7.0 runner images do. rseq=1 overrides the image's
+# rseq=0, so TCMalloc uses per-thread caches and the check passes.
+DOCKER_ENV = ("-e", "GLIBC_TUNABLES=glibc.pthread.rseq=1")
 REPLICA_SET = "rs0"
 ADMIN_USER = "rig-admin"
 # throwaway container credentials, random per test session (never a fixed literal)
@@ -157,6 +161,7 @@ def start(workdir: Path) -> Rig:
         "host",
         "--name",
         name,
+        *DOCKER_ENV,
         "-v",
         f"{workdir}:/certs:ro",
         "--entrypoint",
