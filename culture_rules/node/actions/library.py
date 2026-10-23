@@ -2,7 +2,9 @@
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (falls back to ``context.actor``),
 ``content_base64`` (the EPUB bytes, base64), ``title``, optional ``author`` (default
-``culture-rules``) and optional ``device_id`` (overrides the actor's).
+``culture-rules``), optional ``device_id`` (overrides the actor's) and optional ``kind``
+(``book``, ``article`` or ``transcript``; default ``article``; anything else fails
+``invalid_request``).
 
 The bound actor is a ``service`` actor (not an ``app`` actor: xteink has no app surface)
 whose params carry the connection::
@@ -22,8 +24,8 @@ The push is two calls, each with ``Authorization: Bearer <key>``:
 
 1. ``POST <base_url>/api/library``, ``multipart/form-data`` built here with a random
    boundary: ``file`` (named after the title, e.g. ``daily-newspaper-2026-10-11.epub``,
-   ``application/epub+zip``), ``title``, ``author`` and ``kind`` = ``article``. xteink
-   answers 201 ``{"item": {"id"}, "created": true}`` or 200 with ``created: false`` when
+   ``application/epub+zip``), ``title``, ``author`` and ``kind`` (``article`` unless ``params.kind`` says otherwise).
+   xteink answers 201 ``{"item": {"id"}, "created": true}`` or 200 with ``created: false`` when
    the same bytes are already stored.
 2. Only after a 2xx upload: ``POST <base_url>/api/devices/<device_id>/queue`` with
    ``{"item_id": <id>}``, answered 201 with the queue entry.
@@ -76,6 +78,7 @@ from culture_rules.node.actions.machine import load_bound_actor
 
 __all__ = [
     "DEFAULT_AUTHOR",
+    "KINDS",
     "LibraryPushPort",
     "MAX_BYTES",
     "Transport",
@@ -92,6 +95,7 @@ LEDGER_SIZE = DEFAULT_LEDGER_SIZE
 """How many completed pushes the port keeps for replay (the last ones)."""
 DEFAULT_AUTHOR = "culture-rules"
 KIND = "article"
+KINDS = ("book", "article", "transcript")
 EPUB_TYPE = "application/epub+zip"
 ACTOR_KIND = "service"
 _RETRYABLE_4XX = frozenset({408, 425, 429})
@@ -270,6 +274,15 @@ def _text(input: Mapping[str, Any], name: str, default: str | None = None) -> st
     return value
 
 
+def _kind(input: Mapping[str, Any]) -> str:
+    value = input.get("kind")
+    if value is None:
+        return KIND
+    if not isinstance(value, str) or value not in KINDS:
+        raise _Refused(_INVALID_REQUEST, f"kind must be one of {', '.join(KINDS)}")
+    return value
+
+
 def _status_failure(stage: str, status: int, raw: bytes, extra: str = "") -> _Refused:
     """A non-2xx answer: xteink's error ``code`` is named when it looks like one."""
     detail = f"http {status}"
@@ -378,10 +391,11 @@ class LibraryPushPort:
         data = _content(input.get("content_base64"))
         title = _text(input, "title")
         author = _text(input, "author", DEFAULT_AUTHOR)
+        kind = _kind(input)
         timeout = self._remaining(deadline, "before the upload")
         auth = {"Authorization": "Bearer " + self._key(params.get("api_key"))}
         content_type, body = encode_multipart(
-            [("title", title), ("author", author), ("kind", KIND)],
+            [("title", title), ("author", author), ("kind", kind)],
             [("file", epub_filename(title), EPUB_TYPE, data)],
         )
         status, raw = self._send(
