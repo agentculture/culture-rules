@@ -2,7 +2,7 @@
   "plan_slug": "file-in-transcription",
   "schema_version": 2,
   "created": "2026-10-23T03:34:49Z",
-  "updated": "2026-10-23T06:52:05Z",
+  "updated": "2026-10-23T14:41:52Z",
   "deviations": [
     {
       "id": "d1",
@@ -52,8 +52,420 @@
       "status": "approved",
       "superseded": false,
       "seq": 3
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o21",
+      "test_ref": "live run run-c5c5f51710754475a64aaa3a403fe3e9 (workflows run transcribe-file, 2026-10-23 14:08:50-14:13:44Z) on recording 3705000a\u2026 (3380 s), after lobes-cli#330 (closes #329) went live in model-gear-stt; stt_request summaries from the container's /logs/model-gear/stt-20261023T090859Z.log",
+      "behavior_text": "run succeeded: 8 windows, segment_count 8, empty_window_count 0 (was 1); longest repeated word or phrase run 2 (was 29); 19902 chars (was 15475); lobes dropped 16 of 125 30 s chunks (was 61), skipped 17 as silence by VAD, recovered 2 by retry. The operator read it and judged it better than the source transcript, given poor recording quality",
+      "contract_text": "after rollout, one real recording longer than 600 s transcribes on spark through a direct workflows run transcribe-file with segment_count >= 2 and a Hebrew transcript the operator reads as usable",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "a real direct run on the live 0.23.0 node plus the operator's own read of the Hebrew text (2026-10-23: 'it's better than the source ... keep the new one'); supersedes e1's quality fail, which was caused in lobes and fixed by lobes-cli#330 with no culture-rules change",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:13:44Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o1",
+      "test_ref": "tests/model/test_action_kinds.py::test_audio_transcribe_params_and_required_flags ; tests/model/test_action_kinds.py::test_audio_transcribe_valid_and_refuses_a_missing_audio_path ; tests/node/test_audio_transcribe.py::test_a_non_agent_actor_is_actor_kind_mismatch ; tests/node/test_audio_transcribe.py::test_invalid_actor_params_are_stt_actor_invalid ; tests/node/test_audio_transcribe.py::test_a_valid_actor_passes_the_check",
+      "behavior_text": "the kind is catalogued with its required and optional params; a non-agent actor fails actor_kind_mismatch; bad base_url forms fail stt_actor_invalid; a valid actor passes",
+      "contract_text": "audio.transcribe is a catalogued kind with typed params (actor, audio_path, audio_sha256, output_dir required; language, model optional) and resolves to a port under action:audio.transcribe; a non-agent actor fails actor_kind_mismatch, a base_url with credentials/query/non-http fails stt_actor_invalid",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_audio_transcribe.py::test_a_path_outside_audio_root_is_refused ; tests/node/test_audio_transcribe.py::test_a_symlink_escaping_audio_root_is_refused ; tests/node/test_audio_transcribe.py::test_an_output_dir_outside_output_root_is_refused ; tests/node/test_audio_transcribe.py::test_an_actor_without_roots_refuses_every_path",
+      "behavior_text": "paths outside audio_root/output_root, including a symlink escape, fail path_refused; an actor with no roots refuses every path",
+      "contract_text": "audio_path must resolve (following symlinks) inside the actor's params.audio_root and output_dir inside params.output_root; otherwise path_refused before any read or ffmpeg call; an actor with no root set refuses every path",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_audio_transcribe.py::test_the_urllib_transport_posts_multipart_to_a_local_server ; tests/node/test_audio_transcribe.py::test_language_is_omitted_when_not_given ; tests/node/test_audio_transcribe.py::test_the_key_never_appears_in_outputs_or_files",
+      "behavior_text": "the real urllib transport sends one multipart POST with file and language and a Bearer header to a local server; language is omitted when unset; the key appears in no output or file",
+      "contract_text": "each window is one multipart POST to base_url + /v1/audio/transcriptions with fields file and language (when given), Authorization Bearer from the grant, no proxy, no redirects; the key never appears in outputs or error messages",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o4",
+      "test_ref": "tests/node/test_audio_split.py::test_plan_windows_short_is_single ; tests/node/test_audio_split.py::test_plan_windows_no_silence_cuts_at_max ; tests/node/test_audio_split.py::test_plan_windows_cuts_in_silence_in_last_search_window ; tests/node/test_audio_split.py::test_plan_windows_ignores_silence_outside_search_range ; tests/node/test_audio_split.py::test_plan_windows_silence_straddling_limit_is_clamped ; tests/node/test_audio_split.py::test_probe_and_silences ; tests/node/test_audio_transcribe.py::test_a_1500s_file_is_sent_as_capped_windows_with_offset_segments",
+      "behavior_text": "windows are contiguous and cover the file, cut at a silence in the search span or at the hard limit; a 1500 s file is sent as capped windows",
+      "contract_text": "a file longer than one window yields contiguous, non-overlapping windows whose durations sum to the file's within 0.1 s, cut at a detected silence when one falls in the search span, else at the hard limit",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o5",
+      "test_ref": "tests/node/test_audio_split.py::test_480s_window_under_16_mib ; tests/node/test_audio_split.py::test_extract_window_is_16k_mono_pcm16 ; tests/node/test_audio_transcribe.py::test_an_unsplit_upload_would_be_refused_by_the_fake",
+      "behavior_text": "a 480 s window as sent is 16 kHz mono PCM16 under 16 MiB; the fake endpoint refuses an unsplit upload, so the capped path is what passes",
+      "contract_text": "no window exceeds 480 s or 16 MiB as sent (16 kHz mono PCM16 WAV)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_transcript_file.py::test_plain_text_window_spans_window ; tests/node/test_transcript_file.py::test_segments_offset_by_window_start ; tests/node/test_transcript_file.py::test_bad_reply ; tests/node/test_audio_transcribe.py::test_a_plain_text_reply_is_one_segment_over_the_window ; tests/node/test_audio_transcribe.py::test_bad_replies_are_stt_bad_response ; tests/node/test_audio_transcribe.py::test_an_oversized_reply_is_stt_bad_response",
+      "behavior_text": "a {text} reply is one segment over its window; segment replies are offset by the window start; other shapes and oversized replies fail stt_bad_response",
+      "contract_text": "a {text} reply becomes one segment spanning its window; a reply with segments keeps them with start/end offset by the window start; anything else fails stt_bad_response",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_transcript_file.py::test_empty_reply_kept_as_empty_segment ; tests/node/test_audio_transcribe.py::test_an_empty_window_is_kept_and_counted",
+      "behavior_text": "an empty reply is kept as a segment with text '' and counted in empty_window_count beside window_count",
+      "contract_text": "an empty window reply is kept as a segment with text ''; the file carries window_count and empty_window_count",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o8",
+      "test_ref": "tests/node/test_transcript_file.py::test_write_atomic_returns_sha_and_reads_back ; tests/node/test_transcript_file.py::test_write_atomic_failure_leaves_nothing ; tests/node/test_transcript_file.py::test_write_atomic_replace_failure_cleans_temp ; tests/node/test_transcript_file.py::test_result_path ; tests/node/test_transcript_file.py::test_model_slug ; tests/node/test_transcribe_file_flow.py::test_a_landed_event_ends_in_run_succeeded_carrying_the_eight_outputs",
+      "behavior_text": "the file is written by temp file plus os.replace at <output_dir>/<sha>/transcript.<slug>.json, result_sha256 matches the bytes, a failure leaves nothing, and the run carries exactly the eight scalar outputs",
+      "contract_text": "the result is written to a same-directory temp file then os.replace'd to <output_dir>/<audio_sha256>/transcript.<model-slug>.json; outputs are exactly result_path, result_sha256 (of the bytes on disk), audio_sha256, model, language, segment_count, window_count, empty_window_count \u2014 no transcript text",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o9",
+      "test_ref": "tests/node/test_audio_transcribe.py::test_a_second_run_is_a_no_op_with_the_same_outputs ; tests/node/test_audio_transcribe.py::test_the_no_op_runs_no_ffmpeg ; tests/node/test_audio_transcribe.py::test_a_completed_key_replays_from_the_ledger ; tests/node/test_audio_transcribe.py::test_a_stale_result_for_another_model_field_is_redone ; tests/node/test_transcribe_file_flow.py::test_the_same_audio_landing_again_is_a_no_op",
+      "behavior_text": "a matching existing result returns the same outputs with zero endpoint calls and no ffmpeg run; a result labelled with another model is redone",
+      "contract_text": "when the target file exists with matching audio_sha256 and model and the input audio hashes to audio_sha256, the port returns that file's outputs with zero endpoint calls and no ffmpeg run",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o10",
+      "test_ref": "tests/node/test_audio_transcribe.py::test_a_bad_audio_sha256_is_invalid_request ; tests/node/test_audio_transcribe.py::test_missing_params_are_invalid_request ; tests/node/test_audio_transcribe.py::test_changed_bytes_are_audio_mismatch ; tests/node/test_audio_transcribe.py::test_changed_bytes_after_a_result_are_audio_mismatch_not_a_no_op ; tests/node/test_transcribe_file_flow.py::test_a_changed_file_ends_in_run_failed_with_audio_mismatch",
+      "behavior_text": "a malformed audio_sha256 or missing param fails invalid_request first; changed bytes fail audio_mismatch before any endpoint call, even when a result exists",
+      "contract_text": "audio_sha256 not matching ^[0-9a-f]{64}$ fails invalid_request before any filesystem call; an audio file whose sha256 differs fails audio_mismatch before any endpoint call",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o11",
+      "test_ref": "tests/node/test_transcript_file.py::test_workdir_roundtrip_resume_clear ; tests/node/test_audio_transcribe.py::test_a_503_on_window_3_fails_retryable_and_the_retry_sends_only_3_and_4",
+      "behavior_text": "per-window replies persist in the work dir; after a 503 on window 3 the retry sends only windows 3 and 4; the work dir is cleared after the rename",
+      "contract_text": "per-window replies are stored atomically in a work dir keyed by (audio_sha256, model); a retried attempt sends only missing windows; the work dir is removed after the final rename",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o12",
+      "test_ref": "tests/node/test_audio_transcribe.py::test_connection_refused_is_retryable_stt_unavailable ; tests/node/test_audio_transcribe.py::test_retryable_statuses ; tests/node/test_audio_transcribe.py::test_a_400_is_stt_rejected ; tests/node/test_audio_transcribe.py::test_other_4xx_are_stt_rejected ; tests/node/test_audio_transcribe.py::test_a_400_invalid_audio_is_audio_undecodable ; tests/node/test_audio_transcribe.py::test_garbage_audio_is_audio_undecodable ; tests/node/test_audio_split.py::test_undecodable_raises",
+      "behavior_text": "connection errors, 5xx, 408 and 429 are retryable stt_unavailable; other 4xx incl. 413 are stt_rejected; ffmpeg decode failure and 400 invalid_audio are audio_undecodable",
+      "contract_text": "connection errors, 5xx, 408 and 429 fail stt_unavailable retryable; other 4xx (413 included) stt_rejected; ffmpeg/ffprobe decode failure or the endpoint's 400 invalid_audio audio_undecodable; each not retryable except stt_unavailable",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o13",
+      "test_ref": "tests/node/test_audio_split.py::test_require_tools_missing_names_ffmpeg ; tests/node/test_audio_split.py::test_require_tools_names_ffprobe ; tests/node/test_audio_transcribe.py::test_ffmpeg_missing_from_path",
+      "behavior_text": "ffmpeg or ffprobe missing from PATH fails ffmpeg_missing naming the binary, before any endpoint call",
+      "contract_text": "ffmpeg or ffprobe missing from the node's PATH fails ffmpeg_missing, not retryable, naming the binary, before any endpoint call",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o14",
+      "test_ref": "tests/rules/test_pocket_transcribe_bundle.py::test_the_bundle_reads_without_errors ; tests/rules/test_pocket_transcribe_bundle.py::test_it_imports_into_a_store_with_the_rule_disabled ; tests/rules/test_pocket_transcribe_bundle.py::test_scan_secrets_finds_nothing_in_the_bundle ; tests/rules/test_pocket_transcribe_bundle.py::test_the_rule_ships_disabled_on_the_landed_event ; tests/rules/test_pocket_transcribe_bundle.py::test_the_rule_runs_one_transcription_per_audio_at_a_time ; tests/rules/test_pocket_transcribe_bundle.py::test_the_workflow_has_the_file_in_inputs_and_eight_scalar_outputs ; tests/rules/test_pocket_transcribe_bundle.py::test_notes_are_committed_and_plain_descriptions_live_in_the_store",
+      "behavior_text": "the bundle imports into a MemoryStore without errors, the rule disabled on pocketsync.recording.landed with key stt:{trigger.data.audio_sha256}, inputs/outputs as specified, notes set, and a clean secrets scan",
+      "contract_text": "the bundle imports into a MemoryStore with no errors, the rule disabled, event trigger params.type pocketsync.recording.landed, concurrency key stt:{trigger.data.audio_sha256}, workflow inputs/outputs as specified, description and notes set, and a clean secrets scan",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o15",
+      "test_ref": "tests/rules/test_pocket_transcribe_bundle.py::test_the_transcribe_step_outlives_the_longest_recording",
+      "behavior_text": "the transcribe step's timeout_s is >= 14400",
+      "contract_text": "the transcribe step's timeout_s is >= 14400",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o16",
+      "test_ref": "tests/node/test_transcribe_file_flow.py::test_a_landed_event_ends_in_run_succeeded_carrying_the_eight_outputs",
+      "behavior_text": "a synthetic landed event with the rule enabled, a fake transport and generated audio ends in rules.run.succeeded carrying the outputs, and the file exists",
+      "contract_text": "a synthetic pocketsync.recording.landed event with the rule enabled, a fake STT transport and generated audio produces a run whose rules.run.succeeded event carries the outputs in data.outputs, and the file exists on disk",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o17",
+      "test_ref": "tests/node/test_transcribe_file_flow.py::test_a_direct_run_with_another_model_writes_a_second_file_and_keeps_the_first ; tests/node/test_audio_transcribe.py::test_a_different_model_writes_a_second_file",
+      "behavior_text": "a direct run with another model writes transcript.<slug>.json beside the first file and leaves it byte-identical",
+      "contract_text": "a direct run with model=X writes transcript.<slug(X)>.json beside an existing file for another model, leaving that file byte-identical",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o18",
+      "test_ref": "tests/model/test_describe.py (audio.transcribe case, line 374; test_action_words_cover_the_newspaper_kinds) ; web/src/rules/ActionPicker.audio.test.tsx ; web: npm run typecheck + vitest (69 files, 808 tests) ; docs/actors/stt.md linked from docs/actors/README.md",
+      "behavior_text": "describe renders 'audio.transcribe as whisper of /data/a.wav'; the picker offers audio.transcribe for agent actors with base_url; typecheck and vitest pass; the guide exists and is linked",
+      "contract_text": "describe renders an audio.transcribe step with its actor; the picker offers the kind with agent actors carrying base_url; web typecheck and vitest pass; the guide exists and is linked",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest, web typecheck and vitest ran green on merged main 353bb09 in the closeout worktree; the guide link was read on disk",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o19",
+      "test_ref": "tests/actors/test_model_rule.py::test_audio_transcribe_counts_as_an_endpoint_kind_like_llm_complete ; tests/server/test_model_actors_api.py::test_an_audio_transcribe_step_needs_an_endpoint_target ; tests/node/test_audio_transcribe.py::test_the_model_taken_rule_applies",
+      "behavior_text": "an enabled agent actor serving audio.transcribe is an endpoint actor for model_taken and references, as llm.complete is",
+      "contract_text": "an enabled agent actor serving audio.transcribe is an endpoint actor for model_taken and references, the same as llm.complete",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "959 tests in the transcription, bundle, model-actor, describe, run-event and engine files passed on merged main 353bb09 with ffmpeg present (no skips)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o20",
+      "test_ref": "git diff 6af9d25~1 6af9d25 -- culture_rules (PR #74, 10 files, +849)",
+      "behavior_text": "no added line in #74's culture_rules diff matches MongoClient, pymongo, motor, transcript.json or pocketsync",
+      "contract_text": "no new code opens a Mongo client outside culture-rules' store or reads Pocket's transcript.json",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "a grep over the whole merged code diff, read 2026-10-23; static, not an executed test",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T14:25:57Z",
+        "commit": "353bb09"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 24
     }
   ],
-  "deltas": [],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "rules.run.* run events carry data.error_reason, the failing port's code parsed from '<code>: <detail>' (null otherwise); error_code stays actor_failed. Asserted by tests/node/test_run_events.py::test_a_port_failure_code_reaches_the_event_as_error_reason (passed on 353bb09, 2026-10-23T14:25:57Z); the plan had no obligation for it, so no evidence record backs it",
+      "caused_by": [
+        "d2"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }

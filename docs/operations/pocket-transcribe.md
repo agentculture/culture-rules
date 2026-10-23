@@ -239,6 +239,37 @@ From then on, each `pocketsync.recording.landed` event starts a run on
 spark. Runs queue on the `stt-spark` pool one at a time, and a step waits
 for the pool as `blocked`.
 
+## Benchmark
+
+The operator's reference recording for comparing STT models is the 56 min
+Hebrew recording with audio sha256 `bfe4937c…f11f145c` (3380 s, poor
+recording quality). Its read-only reference result sits beside the live
+one:
+
+```text
+$HOME/.local/share/culture-rules/transcripts/<audio_sha256>/
+  benchmark-2026-10-23.ivrit-ai-whisper-large-v3-turbo.json   sha256 9491b669…
+  transcript.ivrit-ai-whisper-large-v3-turbo.before-329.json  the run before lobes-cli#330
+```
+
+The text stays on spark; only these counts are recorded here. The operator
+read the benchmark and judged it usable, better than the source transcript.
+
+| | Before lobes-cli#330 | Benchmark (2026-10-23) |
+|---|---|---|
+| Windows / empty | 8 / 1 | 8 / 0 |
+| Characters | 15,475 | 19,902 |
+| Longest repeated word or phrase run | 29 | 2 |
+| lobes chunks dropped (of 125) | 61 | 16 (17 skipped as silence, 2 recovered) |
+
+To compare a new model, run step 4 again with `"model": "<model id>"`, then
+lay the new file against the benchmark: same window count, no empty
+windows, no repeated run above 3, and fewer dropped chunks. lobes writes a
+per-request `stt_request` line (chunks, decoded, `vad_skipped`, `retried`,
+`recovered`, `dropped`) to the container's log file under
+`/logs/model-gear/`, not to `docker logs`. Those lines carry the decoded
+text, so quote only the counts.
+
 ## Known limits
 
 - **Window timestamps only.** Until lobes-cli#328 ships, each window is one
