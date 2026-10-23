@@ -282,6 +282,12 @@ The zipformer run used the same `audio.transcribe` code and windows, through
 an in-memory actor at `http://127.0.0.1:18090` (a thor-localhost endpoint
 reached by an ssh tunnel on spark); no live actor was added.
 
+zipformer is a Hebrew model (`-he`). The operator expects it to be weaker on
+English: it wrote 57 Latin-letter words where whisper wrote 75, so English
+terms in mixed speech may come out in Hebrew letters or be lost. An English
+or mixed recording would need its own comparison before routing those
+languages to it.
+
 ## Known limits
 
 - **Window timestamps only.** Until lobes-cli#328 ships, each window is one
