@@ -164,9 +164,9 @@ setup is in [the STT actor guide](../actors/stt.md). For this bundle:
    with the wrong model.
 3. **ffmpeg.** `command -v ffmpeg ffprobe` as the node's user on spark.
 4. **The roots.** Import the actor, then set its two roots to the node user's
-   real paths. On spark, with the node running as `spark`, they are
-   `/home/spark/.local/share/pocketsync/files` (pocketsync's files root) and
-   `/home/spark/.local/share/culture-rules/transcripts`:
+   real, absolute paths. On spark, with the node running as `spark`, they are
+   `$HOME/.local/share/pocketsync/files` (pocketsync's files root) and
+   `$HOME/.local/share/culture-rules/transcripts`, with `$HOME` expanded:
 
    ```bash
    culture-rules actors import docs/rules/pocket-transcribe --apply
@@ -208,11 +208,11 @@ culture-rules rules import docs/rules/pocket-transcribe --apply
 Before enabling the rule, transcribe one file you pick. It needs no event:
 
 ```bash
-cat > inputs.json <<'JSON'
-{"audio_path": "/home/spark/.local/share/pocketsync/files/<file>",
+cat > inputs.json <<JSON
+{"audio_path": "$HOME/.local/share/pocketsync/files/<file>",
  "audio_sha256": "<sha256sum of the file>",
  "language": "he",
- "output_dir": "/home/spark/.local/share/culture-rules/transcripts"}
+ "output_dir": "$HOME/.local/share/culture-rules/transcripts"}
 JSON
 culture-rules workflows run transcribe-file --inputs-json @inputs.json --apply
 culture-rules runs show <run id> --json

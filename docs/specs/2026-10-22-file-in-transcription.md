@@ -45,6 +45,7 @@
   - honesty: the no-op check reads the existing file's `audio_sha256` and model fields and also verifies the input audio's sha256 matches `audio_sha256` before trusting either; a mismatch re-transcribes and replaces the file
 - failures end the run failed with distinct error codes: `stt_unavailable` (retryable: connection error, 5xx, 408, 429), `stt_rejected` (other 4xx incl. 413), `audio_undecodable` (ffmpeg/ffprobe or the endpoint's 400 `invalid_audio`), `path_refused`, plus the shared `actor_kind_mismatch`/`secret_unresolved`/`stt_actor_invalid`
   - instruction: use the `_Refused` `'<code>: <detail>'` convention from llm.py; retryable only for `stt_unavailable`
+  - ⚠ contested by `d2` (acceptable): the engine wraps every port failure as `error_code` `actor_failed` with the port's code only in `error_message` (engine/runs.py:1870-1879, `run_completions.py`:160-161), so confirmed h15 and #73's 'distinct `error_code`' did not hold; found by the ask-colleague review, operator chose an additive field over docs-only or changing `error_code`
   - honesty: each failure maps to exactly one code and only `stt_unavailable` is retryable; a run that fails ends in rules.run.failed with that code in `error_code`
 - a transcribe-file workflow (inputs `audio_path`, `audio_sha256`, language optional, model optional, `output_dir`; exported outputs `result_path`, `result_sha256`, `audio_sha256`, model, language, `segment_count`) ships in a bundle docs/rules/pocket-transcribe/ with actors/, workflows/, rules/ and variables like docs/rules/newspaper, the rule disabled, triggered by event type pocketsync.recording.landed with concurrency key stt:{trigger.data.`audio_sha256`}, and a bundle test like tests/rules/`test_newspaper_bundle.py`
   - instruction: copy docs/rules/newspaper's layout; tests/rules/`test_pocket_transcribe_bundle.py` mirrors `test_newspaper_bundle.py`
@@ -144,7 +145,7 @@
   - seeds: `c15`
 - `s15` — `issue #73 comments 2026-10-22 (Gwen alignment)`: items 4-6 and 9 are explicitly deferred until after part A and distil-to-Gwen; the recordings store stays in pocketsync for phase 1; land-recording/culture-chat ingest is dropped
   - seeds: `c16`
-- `s16` — `/home/spark/git/embodiment (HEAD 4514bb8)`: no memory ingest verb in code; only a devague frame describes ingest --file ndjson / forget --source pocket; machine.command can pin argv (actors/code.py `bind_argv`, undeclared args refused) and step config.action.idempotent clears `unsafe_retry` when the verb lands
+- `s16` — `../embodiment sibling checkout (HEAD 4514bb8)`: no memory ingest verb in code; only a devague frame describes ingest --file ndjson / forget --source pocket; machine.command can pin argv (actors/code.py `bind_argv`, undeclared args refused) and step config.action.idempotent clears `unsafe_retry` when the verb lands
   - seeds: `c17`
 - `s17` — `issue #73 body + pocketsync README :26`: pocketsync stays the only writer of pocketsync-mongo; Pocket's transcript is untouched; consumers read `result_path` back
   - seeds: `c18`

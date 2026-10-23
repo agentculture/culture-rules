@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-22T21:32:54Z",
-  "updated": "2026-10-22T22:08:42Z",
+  "updated": "2026-10-23T04:43:12Z",
   "claims": [
     {
       "id": "c1",
@@ -799,7 +799,7 @@
     },
     {
       "id": "s16",
-      "surface": "/home/spark/git/embodiment (HEAD 4514bb8)",
+      "surface": "../embodiment sibling checkout (HEAD 4514bb8)",
       "finding": "no memory ingest verb in code; only a devague frame describes ingest --file ndjson / forget --source pocket; machine.command can pin argv (actors/code.py bind_argv, undeclared args refused) and step config.action.idempotent clears unsafe_retry when the verb lands",
       "seeds": [
         "c17"
