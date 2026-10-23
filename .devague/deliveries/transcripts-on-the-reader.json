@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-23T21:30:08Z",
+  "updated": "2026-10-23T23:05:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -17,6 +17,21 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "llm.complete gains content_path + content_root + max_chars (it reads the transcript excerpt from the file under the root itself), so the transcript text never enters run state; the 1-2 line summary reply stays a step output (llm.complete's text), and h12's 'step outputs hold no summary text' is relaxed to 'no transcript text'",
+      "task_ref": "t4",
+      "reason": "steps pass data through persisted step outputs (run documents in local Mongo, shown in the editor's Debug view); chaining the excerpt and the reply that way would store up to 48000 transcript characters per run. Operator 2026-10-24 chose: keep the transcript out, allow the short summary",
+      "affects": [
+        "t2",
+        "c12",
+        "h12"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
     }
   ],
   "evidence": [],

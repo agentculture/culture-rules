@@ -58,10 +58,14 @@ class ActionKind:
     name: str
     params: dict[str, ParamSpec] = field(default_factory=dict)
     summary: str = ""
+    #: groups of params of which at least one must be set (e.g. content or content_path)
+    any_of: tuple[tuple[str, ...], ...] = ()
 
 
-def _k(name: str, summary: str, /, **params: ParamSpec) -> ActionKind:
-    return ActionKind(name, params, summary)
+def _k(
+    name: str, summary: str, /, *, any_of: tuple[tuple[str, ...], ...] = (), **params: ParamSpec
+) -> ActionKind:
+    return ActionKind(name, params, summary, any_of)
 
 
 _S = ParamSpec("str")
@@ -160,8 +164,12 @@ _KINDS = (
     _k(
         "llm.complete",
         "Complete a locked brief with an OpenAI-compatible model on an agent actor (no tools)",
+        any_of=(("content", "content_path"),),
         actor=_RS,
-        content=ParamSpec("any", True),
+        content=ParamSpec("any"),  # or content_path (d2): one of the two is required
+        content_path=_S,  # a schema-1 transcript file, read under content_root
+        content_root=_S,
+        content_max_chars=_I,
         max_tokens=_I,
         temperature=ParamSpec("any"),
         not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing

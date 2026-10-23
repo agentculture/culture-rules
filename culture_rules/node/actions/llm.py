@@ -1,8 +1,13 @@
 """``llm.complete`` action port: one OpenAI-compatible chat completion, locked brief, no tools.
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (required; falls back to
-``context.actor``), ``content`` (required: a string, sent verbatim, or any JSON-able value,
-serialised deterministically with sorted keys), optional ``max_tokens`` (int >= 1, default
+``context.actor``), ``content`` (a string, sent verbatim, or any JSON-able value,
+serialised deterministically with sorted keys) or, instead, ``content_path`` with
+``content_root`` and optional ``content_max_chars`` (d2: the text of the schema-1 transcript at
+``content_path``, which must resolve under ``content_root``, symlinks followed, else
+``path_refused``; cut to ``content_max_chars``, at most the content limit, so a long transcript
+is summarised from its start instead of refused; the text never enters the run's outputs),
+optional ``max_tokens`` (int >= 1, default
 :data:`DEFAULT_MAX_TOKENS`, capped at :data:`MAX_TOKENS_CAP`) and ``temperature`` (a number
 0..2), and optional ``brief``: absent or ``"newspaper"`` selects :data:`NEWSPAPER_BRIEF`,
 ``"transcript"`` selects :data:`TRANSCRIPT_BRIEF`, anything else (including null) fails
@@ -80,6 +85,7 @@ from culture_rules.engine.actorport import COMPLETED, InvocationContext, Invocat
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.machine import load_bound_actor
+from culture_rules.node.actions.transcript_file import ExcerptRefused, read_excerpt
 from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
@@ -132,6 +138,11 @@ INVALID = "invalid_request"
 DEADLINE_PASSED = "llm_deadline"
 ACTOR_INVALID = "llm_actor_invalid"
 _CONTENT, _MODEL = "content", "model"
+_CONTENT_PATH, _CONTENT_ROOT, _CONTENT_MAX_CHARS = (
+    "content_path",
+    "content_root",
+    "content_max_chars",
+)
 
 _RETRYABLE_4XX = frozenset({408, 429})
 _THINK_OPEN, _THINK_CLOSE = "<think>", "</think>"
@@ -436,6 +447,25 @@ class LlmCompletePort:
         acknowledgement was lost) replays instead of failing ``llm_deadline`` (Codex r2 #3)."""
         return self._ledger.get(idempotency_key)
 
+    def _user_content(self, input: Mapping[str, Any]) -> str:
+        """``content``, or with ``content_path`` the transcript's text read under
+        ``content_root`` and cut to ``content_max_chars`` (d2: it never enters run state)."""
+        if input.get(_CONTENT_PATH) is None:
+            return _user_message(input.get(_CONTENT), self._max_content_chars)
+        if input.get(_CONTENT) is not None:
+            raise _Refused(INVALID, "give content or content_path, not both")
+        limit = input.get(_CONTENT_MAX_CHARS, self._max_content_chars)
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise _Refused(INVALID, "content_max_chars must be an integer >= 1")
+        try:
+            return read_excerpt(
+                input.get(_CONTENT_PATH),
+                input.get(_CONTENT_ROOT),
+                min(limit, self._max_content_chars),
+            )
+        except ExcerptRefused as exc:
+            raise _Refused(exc.code, exc.detail) from exc
+
     def _request(self, input: Mapping[str, Any], model: str) -> bytes:
         body: dict[str, Any] = {
             _MODEL: model,
@@ -443,7 +473,7 @@ class LlmCompletePort:
                 {"role": "system", _CONTENT: _brief(input)},
                 {
                     "role": "user",
-                    _CONTENT: _user_message(input.get(_CONTENT), self._max_content_chars),
+                    _CONTENT: self._user_content(input),
                 },
             ],
             "max_tokens": _max_tokens(input.get("max_tokens")),

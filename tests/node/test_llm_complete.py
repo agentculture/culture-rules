@@ -830,3 +830,100 @@ def test_oversize_transcript_content_is_still_refused():
     port, transport = _port(max_content_chars=10)
     res = _invoke(port, brief="transcript", content="x" * 11)
     assert (_failed(res), transport.calls) == ((FAILED, "llm_content_too_large", False), [])
+
+
+# ---- content from a transcript file (d2) ---------------------------------------------------
+
+TRANSCRIPT_SHA = "ef" * 32
+
+
+def _transcript(root, texts):
+    folder = root / TRANSCRIPT_SHA
+    folder.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "schema": 1,
+        "audio_sha256": TRANSCRIPT_SHA,
+        "model": "m",
+        "segments": [{"start": i, "end": i + 1, "text": t} for i, t in enumerate(texts)],
+    }
+    path = folder / "transcript.m.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
+def _from_file(port, path, root, **params):
+    params.setdefault("actor", "llm")
+    params.update(content_path=str(path), content_root=str(root), brief="transcript")
+    return port.invoke(params, "k1", _deadline(), context=_ctx("llm"))
+
+
+def test_content_path_sends_the_transcript_text_as_the_user_message(tmp_path):
+    port, transport = _port()
+    path = _transcript(tmp_path, ["private one", "private two"])
+    result = _from_file(port, path, tmp_path)
+    assert result.outcome == COMPLETED
+    assert transport.sent["messages"][1] == {"role": "user", "content": "private one\nprivate two"}
+
+
+def test_content_path_cuts_the_text_to_content_max_chars(tmp_path):
+    port, transport = _port()
+    path = _transcript(tmp_path, ["x" * 100])
+    _from_file(port, path, tmp_path, content_max_chars=10)
+    assert transport.sent["messages"][1]["content"] == "x" * 10
+
+
+def test_content_path_defaults_to_the_content_limit_instead_of_refusing(tmp_path):
+    port, transport = _port(max_content_chars=50)
+    path = _transcript(tmp_path, ["y" * 200])
+    result = _from_file(port, path, tmp_path)
+    assert result.outcome == COMPLETED
+    assert transport.sent["messages"][1]["content"] == "y" * 50
+
+
+def test_content_max_chars_above_the_content_limit_is_capped(tmp_path):
+    port, transport = _port(max_content_chars=20)
+    path = _transcript(tmp_path, ["z" * 200])
+    _from_file(port, path, tmp_path, content_max_chars=1000)
+    assert transport.sent["messages"][1]["content"] == "z" * 20
+
+
+def test_the_outputs_carry_the_reply_but_never_the_transcript_text(tmp_path):
+    port, _ = _port()
+    path = _transcript(tmp_path, ["sentinel-transcript-words"])
+    result = _from_file(port, path, tmp_path)
+    assert "sentinel-transcript-words" not in json.dumps(result.output)
+
+
+def test_content_path_outside_content_root_is_refused_before_any_request(tmp_path):
+    port, transport = _port()
+    root = tmp_path / "root"
+    root.mkdir()
+    path = _transcript(tmp_path / "elsewhere", ["text"])
+    result = _from_file(port, path, root)
+    assert result.outcome == FAILED
+    assert result.error.startswith("path_refused")
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"content": "both"},
+        {"content_root": None},
+        {"content_max_chars": 0},
+        {"content_max_chars": "10"},
+        {"content_max_chars": True},
+    ],
+)
+def test_bad_content_path_params_fail_before_any_request(tmp_path, params):
+    port, transport = _port()
+    path = _transcript(tmp_path, ["text"])
+    call = {"actor": "llm", "brief": "transcript"}
+    call.update(content_path=str(path), content_root=str(tmp_path))
+    call.update(params)
+    if call.get("content_root") is None:
+        call.pop("content_root")
+    result = port.invoke(call, "k1", _deadline(), context=_ctx("llm"))
+    assert result.outcome == FAILED
+    assert result.error.split(":")[0] in ("invalid_request", "path_refused")
+    assert transport.calls == []

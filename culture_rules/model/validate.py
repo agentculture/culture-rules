@@ -416,7 +416,19 @@ def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
                 "action_param_type",
                 f"params.{name} must be {p.type} (or a reference/template)",
             )
+    for group in () if lenient else spec.any_of:
+        if all(_unset(obj.params.get(name)) for name in group):
+            _err(
+                errors,
+                _join(pp, group[0]),
+                "action_param_required",
+                f"{obj.kind} requires params.{' or params.'.join(group)}",
+            )
     _check_comment_status(obj, pp, errors)
+
+
+def _unset(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _check_comment_status(obj: Action, pp: str, errors: Errors) -> None:
