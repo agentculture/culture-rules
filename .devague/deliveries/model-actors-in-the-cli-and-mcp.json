@@ -2,7 +2,7 @@
   "plan_slug": "model-actors-in-the-cli-and-mcp",
   "schema_version": 2,
   "created": "2026-10-19T05:52:29Z",
-  "updated": "2026-10-19T22:42:11Z",
+  "updated": "2026-10-23T06:02:13Z",
   "deviations": [
     {
       "id": "d1",
@@ -90,9 +90,417 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "t12's enrol-models ran with --match cortex-spark2, not --match 'cortex-*': it enrolled cortex-spark2 only; no cortex-spark lane actor exists",
+      "task_ref": "t12",
+      "reason": "the gateway on spark served no cortex-spark model (spark is testing and evaluating models); operator 2026-10-22: 'Go for cortex-spark2 pure'. Approved at the time; this record is filed late, at closeout",
+      "affects": [
+        "c21"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
+    },
+    {
+      "id": "d8",
+      "what": "t12 added a fifth live write: workflows update daily-newspaper --expected-revision 2 rewrote only the summarise step's notes to name cortex-spark2 (revision 3), from a scripted JSON body",
+      "task_ref": "t12",
+      "reason": "repoint-actor never edits notes (c14), so the summarise notes still named newspaper-llm; operator 2026-10-22: 'Please do'. Approved at the time; this record is filed late, at closeout",
+      "affects": [
+        "c21",
+        "c14"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o10",
+      "test_ref": "live run run-e011e3fc953e952e51f7f3607a1fe9c3 (daily-newspaper, 2026-10-23 05:01 IDT) + actors references cortex-spark2/newspaper-llm (2026-10-22)",
+      "behavior_text": "run succeeded 02:01:09-02:03:34Z; summarise[0..3]/summary all succeeded on actor cortex-spark2 (served model unsloth/Qwen3.8-27B-NVFP4), no step skipped, no 'Summary unavailable.' in any output; email sent (message 01a1667f\u2026), library.push succeeded; references: cortex-spark2 used only by daily-newspaper summarise.body[summary], newspaper-llm by nothing; operator confirmed the issue arrived ('the morning newsletter is up')",
+      "contract_text": "On the live store, 3 commands with no hand-written JSON (enrol-models, repoint-actor daily-newspaper, actors disable newspaper-llm) leave daily-newspaper's 1 llm.complete step on cortex-spark2, and the next 05:00 issue has 4 of 4 section summaries written by cortex-spark2",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the real 05:00 run on 0.22.0 (b3a3025) read back with runs show; the move used the three verbs in the order disable, enrol-models --match cortex-spark2, repoint-actor (disable first because model_taken refused enrol while newspaper-llm held the model) plus the model_gateways variable; a 4th, operator-approved workflows update (revision 3) only rewrote the summarise step's notes",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T02:03:34Z",
+        "commit": "b3a3025"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o1",
+      "test_ref": "tests/server/test_model_actors_api.py::test_unknown_gateway_is_refused_naming_the_known_ones_before_any_secret; tests/server/test_model_actors_api.py::test_dry_run_plans_only_match_hits_and_writes_nothing; tests/cli/test_model_actor_verbs.py::test_enrol_models_apply_commits_and_sends_pools_and_key",
+      "behavior_text": "unknown gateway -> 422 unknown_gateway with no secret resolved and no gateway call; listed gateways read at URL/v1/models with the bearer; stored base_url is the URL and api_key the grant reference; the key never appears in the response or store",
+      "contract_text": "a gateway not in model_gateways is refused before the grant resolver is called; a listed one is read via URL/v1/models with the resolved bearer, and the stored actor holds base_url = URL and api_key = the grant reference",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o2",
+      "test_ref": "tests/actors/test_model_enrol.py::test_plans_only_match_hits_with_the_enrolled_shape, ::test_empty_match_is_an_error, ::test_invalid_actor_id_is_refused; tests/server/test_model_actors_api.py::test_empty_match_is_422",
+      "behavior_text": "only glob hits are planned; no --match is an error (422); a model id that is not a valid actor id (unsloth/Qwen3.8-27B-NVFP4) is refused",
+      "contract_text": "only models matching a --match glob are planned; no --match is a usage error; a match that is not a valid actor id is refused",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o3",
+      "test_ref": "tests/actors/test_model_enrol.py::test_plans_only_match_hits_with_the_enrolled_shape, ::test_pool_defaults_to_model_with_override, ::test_second_run_plans_zero_changes, ::test_update_touches_only_enrolled_fields, ::test_first_gateway_wins_and_later_ones_are_also_served_by",
+      "behavior_text": "planned actors are agent on the gateway's machine with base_url, model, pool default/override, max_concurrency 1 on create; a second run plans 0 changes; an update touches only those fields; the first gateway wins and later ones show as also served by",
+      "contract_text": "each planned actor is agent, on the gateway's machine, with base_url, model, pool (default the model, override honoured), max_concurrency 1; a second identical run plans 0 changes; an update touches only those fields; the first listed gateway wins and others show as also served by",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage partial: max_concurrency 1 is asserted for created actors only (an update keeps an existing value)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o4",
+      "test_ref": "tests/server/test_model_actors_api.py::test_references_lists_workflow_steps_and_rules; tests/model/test_references.py::test_find_references_all_forms; tests/cli/test_model_actor_verbs.py::test_references_lists_what_uses_an_actor",
+      "behavior_text": "references list workflow steps incl. loop bodies (summarise.body[summary]) and rules with path, via and enabled state",
+      "contract_text": "lists workflow steps (loop bodies included) and rules naming the actor in action params.actor, with workflow, step and enabled state; never writes",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage partial: 'never writes' is not asserted explicitly (the route is a GET)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o5",
+      "test_ref": "tests/server/test_model_actors_api.py::test_repoint_dry_run_plans_paths_warnings_and_digest_without_writing, ::test_repoint_apply_writes_through_the_revision_path_and_audits_once, ::test_repoint_stale_revision_is_409_revision_conflict, ::test_repoint_refuses_a_missing_disabled_or_deleted_target, ::test_repoint_with_no_matching_step_is_refused; tests/model/test_references.py::test_repoint_rewrites_only_actions_and_does_not_mutate",
+      "behavior_text": "repoint rewrites params.actor with expected_revision (stale -> 409 revision_conflict), refuses missing/disabled/deleted targets and no-match workflows, leaves description and notes unchanged, warns on notes naming the old actor",
+      "contract_text": "rewrites every params.actor == from, sends expected_revision (stale -> 409 revision_conflict), refuses a missing, disabled or deleted target or a workflow with no match, leaves description and notes byte-identical and warns on notes that name from",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o6",
+      "test_ref": "tests/server/test_actor_guards_api.py::test_disable_lists_enabled_workflow_and_rule_references, ::test_disabled_and_deleted_referrers_do_not_count, ::test_force_disables_anyway; tests/cli/test_model_actor_verbs.py::test_disable_refusal_lists_the_referrers_and_force_goes_through",
+      "behavior_text": "disable -> 409 actor_in_use naming the referrers, actor left enabled; disabled/deleted referrers do not count; force disables",
+      "contract_text": "refuses (409 actor_in_use, dry run too) while an enabled workflow or rule references the actor, naming them; disabled workflows do not count; force disables",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage partial: the refusal on a CLI dry run is asserted only as listing the referrers, not as the 409 status",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o7",
+      "test_ref": "tests/cli/test_model_actor_verbs.py::test_the_four_verbs_are_registered_with_roles, ::test_explain_and_learn_cover_the_new_verbs, ::test_enrol_models_server_refusal_is_exit_1, ::test_enrol_models_on_an_old_server_is_exit_2_with_the_version; tests/test_surface_parity.py; tests/mcp/; teken cli doctor --strict",
+      "behavior_text": "the four verbs are registered with roles, dry-run by default with --apply, exit 0/1/2, have explain and learn entries, and appear as MCP tools by the registry-wide parity tests",
+      "contract_text": "each new verb is dry-run by default, --apply commits, --json works, exits 0/1/2, has an explain entry and a learn mention, and appears as an MCP tool; the parity test and teken doctor --strict pass",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage partial: --json is not exercised per verb, and no test calls the new MCP tools over stdio (the existing lapse l2)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o8",
+      "test_ref": "tests/server/test_openapi_contract.py; tests/server/test_model_actors_api.py::test_enrol_models_is_admin_only; web tsc --noEmit",
+      "behavior_text": "the served schema equals the pinned api/openapi.json and the web client typechecks",
+      "contract_text": "the four endpoints are served and pinned; the contract test and the web client's typecheck pass",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o9",
+      "test_ref": "tests/rules/test_newspaper_bundle.py::test_the_llm_actor_is_cortex_in_the_qwen_pool_without_a_bridge, ::test_it_imports_into_a_store, ::test_the_workflow_runs_the_four_kinds_through_the_shipped_actors; tests/rules/test_newspaper_flow.py; manual: ls docs/rules/newspaper/actors and git grep newspaper-llm -- docs/rules",
+      "behavior_text": "the shipped cortex-spark2 actor (pool qwen-spark2, max_concurrency 1) serves the summary step and the bundle and flow tests pass; by hand: actors/ holds no newspaper-llm.json and docs/rules has no 'newspaper-llm'",
+      "contract_text": "the summary step names cortex-spark2, actors/newspaper-llm.json is gone, a cortex-spark2 actor ships, the newspaper bundle and flow tests pass and docs/rules holds no newspaper-llm",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage partial: the absence of newspaper-llm is checked by hand, not by a test",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "web/src/actors/ModelActors.test.tsx (26 tests); web/e2e/model-actors.spec.ts (7 tests)",
+      "behavior_text": "Add models plans then applies from model_gateways choices; Used by lists references with links; Move repoints with the revision it read and offers Reload when stale; in-use Disable shows the refusal and Disable anyway forces",
+      "contract_text": "the Add models panel plans then applies from model_gateways choices, Used by lists references with links, Move repoints with Reload on a stale revision, Disable shows the in-use refusal; screenshots in light and dark are approved by the operator",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage partial: light/dark screenshots are captured only with MODEL_ACTORS_SHOTS and their approval is a human judgement not re-checked here",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:56:06Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "git diff b3a3025~1 b3a3025 --stat -- culture_rules/node culture_rules/engine; tests/node/test_llm_complete.py::test_fails_model_taken_when_another_enabled_endpoint_actor_holds_the_model and 4 siblings",
+      "behavior_text": "the only node change is 20 lines in node/actions/llm.py (the model_taken check, tested: model_taken naming the holder, no request sent); culture_rules/engine is unchanged",
+      "contract_text": "the only node change is the model_taken check in node/actions/llm.py with its tests; the engine is untouched",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "tests/server/test_actor_guards_api.py::test_create_names_the_holder_and_says_to_disable_it_first, ::test_update_to_a_held_model_is_refused_and_a_free_one_passes, ::test_create_disabled_is_allowed_and_enables_once_the_holder_is_disabled; tests/server/test_model_actors_api.py::test_a_model_held_by_another_enabled_endpoint_actor_is_refused_in_the_plan; tests/node/test_llm_complete.py::test_fails_model_taken_*",
+      "behavior_text": "a second enabled endpoint actor for a held model is refused with 409 model_taken naming the holder on create, update and enable, in the enrol plan, and at run time in llm.complete",
+      "contract_text": "a second enabled endpoint actor for a held model is refused with 409 model_taken naming the holder on create, update, enable and in the plan; a disabled one is allowed; llm.complete fails with model_taken when two enabled endpoint actors hold its model",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "tests/server/test_authz_matrix.py::test_enrol_models_is_admin_only; tests/server/test_model_actors_api.py::test_dry_run_plans_only_match_hits_and_writes_nothing, ::test_a_malformed_allowlist_is_refused_before_any_secret",
+      "behavior_text": "an editor's enrol-models is 403; the bearer is sent only to model_gateways URLs and a bad or unknown gateway sends nothing",
+      "contract_text": "an editor call is 403; the bearer header is only ever sent to a model_gateways URL",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full (for the tested inputs)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o15",
+      "test_ref": "tests/actors/test_model_rule.py::test_qwen_actors_never_conflict, ::test_non_endpoint_candidate_never_conflicts; tests/server/test_actor_guards_api.py::test_actors_outside_the_rule_never_conflict; live: actors list on 0.23.0 (2026-10-23)",
+      "behavior_text": "actors without base_url never conflict (tests); live: claude-fixer, codex-reviewer, qwen-fixer, qwen-reviewer have no base_url; the only shared model is cortex-spark2 with newspaper-llm disabled; whisper-he holds its model alone",
+      "contract_text": "actors without base_url (harness agents like qwen-fixer and qwen-reviewer, both on cortex) are never refused by it; the live store has no conflict besides newspaper-llm",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full (tests + live read)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o16",
+      "test_ref": "tests/server/test_actor_guards_api.py::test_disable_lists_enabled_workflow_and_rule_references; tests/model/test_references.py::test_find_references_all_forms; tests/server/test_model_actors_api.py::test_repoint_apply_writes_through_the_revision_path_and_audits_once, ::test_repoint_dry_run_plans_paths_warnings_and_digest_without_writing",
+      "behavior_text": "a placement on the actor appears in references (via placement), blocks disable, and is reported as a warning but left unchanged by repoint",
+      "contract_text": "a step or rule placed on the actor appears in references as a placement, blocks disable, and is reported but not changed by repoint",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o17",
+      "test_ref": "tests/server/test_model_actors_api.py::test_repoint_of_a_v2_trusted_workflow_is_refused_without_force, ::test_repoint_of_a_v1_trusted_workflow_is_refused_without_force; tests/cli/test_model_actor_verbs.py::test_repoint_force_is_sent",
+      "behavior_text": "a v1- or v2-trusted workflow is refused with 409 workflow_trusted naming the digest without force; with force the new digest is returned",
+      "contract_text": "repointing a workflow whose v1 or v2 digest is trusted is refused without force, naming the digest; with force the new digest is shown",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o18",
+      "test_ref": "tests/cli/test_model_actor_verbs.py::test_enrol_models_on_an_old_server_is_exit_2_with_the_version, ::test_references_on_an_old_server_is_exit_2, ::test_repoint_on_an_old_server_is_exit_2; ModelActors.test.tsx 'hides Add models, Used by and Move'; e2e 'an older server (the routes 404)'",
+      "behavior_text": "enrol-models, references and repoint-actor exit 2 with a server-too-old hint on 404; the site hides the new controls",
+      "contract_text": "each verb exits 2 with a server-too-old hint on 404; the site hides the new controls when they 404",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage partial: actors disable on an old server falls back to plain disable by design and has no exit-2 test",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o19",
+      "test_ref": "tests/server/test_model_actors_api.py::test_dry_run_is_the_default_and_apply_writes_one_audited_actor_each, ::test_repoint_apply_writes_through_the_revision_path_and_audits_once, ::test_a_partial_apply_answers_200_with_applied_and_failed",
+      "behavior_text": "one audit entry naming the caller per actor created or updated and per repoint; responses list ids and the new revision",
+      "contract_text": "each actor created or updated and each workflow repointed writes one audit entry naming the caller; the response lists ids and revisions",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o20",
+      "test_ref": "tests/actors/test_model_enrol.py::test_conflicting_holder_is_refused_and_untouched; tests/server/test_model_actors_api.py::test_a_model_id_held_by_an_app_actor_is_refused_and_left_untouched",
+      "behavior_text": "a model id equal to a non-agent actor's id, or an agent without base_url, plans a refusal and the stored actor is byte-identical after apply",
+      "contract_text": "a model id equal to a non-agent actor's id, or an agent actor without base_url, plans a refusal and leaves that actor byte-identical",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at 6af9d25 (validate-delivery run, read-only); coverage full",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-23T05:51:39Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
+    }
+  ],
   "deltas": [],
   "supersessions": []
 }

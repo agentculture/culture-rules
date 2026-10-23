@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1] - 2026-10-23
+
+### Added
+
+- Model actors closeout: delivery summary docs/deliveries/2026-10-19-model-actors-in-the-cli-and-mcp.md, evidence e1-e20 for obligations o1-o20 (proposed), deviations d7 (cortex-spark2 lane only) and d8 (the summarise notes update), and the live step log .devague/evidence-log-model-actors.md; the 2026-10-23 05:00 newspaper issue had 4 of 4 summaries on cortex-spark2
+- File-in transcription t8 record: obligation o21 for c27 and its evidence (fail: the pipeline is proven on a real 56-minute recording, the Hebrew quality is not; lobes-cli#329)
+
+### Fixed
+
+- docs/operations/pocket-transcribe.md: the actor-update recipe now says to drop updated_at, which actors update refuses (422)
+
 ## [0.23.0] - 2026-10-23
 
 ### Added

@@ -2,7 +2,7 @@
   "plan_slug": "file-in-transcription",
   "schema_version": 2,
   "created": "2026-10-23T03:34:49Z",
-  "updated": "2026-10-23T04:32:47Z",
+  "updated": "2026-10-23T06:22:10Z",
   "deviations": [
     {
       "id": "d1",
@@ -33,7 +33,27 @@
       "seq": 2
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o21",
+      "test_ref": "live run run-d13bd937aad04464871d155ca17d523b (workflows run transcribe-file, 2026-10-23 05:50:27-05:55:06Z) on recording 3705000a\u2026 (3380 s, 12.9 MiB mp3); model-gear-stt log for the same window",
+      "behavior_text": "run succeeded: 8 contiguous windows (<= 480 s, cut at silences, sum 3380.3 s), result file sha matches result_sha256, work dir removed, segment_count 8, empty_window_count 1. Quality: window 1 ends in a repetition loop ('\u05e0\u05e4\u05e9\u05d8 \u05e7\u05e8\u05d5\u05d1.' repeated), window 7 has 237 chars for 478 s, the last 46 s window is empty; the STT server dropped 61 of 125 30 s chunks as low-confidence (avg_logprob < -0.35), including real speech",
+      "contract_text": "after rollout, one real recording longer than 600 s transcribes on spark through a direct workflows run transcribe-file with segment_count >= 2 and a Hebrew transcript the operator reads as usable",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the pipeline half passes (split, offsets, file, outputs); the operator judged the transcript not usable yet (2026-10-23) after the comparison with embodiment, pocketsync and lobes realtime: lobes listen_server_whisper.py:676-683 decodes greedily with no repetition control and drops whole low-confidence chunks without retry",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-23T05:55:06Z",
+        "commit": "6af9d25"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 3
+    }
+  ],
   "deltas": [],
   "supersessions": []
 }
