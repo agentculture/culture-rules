@@ -19,10 +19,13 @@ secrets, no webhook, no actor.
 | Email (Resend) | [email.md](email.md) | nothing (send only) | `email.send` |
 | Web search (Brave) | [search.md](search.md) | nothing (read only) | `search.web` |
 | OpenAI-compatible model (`agent` actor) | [llm.md](llm.md) | nothing | `llm.complete` |
+| OpenAI-compatible speech-to-text (`agent` actor) | [stt.md](stt.md) | nothing | `audio.transcribe` |
 | xteink library (`service` actor) | [library.md](library.md) | nothing | `library.push` |
 
-The last four are what the daily newspaper uses
-([docs/operations/newspaper.md](../operations/newspaper.md)).
+Email, web search, the model and the library are what the daily newspaper
+uses ([docs/operations/newspaper.md](../operations/newspaper.md)). The
+speech-to-text actor is what the pocket-transcribe bundle uses
+([docs/operations/pocket-transcribe.md](../operations/pocket-transcribe.md)).
 
 ## Before you start (all guides)
 

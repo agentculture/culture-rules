@@ -1981,6 +1981,92 @@
         ],
         "text": "It starts when pr-fix succeeds, if its condition holds, on spark2.\nDepending on the conditions, if its condition holds, codex reviews the commit, read-only and, if gate_verdict is one of pass, no_gate and diff_truncated is false and reviewer is qwen-reviewer, qwen reviews the commit, read-only.\nThen checks the review and records its verdict for the commit.\nThen it continues into publish-fix or queue-add.\nWhere the chain ends here, it updates the chain's status comment on GitHub (as github-app).\nIf it fails, it updates that comment with the failure.\nIt runs one at a time per pr-fixer:{repository}#{number}."
       }
+    },
+    "transcribe-file": {
+      "description": "Turns one audio file into a transcript file with timestamps. Running it again on the same audio and model changes nothing; another model writes a second file beside the first.",
+      "entries": [
+        {
+          "depth": 0,
+          "label": "1",
+          "step": "transcribe",
+          "text": "audio.transcribe as whisper-he (≤3 attempts)"
+        }
+      ],
+      "id": "transcribe-file",
+      "kind": "workflow",
+      "lines": [
+        "1 transcribe — audio.transcribe as whisper-he (≤3 attempts)"
+      ],
+      "paragraph": {
+        "segments": [
+          {
+            "disabled": true,
+            "enabled": false,
+            "keys": [
+              "starts_event",
+              "rule_where"
+            ],
+            "kind": "entry",
+            "part": "start",
+            "rule": "pocket-transcribe",
+            "sentence": 0,
+            "text": "It starts when pocketsync.recording.landed arrives, on spark."
+          },
+          {
+            "depth": 0,
+            "fallback": false,
+            "gap": false,
+            "grouped": false,
+            "keys": [
+              "first"
+            ],
+            "name": "Transcribe the file",
+            "part": "step",
+            "phrase": "First",
+            "sentence": 1,
+            "shown": "sends the audio to the speech-to-text actor and writes the transcript",
+            "standin": false,
+            "step": "transcribe",
+            "tail": ", trying up to 3 times.",
+            "tail_keys": [
+              "retry"
+            ],
+            "text": "Sends the audio to the speech-to-text actor and writes the transcript."
+          },
+          {
+            "keys": [
+              "continues_none"
+            ],
+            "part": "then",
+            "rules": [],
+            "sentence": 2,
+            "text": "Nothing continues from here."
+          },
+          {
+            "keys": [
+              "ends_noop"
+            ],
+            "part": "then",
+            "rules": [
+              "pocket-transcribe"
+            ],
+            "sentence": 3,
+            "text": "When it is done, nothing else happens."
+          },
+          {
+            "keys": [
+              "runs_key"
+            ],
+            "part": "then",
+            "rules": [
+              "pocket-transcribe"
+            ],
+            "sentence": 4,
+            "text": "It runs one at a time per stt:{audio_sha256}."
+          }
+        ],
+        "text": "It starts when pocketsync.recording.landed arrives, on spark.\nFirst sends the audio to the speech-to-text actor and writes the transcript, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per stt:{audio_sha256}."
+      }
     }
   },
   "rules": [
@@ -2036,6 +2122,56 @@
             "$var": "newspaper_to"
           },
           "tz": "trigger.data.tz"
+        },
+        "version": null
+      }
+    },
+    {
+      "action": {
+        "idempotent": false,
+        "kind": "noop",
+        "name": "Nothing: the transcript is the workflow's work",
+        "only_at_chain_end": false,
+        "params": {},
+        "retry": null,
+        "timeout_s": null
+      },
+      "concurrency_key": "stt:{trigger.data.audio_sha256}",
+      "condition": null,
+      "counts_toward_budget": true,
+      "description": "#73: when pocketsync lands a recording (pocketsync.recording.landed), runs transcribe-file on its audio with the event's audio_path, audio_sha256 and language, into the transcripts_dir variable; the model is the whisper-he actor's. One run per audio at a time (concurrency key stt:<audio_sha256>). Ships disabled: enable it after setting the actor's roots, the grant and the variable (docs/operations/pocket-transcribe.md).",
+      "enabled": false,
+      "exclusive_group": null,
+      "id": "pocket-transcribe",
+      "max_attempts": null,
+      "may_after": [],
+      "must_after": [],
+      "name": "Transcribe each landed Pocket recording",
+      "on_failure": null,
+      "placement": {
+        "actor": null,
+        "machine": "spark",
+        "requirement": null
+      },
+      "priority": 0,
+      "resets_attempt_budget": false,
+      "schema_version": "1.0",
+      "supersedes": [],
+      "trigger": {
+        "kind": "event",
+        "params": {
+          "type": "pocketsync.recording.landed"
+        }
+      },
+      "workflow": {
+        "id": "transcribe-file",
+        "inputs": {
+          "audio_path": "trigger.data.audio_path",
+          "audio_sha256": "trigger.data.audio_sha256",
+          "language": "trigger.data.language",
+          "output_dir": {
+            "$var": "transcripts_dir"
+          }
         },
         "version": null
       }
@@ -10300,6 +10436,238 @@
           "placement": null,
           "retry": null,
           "timeout_s": 60.0
+        }
+      ],
+      "variables": [],
+      "version": 1
+    },
+    "transcribe-file": {
+      "description": "Turns one audio file into a transcript file with timestamps. Running it again on the same audio and model changes nothing; another model writes a second file beside the first.",
+      "edges": [
+        {
+          "source": "inputs",
+          "source_port": "audio_path",
+          "target": "transcribe",
+          "target_port": "audio_path"
+        },
+        {
+          "source": "inputs",
+          "source_port": "audio_sha256",
+          "target": "transcribe",
+          "target_port": "audio_sha256"
+        },
+        {
+          "source": "inputs",
+          "source_port": "language",
+          "target": "transcribe",
+          "target_port": "language"
+        },
+        {
+          "source": "inputs",
+          "source_port": "model",
+          "target": "transcribe",
+          "target_port": "model"
+        },
+        {
+          "source": "inputs",
+          "source_port": "output_dir",
+          "target": "transcribe",
+          "target_port": "output_dir"
+        }
+      ],
+      "enabled": true,
+      "id": "transcribe-file",
+      "inputs": [
+        {
+          "description": "the audio file's absolute path, under the actor's audio_root",
+          "name": "audio_path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the audio file's sha256: 64 lowercase hex characters",
+          "name": "audio_sha256",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "a language code such as he or en; unset: the endpoint's default",
+          "name": "language",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the model to label and ask for; unset: the actor's model",
+          "name": "model",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the directory the transcript goes under, inside the actor's output_root",
+          "name": "output_dir",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "Transcribe an audio file",
+      "notes": "File in, file out: one audio.transcribe step. The transcript is written atomically to <output_dir>/<audio_sha256>/transcript.<model-slug>.json (schema 1: audio_sha256, model, language, duration, segments [{start, end, text}], created_at, window_count, empty_window_count); the outputs carry only scalars, never the text. Re-running the same audio and model is a no-op; another model writes a second file beside the first. The workflow knows nothing about where the file came from.",
+      "outputs": [
+        {
+          "name": "result_path",
+          "source": "steps.transcribe.outputs.result_path",
+          "type": "string"
+        },
+        {
+          "name": "result_sha256",
+          "source": "steps.transcribe.outputs.result_sha256",
+          "type": "string"
+        },
+        {
+          "name": "audio_sha256",
+          "source": "steps.transcribe.outputs.audio_sha256",
+          "type": "string"
+        },
+        {
+          "name": "model",
+          "source": "steps.transcribe.outputs.model",
+          "type": "string"
+        },
+        {
+          "name": "language",
+          "source": "steps.transcribe.outputs.language",
+          "type": "string"
+        },
+        {
+          "name": "segment_count",
+          "source": "steps.transcribe.outputs.segment_count",
+          "type": "integer"
+        },
+        {
+          "name": "window_count",
+          "source": "steps.transcribe.outputs.window_count",
+          "type": "integer"
+        },
+        {
+          "name": "empty_window_count",
+          "source": "steps.transcribe.outputs.empty_window_count",
+          "type": "integer"
+        }
+      ],
+      "schema_version": "1.0",
+      "steps": [
+        {
+          "body": [],
+          "config": {
+            "action": {
+              "kind": "audio.transcribe",
+              "params": {
+                "actor": "whisper-he",
+                "audio_path": "inputs.audio_path",
+                "audio_sha256": "inputs.audio_sha256",
+                "language": "inputs.language",
+                "model": "inputs.model",
+                "output_dir": "inputs.output_dir"
+              }
+            },
+            "builtin": "action",
+            "idempotent": true
+          },
+          "description": "Sends the audio to the speech-to-text actor and writes the transcript.",
+          "enabled": true,
+          "id": "transcribe",
+          "inputs": [
+            {
+              "description": "the audio file's absolute path, under the actor's audio_root",
+              "name": "audio_path",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the audio file's sha256: 64 lowercase hex characters",
+              "name": "audio_sha256",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "a language code such as he or en; unset: the endpoint's default",
+              "name": "language",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "the model to label and ask for; unset: the actor's model",
+              "name": "model",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "the directory the transcript goes under, inside the actor's output_root",
+              "name": "output_dir",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Transcribe the file",
+          "notes": "audio.transcribe through whisper-he. Checks audio_sha256 (64 hex), keeps audio_path under the actor's audio_root and output_dir under its output_root (path_refused), hashes the file (audio_mismatch), and returns the existing <output_dir>/<audio_sha256>/transcript.<model-slug>.json unchanged when its audio_sha256 and model match (no request). Otherwise ffmpeg cuts 16 kHz mono WAV windows of at most 480 s (at a silence in a window's last 60 s when there is one), each POSTed to <base_url>/v1/audio/transcriptions; each reply is kept under .work.<model-slug>/ so a retry resends only the missing windows. timeout_s 14400 covers a 3.8 h recording (the engine default is 3600 s); only stt_unavailable is retried.",
+          "outputs": [
+            {
+              "description": "the transcript file's absolute path",
+              "name": "result_path",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the sha256 of the transcript file's bytes",
+              "name": "result_sha256",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the sha256 of the audio that was transcribed",
+              "name": "audio_sha256",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the model the transcript is labelled with",
+              "name": "model",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the language sent, or null",
+              "name": "language",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "how many segments the transcript has",
+              "name": "segment_count",
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "description": "how many windows the audio was cut into",
+              "name": "window_count",
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "description": "how many windows came back with no text",
+              "name": "empty_window_count",
+              "required": true,
+              "type": "integer"
+            }
+          ],
+          "placement": null,
+          "retry": {
+            "backoff_multiplier": 2.0,
+            "backoff_s": 60.0,
+            "max_attempts": 3
+          },
+          "timeout_s": 14400.0
         }
       ],
       "variables": [],

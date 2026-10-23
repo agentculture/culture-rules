@@ -1,0 +1,50 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: the transcript is the workflow's work",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "stt:{trigger.data.audio_sha256}",
+  "condition": null,
+  "counts_toward_budget": true,
+  "description": "#73: when pocketsync lands a recording (pocketsync.recording.landed), runs transcribe-file on its audio with the event's audio_path, audio_sha256 and language, into the transcripts_dir variable; the model is the whisper-he actor's. One run per audio at a time (concurrency key stt:<audio_sha256>). Ships disabled: enable it after setting the actor's roots, the grant and the variable (docs/operations/pocket-transcribe.md).",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pocket-transcribe",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "Transcribe each landed Pocket recording",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "pocketsync.recording.landed"
+    }
+  },
+  "workflow": {
+    "id": "transcribe-file",
+    "inputs": {
+      "audio_path": "trigger.data.audio_path",
+      "audio_sha256": "trigger.data.audio_sha256",
+      "language": "trigger.data.language",
+      "output_dir": {
+        "$var": "transcripts_dir"
+      }
+    },
+    "version": null
+  }
+}
