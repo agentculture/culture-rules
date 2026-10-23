@@ -72,6 +72,7 @@ from culture_rules.store.port import (
     EVENTS_COLLECTION,
     VARIABLES_COLLECTION,
     Change,
+    ChangeFeed,
     ChangeOp,
     Document,
     DuplicateKeyError,
@@ -551,7 +552,7 @@ class MongoStore:
             raise StoreError(f"could not obtain a change-stream position for {collection!r}")
         return token["_data"]
 
-    def changes(self, collection: str, after: str, *, timeout: float = 0.0) -> Iterator[Change]:
+    def changes(self, collection: str, after: str, *, timeout: float = 0.0) -> ChangeFeed:
         from pymongo.errors import PyMongoError
 
         require_collection(collection)
@@ -560,6 +561,7 @@ class MongoStore:
         wait_ms = _SETTLE_MS if timeout <= 0 else max(_SETTLE_MS, min(int(timeout * 1000), 250))
         deadline = time.monotonic() + max(timeout, 0.0)
         found: list[Change] = []
+        end: str | None = None
         try:
             with self._open_stream(collection, after, wait_ms) as stream:
                 while True:
@@ -571,9 +573,13 @@ class MongoStore:
                         continue
                     if found or time.monotonic() >= deadline:
                         break
+                # the batch is drained: the stream's token is the server's post-batch
+                # position, past every oplog entry it scanned (other collections included)
+                token = stream.resume_token
+                end = token["_data"] if token else None
         except PyMongoError as exc:
             raise StoreError(f"change feed for {collection!r} failed: {exc}") from exc
-        return iter(found)
+        return ChangeFeed(found, end)
 
     def save_cursor(self, consumer: str, collection: str, token: str) -> None:
         if not isinstance(token, str) or not token:

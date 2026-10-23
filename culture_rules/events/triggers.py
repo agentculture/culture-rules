@@ -50,7 +50,9 @@ from culture_rules.store.port import (
     DuplicateKeyError,
     StoragePort,
     StoreOps,
+    advanced_cursor,
     cursor_id,
+    feed_end,
     init_cursor,
 )
 from culture_rules.store.versioning import utc_timestamp
@@ -102,6 +104,8 @@ class EventTriggers:
         self.host = host
         self.consumer = consumer
         self._clock = clock or (lambda: datetime.now(UTC))
+        # a quiet cursor first moves QUIET_CURSOR_EVERY after start; the first poll pins the head
+        self._quiet_saved_at: datetime = self._clock()
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):  # Mongo: collections must exist before a transaction uses them
             ensure(EVENTS_COLLECTION, FIRES_COLLECTION, CURSOR_COLLECTION, *handler_collections)
@@ -161,7 +165,8 @@ class EventTriggers:
         fired: list[str] = []
         skipped: list[str] = []
         ignored = 0
-        for change in self.store.changes(EVENTS_COLLECTION, token, timeout=timeout):
+        feed = self.store.changes(EVENTS_COLLECTION, token, timeout=timeout)
+        for change in feed:
             token = change.token
             if change.op != "insert" or change.document is None:
                 ignored += 1
@@ -171,4 +176,12 @@ class EventTriggers:
                 fired.append(change.id)
             else:
                 skipped.append(change.id)
+        # every change above saved its own token; a feed that only passed other
+        # collections' writes moves the cursor too, at most every QUIET_CURSOR_EVERY
+        now = self._clock()
+        moved = advanced_cursor(token, token, feed_end(feed), self._quiet_saved_at, now)
+        if moved != token:
+            self.store.save_cursor(self.consumer, EVENTS_COLLECTION, moved)
+            self._quiet_saved_at = now
+            token = moved
         return TriggerResult(tuple(fired), tuple(skipped), ignored, token)

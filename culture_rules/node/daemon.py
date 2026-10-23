@@ -75,7 +75,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -132,7 +132,7 @@ from culture_rules.node.reaction_watch import ReactionWatcher
 from culture_rules.node.schedule import Scheduler
 from culture_rules.node.status_board import WRITERS_COLLECTION, ensure_status_indexes
 from culture_rules.ops.logs import log_context
-from culture_rules.store.port import Change, Document, StoragePort
+from culture_rules.store.port import Change, ChangeFeed, Document, StoragePort, feed_end
 
 __all__ = ["NODE_COLLECTIONS", "CycleReport", "HeartbeatOptions", "Node", "NodeOptions"]
 
@@ -239,13 +239,16 @@ class _OwnRuns:
         self._store = store
         self._identity = identity
 
-    def changes(self, collection: str, after: str, *, timeout: float = 0.0) -> Iterator[Change]:
-        for change in self._store.changes(collection, after, timeout=timeout):
+    def changes(self, collection: str, after: str, *, timeout: float = 0.0) -> ChangeFeed:
+        feed = self._store.changes(collection, after, timeout=timeout)
+        out: list[Change] = []
+        for change in feed:
             doc = change.document
             if doc is None or doc.get("started_by") == self._identity:
-                yield change
+                out.append(change)
             else:  # keep the token moving without reporting another node's run
-                yield Change(change.token, change.collection, change.op, change.id, None)
+                out.append(Change(change.token, change.collection, change.op, change.id, None))
+        return ChangeFeed(out, feed_end(feed))
 
 
 class Node:

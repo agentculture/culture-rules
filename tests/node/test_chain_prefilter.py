@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.model.action import Action
 from culture_rules.model.rule import Rule, Trigger
@@ -72,3 +74,68 @@ def test_a_run_with_a_dependant_still_fires_and_a_new_dependant_is_seen_next_pol
     store.put(RUNS_COLLECTION, run_doc("a", 2))
     assert len(c.poll()) == 1  # snapshot refreshed on the next poll
     assert handled == ["run-a-2"]
+
+
+# ---- a quiet source: the cursor follows the feed's end, at most every QUIET_CURSOR_EVERY ----
+
+
+class CursorSpyStore(MemoryStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.saved: list[tuple[str, str]] = []
+
+    def save_cursor(self, consumer, collection, token):
+        self.saved.append((collection, token))
+        super().save_cursor(consumer, collection, token)
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+def test_a_quiet_source_cursor_moves_past_other_collections_writes():
+    """#7 follow-up: a feed nothing lands on must not be re-read from an old point on every
+    poll (on MongoDB that rescanned days of oplog and pinned a core per node)."""
+    store = CursorSpyStore()
+    store.put("rules", rule("a").to_dict())
+    store.put("rules", rule("b", must_after=("a",)).to_dict())
+    handled: list[str] = []
+    clock = Clock()
+    c = FeedConsumer(
+        store,
+        (Source(RUNS_COLLECTION, lambda doc: doc["id"], lambda tx, d, m: handled.append(d["id"])),),
+        host="h",
+        consumer="chain-test",
+        clock=clock,
+    )
+    c.poll()  # pins the head
+    pinned = store.load_cursor("chain-test", RUNS_COLLECTION)
+    for i in range(3):
+        store.put("variables_other", {"id": f"v{i}"})
+    c.poll()  # within five minutes of start: the head stays pinned
+    assert store.load_cursor("chain-test", RUNS_COLLECTION) == pinned
+    assert store.saved == []
+    clock.now += timedelta(minutes=5)
+    c.poll()
+    moved = store.load_cursor("chain-test", RUNS_COLLECTION)
+    assert moved != pinned
+    assert store.saved == [(RUNS_COLLECTION, moved)]
+
+    for i in range(3):  # more quiet writes within five minutes: no new cursor write
+        store.put("variables_other", {"id": f"w{i}"})
+        clock.now += timedelta(minutes=1)
+        c.poll()
+    assert len(store.saved) == 1
+
+    clock.now += timedelta(minutes=5)
+    c.poll()
+    assert len(store.saved) == 2
+    assert store.load_cursor("chain-test", RUNS_COLLECTION) != moved
+
+    store.put(RUNS_COLLECTION, run_doc("a", 1))  # b must run after a: delivered as before
+    c.poll()
+    assert handled == ["run-a-1"]
