@@ -105,3 +105,9 @@ def test_senior_holder_is_only_a_holder_with_a_lower_id():
     assert senior_holder(actors, _endpoint("a", "m")) is None
     assert senior_holder(actors, _endpoint("c", "m")) == "b"
     assert model_holder(actors, _endpoint("a", "m")) == "b"
+
+
+def test_audio_transcribe_counts_as_an_endpoint_kind_like_llm_complete():
+    from culture_rules.actors.model_rule import ENDPOINT_KINDS
+
+    assert {"llm.complete", "audio.transcribe"} <= set(ENDPOINT_KINDS)

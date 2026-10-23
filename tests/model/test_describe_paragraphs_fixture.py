@@ -1,7 +1,7 @@
 """The web editor's Playwright fixture of the real API's describe answers (t18).
 
 ``web/e2e/fixtures/describe-paragraphs.json`` is what ``GET /workflows/{id}/describe`` answers
-for the nine committed workflows (``docs/rules``) once ``tests/fixtures/workflow_descriptions.json``
+for the ten committed workflows (``docs/rules``) once ``tests/fixtures/workflow_descriptions.json``
 is applied, built by the same ``workflow_paragraph`` the server calls, so the e2e mock serves
 the paragraph exactly as the API builds it. This test regenerates it and fails when the
 committed copy has drifted; ``REGENERATE_E2E_FIXTURES=1 uv run pytest <this file>`` rewrites it.
@@ -10,7 +10,7 @@ One workflow ships with no description of its own (``daily-newspaper``), and a s
 (``publish-fix``'s loop body step), so the editor's gaps and stand-ins (d11: the step's name,
 marked ``standin``) are exercised.
 
-Assumption c9 (checked here): none of the nine committed workflows reads a ``fallback`` step
+Assumption c9 (checked here): none of the ten committed workflows reads a ``fallback`` step
 segment, i.e. every step kind and config in them has a joining phrase in the table.
 """
 
@@ -114,9 +114,9 @@ def test_the_fixture_has_a_workflow_and_a_step_with_no_description():
 
 
 def test_c9_no_committed_workflow_falls_back_to_a_generated_line():
-    """c9: the nine committed workflows all read with a joining phrase and no fallback."""
+    """c9: the ten committed workflows all read with a joining phrase and no fallback."""
     data = build()
-    assert len(data["workflows"]) == 9
+    assert len(data["workflows"]) == 10
     fallbacks = {
         wid: [s["step"] for s in a["paragraph"]["segments"] if s.get("fallback")]
         for wid, a in data["describe"].items()

@@ -542,6 +542,29 @@ def test_an_llm_step_needs_an_endpoint_target_even_when_the_old_actor_is_gone(st
     _mismatch(repoint(client, to="mesh"))
 
 
+def _audio_workflow(actor):
+    params = {"actor": actor, "audio_path": "/a.wav", "audio_sha256": "0" * 64, "output_dir": "/o"}
+    step = {
+        "id": "stt",
+        "kind": "code",
+        "config": {"builtin": "action", "action": {"kind": "audio.transcribe", "params": params}},
+    }
+    return {"id": "stt-wf", "name": "stt-wf", "steps": [step], "schema_version": "1.0"}
+
+
+def test_an_audio_transcribe_step_needs_an_endpoint_target(store):
+    client = seeded(store)
+    mesh = {"id": "mesh", "name": "mesh", "kind": "agent", "params": {}, "schema_version": "1.0"}
+    assert client.post("/actors", json=mesh, headers=ALICE).status_code == 201
+    wf = _audio_workflow("old")
+    assert client.post("/workflows", json=wf, headers=ALICE).status_code == 201
+    _mismatch(repoint(client, id="stt-wf", to="mesh"))
+    store.delete("actors", "old")
+    _mismatch(repoint(client, id="stt-wf", to="mesh"))
+    ok = repoint(client, id="stt-wf", **{"from": "old"}, to="new")
+    assert ok.status_code == 200, ok.text
+
+
 def test_an_app_target_must_be_on_the_same_surface(store):
     client, _ = make_client(store)
     for id_, surface in (("brave", "search"), ("brave2", "search"), ("mail", "email")):

@@ -369,6 +369,13 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
             {"kind": "library.push", "params": {"actor": "xteink", "device_id": "d1"}},
             "library.push as xteink to device d1",
         ),
+        (
+            {
+                "kind": "audio.transcribe",
+                "params": {"actor": "whisper", "audio_path": "/data/a.wav"},
+            },
+            "audio.transcribe as whisper of /data/a.wav",
+        ),
         ({"kind": "future.kind", "params": {"actor": "a"}}, "future.kind as a"),
     ],
 )
@@ -652,7 +659,7 @@ def test_a_status_comment_action_says_so():
 
 
 def test_action_words_cover_the_newspaper_kinds():
-    for kind in (EMAIL_SEND, "search.web", "llm.complete", "library.push"):
+    for kind in (EMAIL_SEND, "search.web", "llm.complete", "library.push", "audio.transcribe"):
         assert kind in ACTION_WORDS, kind
 
 

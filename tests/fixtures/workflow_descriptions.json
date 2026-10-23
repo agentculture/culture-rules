@@ -17,6 +17,12 @@
       "record": "Marks the day's issue as delivered."
     }
   },
+  "transcribe-file": {
+    "description": "Turns one audio file into a transcript file with timestamps. Running it again on the same audio and model changes nothing; another model writes a second file beside the first.",
+    "steps": {
+      "transcribe": "Sends the audio to the speech-to-text actor and writes the transcript."
+    }
+  },
   "pr-fix": {
     "description": "Fixes a pull request's review threads and failing SonarCloud conditions with an agent, then runs the repository's test gate on the agent's commit.",
     "steps": {

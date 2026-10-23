@@ -102,6 +102,18 @@ enabled endpoint actor (one with `params.base_url`) per model (409
 `base_url` are outside it. An older server answers exit 2. The newspaper
 bundle summarises on `cortex-spark2`.
 
+**File-in transcription** (#73 part A, spec
+`docs/specs/2026-10-22-file-in-transcription.md`, setup
+`docs/operations/pocket-transcribe.md`, guide `docs/actors/stt.md`): the action
+kind `audio.transcribe` sends a given audio file to an agent actor's
+OpenAI-compatible `/v1/audio/transcriptions`, reading only under the actor's
+`audio_root` and writing only under its `output_root`; ffmpeg cuts windows of
+at most 480 s at silences, and a retry resumes. The result is
+`<output_dir>/<audio_sha256>/transcript.<model-slug>.json`, the outputs are
+scalars, and the same audio and model again is a no-op. The bundle
+`docs/rules/pocket-transcribe` (workflow `transcribe-file`, fired by
+`pocketsync.recording.landed`) ships disabled.
+
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's
 conventions if you need more context than fits here. It covers:

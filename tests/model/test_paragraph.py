@@ -783,7 +783,7 @@ def _template_regex(template: str, first: bool) -> str:
 
 
 def _committed(written: bool = True) -> list[dict]:
-    """The nine committed workflows, with the fixture's descriptions (or none at all)."""
+    """The ten committed workflows, with the fixture's descriptions (or none at all)."""
     fixture = json.loads(FIXTURE.read_text())
     out = []
     for path in sorted(RULES_DOCS.glob("*/workflows/*.json")):
@@ -807,9 +807,9 @@ def _all_steps(steps: list[dict]):
         yield from _all_steps(s.get("body") or [])
 
 
-def test_the_fixture_covers_the_nine_committed_workflows():
+def test_the_fixture_covers_the_ten_committed_workflows():
     committed = _committed()
-    assert len(committed) == 9
+    assert len(committed) == 10
     fixture = json.loads(FIXTURE.read_text())
     assert set(fixture) == {wf["id"] for wf in committed}
     ids = {wf["id"]: {s["id"] for s in _all_steps(wf["steps"])} for wf in committed}

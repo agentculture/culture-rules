@@ -12,6 +12,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+#: Action kinds that call an actor's OpenAI-compatible endpoint, so the actor must be an
+#: endpoint actor and is held to the one-holder-per-model rule.
+ENDPOINT_KINDS = ("llm.complete", "audio.transcribe")
+
 
 def _params(doc: dict[str, Any]) -> dict[str, Any]:
     params = doc.get("params")

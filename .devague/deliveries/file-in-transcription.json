@@ -1,0 +1,39 @@
+{
+  "plan_slug": "file-in-transcription",
+  "schema_version": 2,
+  "created": "2026-10-23T03:34:49Z",
+  "updated": "2026-10-23T04:32:47Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "transcribe-file and its step are committed with an empty description; the plain-language text lives in tests/fixtures/workflow_descriptions.json like the other committed workflows, and only notes is committed",
+      "task_ref": "t6",
+      "reason": "tests test_every_description_is_empty and test_notes.py::test_committed_workflows_load_unchanged require empty descriptions on committed docs/rules workflows (commit-is-code-and-logic: a committed description would overwrite the operator's on import)",
+      "affects": [
+        "h4"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "rules.run.* run events gain data.error_reason: the failing port's code parsed from error_message ('<code>: <detail>' \u2192 code; null when the message has no such prefix or the run did not fail); error_code stays as today (actor_failed); the stt docs point consumers at error_reason",
+      "task_ref": "t5",
+      "reason": "the engine wraps every port failure as error_code actor_failed with the port's code only in error_message (engine/runs.py:1870-1879, run_completions.py:160-161), so confirmed h15 and #73's 'distinct error_code' did not hold; found by the ask-colleague review, operator chose an additive field over docs-only or changing error_code",
+      "affects": [
+        "c10",
+        "h15",
+        "t6"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

@@ -24,7 +24,8 @@ Data
 ====
 ``data`` holds ``run_id``, ``rule_id``, ``workflow_id``, ``workflow_version``, ``status``,
 ``concurrency_key``, ``outputs`` (only the explicitly exported outputs), ``error_code``,
-``error_message``, ``trigger_event_id``, ``trigger_type`` and the trigger's subject fields
+``error_message``, ``error_reason`` (the failing port's own code), ``trigger_event_id``,
+``trigger_type`` and the trigger's subject fields
 (:data:`~culture_rules.engine.run_completions.SUBJECT_FIELDS`) at the top level. Lineage:
 ``causationId`` = the run's trigger, ``correlationId`` inherited, ``runId`` = the run,
 ``hops`` = the trigger's hops plus one. See :mod:`culture_rules.engine.run_completions`.

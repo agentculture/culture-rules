@@ -10,6 +10,14 @@
       "from": null
     },
     {
+      "rule": "pocket-transcribe",
+      "workflow": "transcribe-file",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
       "rule": "pr-fixer-checks",
       "workflow": "queue-add",
       "kind": "entry",

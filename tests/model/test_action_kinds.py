@@ -295,3 +295,33 @@ def test_email_send_to_accepts_a_reference() -> None:
 def test_llm_complete_content_takes_structured_results() -> None:
     params = {**NEWSPAPER_KINDS[LLM_COMPLETE], "content": [{"title": "t", "url": "u"}]}
     assert _errs(LLM_COMPLETE, params) == set()
+
+
+# --- audio.transcribe (speech-to-text on an endpoint actor) --------------------------------
+
+AUDIO = {
+    "actor": "whisper",
+    "audio_path": "/data/a.wav",
+    "audio_sha256": "0" * 64,
+    "output_dir": "/data/out",
+}
+
+
+def test_audio_transcribe_params_and_required_flags() -> None:
+    params = ACTION_KINDS["audio.transcribe"].params
+    assert set(params) == {"actor", "audio_path", "audio_sha256", "output_dir", "language", "model"}
+    for name in ("actor", "audio_path", "audio_sha256", "output_dir"):
+        assert params[name].type == "str", name
+        assert params[name].required, name
+    for name in ("language", "model"):
+        assert params[name].type == "str", name
+        assert not params[name].required, name
+
+
+def test_audio_transcribe_valid_and_refuses_a_missing_audio_path() -> None:
+    assert _errs("audio.transcribe", AUDIO) == set()
+    assert _errs("audio.transcribe", {**AUDIO, "language": "he", "model": "m"}) == set()
+    missing = {k: v for k, v in AUDIO.items() if k != "audio_path"}
+    assert ("action.params.audio_path", "action_param_required") in _errs(
+        "audio.transcribe", missing
+    )

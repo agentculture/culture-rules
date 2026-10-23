@@ -256,6 +256,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     A port whose extra is missing (the ``github.*`` kinds need ``cryptography``) is replaced
     by one that fails ``extra_missing``. Detection uses ``find_spec``: nothing is imported.
     ``code`` serves actor-less code steps through :class:`BuiltinCodePort`.
+    ``action:audio.transcribe`` (:class:`~culture_rules.node.actions.stt.AudioTranscribePort`)
+    sends an audio file under the actor's ``audio_root`` to its OpenAI-compatible STT endpoint,
+    split into windows with ffmpeg on this host, and writes the transcript under
+    ``output_root``; it needs ``ffmpeg``/``ffprobe`` on PATH only when it runs.
     """
     del host
     from culture_rules.actors.gate import GatePort  # noqa: PLC0415
@@ -318,6 +322,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     from culture_rules.node.actions.search import SearchWebPort  # noqa: PLC0415
     from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort  # noqa: PLC0415
     from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
+    from culture_rules.node.actions.stt import AudioTranscribePort  # noqa: PLC0415
 
     message = MessageAction(store)
     has_github = importlib.util.find_spec("cryptography") is not None
@@ -342,6 +347,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:search.web": SearchWebPort(store),  # #53: Brave
         "action:llm.complete": LlmCompletePort(store),  # #53: OpenAI-compatible, no tools
         "action:library.push": LibraryPushPort(store),  # #53: xteink upload + queue
+        "action:audio.transcribe": AudioTranscribePort(store),  # file-in STT, split by ffmpeg
         "action:http.call": HttpCallPort(store),
         "action:machine.command": MachineCommandPort(store),
         "code": BuiltinCodePort(
