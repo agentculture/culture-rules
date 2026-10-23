@@ -24,8 +24,9 @@ The push is two calls, each with ``Authorization: Bearer <key>``:
 
 1. ``POST <base_url>/api/library``, ``multipart/form-data`` built here with a random
    boundary: ``file`` (named after the title, e.g. ``daily-newspaper-2026-10-11.epub``,
-   ``application/epub+zip``), ``title``, ``author`` and ``kind`` (``article`` unless ``params.kind`` says otherwise).
-   xteink answers 201 ``{"item": {"id"}, "created": true}`` or 200 with ``created: false`` when
+   ``application/epub+zip``), ``title``, ``author`` and ``kind``
+   (``article`` unless ``params.kind`` says otherwise). xteink answers 201
+   ``{"item": {"id"}, "created": true}`` or 200 with ``created: false`` when
    the same bytes are already stored.
 2. Only after a 2xx upload: ``POST <base_url>/api/devices/<device_id>/queue`` with
    ``{"item_id": <id>}``, answered 201 with the queue entry.
