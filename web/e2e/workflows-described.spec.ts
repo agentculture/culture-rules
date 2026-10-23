@@ -35,8 +35,8 @@ const paragraph = (page: Page) => page.getByTestId("paragraph");
 const WORKFLOWS = DESCRIBED_WORKFLOWS.map((w) => w.id);
 
 test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
-  test("the fixture has the ten committed workflows, one with no description and a step with none", () => {
-    expect(WORKFLOWS).toHaveLength(10);
+  test("the fixture has the eleven committed workflows, one with no description and a step with none", () => {
+    expect(WORKFLOWS).toHaveLength(11);
     expect(DESCRIBED_WORKFLOWS.filter((w) => !w.description?.trim()).map((w) => w.id)).toEqual(["daily-newspaper"]);
     const gaps = Object.values(DESCRIBED).flatMap((d) => d.paragraph.segments.filter((s) => s.gap));
     expect(gaps.length).toBeGreaterThan(0);
@@ -46,7 +46,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     await open(page, "/workflows");
     await expect(page.locator("aside.wf-pane")).toHaveCount(0);
     const cards = page.getByRole("list", { name: "All workflows" }).getByRole("listitem");
-    await expect(cards).toHaveCount(10);
+    await expect(cards).toHaveCount(11);
     for (const wf of DESCRIBED_WORKFLOWS) {
       const card = page.getByRole("link", { name: new RegExp(`^${wf.name}`) }).first();
       const expected = wf.description?.trim() || "No description yet";
