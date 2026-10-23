@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] - 2026-10-23
+
+### Added
+
+- StoragePort contract tests: a feed end moves past other collections writes and covers every change it returned (memory and MongoDB); consumer, reporter and SSE cursor tests
+
+### Fixed
+
+- Change-feed cursors on quiet collections never moved: MongoStore.changes() reopened a change stream from the last event on every poll, so each node made mongod rescan the oplog since then (rule_decisions: 10.8 days) and pinned a core per node on spark. changes() now returns a ChangeFeed with `end`, the feed position it read up to (MongoDB: the stream post-batch resume token). The chain and trigger consumers save it through settle_cursor once a batch is handled: a cursor saved anyway goes to `end`; a quiet move is saved at most every 5 minutes (monotonic QuietCursor) and only if the stored cursor is unchanged, so a cursor shared by several nodes never moves back
+- The run reporter and the editor change stream (SSE) keep their in-memory cursors at the feed end too, so a quiet collection is not re-read on every cycle or poll
+
 ## [0.24.0] - 2026-10-23
 
 ### Added

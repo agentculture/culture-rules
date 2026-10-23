@@ -48,12 +48,13 @@ from culture_rules.store.port import (
     CURSOR_COLLECTION,
     Document,
     DuplicateKeyError,
+    QuietCursor,
     StoragePort,
     StoreOps,
-    advanced_cursor,
     cursor_id,
     feed_end,
     init_cursor,
+    settle_cursor,
 )
 from culture_rules.store.versioning import utc_timestamp
 
@@ -92,9 +93,11 @@ class EventTriggers:
         consumer: str = DEFAULT_CONSUMER,
         handler_collections: tuple[str, ...] = (),
         clock: Callable[[], datetime] | None = None,
+        quiet_ticks: Callable[[], float] | None = None,
     ) -> None:
         """``handler_collections`` names every collection the handler writes through ``tx``;
-        on Mongo they must exist before a transaction first touches them."""
+        on Mongo they must exist before a transaction first touches them. ``quiet_ticks``
+        is the monotonic clock of the quiet-cursor throttle (tests inject one)."""
         if not isinstance(host, str) or not host:
             raise ValueError("host must be a non-empty string")
         if not isinstance(consumer, str) or not consumer:
@@ -104,8 +107,7 @@ class EventTriggers:
         self.host = host
         self.consumer = consumer
         self._clock = clock or (lambda: datetime.now(UTC))
-        # a quiet cursor first moves QUIET_CURSOR_EVERY after start; the first poll pins the head
-        self._quiet_saved_at: datetime = self._clock()
+        self._quiet = QuietCursor(quiet_ticks)
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):  # Mongo: collections must exist before a transaction uses them
             ensure(EVENTS_COLLECTION, FIRES_COLLECTION, CURSOR_COLLECTION, *handler_collections)
@@ -177,11 +179,14 @@ class EventTriggers:
             else:
                 skipped.append(change.id)
         # every change above saved its own token; a feed that only passed other
-        # collections' writes moves the cursor too, at most every QUIET_CURSOR_EVERY
-        now = self._clock()
-        moved = advanced_cursor(token, token, feed_end(feed), self._quiet_saved_at, now)
-        if moved != token:
-            self.store.save_cursor(self.consumer, EVENTS_COLLECTION, moved)
-            self._quiet_saved_at = now
-            token = moved
+        # collections' writes moves the cursor too (settle_cursor)
+        token = settle_cursor(
+            self.store,
+            self.consumer,
+            EVENTS_COLLECTION,
+            token=token,
+            saved=token,
+            end=feed_end(feed),
+            quiet=self._quiet,
+        )
         return TriggerResult(tuple(fired), tuple(skipped), ignored, token)

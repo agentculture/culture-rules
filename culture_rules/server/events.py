@@ -15,7 +15,7 @@ import time
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any
 
-from culture_rules.store.port import Change, StoragePort
+from culture_rules.store.port import Change, StoragePort, feed_end
 
 __all__ = ["STREAMABLE", "parse_cursors", "stream_changes"]
 
@@ -50,8 +50,10 @@ def parse_cursors(raw: str | None) -> dict[str, str]:
     return data
 
 
-def _drain(store: StoragePort, collection: str, token: str) -> list[Change]:
-    return list(store.changes(collection, token, timeout=0.0))
+def _drain(store: StoragePort, collection: str, token: str) -> tuple[list[Change], str | None]:
+    """The changes after ``token`` and the feed's end (where the next poll resumes)."""
+    feed = store.changes(collection, token, timeout=0.0)
+    return list(feed), feed_end(feed)
 
 
 def _frame(event: str, data: Any, event_id: str | None = None) -> str:
@@ -65,8 +67,12 @@ def _frame(event: str, data: Any, event_id: str | None = None) -> str:
 def _change_frames(
     collections: Sequence[str], batches: Sequence[Any], cursors: dict[str, str]
 ) -> Iterator[str]:
-    """One ``change`` frame per drained change, advancing ``cursors`` as each is framed."""
-    for collection, changes in zip(collections, batches, strict=True):
+    """One ``change`` frame per drained change, advancing ``cursors`` as each is framed.
+
+    Once a collection's changes are all framed, its cursor moves to the feed's end, so a
+    quiet collection is not re-read from an old point on every poll (the cursors live in
+    memory: moving them costs nothing)."""
+    for collection, (changes, end) in zip(collections, batches, strict=True):
         for change in changes:
             cursors[collection] = change.token
             payload = {
@@ -76,6 +82,8 @@ def _change_frames(
                 "document": change.document,
             }
             yield _frame("change", payload, json.dumps(cursors, sort_keys=True))
+        if end is not None:
+            cursors[collection] = end
 
 
 async def stream_changes(

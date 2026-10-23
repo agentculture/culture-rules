@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.model.action import Action
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.node.chain import FeedConsumer, Source
 from culture_rules.store.memory import MemoryStore
+from culture_rules.store.port import CURSOR_COLLECTION, QUIET_CURSOR_EVERY_S
 
 
 class SpyStore(MemoryStore):
@@ -76,25 +75,38 @@ def test_a_run_with_a_dependant_still_fires_and_a_new_dependant_is_seen_next_pol
     assert handled == ["run-a-2"]
 
 
-# ---- a quiet source: the cursor follows the feed's end, at most every QUIET_CURSOR_EVERY ----
+# ---- a quiet source: the cursor follows the feed's end, at most every QUIET_CURSOR_EVERY_S --
 
 
 class CursorSpyStore(MemoryStore):
     def __init__(self) -> None:
         super().__init__()
-        self.saved: list[tuple[str, str]] = []
+        self.saved: list[str] = []
 
     def save_cursor(self, consumer, collection, token):
-        self.saved.append((collection, token))
+        self.saved.append(token)
         super().save_cursor(consumer, collection, token)
 
+    def update_if(self, collection, id, expected, changes, **kw):
+        result = super().update_if(collection, id, expected, changes, **kw)
+        if collection == CURSOR_COLLECTION and result.won:
+            self.saved.append(changes["token"])
+        return result
 
-class Clock:
+
+class Ticks:
     def __init__(self) -> None:
-        self.now = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
+        self.now = 1000.0
 
-    def __call__(self) -> datetime:
+    def __call__(self) -> float:
         return self.now
+
+
+def _quiet_consumer(store, handled, ticks, name="chain-test") -> FeedConsumer:
+    source = Source(
+        RUNS_COLLECTION, lambda doc: doc["id"], lambda tx, d, m: handled.append(d["id"])
+    )
+    return FeedConsumer(store, (source,), host="h", consumer=name, quiet_ticks=ticks)
 
 
 def test_a_quiet_source_cursor_moves_past_other_collections_writes():
@@ -104,14 +116,8 @@ def test_a_quiet_source_cursor_moves_past_other_collections_writes():
     store.put("rules", rule("a").to_dict())
     store.put("rules", rule("b", must_after=("a",)).to_dict())
     handled: list[str] = []
-    clock = Clock()
-    c = FeedConsumer(
-        store,
-        (Source(RUNS_COLLECTION, lambda doc: doc["id"], lambda tx, d, m: handled.append(d["id"])),),
-        host="h",
-        consumer="chain-test",
-        clock=clock,
-    )
+    ticks = Ticks()
+    c = _quiet_consumer(store, handled, ticks)
     c.poll()  # pins the head
     pinned = store.load_cursor("chain-test", RUNS_COLLECTION)
     for i in range(3):
@@ -119,19 +125,20 @@ def test_a_quiet_source_cursor_moves_past_other_collections_writes():
     c.poll()  # within five minutes of start: the head stays pinned
     assert store.load_cursor("chain-test", RUNS_COLLECTION) == pinned
     assert store.saved == []
-    clock.now += timedelta(minutes=5)
+
+    ticks.now += QUIET_CURSOR_EVERY_S
     c.poll()
     moved = store.load_cursor("chain-test", RUNS_COLLECTION)
     assert moved != pinned
-    assert store.saved == [(RUNS_COLLECTION, moved)]
+    assert store.saved == [moved]
 
     for i in range(3):  # more quiet writes within five minutes: no new cursor write
         store.put("variables_other", {"id": f"w{i}"})
-        clock.now += timedelta(minutes=1)
+        ticks.now += 60
         c.poll()
     assert len(store.saved) == 1
 
-    clock.now += timedelta(minutes=5)
+    ticks.now += QUIET_CURSOR_EVERY_S
     c.poll()
     assert len(store.saved) == 2
     assert store.load_cursor("chain-test", RUNS_COLLECTION) != moved
@@ -139,3 +146,29 @@ def test_a_quiet_source_cursor_moves_past_other_collections_writes():
     store.put(RUNS_COLLECTION, run_doc("a", 1))  # b must run after a: delivered as before
     c.poll()
     assert handled == ["run-a-1"]
+
+
+def test_a_quiet_move_never_overwrites_a_cursor_another_node_moved_meanwhile():
+    """A shared cursor: node A read an empty feed, node B then committed a later cursor;
+    A's quiet save must not move it back (it is conditional on the cursor A started from)."""
+    store = MemoryStore()
+    ticks = Ticks()
+    a = _quiet_consumer(store, [], ticks, name="shared")
+    a.poll()  # pins the head
+    store.put("variables_other", {"id": "v1"})
+    ticks.now += QUIET_CURSOR_EVERY_S
+
+    real_changes = store.changes
+    committed: list[str] = []
+
+    def b_commits_meanwhile(collection, after, **kw):
+        feed = real_changes(collection, after, **kw)
+        store.put("variables_other", {"id": "v2"})  # the feed moves on past A's read
+        committed.append(store.head(RUNS_COLLECTION))
+        store.save_cursor("shared", RUNS_COLLECTION, committed[0])  # node B commits it
+        return feed
+
+    store.changes = b_commits_meanwhile
+    a.poll()
+    assert committed
+    assert store.load_cursor("shared", RUNS_COLLECTION) == committed[0]

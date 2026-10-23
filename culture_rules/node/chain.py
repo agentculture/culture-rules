@@ -41,12 +41,13 @@ from culture_rules.model.rule import Rule
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     DuplicateKeyError,
+    QuietCursor,
     StoragePort,
     StoreOps,
-    advanced_cursor,
     cursor_id,
     feed_end,
     init_cursor,
+    settle_cursor,
 )
 from culture_rules.store.versioning import utc_timestamp
 
@@ -130,6 +131,7 @@ class FeedConsumer:
         consumer: str,
         handler_collections: tuple[str, ...] = (),
         clock: Callable[[], datetime] | None = None,
+        quiet_ticks: Callable[[], float] | None = None,
     ) -> None:
         if not isinstance(consumer, str) or not consumer:
             raise ValueError("consumer must be a non-empty string")
@@ -138,9 +140,7 @@ class FeedConsumer:
         self.host = host
         self.consumer = consumer
         self._clock = clock or (lambda: datetime.now(UTC))
-        # a quiet cursor first moves QUIET_CURSOR_EVERY after start; the first poll pins the head
-        self._started = self._clock()
-        self._quiet_saved_at: dict[str, datetime] = {}
+        self._quiet = QuietCursor(quiet_ticks)
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):  # Mongo: collections must exist before a transaction uses them
             ensure(
@@ -259,19 +259,16 @@ class FeedConsumer:
             if self._fire(source, doc, key, token):
                 fired.append(self.marker_id(source.collection, key))
             saved = token
-        cursor = self._advance(source.collection, token, saved, feed_end(feed))
-        if cursor != saved:
-            self.store.save_cursor(self.consumer, source.collection, cursor)
+        settle_cursor(
+            self.store,
+            self.consumer,
+            source.collection,
+            token=token,
+            saved=saved,
+            end=feed_end(feed),
+            quiet=self._quiet,
+        )
         return fired
-
-    def _advance(self, collection: str, token: str, saved: str, end: str | None) -> str:
-        """Move the cursor to the feed's end (:func:`advanced_cursor`)."""
-        now = self._clock()
-        last = self._quiet_saved_at.get(collection, self._started)
-        moved = advanced_cursor(token, saved, end, last, now)
-        if moved != token and token == saved:
-            self._quiet_saved_at[collection] = now
-        return moved
 
     def poll(self) -> list[str]:
         """Process every source's pending changes; answer the marker ids this poll committed.

@@ -131,3 +131,15 @@ def test_observe_survives_failing_poster(store, clock):
     finished_run(store, clock)
     rep = RunReporter(FakePoster(error=RuntimeError("no")), channel="#runs")
     assert rep.observe(store, head) != head
+
+
+def test_observe_resumes_past_other_collections_writes(store, clock):
+    """The reporter's in-memory token follows the feed's end, so a stretch with no runs
+    is not re-read on every cycle (on MongoDB, an oplog rescan from the last run)."""
+    head = store.head(RUNS_COLLECTION)
+    for i in range(3):
+        store.put("rules", {"id": f"r{i}"})
+    rep = RunReporter(FakePoster(), channel="#runs")
+    token = rep.observe(store, head)
+    assert token != head
+    assert rep.observe(store, token) == token

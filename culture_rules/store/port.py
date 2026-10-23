@@ -62,10 +62,10 @@ transactions or write through the store itself inside one.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterator, Mapping
+import time
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol, runtime_checkable
 
 Document = dict[str, Any]
@@ -336,30 +336,68 @@ def cursor_id(consumer: str, collection: str) -> str:
     return f"{consumer}/{collection}"
 
 
-QUIET_CURSOR_EVERY = timedelta(minutes=5)
+QUIET_CURSOR_EVERY_S = 300.0
 """How often a consumer saves a cursor that moved only past other collections' writes."""
 
 
-def advanced_cursor(
-    token: str, saved: str, end: str | None, quiet_saved_at: datetime | None, now: datetime
-) -> str:
-    """The cursor to keep after a consumer handled every change in a :class:`ChangeFeed`.
+class QuietCursor:
+    """When each of a consumer's quiet cursors may next be saved (:func:`settle_cursor`).
 
-    ``token`` is the last change's token (or the start), ``saved`` what is stored, ``end``
-    the feed's end. Without this, a quiet collection's cursor never moves, and every poll
-    makes the store re-read the feed from that old point (on MongoDB, a rescan of the
-    oplog since the last change). A cursor about to be saved anyway goes to ``end`` at
-    no cost. Saving one that moved only past other collections' writes is itself a
-    write the next feed passes, so that is done at most every :data:`QUIET_CURSOR_EVERY`:
-    a re-read then covers minutes, never days.
+    Monotonic, so a wall-clock step cannot stall it. The first quiet save of a collection
+    is due :data:`QUIET_CURSOR_EVERY_S` after the consumer started: its first poll pins
+    the head exactly as before.
     """
-    if end is None or end == token:
-        return token
+
+    def __init__(self, ticks: Callable[[], float] | None = None) -> None:
+        self._ticks = ticks or time.monotonic
+        self._started = self._ticks()
+        self._saved: dict[str, float] = {}
+
+    def due(self, collection: str) -> bool:
+        last = self._saved.get(collection, self._started)
+        return self._ticks() - last >= QUIET_CURSOR_EVERY_S
+
+    def saved(self, collection: str) -> None:
+        self._saved[collection] = self._ticks()
+
+
+def settle_cursor(
+    store: StoragePort,
+    consumer: str,
+    collection: str,
+    *,
+    token: str,
+    saved: str,
+    end: str | None,
+    quiet: QuietCursor,
+) -> str:
+    """Store ``consumer``'s cursor after it handled every change of a :class:`ChangeFeed`;
+    answer the cursor it now has.
+
+    ``token`` is the last change's token (or the poll's start), ``saved`` what the store
+    holds, ``end`` the feed's end. Without the end, a quiet collection's cursor never
+    moves and every poll makes the store re-read the feed from that old point (on
+    MongoDB, a rescan of the oplog since the last change). So:
+
+    - a cursor that has to be saved anyway goes straight to ``end``;
+    - one that moved only past other collections' writes is saved at most every
+      :data:`QUIET_CURSOR_EVERY_S` (the save is itself a feed write the next feed
+      passes), and only if the stored cursor is still ``saved``: a cursor several nodes
+      share must never move back past what another node just committed.
+    """
+    target = token if end is None else end
     if token != saved:
-        return end
-    if quiet_saved_at is None or now - quiet_saved_at >= QUIET_CURSOR_EVERY:
-        return end
-    return token
+        store.save_cursor(consumer, collection, target)
+        return target
+    if target == token or not quiet.due(collection):
+        return token
+    moved = store.update_if(
+        CURSOR_COLLECTION, cursor_id(consumer, collection), {"token": saved}, {"token": target}
+    )
+    if not moved.won:
+        return token
+    quiet.saved(collection)
+    return target
 
 
 def init_cursor(store: StoragePort, consumer: str, collection: str) -> str:
