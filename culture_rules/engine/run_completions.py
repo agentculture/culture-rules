@@ -31,6 +31,7 @@ driven by un-emitted records, not by change-feed history. Standard-library only.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
@@ -81,6 +82,17 @@ RUN_EVENT_TYPES: dict[str, str] = {
 }
 """Terminal run status -> the event type its run emits (one type per status)."""
 RUN_EVENT_SOURCE = f"{INTERNAL_SOURCE_PREFIX}runs"
+#: A port's failure message reads ``"<code>: <detail>"`` (e.g. ``stt_unavailable: ...``); the
+#: code is carried as ``error_reason`` beside the engine's own ``error_code``.
+_REASON = re.compile(r"([a-z][a-z0-9_]*): ")
+
+
+def error_reason(message: Any) -> str | None:
+    """The port's code at the start of an error message, else None."""
+    match = _REASON.match(message) if isinstance(message, str) else None
+    return match.group(1) if match else None
+
+
 SUBJECT_FIELDS = (
     "repository",
     "number",
@@ -159,6 +171,7 @@ def build_run_event(run: Mapping[str, Any]) -> dict[str, Any] | None:
         "outputs": _exported(run),
         "error_code": error.get("code"),
         "error_message": error.get("message"),
+        "error_reason": error_reason(error.get("message")),
         "trigger_event_id": trigger.get("id") if cause is not None else None,
         "trigger_type": trigger.get("type") if cause is not None else None,
     }

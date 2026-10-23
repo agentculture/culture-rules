@@ -147,6 +147,7 @@ def test_a_succeeded_run_emits_exactly_one_event_with_its_data_verbatim():
         "outputs": {"verdict": "approve"},
         "error_code": None,
         "error_message": None,
+        "error_reason": None,
         "trigger_event_id": "evt_1",
         "trigger_type": SETTLED,
     }
@@ -165,6 +166,18 @@ def test_a_failed_run_emits_rules_run_failed_with_its_error_code():
     assert env["data"]["status"] == "failed"
     assert env["data"]["error_code"] == run["error"]["code"]
     assert env["data"]["error_message"] == run["error"]["message"]
+    assert env["data"]["error_reason"] is None  # "broken" carries no "<code>: " prefix
+
+
+def test_a_port_failure_code_reaches_the_event_as_error_reason():
+    c = cluster(fix_rule())
+    c.actor.on(ACTION_STEP, ("fail", "stt_unavailable: server answered 503", False))
+    settle(c)
+    cycles(c)
+    (env,) = run_events(c)
+    assert env["type"] == FAILED
+    assert env["data"]["error_code"] == c.run("fix", "evt_1")["error"]["code"]
+    assert env["data"]["error_reason"] == "stt_unavailable"
 
 
 def test_only_explicitly_exported_outputs_are_carried():

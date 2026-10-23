@@ -143,7 +143,8 @@ The run event's `data.rule_id` is `pocket-transcribe`; the run's trigger
 (with `recording_id`) is on the run (`runs show <run id> --json`). See
 [docs/run-events.md](../run-events.md) for the event's envelope.
 
-A failed run ends in `rules.run.failed` with `data.error_code`. The codes
+A failed run ends in `rules.run.failed` with the code in `data.error_reason`
+(`data.error_code` is the engine's `actor_failed`). The codes
 (`stt_unavailable`, the only retried one, `stt_rejected`, `audio_undecodable`,
 `path_refused`, `audio_mismatch`, `ffmpeg_missing`, `invalid_request`,
 `model_taken` and the rest) are listed in

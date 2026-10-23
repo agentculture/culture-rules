@@ -142,7 +142,10 @@ Every other param is ignored. The steps, in order:
 
 The result file is `<output_dir>/<audio_sha256>/transcript.<model-slug>.json`.
 The slug is the model with every character outside `A-Z a-z 0-9 . _ -`
-turned into `-`, so a second model writes a second file beside the first:
+turned into `-`, so a second model writes a second file beside the first.
+Two models that differ only in those characters (`a/b` and `a-b`) share one
+file name; the file records its `model`, so the second re-transcribes and
+replaces it rather than reusing the first one's text:
 
 ```json
 {
@@ -191,7 +194,9 @@ workflow sets 14400 s). A timed-out attempt resumes on retry.
 | `secret_unresolved` | the key could not be resolved on the node | no |
 
 A failure never echoes a response body, a header value or a secret. A run
-that fails ends in `rules.run.failed` with the code in `error_code`.
+that fails ends in `rules.run.failed` with the code in `data.error_reason`;
+`data.error_code` is the engine's `actor_failed`, and `data.error_message`
+starts with the code (`stt_unavailable: server answered 503`).
 
 ## In the pocket-transcribe bundle
 

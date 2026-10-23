@@ -194,3 +194,26 @@ def test_the_same_audio_landing_again_is_a_no_op(world, recording):
     world.cycles()
     assert [e[DATA]["rule_id"] for e in world.run_events(SUCCEEDED)] == [RULE, RULE]
     assert len(world.stt.sent) == 1  # the second run found the file: no request
+
+
+FAILED = "rules.run.failed"
+
+
+def test_a_refused_path_ends_in_run_failed_with_its_reason(world, recording, tmp_path):
+    outside = tmp_path / "elsewhere" / "audio.wav"
+    outside.parent.mkdir()
+    _gen(outside, 5)
+    world.source.publish(landed(outside))
+    world.cycles()
+    (event,) = world.run_events(FAILED)
+    assert event[DATA]["error_reason"] == "path_refused"
+    assert event[DATA]["error_message"].startswith("path_refused: ")
+    assert world.stt.sent == []
+
+
+def test_a_changed_file_ends_in_run_failed_with_audio_mismatch(world, recording):
+    world.source.publish(landed(recording, audio_sha256="e" * 64))
+    world.cycles()
+    (event,) = world.run_events(FAILED)
+    assert event[DATA]["error_reason"] == "audio_mismatch"
+    assert world.stt.sent == []

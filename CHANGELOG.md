@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Run events (`rules.run.*`) carry `data.error_reason`, the failing action's own code read from the start of `error_message` (`stt_unavailable` from `stt_unavailable: server answered 503`); `error_code` is unchanged (`actor_failed` for a port failure)
 - STT actors count as endpoint actors (`ENDPOINT_KINDS` in `actors/model_rule.py`) for `model_taken` and `workflows repoint-actor`
 
 ## [0.22.0] - 2026-10-19

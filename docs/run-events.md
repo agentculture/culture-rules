@@ -38,6 +38,7 @@ and there is no condition an author could forget to add.
 | `concurrency_key` | the resolved key, `null` when the rule has none |
 | `outputs` | **only** the outputs the workflow explicitly exports; `{}` when it produced none |
 | `error_code`, `error_message` | the run's error; `null` on success |
+| `error_reason` | the failing action's own code, read from the start of `error_message` (`stt_unavailable` from `stt_unavailable: server answered 503`); `null` on success or when the message does not start with a code and a colon |
 | `trigger_event_id`, `trigger_type` | the event the run fired on; `null` for a run started by hand |
 | `repository`, `number`, `head_sha`, `head_branch`, `base_sha`, `base_branch`, `base_repo`, `head_repo`, `pr_author`, `draft` | copied from the trigger's `data`, when present and scalar |
 
