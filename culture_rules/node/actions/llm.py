@@ -4,8 +4,10 @@ Params (``culture_rules.model.action_kinds``): ``actor`` (required; falls back t
 ``context.actor``), ``content`` (required: a string, sent verbatim, or any JSON-able value,
 serialised deterministically with sorted keys), optional ``max_tokens`` (int >= 1, default
 :data:`DEFAULT_MAX_TOKENS`, capped at :data:`MAX_TOKENS_CAP`) and ``temperature`` (a number
-0..2). Every other param is ignored: a step cannot replace the brief, add tools or name a
-repository.
+0..2), and optional ``brief``: absent or ``"newspaper"`` selects :data:`NEWSPAPER_BRIEF`,
+``"transcript"`` selects :data:`TRANSCRIPT_BRIEF`, anything else (including null) fails
+``invalid_request`` before any request. Every other param is ignored: a step cannot
+replace the brief, add tools or name a repository.
 
 The bound actor is an ``agent`` actor whose ``params`` carry ``base_url`` (``http(s)://host
 [:port][/v1]``, no credentials), ``model`` (non-empty; else the actor's own ``model``) and
@@ -19,7 +21,7 @@ port never goes through the coding-agent bridge, even when the actor also has a
 ``bridge_url``.
 
 The request is ``POST <base_url>/v1/chat/completions`` with exactly ``model``,
-``messages`` (the system message is :data:`NEWSPAPER_BRIEF`, the user message the
+``messages`` (the system message is the chosen locked brief, the user message the
 content), ``max_tokens``, ``stream: false`` and, when given, ``temperature`` - never a
 ``tools`` field. Proxies from the environment are ignored and redirects are not followed.
 
@@ -85,6 +87,7 @@ __all__ = [
     "DEFAULT_MAX_TOKENS",
     "MAX_TOKENS_CAP",
     "NEWSPAPER_BRIEF",
+    "TRANSCRIPT_BRIEF",
     "LlmCompletePort",
     "Transport",
     "check_llm_actor",
@@ -100,6 +103,18 @@ NEWSPAPER_BRIEF = (
     "heading and no closing remarks: only the bullets."
 )
 """The locked system prompt. It lives in code: no actor param or step param replaces it."""
+
+TRANSCRIPT_BRIEF = (
+    "You summarise one audio recording from its transcript. The user message holds the "
+    "transcript text, often in Hebrew. Reply with only a JSON object of exactly this shape: "
+    '{"summary": "...", "word": "..."}. "summary" is one or two short lines, in the same '
+    'language as the transcript, saying what the recording is about. "word" is a single '
+    "short English word, in Latin letters (letters and hyphens only), naming its topic. Use "
+    "only what the transcript says. Write no other text, no markdown fence and no preamble."
+)
+"""The locked system prompt for ``brief: "transcript"``. Also code-only, never built from params."""
+
+_BRIEFS = {"newspaper": NEWSPAPER_BRIEF, "transcript": TRANSCRIPT_BRIEF}
 
 DEFAULT_MAX_TOKENS = 1500
 MAX_TOKENS_CAP = 4000
@@ -226,6 +241,15 @@ def _user_message(content: Any, limit: int) -> str:
     if len(text) > limit:
         raise _Refused("llm_content_too_large", f"content is {len(text)} chars, limit {limit}")
     return text
+
+
+def _brief(input: Mapping[str, Any]) -> str:
+    if "brief" not in input:
+        return NEWSPAPER_BRIEF
+    name = input["brief"]
+    if not isinstance(name, str) or name not in _BRIEFS:
+        raise _Refused(INVALID, "brief must be 'newspaper' or 'transcript'")
+    return _BRIEFS[name]
 
 
 def _is_number(value: Any) -> bool:
@@ -416,7 +440,7 @@ class LlmCompletePort:
         body: dict[str, Any] = {
             _MODEL: model,
             "messages": [
-                {"role": "system", _CONTENT: NEWSPAPER_BRIEF},
+                {"role": "system", _CONTENT: _brief(input)},
                 {
                     "role": "user",
                     _CONTENT: _user_message(input.get(_CONTENT), self._max_content_chars),

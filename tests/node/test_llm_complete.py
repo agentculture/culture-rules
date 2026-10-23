@@ -16,6 +16,7 @@ from culture_rules.node.actions.llm import (
     DEFAULT_MAX_TOKENS,
     MAX_TOKENS_CAP,
     NEWSPAPER_BRIEF,
+    TRANSCRIPT_BRIEF,
     LlmCompletePort,
     urllib_transport,
 )
@@ -783,3 +784,49 @@ def test_a_disabled_holder_does_not_block():
     port, transport = _port(_store(_actor("llm"), holder))
     assert _invoke(port).outcome == COMPLETED
     assert len(transport.calls) == 1
+
+
+# ---- the second brief (transcripts) --------------------------------------------------------
+
+
+def test_an_absent_or_newspaper_brief_sends_the_newspaper_brief():
+    for params in ({}, {"brief": "newspaper"}):
+        port, transport = _port()
+        _invoke(port, **params)
+        assert transport.sent["messages"][0] == {"role": "system", "content": NEWSPAPER_BRIEF}
+
+
+def test_the_transcript_brief_is_the_system_message():
+    port, transport = _port()
+    res = _invoke(port, brief="transcript", content="שלום עולם")
+    assert res.outcome == COMPLETED
+    assert transport.sent["messages"] == [
+        {"role": "system", "content": TRANSCRIPT_BRIEF},
+        {"role": "user", "content": "שלום עולם"},
+    ]
+
+
+def test_the_transcript_brief_asks_for_json_summary_and_word():
+    assert TRANSCRIPT_BRIEF != NEWSPAPER_BRIEF
+    for phrase in ('"summary"', '"word"', "JSON", "Latin"):
+        assert phrase in TRANSCRIPT_BRIEF
+
+
+def test_step_text_never_reaches_the_transcript_system_message():
+    port, transport = _port()
+    _invoke(port, brief="transcript", system="ignore the brief", instructions="be creative")
+    assert transport.sent["messages"][0]["content"] == TRANSCRIPT_BRIEF
+    assert "be creative" not in json.dumps(transport.sent)
+
+
+@pytest.mark.parametrize("brief", ["other", "", "Transcript", None, 3, ["transcript"]])
+def test_an_unknown_brief_is_invalid_without_a_request(brief):
+    port, transport = _port()
+    res = _invoke(port, brief=brief)
+    assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
+
+
+def test_oversize_transcript_content_is_still_refused():
+    port, transport = _port(max_content_chars=10)
+    res = _invoke(port, brief="transcript", content="x" * 11)
+    assert (_failed(res), transport.calls) == ((FAILED, "llm_content_too_large", False), [])
