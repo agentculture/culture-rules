@@ -11,6 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Deviation d3 (two STT lanes: stt-en whisper for every recording, stt-he zipformer beside it) approved by the operator on the file-in-transcription plan
 
+### Fixed
+
+- The web test "deleting the last workflow lands on the empty state" re-queries the empty-state heading on each attempt, since the reload can mount it twice (it flaked under coverage)
+
 ## [0.24.1] - 2026-10-23
 
 ### Added
