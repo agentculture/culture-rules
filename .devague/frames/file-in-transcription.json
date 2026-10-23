@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-22T21:32:54Z",
-  "updated": "2026-10-23T04:43:12Z",
+  "updated": "2026-10-23T06:22:00Z",
   "claims": [
     {
       "id": "c1",
@@ -1117,6 +1117,15 @@
       "source_text": "culture-rules never writes pocketsync-mongo or any recordings store, and never reads Pocket's transcript as input to its own; it reads the landed audio file and writes only its own result file",
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "o21",
+      "claim_id": "c27",
+      "seam": "live: workflows run transcribe-file on spark (0.23.0) + the operator's read of the result",
+      "behavior": "a real recording longer than 600 s transcribes by a direct run with segment_count >= 2, and the operator reads the Hebrew transcript as usable",
+      "source_text": "after rollout, one real recording longer than 600 s transcribes on spark through a direct workflows run transcribe-file with segment_count >= 2 and a Hebrew transcript the operator reads as usable",
+      "origin": "llm",
+      "status": "proposed"
     }
   ]
 }

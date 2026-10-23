@@ -171,7 +171,8 @@ setup is in [the STT actor guide](../actors/stt.md). For this bundle:
    ```bash
    culture-rules actors import docs/rules/pocket-transcribe --apply
    culture-rules actors show whisper-he --json > stt-actor.json
-   # edit params.audio_root and params.output_root
+   # edit params.audio_root and params.output_root, and delete updated_at:
+   # update refuses it (422 "updated_at: unknown field")
    culture-rules actors update whisper-he --body @stt-actor.json --apply
    mkdir -p "$HOME/.local/share/culture-rules/transcripts"
    ```
