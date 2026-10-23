@@ -66,6 +66,14 @@ On disk today:
   are MCP tools, the Actors page has Add models, Used by with Move, and
   Disable anyway, an older server answers exit 2, and the newspaper bundle
   summarises on `cortex-spark2`.
+- file-in transcription (#73 part A, spec
+  `docs/specs/2026-10-22-file-in-transcription.md`, setup
+  `docs/operations/pocket-transcribe.md`): the action kind `audio.transcribe`
+  sends a given audio file to an agent actor's OpenAI-compatible
+  `/v1/audio/transcriptions`, only under the actor's `audio_root` and
+  `output_root`; ffmpeg windows of at most 480 s, resume on retry, a
+  model-suffixed result file, scalar outputs, and the disabled bundle
+  `docs/rules/pocket-transcribe` fired by `pocketsync.recording.landed`.
 - the workflow phrases (#69, spec
   `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language
   `description` plus an optional technical `notes` on workflows and steps,

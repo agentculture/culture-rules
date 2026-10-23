@@ -125,6 +125,21 @@ plan. What exists today:
   - the same verbs are MCP tools, and the Actors page has Add models, Used by
     with Move, and Disable anyway; an older server answers exit 2;
   - the newspaper bundle summarises on `cortex-spark2`.
+- **File-in transcription** (#73 part A, spec
+  `docs/specs/2026-10-22-file-in-transcription.md`, setup
+  `docs/operations/pocket-transcribe.md`, actor guide `docs/actors/stt.md`):
+  - the action kind `audio.transcribe` sends a given audio file to an agent
+    actor's OpenAI-compatible `/v1/audio/transcriptions` (the lobes gateway),
+    reading only under the actor's `audio_root` and writing only under its
+    `output_root` (`path_refused` otherwise, symlinks included);
+  - ffmpeg on the actor's machine cuts it into windows of at most 480 s at
+    silences; each window's reply is kept so a retry resumes;
+  - the result is `<output_dir>/<audio_sha256>/transcript.<model-slug>.json`
+    (schema 1, written atomically); the outputs are scalars only, and the
+    same audio and model again is a no-op;
+  - STT actors count as endpoint actors (`ENDPOINT_KINDS`);
+  - the bundle `docs/rules/pocket-transcribe` (workflow `transcribe-file`,
+    fired by `pocketsync.recording.landed`) ships disabled.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

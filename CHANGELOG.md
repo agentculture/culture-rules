@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-10-23
+
+### Added
+
+- `audio.transcribe` action kind (#73 part A): sends a given audio file to an agent actor's OpenAI-compatible `/v1/audio/transcriptions` (the lobes gateway); reads only under the actor's `audio_root` and writes only under `output_root` (`path_refused`, symlinks included); checks the file against `audio_sha256` (`audio_mismatch`)
+- Long audio is cut by ffmpeg on the actor's machine into windows of at most 480 s at silences (the lobes caps are 600 s and 16 MiB; a 16 kHz mono WAV reaches 16 MiB at about 524 s), with timestamps offset per window; each window's reply is kept so a retry resumes
+- The result file `<output_dir>/<audio_sha256>/transcript.<model-slug>.json` (schema 1, written atomically, `window_count` and `empty_window_count`); scalar outputs only; the same audio and model again is a no-op; error codes `stt_unavailable` (retryable), `stt_rejected`, `audio_undecodable`, `ffmpeg_missing`, `path_refused`, `audio_mismatch`, `invalid_request`, `stt_bad_response`
+- The bundle `docs/rules/pocket-transcribe` (workflow `transcribe-file`, actor example `whisper-he`, rule fired by `pocketsync.recording.landed`, ships disabled), `docs/actors/stt.md` and `docs/operations/pocket-transcribe.md`
+- The editor's action picker offers Transcribe an audio file with agent actors that have a `base_url`
+
+### Changed
+
+- STT actors count as endpoint actors (`ENDPOINT_KINDS` in `actors/model_rule.py`) for `model_taken` and `workflows repoint-actor`
+
 ## [0.22.0] - 2026-10-19
 
 ### Added

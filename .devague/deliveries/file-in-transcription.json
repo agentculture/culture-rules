@@ -1,0 +1,24 @@
+{
+  "plan_slug": "file-in-transcription",
+  "schema_version": 2,
+  "created": "2026-10-23T03:34:49Z",
+  "updated": "2026-10-23T03:34:49Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "transcribe-file and its step are committed with an empty description; the plain-language text lives in tests/fixtures/workflow_descriptions.json like the other committed workflows, and only notes is committed",
+      "task_ref": "t6",
+      "reason": "tests test_every_description_is_empty and test_notes.py::test_committed_workflows_load_unchanged require empty descriptions on committed docs/rules workflows (commit-is-code-and-logic: a committed description would overwrite the operator's on import)",
+      "affects": [
+        "h4"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
