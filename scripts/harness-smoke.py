@@ -126,6 +126,10 @@ STEWARD_WAIVED_PORTABILITY_PATHS = frozenset(
         # home (uv, grant and Qwen Code under its ~/.local, its ~/.qwen settings); those
         # per-account paths are the instructions themselves, so they are waived
         "docs/operations/pr-fixer.md",
+        # the file-in-transcription devague records quote the pocketsync files root that
+        # /challenge's measurement probe actually read (~/.local/share/pocketsync/files)
+        "docs/specs/2026-10-22-file-in-transcription.md",
+        ".devague/frames/file-in-transcription.json",
     }
 )
 

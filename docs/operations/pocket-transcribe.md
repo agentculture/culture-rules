@@ -173,7 +173,7 @@ setup is in [the STT actor guide](../actors/stt.md). For this bundle:
    culture-rules actors show whisper-he --json > stt-actor.json
    # edit params.audio_root and params.output_root
    culture-rules actors update whisper-he --body @stt-actor.json --apply
-   mkdir -p ~/.local/share/culture-rules/transcripts
+   mkdir -p "$HOME/.local/share/culture-rules/transcripts"
    ```
 
    Both roots must exist when a run starts, or it fails `path_refused`.
@@ -181,8 +181,8 @@ setup is in [the STT actor guide](../actors/stt.md). For this bundle:
 ## 2. The variable
 
 `transcripts_dir` is where results go. It must lie inside the actor's
-`output_root`. The shipped value is `~/.local/share/culture-rules/transcripts`,
-and the seed script turns `~/` into the home of the user who runs it, so run
+`output_root`. The shipped value is `$HOME/.local/share/culture-rules/transcripts`,
+and the seed script turns `$HOME/` into the home of the user who runs it, so run
 it as the node's user:
 
 ```bash

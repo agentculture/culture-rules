@@ -12,6 +12,7 @@ window as 16 kHz mono PCM16 WAV is about 15.4 MB, under 16 MiB.
 
 from __future__ import annotations
 
+import math
 import re
 import shutil
 import subprocess  # nosec B404
@@ -77,7 +78,7 @@ def probe_duration(path: str | Path) -> float:
         value = float(proc.stdout.strip())
     except ValueError as exc:
         raise AudioUndecodable("ffprobe gave no parsable duration") from exc
-    if not value > 0:
+    if not math.isfinite(value) or value <= 0:
         raise AudioUndecodable("audio has no duration")
     return value
 

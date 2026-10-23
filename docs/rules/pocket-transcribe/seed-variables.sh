@@ -6,7 +6,7 @@
 #   bash docs/rules/pocket-transcribe/seed-variables.sh --apply --force   # also re-set it
 #
 # The value and description come from variables.json next to this script. A string value
-# that starts with ~/ is expanded to this user's home ($HOME) at seed time, so run it as the
+# that starts with $HOME/ is expanded to this user's home ($HOME) at seed time, so run it as the
 # user the engine node runs as: transcripts_dir becomes an absolute path such as
 # /home/<user>/.local/share/culture-rules/transcripts, which must lie inside the STT actor's
 # output_root. A variable that already exists is left alone unless --force is given. Run it
@@ -32,14 +32,14 @@ done
 EXISTING="$("$CR" variables list --json \
   | python3 -c 'import json, sys; print("\n".join(i["name"] for i in json.load(sys.stdin)["items"]))')"
 
-# One line per variable: name, the value as JSON (a leading ~/ expanded), the description
+# One line per variable: name, the value as JSON (a leading $HOME/ expanded), the description
 # (tab-separated; JSON never holds a raw tab).
 ENTRIES="$(python3 -c '
 import json, os, sys
 for name, item in json.load(open(sys.argv[1])).items():
     value = item["value"]
-    if isinstance(value, str) and value.startswith("~/"):
-        value = os.path.join(os.environ["HOME"], value[2:])
+    if isinstance(value, str) and value.startswith("$HOME/"):
+        value = os.path.join(os.environ["HOME"], value[len("$HOME/"):])
     print(name, json.dumps(value), item["description"], sep="\t")
 ' "$HERE/variables.json")"
 

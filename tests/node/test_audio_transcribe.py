@@ -264,10 +264,13 @@ def test_a_1500s_file_is_sent_as_capped_windows_with_offset_segments(tmp_path, l
     )
     assert out["result_sha256"] == hashlib.sha256(Path(out["result_path"]).read_bytes()).hexdigest()
     assert out["audio_sha256"] == _sha(env.audio)
-    assert out["model"] == MODEL and out["language"] == "he"
-    assert out["window_count"] == len(sent) and out["empty_window_count"] == 0
+    assert out["model"] == MODEL
+    assert out["language"] == "he"
+    assert out["window_count"] == len(sent)
+    assert out["empty_window_count"] == 0
     assert out["segment_count"] == 2 * len(sent) == len(doc["segments"])
-    assert "text" not in out and "segments" not in out
+    assert "text" not in out
+    assert "segments" not in out
 
     window_start = 0.0
     for i, call in enumerate(sent):
@@ -347,7 +350,8 @@ def test_a_different_model_writes_a_second_file(tmp_path, short_audio):
     b = env.invoke(key="k2", model="other/model")
     assert a.outcome == b.outcome == COMPLETED
     assert a.output["result_path"] != b.output["result_path"]
-    assert Path(a.output["result_path"]).exists() and Path(b.output["result_path"]).exists()
+    assert Path(a.output["result_path"]).exists()
+    assert Path(b.output["result_path"]).exists()
     assert b.output["model"] == "other/model"
     assert len(env.transport.calls) == 2
 
@@ -433,7 +437,8 @@ def test_an_actor_without_roots_refuses_every_path(tmp_path, short_audio):
     _failed(no_audio_root.invoke(), "path_refused")
     no_output_root = Env(tmp_path, short_audio, output_root=None)
     _failed(no_output_root.invoke(), "path_refused")
-    assert no_audio_root.transport.calls == [] and no_output_root.transport.calls == []
+    assert no_audio_root.transport.calls == []
+    assert no_output_root.transport.calls == []
 
 
 @pytest.mark.parametrize("bad", ["../../etc", "A" * 64, "0" * 63, "", 12, None])
@@ -449,7 +454,8 @@ def test_a_bad_audio_sha256_is_invalid_request(tmp_path, bad, monkeypatch):
     res = env.port.invoke(params, "k", datetime.now(UTC) + timedelta(hours=1), context=_ctx())
     _failed(res, "invalid_request")
     assert env.port.refuse_before_admit(params) is not None
-    assert touched == [] and env.transport.calls == []
+    assert touched == []
+    assert env.transport.calls == []
     assert not any(p.name != "transcripts" for p in env.output_root.iterdir())
 
 
@@ -568,7 +574,9 @@ def test_a_plain_text_reply_is_one_segment_over_the_window(tmp_path, short_audio
     doc = json.loads(Path(res.output["result_path"]).read_bytes())
     assert len(doc["segments"]) == 1
     seg = doc["segments"][0]
-    assert seg["start"] == 0 and abs(seg["end"] - 20) < 0.1 and seg["text"] == "shalom"
+    assert seg["start"] == 0
+    assert abs(seg["end"] - 20) < 0.1
+    assert seg["text"] == "shalom"
     assert res.output["language"] is None
     assert env.transport.calls[0].get("fields") is None  # the fixed body skipped parsing
 
@@ -584,7 +592,8 @@ def test_language_is_omitted_when_not_given(tmp_path, short_audio):
 def test_an_empty_window_is_kept_and_counted(tmp_path, short_audio):
     env = Env(tmp_path, short_audio, transport=FakeStt(body=b'{"text": ""}'))
     res = env.invoke()
-    assert res.output["empty_window_count"] == 1 and res.output["segment_count"] == 1
+    assert res.output["empty_window_count"] == 1
+    assert res.output["segment_count"] == 1
 
 
 @needs_ffmpeg

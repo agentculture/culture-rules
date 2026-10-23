@@ -30,7 +30,9 @@ def test_plain_text_window_spans_window():
     assert doc["created_at"] == "T"
     assert doc["window_count"] == 1
     assert doc["empty_window_count"] == 0
-    assert doc["audio_sha256"] == SHA and doc["language"] == "en" and doc["duration"] == 960.0
+    assert doc["audio_sha256"] == SHA
+    assert doc["language"] == "en"
+    assert doc["duration"] == 960.0
 
 
 def test_segments_offset_by_window_start():
@@ -84,8 +86,9 @@ def test_write_atomic_failure_leaves_nothing(tmp_path):
     class Boom:
         pass
 
+    doc = {"a": Boom()}
     with pytest.raises(TypeError):
-        tf.write_atomic(path, {"a": Boom()})
+        tf.write_atomic(path, doc)
     assert os.listdir(tmp_path) == []
 
 

@@ -31,7 +31,8 @@ def test_plan_windows_short_is_single():
 def test_plan_windows_no_silence_cuts_at_max():
     w = a.plan_windows(1500, [])
     _check_windows(w, 1500)
-    assert w[0] == (0, 480) and w[1] == (480, 960)
+    assert w[0] == (0, 480)
+    assert w[1] == (480, 960)
 
 
 def test_plan_windows_cuts_in_silence_in_last_search_window():

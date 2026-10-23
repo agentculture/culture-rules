@@ -311,9 +311,11 @@ def test_audio_transcribe_params_and_required_flags() -> None:
     params = ACTION_KINDS["audio.transcribe"].params
     assert set(params) == {"actor", "audio_path", "audio_sha256", "output_dir", "language", "model"}
     for name in ("actor", "audio_path", "audio_sha256", "output_dir"):
-        assert params[name].type == "str" and params[name].required, name
+        assert params[name].type == "str", name
+        assert params[name].required, name
     for name in ("language", "model"):
-        assert params[name].type == "str" and not params[name].required, name
+        assert params[name].type == "str", name
+        assert not params[name].required, name
 
 
 def test_audio_transcribe_valid_and_refuses_a_missing_audio_path() -> None:

@@ -156,7 +156,9 @@ def test_a_landed_event_ends_in_run_succeeded_carrying_the_eight_outputs(world, 
     assert outputs["segment_count"] == 2  # the fake's verbose reply: two segments per window
     assert outputs["empty_window_count"] == 0
     doc = json.loads(Path(target).read_bytes())
-    assert doc["schema"] == 1 and doc["model"] == MODEL and len(doc["segments"]) == 2
+    assert doc["schema"] == 1
+    assert doc["model"] == MODEL
+    assert len(doc["segments"]) == 2
     (call,) = world.stt.sent
     assert call["language"] == "he"
 

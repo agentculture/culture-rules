@@ -180,7 +180,8 @@ def test_notes_are_committed_and_plain_descriptions_live_in_the_store():
     assert written["description"]
     assert set(written["steps"]) == {STEP}
     for text in (written["description"], *written["steps"].values()):
-        assert "audio.transcribe" not in text and "pocket" not in text.lower()
+        assert "audio.transcribe" not in text
+        assert "pocket" not in text.lower()
 
 
 # --------------------------------------------------------------------------- the rule
@@ -222,7 +223,7 @@ def test_the_variable_is_valid_and_home_relative():
     item = values[DIR_VAR]
     validate_variable_value(item[VALUE])
     assert item["description"]
-    assert item[VALUE].startswith("~/")
+    assert item[VALUE].startswith("$HOME/")
 
 
 def seed_calls(tmp_path, *args, existing=(), home=None) -> list[list[str]]:
