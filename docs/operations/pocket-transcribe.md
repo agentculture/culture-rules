@@ -268,7 +268,19 @@ windows, no repeated run above 3, and fewer dropped chunks. lobes writes a
 per-request `stt_request` line (chunks, decoded, `vad_skipped`, `retried`,
 `recovered`, `dropped`) to the container's log file under
 `/logs/model-gear/`, not to `docker logs`. Those lines carry the decoded
-text, so quote only the counts.
+text, so quote only the counts. The counts are signals; the operator's read
+decides.
+
+### Compared models
+
+| Model | Where | Time for 3380 s | Windows / empty | Characters | Longest repeat | Operator's read |
+|---|---|---|---|---|---|---|
+| `ivrit-ai/whisper-large-v3-turbo` | lobes on spark, GPU | about 5 min | 8 / 0 | 19,902 | 2 | usable (the benchmark) |
+| `ivrit-ai/zipformer2-66m-streaming-he` | thor, CPU, 1.5 GB, 2 cores | 213 s | 8 / 0 | 19,673 | 4 | far better (2026-10-23) |
+
+The zipformer run used the same `audio.transcribe` code and windows, through
+an in-memory actor at `http://127.0.0.1:18090` (a thor-localhost endpoint
+reached by an ssh tunnel on spark); no live actor was added.
 
 ## Known limits
 

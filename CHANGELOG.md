@@ -11,6 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - docs/deliveries/2026-10-22-file-in-transcription.md: the file-in transcription delivery summary (all eight tasks delivered; claims backed by e2–e22)
 - A Benchmark section in docs/operations/pocket-transcribe.md: the operator's 56 min reference recording for comparing STT models, with counts only
+- The Benchmark section's first comparison: `ivrit-ai/zipformer2-66m-streaming-he` on thor's CPU, which the operator read as far better than the whisper benchmark
 
 ### Changed
 
