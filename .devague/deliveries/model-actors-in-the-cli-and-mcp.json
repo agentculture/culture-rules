@@ -2,7 +2,7 @@
   "plan_slug": "model-actors-in-the-cli-and-mcp",
   "schema_version": 2,
   "created": "2026-10-19T05:52:29Z",
-  "updated": "2026-10-23T06:02:13Z",
+  "updated": "2026-10-23T06:47:35Z",
   "deviations": [
     {
       "id": "d1",
@@ -135,7 +135,7 @@
         "commit": "b3a3025"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 7
     },
@@ -154,7 +154,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 10
     },
@@ -173,7 +173,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 11
     },
@@ -192,7 +192,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 12
     },
@@ -211,7 +211,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 13
     },
@@ -230,7 +230,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 14
     },
@@ -249,7 +249,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 15
     },
@@ -268,7 +268,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 16
     },
@@ -287,7 +287,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 17
     },
@@ -306,7 +306,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 18
     },
@@ -325,7 +325,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 19
     },
@@ -344,7 +344,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 20
     },
@@ -363,7 +363,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 21
     },
@@ -382,7 +382,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 22
     },
@@ -401,7 +401,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 23
     },
@@ -420,7 +420,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 24
     },
@@ -439,7 +439,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 25
     },
@@ -458,7 +458,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 26
     },
@@ -477,7 +477,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 27
     },
@@ -496,7 +496,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 28
     }

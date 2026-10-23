@@ -2,7 +2,7 @@
   "plan_slug": "file-in-transcription",
   "schema_version": 2,
   "created": "2026-10-23T03:34:49Z",
-  "updated": "2026-10-23T06:22:10Z",
+  "updated": "2026-10-23T06:52:05Z",
   "deviations": [
     {
       "id": "d1",
@@ -49,7 +49,7 @@
         "commit": "6af9d25"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 3
     }

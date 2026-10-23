@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.2] - 2026-10-23
+
+### Changed
+
+- Operator adjudication recorded 2026-10-23: model-actors evidence e1-e20 and lapse l2 approved (the delivery summary updated to match); file-in-transcription lapses l1-l3, obligation o21 and its failing evidence approved (c27 waits on lobes-cli#329 for a re-run)
+
 ## [0.23.1] - 2026-10-23
 
 ### Added
