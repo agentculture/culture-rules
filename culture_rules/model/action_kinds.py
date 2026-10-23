@@ -26,6 +26,8 @@ addresses on its recipient allowlist; ``search.web`` queries through a ``search`
 ``llm.complete`` asks an agent actor's OpenAI-compatible endpoint (never with tools);
 ``audio.transcribe`` sends an audio file (checked against ``audio_sha256``) to the same
 kind of endpoint for a transcript written under ``output_dir``;
+``transcript.render`` renders a transcript under the transcripts root, with its summary, as
+an EPUB (no actor needed);
 ``library.push`` uploads ``content_base64`` (an EPUB) to xteink and queues it for
 ``device_id``.
 Standard-library only.
@@ -58,7 +60,7 @@ class ActionKind:
     summary: str = ""
 
 
-def _k(name: str, summary: str, **params: ParamSpec) -> ActionKind:
+def _k(name: str, summary: str, /, **params: ParamSpec) -> ActionKind:
     return ActionKind(name, params, summary)
 
 
@@ -173,6 +175,16 @@ _KINDS = (
         output_dir=_RS,
         language=_S,
         model=_S,
+    ),
+    _k(
+        "transcript.render",
+        "Render one transcript and its summary as an EPUB (right to left for Hebrew)",
+        actor=_S,  # optional: its transcripts_root/output_root is a second boundary
+        result_path=_RS,
+        root=_RS,  # the transcripts root: result_path must resolve under it
+        recorded_at=_RS,  # ISO-8601 with a zone; dated in Asia/Jerusalem
+        language=_S,
+        summary=ParamSpec("any"),  # llm.complete's output: {text} or a string, or none
     ),
     _k(
         "library.push",

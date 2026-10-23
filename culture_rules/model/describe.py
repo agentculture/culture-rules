@@ -103,6 +103,7 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "search.web": (("query", _QUOTED),),
     "llm.complete": (),
     "audio.transcribe": (("audio_path", "of {}"),),
+    "transcript.render": (("result_path", "of {}"),),
     "library.push": (("device_id", "to device {}"),),
     "noop": (),
 }
