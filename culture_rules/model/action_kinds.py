@@ -195,6 +195,7 @@ _KINDS = (
         title=_RS,
         author=_S,
         device_id=_S,
+        kind=_S,  # book, article (default) or transcript
     ),
 )
 

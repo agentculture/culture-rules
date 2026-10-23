@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-23T18:53:52Z",
-  "updated": "2026-10-23T21:16:03Z",
+  "updated": "2026-10-23T22:58:57Z",
   "claims": [
     {
       "id": "c1",
@@ -615,6 +615,18 @@
       ]
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "t3 (library.push kind) was not built test-first: its kind tests were written with the implementation and never seen failing",
+      "skipped_check": "run the new kind tests against the unchanged library.py and see them fail",
+      "refs": [
+        "t3"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": []
 }
