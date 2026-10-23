@@ -11,7 +11,7 @@
 
 - Before: Transcripts exist only as JSON files under the transcripts folder, readable through a local page on spark; nothing reaches the reader, and Pocket's own title and summary come from its weaker transcript
   - instruction: compare against docs/operations/pocket-transcribe.md as of 0.24.2: no library.push in the pocket-transcribe bundle
-- After: Each recording is one EPUB on the Xteink reader named '<YYYY-MM-DD> <word>', opening with a 1-2 line summary in its language and then the transcript (right to left for Hebrew); all past recordings are there too
+- After: Each recording is one EPUB on the Xteink reader named `<YYYY-MM-DD> <word>`, opening with a 1-2 line summary in its language and then the transcript (right to left for Hebrew); all past recordings are there too
   - instruction: on the device: the books appear after a sync; in xteink: GET /api/library lists one item per recording
 
 ## Why it matters
@@ -25,12 +25,12 @@
   - honesty: a rules.run.succeeded event from transcribe-file-he (or transcribe-file for en) starts exactly one transcript-to-reader run, and a failed or cancelled transcription starts none
 - Best lane per language: a Hebrew or unlabelled recording's book uses the zipformer transcript (transcribe-file-he); an en recording's uses whisper (transcribe-file), falling back to zipformer when every whisper window came back empty; the rule's condition picks which run starts the book, so one recording yields one book
   - honesty: for an unlabelled or he recording only the zipformer success starts a book; for en only the whisper success does, and with every whisper window empty the run transcribes with stt-he before rendering
-- A new stdlib built-in, transcript.render, reads the schema-1 transcript file only under the transcripts root and builds a deterministic EPUB (fixed zip times, so the same input gives the same bytes): title '<YYYY-MM-DD> <word>', the summary first, then the transcript; Hebrew is lang he, dir rtl, page-progression-direction rtl. `newspaper_render.py` stays as it is (English-only, newspaper-shaped)
+- A new stdlib built-in, transcript.render, reads the schema-1 transcript file only under the transcripts root and builds a deterministic EPUB (fixed zip times, so the same input gives the same bytes): title `<YYYY-MM-DD> <word>`, the summary first, then the transcript; Hebrew is lang he, dir rtl, page-progression-direction rtl. `newspaper_render.py` stays as it is (English-only, newspaper-shaped)
   - honesty: rendering the same transcript, summary and date twice gives byte-identical EPUBs; a he book has lang/xml:lang he, dir rtl and page-progression-direction rtl; a path outside the transcripts root is refused
 - llm.complete gains a second locked brief chosen by a fixed param (e.g. brief: transcript), still with no free-text system prompt and no tools; the transcript brief asks for a 1-2 line summary in the transcript's language and one short title word in Latin letters, as JSON
   - honesty: llm.complete with brief transcript sends the transcript brief as the system message and nothing else from the step; without brief it still sends `NEWSPAPER_BRIEF`; an unknown brief value is refused before any request
-- The summary step tolerates failure (config.`on_error`: skip, like the newspaper): the book still ships, titled '<date> recording' with a 'Summary unavailable.' line; a reply that is not 1-2 lines or whose word is not a short Latin word is treated as a failure
-  - honesty: with the model unreachable, or a reply that is 3+ lines or has a non-Latin or multi-word title word, the book still ships titled '<date> recording' with 'Summary unavailable.'
+- The summary step tolerates failure (config.`on_error`: skip, like the newspaper): the book still ships, titled `<date> recording` with a 'Summary unavailable.' line; a reply that is not 1-2 lines or whose word is not a short Latin word is treated as a failure
+  - honesty: with the model unreachable, or a reply that is 3+ lines or has a non-Latin or multi-word title word, the book still ships titled `<date> recording` with 'Summary unavailable.' (h6 with the placeholder backticked)
 - The date is the Asia/Jerusalem local date of Pocket's `recording_at`: pocketsync's meta.json has it, pocketsync#12's event does not, so the event asks for it (a comment on pocketsync#12) and the transcribe workflows pass it through as an optional input and output
   - honesty: a `recording_at` of 2026-10-23T22:30:00Z (01:30 Israel time) gives the date 2026-10-24; with no `recording_at` the run fails clearly rather than inventing a date
 - library.push takes an optional kind (book, article, transcript); the book is pushed as kind transcript once xteink accepts it, as article until then, landing flat in /xteink/ named after its title (xteink-firmware SyncProtocol.cpp bookFileName = sanitized title + .epub)

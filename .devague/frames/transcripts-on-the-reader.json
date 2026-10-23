@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-23T18:53:52Z",
-  "updated": "2026-10-23T21:10:20Z",
+  "updated": "2026-10-23T21:16:03Z",
   "claims": [
     {
       "id": "c1",
@@ -81,7 +81,7 @@
     {
       "id": "c4",
       "kind": "requirement",
-      "text": "A new stdlib built-in, transcript.render, reads the schema-1 transcript file only under the transcripts root and builds a deterministic EPUB (fixed zip times, so the same input gives the same bytes): title '<YYYY-MM-DD> <word>', the summary first, then the transcript; Hebrew is lang he, dir rtl, page-progression-direction rtl. newspaper_render.py stays as it is (English-only, newspaper-shaped)",
+      "text": "A new stdlib built-in, transcript.render, reads the schema-1 transcript file only under the transcripts root and builds a deterministic EPUB (fixed zip times, so the same input gives the same bytes): title `<YYYY-MM-DD> <word>`, the summary first, then the transcript; Hebrew is lang he, dir rtl, page-progression-direction rtl. newspaper_render.py stays as it is (English-only, newspaper-shaped)",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -95,7 +95,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "A new stdlib built-in, transcript.render, reads the schema-1 transcript file only under the transcripts root and builds a deterministic EPUB (fixed zip times, so the same input gives the same bytes): title '<YYYY-MM-DD> <word>', the summary first, then the transcript; Hebrew is lang he, dir rtl, page-progression-direction rtl. newspaper_render.py stays as it is (English-only, newspaper-shaped)",
+          "kind": "requirement",
+          "reason": "backtick the title placeholder for markdown lint (MD033); wording unchanged"
+        }
+      ]
     },
     {
       "id": "c5",
@@ -127,13 +133,19 @@
     {
       "id": "c6",
       "kind": "requirement",
-      "text": "The summary step tolerates failure (config.on_error: skip, like the newspaper): the book still ships, titled '<date> recording' with a 'Summary unavailable.' line; a reply that is not 1-2 lines or whose word is not a short Latin word is treated as a failure",
+      "text": "The summary step tolerates failure (config.on_error: skip, like the newspaper): the book still ships, titled `<date> recording` with a 'Summary unavailable.' line; a reply that is not 1-2 lines or whose word is not a short Latin word is treated as a failure",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h6",
           "text": "with the model unreachable, or a reply that is 3+ lines or has a non-Latin or multi-word title word, the book still ships titled '<date> recording' with 'Summary unavailable.'",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h19",
+          "text": "with the model unreachable, or a reply that is 3+ lines or has a non-Latin or multi-word title word, the book still ships titled `<date> recording` with 'Summary unavailable.' (h6 with the placeholder backticked)",
           "status": "confirmed",
           "instruction": ""
         }
@@ -141,7 +153,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "The summary step tolerates failure (config.on_error: skip, like the newspaper): the book still ships, titled '<date> recording' with a 'Summary unavailable.' line; a reply that is not 1-2 lines or whose word is not a short Latin word is treated as a failure",
+          "kind": "requirement",
+          "reason": "backtick the title placeholder for markdown lint (MD033); wording unchanged"
+        }
+      ]
     },
     {
       "id": "c7",
@@ -360,7 +378,7 @@
     {
       "id": "c19",
       "kind": "after_state",
-      "text": "Each recording is one EPUB on the Xteink reader named '<YYYY-MM-DD> <word>', opening with a 1-2 line summary in its language and then the transcript (right to left for Hebrew); all past recordings are there too",
+      "text": "Each recording is one EPUB on the Xteink reader named `<YYYY-MM-DD> <word>`, opening with a 1-2 line summary in its language and then the transcript (right to left for Hebrew); all past recordings are there too",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -374,7 +392,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "on the device: the books appear after a sync; in xteink: GET /api/library lists one item per recording",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Each recording is one EPUB on the Xteink reader named '<YYYY-MM-DD> <word>', opening with a 1-2 line summary in its language and then the transcript (right to left for Hebrew); all past recordings are there too",
+          "kind": "after_state",
+          "reason": "backtick the title placeholder for markdown lint (MD033); wording unchanged"
+        }
+      ]
     },
     {
       "id": "c20",
