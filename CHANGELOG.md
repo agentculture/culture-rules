@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.2] - 2026-10-23
+
+### Changed
+
+- Deviation d3 (two STT lanes: stt-en whisper for every recording, stt-he zipformer beside it) approved by the operator on the file-in-transcription plan
+
 ## [0.24.1] - 2026-10-23
 
 ### Added
