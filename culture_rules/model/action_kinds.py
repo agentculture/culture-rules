@@ -165,6 +165,7 @@ _KINDS = (
         max_tokens=_I,
         temperature=ParamSpec("any"),
         not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
+        brief=_S,  # which locked brief: newspaper (default) or transcript
     ),
     _k(
         "audio.transcribe",
