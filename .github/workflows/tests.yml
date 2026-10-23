@@ -43,6 +43,11 @@ jobs:
             docker pull mongo:8.0
           fi
 
+      # ffmpeg/ffprobe for the audio.transcribe tests (tests/node/test_audio_*.py,
+      # test_transcribe_file_flow.py): without them those tests skip and the port is uncovered.
+      - name: install ffmpeg
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends ffmpeg
+
       # Gate 2: coverage >= 60% (--cov-fail-under; mirrors [tool.coverage.report]).
       # COVERAGE_CORE=sysmon: coverage's sys.monitoring tracer (Python 3.12+), about 23%
       # faster here than the default trace function; line coverage is unchanged.

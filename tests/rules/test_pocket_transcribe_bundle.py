@@ -246,11 +246,11 @@ def seed_calls(tmp_path, *args, existing=(), home=None) -> list[list[str]]:
 
 
 def test_the_seed_script_is_a_dry_run_and_expands_the_home(tmp_path):
-    (call,) = seed_calls(tmp_path, home="/home/someone")
+    (call,) = seed_calls(tmp_path, home="/srv/someone")
     assert call[2] == DIR_VAR
     assert APPLY not in call
     value = json.loads(call[call.index("--value") + 1])
-    assert value == "/home/someone/.local/share/culture-rules/transcripts"
+    assert value == "/srv/someone/.local/share/culture-rules/transcripts"
 
 
 def test_the_seed_script_keeps_an_existing_value_unless_forced(tmp_path):
