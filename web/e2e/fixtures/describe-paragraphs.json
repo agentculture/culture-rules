@@ -10890,7 +10890,7 @@
           "type": "string"
         }
       ],
-      "name": "Transcribe an audio file (Hebrew)",
+      "name": "Transcribe an audio file in Hebrew",
       "notes": "File in, file out: one audio.transcribe step on the Hebrew actor, stt-he; transcribe-file is the same on stt-en. The transcript is written atomically to <output_dir>/<audio_sha256>/transcript.<model-slug>.json (schema 1: audio_sha256, model, language, duration, segments [{start, end, text}], created_at, window_count, empty_window_count); the outputs carry only scalars, never the text. Re-running the same audio and model is a no-op; another model writes a second file beside the first. The workflow knows nothing about where the file came from.",
       "outputs": [
         {
