@@ -1,0 +1,500 @@
+{
+  "slug": "transcripts-on-the-reader",
+  "title": "Transcripts on the reader",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-23T18:53:52Z",
+  "updated": "2026-10-23T21:07:19Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Every pocketsync recording now arrives on the Xteink reader as its own book, titled with its date and a short word, opening with a one- or two-line summary in the recording's language and then the transcript, right to left for Hebrew; past recordings are there too",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "a recording that lands with the rules enabled ends as one queued library item titled with its local date, without any manual step",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "A new rule fires on rules.run.succeeded (d21, culture_rules/node/run_events.py) from the transcribe workflows and starts a generic transcript-to-reader workflow, with the run's exported outputs (result_path, audio_sha256, language, model, window_count, empty_window_count) as inputs",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "a rules.run.succeeded event from transcribe-file-he (or transcribe-file for en) starts exactly one transcript-to-reader run, and a failed or cancelled transcription starts none",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Best lane per language: a Hebrew or unlabelled recording's book uses the zipformer transcript (transcribe-file-he); an en recording's uses whisper (transcribe-file), falling back to zipformer when every whisper window came back empty; the rule's condition picks which run starts the book, so one recording yields one book",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "for an unlabelled or he recording only the zipformer success starts a book; for en only the whisper success does, and with every whisper window empty the run transcribes with stt-he before rendering",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "A new en recording whose whisper windows are all empty has no zipformer transcript (pocket-transcribe-he skips en): should the reader workflow run zipformer itself as the fallback, or ship the book with 'No speech recognised'?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Operator 2026-10-24 (confirmed all, recommended answer): the reader workflow runs zipformer itself as the fallback for an en recording whose whisper windows are all empty"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "A new stdlib built-in, transcript.render, reads the schema-1 transcript file only under the transcripts root and builds a deterministic EPUB (fixed zip times, so the same input gives the same bytes): title '<YYYY-MM-DD> <word>', the summary first, then the transcript; Hebrew is lang he, dir rtl, page-progression-direction rtl. newspaper_render.py stays as it is (English-only, newspaper-shaped)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "rendering the same transcript, summary and date twice gives byte-identical EPUBs; a he book has lang/xml:lang he, dir rtl and page-progression-direction rtl; a path outside the transcripts root is refused",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "llm.complete gains a second locked brief chosen by a fixed param (e.g. brief: transcript), still with no free-text system prompt and no tools; the transcript brief asks for a 1-2 line summary in the transcript's language and one short title word in Latin letters, as JSON",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "llm.complete with brief transcript sends the transcript brief as the system message and nothing else from the step; without brief it still sends NEWSPAPER_BRIEF; an unknown brief value is refused before any request",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "A long recording's transcript exceeds llm.complete's 48000-character content cap (the 56-minute benchmark is near it): summarise from the first 48000 characters, or summarise per window and join?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Operator 2026-10-24 (confirmed all, recommended answer): summarise from the first 48000 characters; none of the 33 today exceeds it (max 29744)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "The summary step tolerates failure (config.on_error: skip, like the newspaper): the book still ships, titled '<date> recording' with a 'Summary unavailable.' line; a reply that is not 1-2 lines or whose word is not a short Latin word is treated as a failure",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "with the model unreachable, or a reply that is 3+ lines or has a non-Latin or multi-word title word, the book still ships titled '<date> recording' with 'Summary unavailable.'",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The date is the Asia/Jerusalem local date of Pocket's recording_at: pocketsync's meta.json has it, pocketsync#12's event does not, so the event asks for it (a comment on pocketsync#12) and the transcribe workflows pass it through as an optional input and output",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "a recording_at of 2026-10-23T22:30:00Z (01:30 Israel time) gives the date 2026-10-24; with no recording_at the run fails clearly rather than inventing a date",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "library.push takes an optional kind (book, article, transcript); the book is pushed as kind transcript once xteink accepts it, as article until then, landing flat in /xteink/ named after its title (xteink-firmware SyncProtocol.cpp bookFileName = sanitized title + .epub)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "library.push without kind still uploads article (the newspaper unchanged); kind transcript is sent as given; an unknown kind is refused before any request",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Cross-repo issues: agentculture/xteink accepts library kind transcript (the upload enum is book|article today); agentculture/xteink-firmware places a non-book kind under /xteink/<kind>s/ (XteinkSync.cpp placeFile puts everything in kBooksDir /xteink)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "both issues exist, are self-contained, and quote the current enum and placeFile code they ask to change",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Backfill: every existing recording (33 today) gets its book, oldest first by recording_at, through workflows run with the inputs read from pocketsync's meta.json and the existing transcript files",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "the backfill starts one run per recording ordered by recording_at, and every run's book lands",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "One book per recording: a repeat (redelivered event, retried run, backfill re-run) pushes the same bytes, which xteink deduplicates by sha256 (library.py), so the reader never gets a second copy",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "a second backfill run leaves the library item count unchanged (every upload answers created: false)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "Transcript text goes only to the local summary model and the operator's own xteink library: run outputs stay scalars, and no speech text goes into issues, docs, logs or claude.ai",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "the run's outputs, step outputs and logs hold no transcript or summary text: only paths, hashes, ids, counts and the title",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "non_goal",
+      "text": "No change to the STT lanes or their rules: pocket-transcribe and pocket-transcribe-he stay disabled until pocketsync#12 ships the landed event",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "assumption",
+      "text": "The summary and title word come from our own transcript, not from Pocket's title or summary.md (made from Pocket's weaker transcript)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "assumption",
+      "text": "The summary runs on cortex-spark2, the newspaper's local lane actor (one actor per model lane), not a new task-named actor",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "Operator 2026-10-24: the reader workflow runs right after the transcription workflow finishes (fired by its rules.run.succeeded event, c2), not on a schedule or a separate pass",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "audience",
+      "text": "The operator, reading past Pocket recordings on the Xteink reader; and the culture-rules engine that builds and pushes each book",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "the operations doc covers setup, backfill and reading for the operator; the bundle ships under docs/rules",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "check docs/operations/transcripts-on-the-reader.md addresses the operator (setup, backfill, reading) and the engine bundle ships in docs/rules/",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "before_state",
+      "text": "Transcripts exist only as JSON files under the transcripts folder, readable through a local page on spark; nothing reaches the reader, and Pocket's own title and summary come from its weaker transcript",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "as of 0.24.2 no bundle pushes a transcript to xteink",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "compare against docs/operations/pocket-transcribe.md as of 0.24.2: no library.push in the pocket-transcribe bundle",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "after_state",
+      "text": "Each recording is one EPUB on the Xteink reader named '<YYYY-MM-DD> <word>', opening with a 1-2 line summary in its language and then the transcript (right to left for Hebrew); all past recordings are there too",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "after the backfill the device shows one dated book per recording, Hebrew ones right to left",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "on the device: the books appear after a sync; in xteink: GET /api/library lists one item per recording",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "why_it_matters",
+      "text": "The operator can read and search past conversations away from the desk, in a book format, with a dated name and a summary that says what each one was about",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "the operator reads backfilled books on the device and confirms the names and summaries identify the recordings",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the operator reads three backfilled books on the device and reports whether the name and summary identify the recording",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "After the backfill, 33 of 33 existing recordings have exactly 1 library item each (0 duplicates after a second backfill run), and a new recording's book is queued within 10 minutes of its transcription run succeeding",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "33 items for 33 recordings, 0 new after a re-run, and a new recording's book queued within 10 minutes of its transcription succeeding",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "count xteink library items titled with a date per audio sha from the run outputs; re-run the backfill and recount; time the rules.run.succeeded event against the push step's finish",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_rules/node/run_events.py",
+      "finding": "d21: every terminal run emits rules.run.succeeded with the workflow_id and only the explicitly exported outputs, so a plain event trigger with a condition can start the reader workflow",
+      "seeds": [
+        "c2",
+        "c3"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "docs/rules/pocket-transcribe/workflows/transcribe-file.json",
+      "finding": "exports result_path, audio_sha256, model, language, segment_count, window_count, empty_window_count; no recording date in its inputs or outputs",
+      "seeds": [
+        "c2",
+        "c3",
+        "c7"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_rules/node/actions/transcript_file.py + stt.py",
+      "finding": "schema-1 file at <output_dir>/<sha>/transcript.<model-slug>.json with segments [{start,end,text}] and created_at (transcription time, not recording time); outputs are scalars only",
+      "seeds": [
+        "c4",
+        "c12"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "culture_rules/node/actions/newspaper_render.py",
+      "finding": "the only EPUB builder: newspaper-shaped (sections, link-checked summaries), lang and dc:language hard-coded en, no rtl",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_rules/node/actions/llm.py",
+      "finding": "system message is always the locked NEWSPAPER_BRIEF; every other param ignored; content capped at DEFAULT_MAX_CONTENT_CHARS 48000, max_tokens default 1500",
+      "seeds": [
+        "c5",
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_rules/node/actions/library.py",
+      "finding": "uploads with kind hard-coded article; xteink dedups uploads by sha256 (created: false) and re-queueing a queued item returns the existing entry",
+      "seeds": [
+        "c8",
+        "c11"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "xteink server /openapi.json (127.0.0.1:8780)",
+      "finding": "POST /api/library takes file, title, author, kind; kind enum is book|article; no folder field",
+      "seeds": [
+        "c8",
+        "c9"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "xteink-firmware src/xteink/XteinkSync.cpp, SyncProtocol.cpp",
+      "finding": "placeFile moves every delivered file into kBooksDir /xteink, named bookFileName(title) = sanitized title + extension; kind is not used for placement",
+      "seeds": [
+        "c8",
+        "c9"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "pocketsync files/<yyyy>/<mm>/<id>/meta.json",
+      "finding": "has recording_at (UTC), language, duration, files.audio.sha256, plus Pocket's own title and summary.md",
+      "seeds": [
+        "c7",
+        "c10",
+        "c14"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "agentculture/pocketsync#12 body",
+      "finding": "the landed event's data fields are audio_path, audio_sha256, language, recording_id (+ optional content_hash, updated_at); recording_at is not among them",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "docs/rules/newspaper/actors/cortex-spark2.json",
+      "finding": "the newspaper summarises on the cortex-spark2 lane actor via llm.complete",
+      "seeds": [
+        "c15"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
