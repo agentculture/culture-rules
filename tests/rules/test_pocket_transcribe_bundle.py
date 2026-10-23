@@ -1,7 +1,9 @@
 """File-in transcription t6: the shipped pocket-transcribe data (docs/rules/pocket-transcribe).
 
-One STT agent actor, the generic ``transcribe-file`` workflow and one event rule, shipped
-disabled, plus ``variables.json`` and its seed script. Nothing personal or secret is
+Two STT agent actors (``stt-en``: whisper for every language, ``stt-he``: zipformer for
+Hebrew), the generic ``transcribe-file`` workflow and its Hebrew twin ``transcribe-file-he``,
+and two event rules (the Hebrew one skips recordings marked ``en``), shipped disabled, plus
+``variables.json`` and its seed script. Nothing personal or secret is
 committed: the key is a grant reference, the base URL is a loopback placeholder and the
 actor's two roots are ``/home/OPERATOR`` placeholders the operator replaces. The workflow
 names nothing from Pocket; only the rule's trigger and input mapping do. The flow itself is
@@ -34,7 +36,12 @@ DESCRIPTIONS = ROOT / "tests" / "fixtures" / "workflow_descriptions.json"
 SEED = BUNDLE / "seed-variables.sh"
 RULE = "pocket-transcribe"
 WORKFLOW = "transcribe-file"
-STT = "whisper-he"
+STT = "stt-en"
+STT_HE = "stt-he"
+RULE_HE = "pocket-transcribe-he"
+WORKFLOW_HE = "transcribe-file-he"
+WORKFLOW_HE_FILE = BUNDLE / "workflows" / "transcribe-file-he.json"
+MODEL_HE = "ivrit-ai/zipformer2-66m-streaming-he"
 STEP = "transcribe"
 EVENT = "pocketsync.recording.landed"
 MODEL = "ivrit-ai/whisper-large-v3-turbo"
@@ -61,23 +68,20 @@ def bundle():
     return read.bundle
 
 
-def actor():
-    (a,) = bundle().actors
-    return a
+def actor(actor_id=STT):
+    return {a.id: a for a in bundle().actors}[actor_id]
 
 
-def workflow():
-    (wf,) = bundle().workflows
-    return wf
+def workflow(workflow_id=WORKFLOW):
+    return {w.id: w for w in bundle().workflows}[workflow_id]
 
 
-def rule():
-    (r,) = bundle().rules
-    return r
+def rule(rule_id=RULE):
+    return {r.id: r for r in bundle().rules}[rule_id]
 
 
-def step():
-    (s,) = workflow().steps
+def step(workflow_id=WORKFLOW):
+    (s,) = workflow(workflow_id).steps
     return s
 
 
@@ -90,9 +94,9 @@ def bundle_files() -> list[Path]:
 
 def test_the_bundle_reads_without_errors():
     b = bundle()
-    assert [a.id for a in b.actors] == [STT]
-    assert [w.id for w in b.workflows] == [WORKFLOW]
-    assert [r.id for r in b.rules] == [RULE]
+    assert sorted(a.id for a in b.actors) == [STT, STT_HE]
+    assert sorted(w.id for w in b.workflows) == [WORKFLOW, WORKFLOW_HE]
+    assert sorted(r.id for r in b.rules) == [RULE, RULE_HE]
 
 
 def test_it_imports_into_a_store_with_the_rule_disabled():
@@ -100,9 +104,12 @@ def test_it_imports_into_a_store_with_the_rule_disabled():
     plan = import_bundle(BUNDLE, base, apply=True)
     assert plan.errors == []
     assert plan.applied is True
-    assert base.get("rules", RULE)["enabled"] is False
-    assert base.get("workflows", WORKFLOW) is not None
-    assert base.get("actors", STT) is not None
+    for rule_id in (RULE, RULE_HE):
+        assert base.get("rules", rule_id)["enabled"] is False
+    for workflow_id in (WORKFLOW, WORKFLOW_HE):
+        assert base.get("workflows", workflow_id) is not None
+    for actor_id in (STT, STT_HE):
+        assert base.get("actors", actor_id) is not None
 
 
 def test_scan_secrets_finds_nothing_in_the_bundle():
@@ -128,15 +135,28 @@ def test_the_stt_actor_is_a_valid_endpoint_actor_on_spark():
     assert a.params["concurrency_pool"]
 
 
-def test_the_base_url_is_a_loopback_placeholder():
-    assert urlsplit(actor().params["base_url"]).hostname in LOOPBACK
+def test_the_hebrew_actor_is_a_valid_keyless_endpoint_actor_on_its_own_pool():
+    a = actor(STT_HE)
+    assert a.kind == "agent"
+    assert a.machine == "spark"
+    assert check_stt_actor(a) is None
+    assert a.params["model"] == MODEL_HE
+    assert "api_key" not in a.params
+    assert a.params["max_concurrency"] == 1
+    assert a.params["concurrency_pool"] != actor().params["concurrency_pool"]
+
+
+def test_the_base_urls_are_loopback_placeholders():
+    for actor_id in (STT, STT_HE):
+        assert urlsplit(actor(actor_id).params["base_url"]).hostname in LOOPBACK
 
 
 def test_the_roots_are_absolute_placeholders_naming_no_real_user():
-    for name in ("audio_root", "output_root"):
-        value = actor().params[name]
-        assert os.path.isabs(value), name
-        assert value.startswith("/home/OPERATOR/"), value
+    for actor_id in (STT, STT_HE):
+        for name in ("audio_root", "output_root"):
+            value = actor(actor_id).params[name]
+            assert os.path.isabs(value), name
+            assert value.startswith("/home/OPERATOR/"), value
 
 
 # --------------------------------------------------------------------------- the workflow
@@ -165,7 +185,20 @@ def test_the_transcribe_step_outlives_the_longest_recording():  # c30, h22
 
 
 def test_the_workflow_names_nothing_from_pocket():  # honesty: generic file-in
-    assert "pocket" not in WORKFLOW_FILE.read_text(encoding="utf-8").lower()
+    for path in (WORKFLOW_FILE, WORKFLOW_HE_FILE):
+        assert "pocket" not in path.read_text(encoding="utf-8").lower()
+
+
+def test_the_hebrew_workflow_is_the_same_file_in_contract_on_the_hebrew_actor():
+    wf, he = workflow(), workflow(WORKFLOW_HE)
+    assert [p.to_dict() for p in he.inputs] == [p.to_dict() for p in wf.inputs]
+    assert [o.to_dict() for o in he.outputs] == [o.to_dict() for o in wf.outputs]
+    spec = action_spec(step(WORKFLOW_HE))
+    assert spec["params"] == {**action_spec(step())["params"], "actor": STT_HE}
+    assert step(WORKFLOW_HE).timeout_s == step().timeout_s
+    assert step(WORKFLOW_HE).config.get("idempotent") is True
+    assert he.description == ""
+    assert step(WORKFLOW_HE).description == ""
 
 
 def test_notes_are_committed_and_plain_descriptions_live_in_the_store():
@@ -194,10 +227,31 @@ def test_the_rule_ships_disabled_on_the_landed_event():
     assert r.trigger.params == {"type": EVENT}
     assert r.workflow.id == WORKFLOW
     assert r.action.kind == "noop"
+    assert r.condition is None
 
 
-def test_the_rule_runs_one_transcription_per_audio_at_a_time():
-    assert rule().concurrency_key == "stt:{trigger.data.audio_sha256}"
+def test_the_hebrew_rule_ships_disabled_and_skips_only_recordings_marked_en():
+    r = rule(RULE_HE)
+    assert r.enabled is False
+    assert r.trigger.params == {"type": EVENT}
+    assert r.workflow.id == WORKFLOW_HE
+    assert r.workflow.inputs == rule().workflow.inputs
+    # not (== "en"), not != "en": a comparison with a missing field is false, so a landed
+    # event with no language field at all still runs the Hebrew lane
+    assert r.condition == {
+        "arg": {
+            "cmp": "==",
+            "left": {"field": "data.language"},
+            "op": "compare",
+            "right": {"literal": "en"},
+        },
+        "op": "not",
+    }
+
+
+def test_each_lane_runs_one_transcription_per_audio_at_a_time():
+    assert rule().concurrency_key == "stt-en:{trigger.data.audio_sha256}"
+    assert rule(RULE_HE).concurrency_key == "stt-he:{trigger.data.audio_sha256}"
 
 
 def test_the_rule_maps_the_event_and_the_variable_and_leaves_the_model_to_the_actor():

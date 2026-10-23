@@ -1,0 +1,22 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "audio.transcribe endpoint for Hebrew: ivrit-ai/zipformer2-66m-streaming-he on thor's CPU, bound to thor's localhost and reached through an ssh tunnel on spark (127.0.0.1:18090, no key), pool stt-thor. Weaker on English: the pocket-transcribe-he rule skips recordings marked en. audio_root and output_root ship as /home/OPERATOR placeholders (docs/operations/pocket-transcribe.md).",
+  "enabled": true,
+  "harness": null,
+  "id": "stt-he",
+  "kind": "agent",
+  "machine": "spark",
+  "model": null,
+  "name": "stt-he",
+  "params": {
+    "audio_root": "/home/OPERATOR/.local/share/pocketsync/files",
+    "base_url": "http://127.0.0.1:18090",
+    "concurrency_pool": "stt-thor",
+    "max_concurrency": 1,
+    "model": "ivrit-ai/zipformer2-66m-streaming-he",
+    "output_root": "/home/OPERATOR/.local/share/culture-rules/transcripts"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

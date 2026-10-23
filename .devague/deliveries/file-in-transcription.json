@@ -2,7 +2,7 @@
   "plan_slug": "file-in-transcription",
   "schema_version": 2,
   "created": "2026-10-23T03:34:49Z",
-  "updated": "2026-10-23T14:41:52Z",
+  "updated": "2026-10-23T16:00:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -31,6 +31,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "pocket-transcribe ships two STT lanes instead of one actor: stt-en (whisper, lobes on spark, every language) replaces whisper-he, and stt-he (ivrit-ai/zipformer2-66m-streaming-he on thor's CPU via spark's loopback tunnel, no key) runs beside it through transcribe-file-he and the rule pocket-transcribe-he (condition not (language = en)); concurrency keys become stt-en:/stt-he:<audio_sha256>; each lane writes its own transcript file and run event",
+      "task_ref": "t6",
+      "reason": "the operator compared zipformer with the whisper benchmark on the 56 min recording and read it as far better for Hebrew but likely weaker on English, then asked to run both models and keep both results, with whisper as stt-en and zipformer as stt-he (2026-10-23); Pocket leaves most Hebrew recordings unlabelled (26 of 34 have no language), so the Hebrew lane skips only recordings marked en",
+      "affects": [
+        "t8",
+        "c11",
+        "c25"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 25
     }
   ],
   "evidence": [

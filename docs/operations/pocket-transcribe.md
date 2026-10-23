@@ -1,8 +1,10 @@
 # Pocket transcription (#73)
 
 When pocketsync lands a Pocket recording's audio, culture-rules transcribes
-the file with our own speech-to-text (Hebrew-capable, through the lobes
-gateway) and writes a timestamped transcript file. Pocket's own transcript is
+the file with our own speech-to-text in two lanes and writes one timestamped
+transcript file per lane: **stt-en** (whisper on spark's GPU, through the lobes
+gateway) for every recording, and **stt-he** (zipformer on thor's CPU) beside
+it for every recording not marked `en`. Pocket's own transcript is
 never read or changed. culture-rules writes only its own result file, never
 pocketsync's store.
 
@@ -11,17 +13,20 @@ This page has two readers:
 - **pocketsync**, which emits the trigger event and reads the result file
   back. The [hand-off contract](#the-hand-off-contract) below is what it
   builds against.
-- **the operator**, who sets up the STT actor, imports the bundle and enables
-  the rule ([setup](#1-the-stt-actor)).
+- **the operator**, who sets up the STT actors, imports the bundle and enables
+  the rules ([setup](#1-the-stt-actors)).
 
 The data is committed in `docs/rules/pocket-transcribe/`, in the import
 format, and it ships **disabled**:
 
 | File | What it is |
 |---|---|
-| `actors/whisper-he.json` | agent actor: the lobes gateway on spark's loopback, model `ivrit-ai/whisper-large-v3-turbo`, pool `stt-spark`, `max_concurrency: 1`, roots as `/home/OPERATOR/...` placeholders |
-| `workflows/transcribe-file.json` | the generic file-in workflow (below) |
-| `rules/pocket-transcribe.json` | event `pocketsync.recording.landed`, concurrency key `stt:{trigger.data.audio_sha256}`, placed on spark, disabled |
+| `actors/stt-en.json` | agent actor: the lobes gateway on spark's loopback, model `ivrit-ai/whisper-large-v3-turbo`, pool `stt-spark`, `max_concurrency: 1`, roots as `/home/OPERATOR/...` placeholders |
+| `actors/stt-he.json` | agent actor: zipformer through spark's loopback tunnel to thor (`127.0.0.1:18090`, no key), model `ivrit-ai/zipformer2-66m-streaming-he`, pool `stt-thor`, `max_concurrency: 1`, the same root placeholders |
+| `workflows/transcribe-file.json` | the generic file-in workflow (below), on `stt-en` |
+| `workflows/transcribe-file-he.json` | the same workflow on `stt-he` |
+| `rules/pocket-transcribe.json` | event `pocketsync.recording.landed` → `transcribe-file`, every language, concurrency key `stt-en:{trigger.data.audio_sha256}`, placed on spark, disabled |
+| `rules/pocket-transcribe-he.json` | the same event → `transcribe-file-he`, condition `not (language = en)`, concurrency key `stt-he:{trigger.data.audio_sha256}`, placed on spark, disabled |
 | `variables.json` | `transcripts_dir`, with its default and description |
 | `seed-variables.sh` | seeds the variable from `variables.json` (dry run by default) |
 
@@ -80,7 +85,7 @@ path can run it. Its inputs:
 | `model` | no | not mapped: the actor's model is used |
 | `output_dir` | yes | the variable `transcripts_dir` |
 
-It has one step, `transcribe` (`audio.transcribe` on `whisper-he`), with
+It has one step, `transcribe` (`audio.transcribe` on `stt-en`), with
 `timeout_s` 14400 (4 hours; the longest landed recording is 3.8 hours, and
 the engine default is 3600 s) and up to 3 attempts. What the action does,
 step by step, is in [the STT actor guide](../actors/stt.md):
@@ -92,6 +97,26 @@ step by step, is in [the STT actor guide](../actors/stt.md):
 - it sends each window, and keeps each reply, so a retried attempt
   **resumes** with the windows still missing;
 - it writes the result file atomically.
+
+### Two lanes
+
+`transcribe-file-he` is `transcribe-file` with its step on `stt-he`: the same
+inputs, outputs, timeout and retries. Each landed recording therefore starts
+up to two runs, one per rule:
+
+| Rule | Runs when | Workflow | Actor | Result file |
+|---|---|---|---|---|
+| `pocket-transcribe` | always | `transcribe-file` | `stt-en` (whisper) | `transcript.ivrit-ai-whisper-large-v3-turbo.json` |
+| `pocket-transcribe-he` | `language` is not `en` | `transcribe-file-he` | `stt-he` (zipformer) | `transcript.ivrit-ai-zipformer2-66m-streaming-he.json` |
+
+Pocket leaves most Hebrew recordings unlabelled (`language` null), so the
+Hebrew lane runs on everything except recordings marked `en`, including an
+event with no `language` field at all. zipformer is weaker on English, so
+`en` recordings get whisper only. The two runs are independent: each has
+its own `rules.run.succeeded` or `rules.run.failed` event with the eight
+outputs, its own concurrency key and its own pool, so one lane failing or
+queueing never holds the other. pocketsync tells them apart by
+`data.rule_id` or by `outputs.model`.
 
 ### The result file
 
@@ -150,10 +175,12 @@ A failed run ends in `rules.run.failed` with the code in `data.error_reason`
 `model_taken` and the rest) are listed in
 [the STT actor guide](../actors/stt.md#failures).
 
-## 1. The STT actor
+## 1. The STT actors
 
-The actor runs on spark, where the audio, ffmpeg and the gateway are. Its
-setup is in [the STT actor guide](../actors/stt.md). For this bundle:
+Both actors run on spark, where the audio and ffmpeg are: `stt-en` calls
+the lobes gateway on spark, and `stt-he` calls thor through spark's
+loopback tunnel. Their setup is in [the STT actor guide](../actors/stt.md).
+For this bundle:
 
 1. **The key.** `grant:LOBES_GATEWAY_API_KEY` is the same key the newspaper's
    `cortex-spark2` uses. If spark's node already injects
@@ -162,18 +189,24 @@ setup is in [the STT actor guide](../actors/stt.md). For this bundle:
    (`ivrit-ai/whisper-large-v3-turbo` with the `audio-he` overlay). lobes
    ignores the model a request names, so a mismatch labels every transcript
    with the wrong model.
-3. **ffmpeg.** `command -v ffmpeg ffprobe` as the node's user on spark.
-4. **The roots.** Import the actor, then set its two roots to the node user's
+3. **The thor tunnel (`stt-he`).** zipformer listens on thor's localhost
+   only; an ssh tunnel on spark (`zipformer-tunnel.service`) forwards
+   `127.0.0.1:18090` to it, and nothing is exposed on the network. It takes
+   no key. Check it with `curl -s http://127.0.0.1:18090/v1/models`.
+4. **ffmpeg.** `command -v ffmpeg ffprobe` as the node's user on spark.
+5. **The roots.** Import the actors, then set each one's two roots to the node user's
    real, absolute paths. On spark, with the node running as `spark`, they are
    `$HOME/.local/share/pocketsync/files` (pocketsync's files root) and
    `$HOME/.local/share/culture-rules/transcripts`, with `$HOME` expanded:
 
    ```bash
    culture-rules actors import docs/rules/pocket-transcribe --apply
-   culture-rules actors show whisper-he --json > stt-actor.json
-   # edit params.audio_root and params.output_root, and delete updated_at:
-   # update refuses it (422 "updated_at: unknown field")
-   culture-rules actors update whisper-he --body @stt-actor.json --apply
+   for a in stt-en stt-he; do
+     culture-rules actors show "$a" --json > "$a.json"
+     # edit params.audio_root and params.output_root, and delete updated_at:
+     # update refuses it (422 "updated_at: unknown field")
+     culture-rules actors update "$a" --body @"$a.json" --apply
+   done
    mkdir -p "$HOME/.local/share/culture-rules/transcripts"
    ```
 
@@ -206,7 +239,8 @@ culture-rules rules import docs/rules/pocket-transcribe --apply
 
 ## 4. Check with a direct run
 
-Before enabling the rule, transcribe one file you pick. It needs no event:
+Before enabling the rules, transcribe one file you pick. It needs no event,
+and each lane is its own workflow:
 
 ```bash
 cat > inputs.json <<JSON
@@ -216,6 +250,7 @@ cat > inputs.json <<JSON
  "output_dir": "$HOME/.local/share/culture-rules/transcripts"}
 JSON
 culture-rules workflows run transcribe-file --inputs-json @inputs.json --apply
+culture-rules workflows run transcribe-file-he --inputs-json @inputs.json --apply
 culture-rules runs show <run id> --json
 ```
 
@@ -233,11 +268,17 @@ serves it.
 
 ```bash
 culture-rules rules enable pocket-transcribe --apply
+culture-rules rules enable pocket-transcribe-he --apply
 ```
 
-From then on, each `pocketsync.recording.landed` event starts a run on
-spark. Runs queue on the `stt-spark` pool one at a time, and a step waits
-for the pool as `blocked`.
+From then on, each `pocketsync.recording.landed` event starts a run per
+lane on spark. Each lane queues on its own pool (`stt-spark`, `stt-thor`)
+one at a time, and a step waits for its pool as `blocked`.
+
+**Existing recordings.** Recordings that landed before the rules were on get
+no event. Backfill them with the direct runs of step 4, one pair per
+recording (skip `transcribe-file-he` for those marked `en`); a recording
+already transcribed by a model is a no-op for that model.
 
 ## Benchmark
 

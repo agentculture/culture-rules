@@ -91,5 +91,11 @@
       "review_qwen": "Qwen reviews the commit, read-only.",
       "verdict": "Checks the review and records its verdict for the commit."
     }
+  },
+  "transcribe-file-he": {
+    "description": "Turns one audio file into a transcript file with timestamps. Running it again on the same audio and model changes nothing; another model writes a second file beside the first.",
+    "steps": {
+      "transcribe": "Sends the audio to the speech-to-text actor and writes the transcript."
+    }
   }
 }
