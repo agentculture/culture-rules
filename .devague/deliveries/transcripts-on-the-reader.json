@@ -1,0 +1,25 @@
+{
+  "plan_slug": "transcripts-on-the-reader",
+  "schema_version": 2,
+  "created": "2026-10-23T21:30:08Z",
+  "updated": "2026-10-23T21:30:08Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "the firmware ask (place non-book kinds under /xteink/<kind>s/) is a comment on agentculture/xteink#8, not its own issue on agentculture/xteink-firmware",
+      "task_ref": "t6",
+      "reason": "agentculture/xteink-firmware is a fork of crosspoint-reader with GitHub issues disabled (gh: hasIssuesEnabled false); tracking both halves on xteink#8 keeps them in one thread without changing that repo's settings",
+      "affects": [
+        "c9",
+        "h9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
