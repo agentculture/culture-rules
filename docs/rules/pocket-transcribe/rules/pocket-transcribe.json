@@ -43,7 +43,8 @@
       "language": "trigger.data.language",
       "output_dir": {
         "$var": "transcripts_dir"
-      }
+      },
+      "recorded_at": "trigger.data.recording_at"
     },
     "version": null
   }

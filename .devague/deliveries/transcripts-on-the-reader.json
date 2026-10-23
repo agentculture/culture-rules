@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-23T23:05:01Z",
+  "updated": "2026-10-23T23:17:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -32,6 +32,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "one rule pocket-to-reader with an OR condition (zipformer finished, or whisper finished on an en recording); the editor's fold (culture_rules/model/paragraph.py and its TS twin web/src/fold/model.ts) learns to read predecessors through OR, so the rule shows as continuing from transcribe-file-he or transcribe-file",
+      "task_ref": "t4",
+      "reason": "the fold found a continuation's predecessor only through AND, so the OR rule read as continuing from every workflow (the newspaper and pr-fix paragraphs gained 'Then it continues into transcript-to-reader'); operator 2026-10-24 chose one rule with OR over splitting it",
+      "affects": [
+        "c2"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
     }
   ],
   "evidence": [],

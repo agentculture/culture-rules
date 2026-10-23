@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { Action, Condition, Operand, Rule } from "../../api/types";
+import { eitherText } from "../../fold/model";
 import type { Chain, Continuation, FoldEntry, FoldModel, FoldWorkflow } from "../../fold/model";
 
 export const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
@@ -13,6 +14,7 @@ export function workflowUrl(id: string, entry?: string): string {
 }
 export function fromText(entry: Continuation): string {
   if (entry.predecessor.kind === "ambiguous") return "from multiple workflow terms";
+  if (entry.predecessor.kind === "either") return `from ${eitherText(entry.predecessor.workflowIds)}`;
   if (entry.predecessor.kind === "any") return "from any workflow";
   return entry.predecessor.workflowId ? `from ${entry.predecessor.workflowId}` : "from an empty workflow id";
 }

@@ -1,0 +1,91 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: the book is the workflow's work",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "reader:{trigger.data.outputs.audio_sha256}",
+  "condition": {
+    "args": [
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.workflow_id"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "transcribe-file-he"
+        }
+      },
+      {
+        "args": [
+          {
+            "cmp": "==",
+            "left": {
+              "field": "data.workflow_id"
+            },
+            "op": "compare",
+            "right": {
+              "literal": "transcribe-file"
+            }
+          },
+          {
+            "cmp": "==",
+            "left": {
+              "field": "data.outputs.language"
+            },
+            "op": "compare",
+            "right": {
+              "literal": "en"
+            }
+          }
+        ],
+        "op": "and"
+      }
+    ],
+    "op": "or"
+  },
+  "counts_toward_budget": true,
+  "description": "When a recording's transcription finishes (rules.run.succeeded), runs transcript-to-reader: the zipformer run for a Hebrew or unlabelled recording, the whisper run for one marked en; a failed run starts nothing. Ships disabled (docs/operations/transcripts-on-the-reader.md).",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pocket-to-reader",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "Put each finished Pocket transcript on the reader",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "rules.run.succeeded"
+    }
+  },
+  "workflow": {
+    "id": "transcript-to-reader",
+    "inputs": {
+      "audio_path": "trigger.data.outputs.audio_path",
+      "audio_sha256": "trigger.data.outputs.audio_sha256",
+      "empty_window_count": "trigger.data.outputs.empty_window_count",
+      "language": "trigger.data.outputs.language",
+      "output_dir": "trigger.data.outputs.output_dir",
+      "recorded_at": "trigger.data.outputs.recorded_at",
+      "result_path": "trigger.data.outputs.result_path",
+      "window_count": "trigger.data.outputs.window_count"
+    },
+    "version": null
+  }
+}

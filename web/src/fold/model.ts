@@ -21,7 +21,9 @@ export interface EntryPoint {
 export type Predecessor =
   | { kind: "any" }
   | { kind: "linked"; workflowId: string }
-  | { kind: "ambiguous"; workflowIds: string[] };
+  | { kind: "ambiguous"; workflowIds: string[] }
+  /** An OR whose every branch names exactly one predecessor: it continues from any of them. */
+  | { kind: "either"; workflowIds: string[] };
 
 /** A continuation belongs to the workflow it starts, including an unscoped one. */
 export interface Continuation {
@@ -85,6 +87,23 @@ export function predecessorTerms(condition: Condition | null | undefined): Prede
   return id === null ? [] : [condition];
 }
 
+function termWorkflow(term: PredecessorTerm): string {
+  return (workflowLiteral(term.left, term.right) ?? workflowLiteral(term.right, term.left))!;
+}
+
+/** An OR of branches that each name exactly one predecessor (through AND): their distinct ids, in order. */
+export function eitherSources(condition: Condition | null | undefined): string[] {
+  if (!condition || condition.op !== "or") return [];
+  const ids: string[] = [];
+  for (const branch of condition.args) {
+    const terms = predecessorTerms(branch);
+    if (terms.length !== 1) return [];
+    ids.push(termWorkflow(terms[0]));
+  }
+  const distinct = [...new Set(ids)];
+  return distinct.length > 1 ? distinct : [];
+}
+
 function entryFor(rule: Rule, workflowId: string): FoldEntry {
   const base = { rule, workflowId, enabled: rule.enabled !== false };
   const params = rule.trigger.params;
@@ -92,9 +111,11 @@ function entryFor(rule: Rule, workflowId: string): FoldEntry {
   if (rule.trigger.kind !== "event" || typeof eventType !== "string" || !eventType.startsWith("rules.run.")) {
     return { ...base, kind: "entry" };
   }
-  const sources = predecessorTerms(rule.condition).map((term) =>
-    (workflowLiteral(term.left, term.right) ?? workflowLiteral(term.right, term.left))!);
-  const predecessor = predecessorFrom(sources);
+  const sources = predecessorTerms(rule.condition).map(termWorkflow);
+  const either = sources.length === 0 ? eitherSources(rule.condition) : [];
+  const predecessor: Predecessor = either.length > 0
+    ? { kind: "either", workflowIds: either }
+    : predecessorFrom(sources);
   const fromWorkflowId = predecessor.kind === "linked" ? predecessor.workflowId : null;
   return { ...base, kind: "continuation", predecessor, fromWorkflowId, fromLabel: fromLabelOf(predecessor) };
 }
@@ -107,8 +128,14 @@ function predecessorFrom(sources: string[]): Predecessor {
 
 function fromLabelOf(predecessor: Predecessor): string {
   if (predecessor.kind === "ambiguous") return "from multiple workflow terms";
+  if (predecessor.kind === "either") return `from ${eitherText(predecessor.workflowIds)}`;
   if (predecessor.kind === "any") return "from any workflow";
   return `from ${predecessor.workflowId}`;
+}
+
+/** `a` / `a or b` / `a, b or c`. */
+export function eitherText(ids: readonly string[]): string {
+  return ids.length === 1 ? ids[0] : `${ids.slice(0, -1).join(", ")} or ${ids[ids.length - 1]}`;
 }
 
 /** JSON structural equality: object key order is irrelevant, array order is not. */
@@ -165,11 +192,15 @@ export function sharedValues(rules: readonly Rule[]): Record<string, SharedValue
 function chainsFor(workflows: FoldWorkflow[], entries: EntryPoint[], continuations: Continuation[]): Chain[] {
   const neighbours = new Map(workflows.map((workflow) => [workflow.id, new Set<string>()]));
   for (const entry of continuations) {
-    const from = entry.fromWorkflowId;
-    // A dangling source remains on its continuation but is not a stored workflow.
-    if (from === null || !neighbours.has(from)) continue;
-    neighbours.get(from)!.add(entry.workflowId);
-    neighbours.get(entry.workflowId)!.add(from);
+    const sources = entry.predecessor.kind === "either"
+      ? entry.predecessor.workflowIds
+      : entry.fromWorkflowId === null ? [] : [entry.fromWorkflowId];
+    for (const from of sources) {
+      // A dangling source remains on its continuation but is not a stored workflow.
+      if (!neighbours.has(from)) continue;
+      neighbours.get(from)!.add(entry.workflowId);
+      neighbours.get(entry.workflowId)!.add(from);
+    }
   }
   const visited = new Set<string>();
   const chains: Chain[] = [];

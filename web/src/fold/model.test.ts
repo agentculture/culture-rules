@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Condition, Rule, Workflow } from "../api/types";
-import { EXCLUDED_RULE_FIELDS, SHAREABLE_RULE_FIELDS, foldModel, predecessorTerms, sharedValues } from "./model";
+import { EXCLUDED_RULE_FIELDS, SHAREABLE_RULE_FIELDS, foldModel, predecessorTerms, sharedValues, eitherSources } from "./model";
 
 function fixture<T>(directory: string): T[] {
   const path = resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/rules/pr-fixer", directory);
@@ -109,6 +109,30 @@ describe("foldModel", () => {
       fromWorkflowId: null, fromLabel: "from multiple workflow terms",
     });
     expect(model.chains).toHaveLength(3);
+  });
+
+  it("reads an OR of one predecessor per branch as either of them, linking both into its chain (d3)", () => {
+    const condition: Condition = {
+      op: "or",
+      args: [compare("a"), { op: "and", args: [compare("b"), { op: "compare", cmp: "==", left: { field: "data.outputs.language" }, right: { literal: "en" } }] }],
+    };
+    expect(eitherSources(condition)).toEqual(["a", "b"]);
+    const model = foldModel([rule("r", { ...run(condition), workflow: { id: "c" } })], workflows);
+    expect(model.continuations[0]).toMatchObject({
+      predecessor: { kind: "either", workflowIds: ["a", "b"] },
+      fromWorkflowId: null, fromLabel: "from a or b",
+    });
+    expect(model.chains).toHaveLength(1);
+    expect(model.chains[0].workflowIds).toEqual(["a", "b", "c"]);
+  });
+
+  it.each([
+    { op: "or", args: [compare("a")] } as Condition,
+    { op: "or", args: [compare("a"), compare("a")] } as Condition,
+    { op: "or", args: [compare("a"), { op: "compare", cmp: "==", left: { field: "x" }, right: { literal: 1 } }] } as Condition,
+    { op: "or", args: [compare("a"), { op: "and", args: [compare("b"), compare("c")] }] } as Condition,
+  ])("is not either unless every branch names one predecessor and there are two: %j", (condition) => {
+    expect(eitherSources(condition)).toEqual([]);
   });
 
   it.each([

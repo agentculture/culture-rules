@@ -10,6 +10,20 @@
       "from": null
     },
     {
+      "rule": "pocket-to-reader",
+      "workflow": "transcript-to-reader",
+      "kind": "continuation",
+      "enabled": false,
+      "predecessor": {
+        "kind": "either",
+        "workflow_ids": [
+          "transcribe-file-he",
+          "transcribe-file"
+        ]
+      },
+      "from": null
+    },
+    {
       "rule": "pocket-transcribe-he",
       "workflow": "transcribe-file-he",
       "kind": "entry",

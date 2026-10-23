@@ -153,7 +153,7 @@ def test_a_landed_event_ends_in_run_succeeded_carrying_the_eight_outputs(world, 
     assert event["runId"] == run["id"]
     assert event[DATA]["rule_id"] == RULE
     outputs = event[DATA]["outputs"]
-    assert set(outputs) == set(OUTPUTS)
+    assert set(outputs) == set(OUTPUTS) | {"audio_path", "output_dir", "recorded_at"}
     target = result_path(str(Path(world.out_dir).resolve()), _sha(recording), MODEL)
     assert outputs["result_path"] == target
     assert Path(target).is_file()
