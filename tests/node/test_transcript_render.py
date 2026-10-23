@@ -18,8 +18,8 @@ from culture_rules.node.actions.transcript_file import build_result
 from culture_rules.node.actions.transcript_render import TranscriptRenderPort, parse_summary
 
 SHA = "ab" * 32
-SECRET = "sentinel-private-words"
-SUMMARY_SECRET = "sentinel-summary-words"
+PRIVATE_TEXT = "sentinel-private-words"
+PRIVATE_SUMMARY = "sentinel-summary-words"
 AT = "2026-10-23T22:30:00Z"
 
 
@@ -143,9 +143,9 @@ def test_segments_are_ordered_paragraphs_and_empty_skipped_and_escaped() -> None
 
 
 def test_port_outputs_hold_no_text(root: Path) -> None:
-    doc = _doc(texts=(SECRET,))
+    doc = _doc(texts=(PRIVATE_TEXT,))
     path = _write(root, doc)
-    result = _invoke(root, path, summary=_reply(summary=SUMMARY_SECRET), language="he")
+    result = _invoke(root, path, summary=_reply(summary=PRIVATE_SUMMARY), language="he")
     assert result.outcome == COMPLETED
     out = result.output
     assert set(out) == {
@@ -157,8 +157,8 @@ def test_port_outputs_hold_no_text(root: Path) -> None:
         "segment_count",
     }
     flat = json.dumps({k: v for k, v in out.items() if k != "content_base64"})
-    assert SECRET not in flat and SUMMARY_SECRET not in flat
-    assert SUMMARY_SECRET in _zip(out).read("OEBPS/c1.xhtml").decode()
+    assert PRIVATE_TEXT not in flat and PRIVATE_SUMMARY not in flat
+    assert PRIVATE_SUMMARY in _zip(out).read("OEBPS/c1.xhtml").decode()
 
 
 def test_path_outside_root_refused_before_reading(root: Path, tmp_path: Path) -> None:
