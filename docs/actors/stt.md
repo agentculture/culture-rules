@@ -78,8 +78,8 @@ JSON and create it with the CLI:
 
 ```json
 {
-  "id": "whisper-he",
-  "name": "whisper-he",
+  "id": "stt-en",
+  "name": "stt-en",
   "kind": "agent",
   "machine": "<node host>",
   "params": {
@@ -200,9 +200,17 @@ starts with the code (`stt_unavailable: server answered 503`).
 
 ## In the pocket-transcribe bundle
 
-`docs/rules/pocket-transcribe/actors/whisper-he.json` is an STT actor on
-machine `spark`. It points at the lobes gateway on spark's loopback with
-model `ivrit-ai/whisper-large-v3-turbo` and `grant:LOBES_GATEWAY_API_KEY`,
-in pool `stt-spark` with `max_concurrency: 1`. Its roots ship as
-`/home/OPERATOR/...` placeholders that you replace; see
+The bundle ships two STT actors on machine `spark`:
+
+- `actors/stt-en.json` points at the lobes gateway on spark's loopback with
+  model `ivrit-ai/whisper-large-v3-turbo` and `grant:LOBES_GATEWAY_API_KEY`,
+  in pool `stt-spark`; it serves every language.
+- `actors/stt-he.json` points at `http://127.0.0.1:18090`, a loopback ssh
+  tunnel on spark to zipformer on thor's localhost, with model
+  `ivrit-ai/zipformer2-66m-streaming-he` and no key, in pool `stt-thor`; it
+  serves Hebrew. With no `api_key` the request carries no `Authorization`
+  header.
+
+Both have `max_concurrency: 1`, and their roots ship as `/home/OPERATOR/...`
+placeholders that you replace; see
 [the pocket-transcribe setup](../operations/pocket-transcribe.md).

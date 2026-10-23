@@ -118,7 +118,7 @@
         "action": {
           "kind": "audio.transcribe",
           "params": {
-            "actor": "whisper-he",
+            "actor": "stt-en",
             "audio_path": "inputs.audio_path",
             "audio_sha256": "inputs.audio_sha256",
             "language": "inputs.language",
@@ -167,7 +167,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Transcribe the file",
-      "notes": "audio.transcribe through whisper-he. Checks audio_sha256 (64 hex), keeps audio_path under the actor's audio_root and output_dir under its output_root (path_refused), hashes the file (audio_mismatch), and returns the existing <output_dir>/<audio_sha256>/transcript.<model-slug>.json unchanged when its audio_sha256 and model match (no request). Otherwise ffmpeg cuts 16 kHz mono WAV windows of at most 480 s (at a silence in a window's last 60 s when there is one), each POSTed to <base_url>/v1/audio/transcriptions; each reply is kept under .work.<model-slug>/ so a retry resends only the missing windows. timeout_s 14400 covers a 3.8 h recording (the engine default is 3600 s); only stt_unavailable is retried.",
+      "notes": "audio.transcribe through stt-en. Checks audio_sha256 (64 hex), keeps audio_path under the actor's audio_root and output_dir under its output_root (path_refused), hashes the file (audio_mismatch), and returns the existing <output_dir>/<audio_sha256>/transcript.<model-slug>.json unchanged when its audio_sha256 and model match (no request). Otherwise ffmpeg cuts 16 kHz mono WAV windows of at most 480 s (at a silence in a window's last 60 s when there is one), each POSTed to <base_url>/v1/audio/transcriptions; each reply is kept under .work.<model-slug>/ so a retry resends only the missing windows. timeout_s 14400 covers a 3.8 h recording (the engine default is 3600 s); only stt_unavailable is retried.",
       "outputs": [
         {
           "description": "the transcript file's absolute path",

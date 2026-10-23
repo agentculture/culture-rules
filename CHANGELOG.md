@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-10-23
+
+### Added
+
+- A Hebrew STT lane in docs/rules/pocket-transcribe: actor stt-he (ivrit-ai/zipformer2-66m-streaming-he on thor through a loopback tunnel on spark, no key, pool stt-thor), workflow transcribe-file-he and rule pocket-transcribe-he, which skips only recordings marked en (d3, proposed)
+- Flow tests: an unlabelled recording runs both lanes into two files, en runs whisper only, an event with no language field still runs the Hebrew lane, a Hebrew-lane failure leaves the whisper lane succeeded
+
+### Changed
+
+- The whisper actor is now stt-en (was whisper-he) and serves every language; concurrency keys are stt-en:/stt-he:<audio_sha256>
+- docs/operations/pocket-transcribe.md and docs/actors/stt.md describe the two lanes, the thor tunnel and the backfill of existing recordings
+
 ## [0.23.3] - 2026-10-23
 
 ### Added

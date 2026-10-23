@@ -37,8 +37,10 @@ from tests.rules.test_pocket_transcribe_bundle import (
     DIR_VAR,
     EVENT,
     MODEL,
+    MODEL_HE,
     OUTPUTS,
     RULE,
+    RULE_HE,
     WORKFLOW,
     bundle,
 )
@@ -48,6 +50,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 SUCCEEDED = "rules.run.succeeded"
+EN_URL = "http://127.0.0.1:8001/"
+HE_URL = "http://127.0.0.1:18090/"
 OTHER_MODEL = "openai/whisper-large-v3"
 STATUS = "status"
 DATA = "data"
@@ -77,7 +81,7 @@ class World:
         self.base.put_variable(DIR_VAR, self.out_dir, updated_by="test")
         self.stt = FakeStt()
         self.source = FakeEventSource(name="sub@spark")
-        port = AudioTranscribePort(
+        self.port = port = AudioTranscribePort(
             self.base,
             transport=self.stt,
             secret_runner=lambda _ref: "fake-key-value",
@@ -99,12 +103,17 @@ class World:
             report = self.node.run_once()
             assert report.errors == [], report.errors
 
-    def run_events(self, type_: str) -> list[dict]:
+    def run_events(self, type_: str, rule_id: str | None = None) -> list[dict]:
         return [
             e["envelope"]
             for e in self.base.find(EVENTS_COLLECTION)
             if e["envelope"]["type"] == type_
+            and rule_id in (None, e["envelope"]["data"].get("rule_id"))
         ]
+
+    def sent_to(self, base: str) -> list[dict]:
+        """The window uploads that went to one lane's endpoint."""
+        return [c for c in self.stt.sent if c["url"].startswith(base)]
 
 
 @pytest.fixture
@@ -138,9 +147,9 @@ def test_a_landed_event_ends_in_run_succeeded_carrying_the_eight_outputs(world, 
     run = world.base.get(RUNS_COLLECTION, run_id_for(RULE, "evt_1"))
     assert run is not None
     assert run[STATUS] == "succeeded", (run.get("error"), run["steps"])
-    assert run["concurrency_key"] == f"stt:{_sha(recording)}"
+    assert run["concurrency_key"] == f"stt-en:{_sha(recording)}"
 
-    (event,) = world.run_events(SUCCEEDED)
+    (event,) = world.run_events(SUCCEEDED, RULE)
     assert event["runId"] == run["id"]
     assert event[DATA]["rule_id"] == RULE
     outputs = event[DATA]["outputs"]
@@ -159,7 +168,7 @@ def test_a_landed_event_ends_in_run_succeeded_carrying_the_eight_outputs(world, 
     assert doc["schema"] == 1
     assert doc["model"] == MODEL
     assert len(doc["segments"]) == 2
-    (call,) = world.stt.sent
+    (call,) = world.sent_to(EN_URL)
     assert call["language"] == "he"
 
 
@@ -185,8 +194,9 @@ def test_a_direct_run_with_another_model_writes_a_second_file_and_keeps_the_firs
     assert run["outputs"]["language"] is None  # no language given: none is sent
     assert Path(second).is_file()
     assert Path(first).read_bytes() == before
-    assert len(world.stt.sent) == 2
-    assert world.stt.sent[1]["language"] is None
+    en_calls = world.sent_to(EN_URL)
+    assert len(en_calls) == 2
+    assert en_calls[1]["language"] is None
 
 
 def test_the_same_audio_landing_again_is_a_no_op(world, recording):
@@ -194,8 +204,10 @@ def test_the_same_audio_landing_again_is_a_no_op(world, recording):
     world.cycles()
     world.source.publish(landed(recording, 2, content_hash="d" * 64))
     world.cycles()
-    assert [e[DATA]["rule_id"] for e in world.run_events(SUCCEEDED)] == [RULE, RULE]
-    assert len(world.stt.sent) == 1  # the second run found the file: no request
+    assert [e[DATA]["rule_id"] for e in world.run_events(SUCCEEDED, RULE)] == [RULE, RULE]
+    assert [e[DATA]["rule_id"] for e in world.run_events(SUCCEEDED, RULE_HE)] == [RULE_HE] * 2
+    assert len(world.sent_to(EN_URL)) == 1  # the second run found the file: no request
+    assert len(world.sent_to(HE_URL)) == 1
 
 
 FAILED = "rules.run.failed"
@@ -207,15 +219,83 @@ def test_a_refused_path_ends_in_run_failed_with_its_reason(world, recording, tmp
     _gen(outside, 5)
     world.source.publish(landed(outside))
     world.cycles()
-    (event,) = world.run_events(FAILED)
-    assert event[DATA]["error_reason"] == "path_refused"
-    assert event[DATA]["error_message"].startswith("path_refused: ")
+    events = world.run_events(FAILED)
+    assert sorted(e[DATA]["rule_id"] for e in events) == [RULE, RULE_HE]
+    for event in events:
+        assert event[DATA]["error_reason"] == "path_refused"
+        assert event[DATA]["error_message"].startswith("path_refused: ")
     assert world.stt.sent == []
 
 
 def test_a_changed_file_ends_in_run_failed_with_audio_mismatch(world, recording):
     world.source.publish(landed(recording, audio_sha256="e" * 64))
     world.cycles()
-    (event,) = world.run_events(FAILED)
-    assert event[DATA]["error_reason"] == "audio_mismatch"
+    events = world.run_events(FAILED)
+    assert sorted(e[DATA]["rule_id"] for e in events) == [RULE, RULE_HE]
+    assert {e[DATA]["error_reason"] for e in events} == {"audio_mismatch"}
     assert world.stt.sent == []
+
+
+# ---- the two lanes: whisper (stt-en) for every recording, zipformer (stt-he) beside it -------
+
+
+def _result(world, recording, model) -> Path:
+    return Path(result_path(str(Path(world.out_dir).resolve()), _sha(recording), model))
+
+
+def test_an_unlabelled_recording_runs_both_lanes_into_two_files(world, recording):
+    world.source.publish(landed(recording, language=None))
+    world.cycles()
+    for rule_id in (RULE, RULE_HE):
+        run = world.base.get(RUNS_COLLECTION, run_id_for(rule_id, "evt_1"))
+        assert run[STATUS] == "succeeded", (rule_id, run.get("error"), run["steps"])
+    (en,) = world.run_events(SUCCEEDED, RULE)
+    (he,) = world.run_events(SUCCEEDED, RULE_HE)
+    assert en[DATA]["outputs"]["model"] == MODEL
+    assert he[DATA]["outputs"]["model"] == MODEL_HE
+    assert en[DATA]["outputs"]["result_path"] == str(_result(world, recording, MODEL))
+    assert he[DATA]["outputs"]["result_path"] == str(_result(world, recording, MODEL_HE))
+    assert _result(world, recording, MODEL).is_file()
+    assert _result(world, recording, MODEL_HE).is_file()
+    (call,) = world.sent_to(HE_URL)
+    assert "Authorization" not in call["headers"]  # zipformer's tunnel takes no key
+    assert call["language"] is None
+
+
+def test_a_landed_event_with_no_language_field_still_runs_the_hebrew_lane(world, recording):
+    event = landed(recording)
+    del event["data"]["language"]
+    world.source.publish(event)
+    world.cycles()
+    run = world.base.get(RUNS_COLLECTION, run_id_for(RULE_HE, "evt_1"))
+    assert run is not None
+    assert run[STATUS] == "succeeded", (run.get("error"), run["steps"])
+    assert _result(world, recording, MODEL_HE).is_file()
+
+
+def test_a_recording_marked_en_runs_only_the_whisper_lane(world, recording):
+    world.source.publish(landed(recording, language="en"))
+    world.cycles()
+    run = world.base.get(RUNS_COLLECTION, run_id_for(RULE, "evt_1"))
+    assert run[STATUS] == "succeeded", (run.get("error"), run["steps"])
+    assert world.base.get(RUNS_COLLECTION, run_id_for(RULE_HE, "evt_1")) is None
+    assert world.sent_to(HE_URL) == []
+    assert not _result(world, recording, MODEL_HE).exists()
+
+
+def test_a_hebrew_lane_failure_leaves_the_whisper_lane_succeeded(world, recording):
+    fake = world.stt
+
+    def he_refuses(url, data, headers, timeout):
+        if url.startswith(HE_URL):
+            return 400, b'{"error":"bad_request"}'
+        return fake(url, data, headers, timeout)
+
+    world.port._transport = he_refuses
+    world.source.publish(landed(recording, language=None))
+    world.cycles()
+    (en,) = world.run_events(SUCCEEDED, RULE)
+    (he,) = world.run_events(FAILED, RULE_HE)
+    assert he[DATA]["error_reason"] == "stt_rejected"
+    assert en[DATA]["outputs"]["result_path"] == str(_result(world, recording, MODEL))
+    assert not _result(world, recording, MODEL_HE).exists()
