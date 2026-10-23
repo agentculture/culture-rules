@@ -35,10 +35,12 @@
   - honesty: a `recording_at` of 2026-10-23T22:30:00Z (01:30 Israel time) gives the date 2026-10-24; with no `recording_at` the run fails clearly rather than inventing a date
 - library.push takes an optional kind (book, article, transcript); the book is pushed as kind transcript once xteink accepts it, as article until then, landing flat in /xteink/ named after its title (xteink-firmware SyncProtocol.cpp bookFileName = sanitized title + .epub)
   - honesty: library.push without kind still uploads article (the newspaper unchanged); kind transcript is sent as given; an unknown kind is refused before any request
-- Cross-repo issues: agentculture/xteink accepts library kind transcript (the upload enum is book|article today); agentculture/xteink-firmware places a non-book kind under /xteink/<kind>s/ (XteinkSync.cpp placeFile puts everything in kBooksDir /xteink)
+- Cross-repo issues: agentculture/xteink accepts library kind transcript (the upload enum is book|article today); agentculture/xteink-firmware places a non-book kind under `/xteink/<kind>s/` (XteinkSync.cpp placeFile puts everything in kBooksDir /xteink)
   - honesty: both issues exist, are self-contained, and quote the current enum and placeFile code they ask to change
 - Backfill: every existing recording (33 today) gets its book, oldest first by `recording_at`, through workflows run with the inputs read from pocketsync's meta.json and the existing transcript files
   - honesty: the backfill starts one run per recording ordered by `recording_at`, and every run's book lands
+- The reader rule and every step that reads transcripts or pushes run on spark (placement machine spark, as pocket-transcribe does): the transcript files, pocketsync's meta.json and xteink at 127.0.0.1:8780 are all local to spark
+  - honesty: the bundle's reader rule has placement machine spark, and a test run on a node other than spark is never handed its steps
 
 ## Honesty conditions
 
@@ -76,7 +78,7 @@
   - seeds: `c2`, `c3`
 - `s2` — `docs/rules/pocket-transcribe/workflows/transcribe-file.json`: exports `result_path`, `audio_sha256`, model, language, `segment_count`, `window_count`, `empty_window_count`; no recording date in its inputs or outputs
   - seeds: `c2`, `c3`, `c7`
-- `s3` — `culture_rules/node/actions/transcript_file.py + stt.py`: schema-1 file at <`output_dir`>/<sha>/transcript.<model-slug>.json with segments \[{start,end,text}\] and `created_at` (transcription time, not recording time); outputs are scalars only
+- `s3` — `culture_rules/node/actions/transcript_file.py + stt.py`: schema-1 file at `<output_dir>/<sha>/transcript.<model-slug>.json` with segments \[{start,end,text}\] and `created_at` (transcription time, not recording time); outputs are scalars only
   - seeds: `c4`, `c12`
 - `s4` — `culture_rules/node/actions/newspaper_render.py`: the only EPUB builder: newspaper-shaped (sections, link-checked summaries), lang and dc:language hard-coded en, no rtl
   - seeds: `c4`
@@ -94,6 +96,15 @@
   - seeds: `c7`
 - `s11` — `docs/rules/newspaper/actors/cortex-spark2.json`: the newspaper summarises on the cortex-spark2 lane actor via llm.complete
   - seeds: `c15`
+- `s12` — `challenge pass / adjacent-systems lens: docs/rules/pocket-transcribe/rules/pocket-transcribe.json placement`: the STT rules are placed on machine spark and the newspaper's library actor is 127.0.0.1:8780; the reader must be placed the same way or a node elsewhere cannot read the files
+  - seeds: `c22`
+- `s13` — `challenge pass / failure-mode lens: culture_rules/node/actions/library.py + xteink 8780`: xteink down: upload fails retryable (5xx/network), the run fails visibly after its retries and a re-run repeats the same bytes (dedup); no partial book
+- `s14` — `challenge pass / collision lens: xteink-firmware SyncProtocol.cpp bookFileNameWithId`: two recordings with the same date and word: the second file is named `<title> (<id>).epub`, never overwriting the first
+- `s15` — `challenge pass / reversibility lens: xteink-firmware docs/xteink/sync.md step 5 + DELETE /api/library/{id}`: a bad book is removed by deleting the library item; on a mirror device the sync then deletes only files the server delivered and whose hash still matches; whether the operator's device is in mirror mode was not checked
+- `s16` — `challenge pass / chaining lens: culture_rules/events/emit.py MAX_EVENT_HOPS = 8, run_completions.py`: landed event -> transcribe run -> rules.run.succeeded -> reader run is 2-3 hops, inside the cap of 8; no lineage trust check applies (lineage.py's `workflow_not_trusted` gates only the pr-fix review/retry chain)
+- `s17` — `challenge pass / data-flow lens: pocketsync language field`: an unlabelled recording that is really English gets the zipformer (Hebrew) transcript, per the operator's best-lane choice c3; accepted, not re-opened
+- `s18` — `challenge pass / security lens: xteink.culture.dev (operator, 2026-10-24)`: not publicly accessible: the endpoint is protected with a secret (operator's statement), so transcript books syncing through it was accepted (q4 a)
+  - seeds: `q4` (question, resolved)
 
 ## Decisions
 
@@ -102,4 +113,10 @@
 ## Hard questions
 
 - A new en recording whose whisper windows are all empty has no zipformer transcript (pocket-transcribe-he skips en): should the reader workflow run zipformer itself as the fallback, or ship the book with 'No speech recognised'? (resolved: Operator 2026-10-24 (confirmed all, recommended answer): the reader workflow runs zipformer itself as the fallback for an en recording whose whisper windows are all empty)
+- If the zipformer run fails for a Hebrew or unlabelled recording (thor or its tunnel down, as after tonight's reboot), whisper's transcript exists but c3 starts no book: should a rules.run.failed of transcribe-file-he start the book from whisper instead, or wait for a re-run? (resolved: Operator 2026-10-24: (b) a failed zipformer run starts no book; the book waits for a re-run of transcribe-file-he)
 - A long recording's transcript exceeds llm.complete's 48000-character content cap (the 56-minute benchmark is near it): summarise from the first 48000 characters, or summarise per window and join? (resolved: Operator 2026-10-24 (confirmed all, recommended answer): summarise from the first 48000 characters; none of the 33 today exceeds it (max 29744))
+- Away from home the device syncs through xteink.culture.dev (a Cloudflare tunnel, xteink-firmware docs/xteink/sync.md server order), so a book's text crosses Cloudflare (TLS ends there). The newspaper is public; transcripts are private conversations. Accept that, or keep transcript kinds LAN-only? (resolved: Operator 2026-10-24: (a) accepted; xteink.culture.dev is not a publicly accessible endpoint, so syncing transcript books through it is fine)
+
+## Open parks
+
+- [unknown_nonblocking] whether the operator's Xteink device is a mirror device (deletes propagate) - decides whether removing a bad book from the library also removes it from the device
