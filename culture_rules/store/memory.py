@@ -30,6 +30,7 @@ from culture_rules.store.port import (
     EVENTS_COLLECTION,
     VARIABLES_COLLECTION,
     Change,
+    ChangeFeed,
     ChangeOp,
     Document,
     DuplicateKeyError,
@@ -336,7 +337,7 @@ class MemoryStore:
             self._guard(None)
             return str(len(self._backend.log))
 
-    def changes(self, collection: str, after: str, *, timeout: float = 0.0) -> Iterator[Change]:
+    def changes(self, collection: str, after: str, *, timeout: float = 0.0) -> ChangeFeed:
         require_collection(collection)
         backend = self._backend
         with backend.lock:
@@ -355,7 +356,8 @@ class MemoryStore:
             if not found and timeout > 0:
                 backend.cond.wait_for(lambda: bool(pending()), timeout=timeout)
                 found = pending()
-        return iter([replace(c, document=copy.deepcopy(c.document)) for c in found])
+            end = str(len(backend.log))  # read under the lock: every entry before it was seen
+        return ChangeFeed([replace(c, document=copy.deepcopy(c.document)) for c in found], end)
 
     def save_cursor(self, consumer: str, collection: str, token: str) -> None:
         if not isinstance(token, str) or not token:

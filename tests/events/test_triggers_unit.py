@@ -127,3 +127,38 @@ def test_constructor_validates(kw):
     store = MemoryStore()
     with pytest.raises(ValueError):
         EventTriggers(store, lambda tx, d: None, **kw)
+
+
+def test_a_quiet_event_feed_cursor_follows_the_feed_at_most_every_five_minutes():
+    """The events cursor moves past other collections' writes too (MongoDB would otherwise
+    rescan the oplog from the last event on every poll), but saving it is itself a write,
+    so a quiet move is saved at most every QUIET_CURSOR_EVERY_S."""
+    from culture_rules.store.port import QUIET_CURSOR_EVERY_S
+
+    store, source, ingest = _setup()
+    ticks = [1000.0]
+    fired = []
+    triggers = EventTriggers(
+        store, lambda tx, d: fired.append(d["id"]), host="h", quiet_ticks=lambda: ticks[0]
+    )
+    triggers.poll()
+    pinned = store.load_cursor(triggers.consumer, EVENTS_COLLECTION)
+    store.put("rules", {"id": "r1"})
+    assert triggers.poll().token == pinned  # within five minutes of start: pinned
+    ticks[0] += QUIET_CURSOR_EVERY_S
+    first = triggers.poll()
+    assert first.token == store.load_cursor(triggers.consumer, EVENTS_COLLECTION) != pinned
+
+    store.put("rules", {"id": "r2"})
+    ticks[0] += 60
+    assert triggers.poll().token == first.token  # within five minutes: not saved again
+
+    ticks[0] += QUIET_CURSOR_EVERY_S
+    later = triggers.poll()
+    assert later.token != first.token
+    assert later.token == store.load_cursor(triggers.consumer, EVENTS_COLLECTION)
+
+    source.publish(envelope(1))
+    ingest.ingest()
+    assert triggers.poll(timeout=1.0).fired == ("evt_1",)
+    assert fired == ["evt_1"]

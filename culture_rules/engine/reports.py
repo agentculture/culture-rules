@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from typing import Any, Protocol, runtime_checkable
 
 from culture_rules.engine.runs import RUNS_COLLECTION
-from culture_rules.store.port import StoragePort
+from culture_rules.store.port import StoragePort, feed_end
 
 log = logging.getLogger(__name__)
 
@@ -76,10 +76,14 @@ class RunReporter:
         return True
 
     def observe(self, store: StoragePort, after: str) -> str:
-        """Report every run finished after ``after``; return the token to resume from."""
+        """Report every run finished after ``after``; return the token to resume from.
+
+        That is the feed's end when it has one, so a quiet stretch is not re-read on
+        the next call (the token lives in memory: moving it costs no write)."""
         token = after
-        for change in store.changes(RUNS_COLLECTION, after):
+        feed = store.changes(RUNS_COLLECTION, after)
+        for change in feed:
             token = change.token
             if change.document is not None:
                 self.report(change.document)
-        return token
+        return feed_end(feed) or token

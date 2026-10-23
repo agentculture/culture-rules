@@ -41,10 +41,13 @@ from culture_rules.model.rule import Rule
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     DuplicateKeyError,
+    QuietCursor,
     StoragePort,
     StoreOps,
     cursor_id,
+    feed_end,
     init_cursor,
+    settle_cursor,
 )
 from culture_rules.store.versioning import utc_timestamp
 
@@ -128,6 +131,7 @@ class FeedConsumer:
         consumer: str,
         handler_collections: tuple[str, ...] = (),
         clock: Callable[[], datetime] | None = None,
+        quiet_ticks: Callable[[], float] | None = None,
     ) -> None:
         if not isinstance(consumer, str) or not consumer:
             raise ValueError("consumer must be a non-empty string")
@@ -136,6 +140,7 @@ class FeedConsumer:
         self.host = host
         self.consumer = consumer
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._quiet = QuietCursor(quiet_ticks)
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):  # Mongo: collections must exist before a transaction uses them
             ensure(
@@ -238,7 +243,8 @@ class FeedConsumer:
         token = saved = self._token(source.collection)
         fired: list[str] = []
         depended: set[str] | None = None  # loaded on the first keyed document
-        for change in self.store.changes(source.collection, token):
+        feed = self.store.changes(source.collection, token)
+        for change in feed:
             token = change.token
             doc = change.document
             key = _change_key(source, change)
@@ -253,8 +259,15 @@ class FeedConsumer:
             if self._fire(source, doc, key, token):
                 fired.append(self.marker_id(source.collection, key))
             saved = token
-        if token != saved:
-            self.store.save_cursor(self.consumer, source.collection, token)
+        settle_cursor(
+            self.store,
+            self.consumer,
+            source.collection,
+            token=token,
+            saved=saved,
+            end=feed_end(feed),
+            quiet=self._quiet,
+        )
         return fired
 
     def poll(self) -> list[str]:

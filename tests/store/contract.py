@@ -380,6 +380,31 @@ class StoragePortContract:
         assert [c.id for c in store.changes("rules", rules_start)] == ["r", "s"]
         assert [c.id for c in store.changes("runs", runs_start)] == ["x"]
 
+    def test_change_feed_end_moves_past_other_collections_writes(self, store):
+        """A quiet collection's feed still reports how far it read (its ``end``), so a
+        consumer can save that and never re-read the same stretch of the feed again."""
+        start = store.head("runs")
+        for i in range(3):
+            store.put("rules", {"id": f"r{i}"})
+        feed = store.changes("runs", start)
+        assert list(feed) == []
+        assert feed.end is not None
+        assert feed.end != start
+        assert list(store.changes("runs", feed.end)) == []
+        store.put("runs", {"id": "x"})
+        assert [c.id for c in store.changes("runs", feed.end)] == ["x"]
+
+    def test_change_feed_end_covers_every_change_it_returned(self, store):
+        start = store.head("rules")
+        store.put("rules", {"id": "a"})
+        store.put("runs", {"id": "x"})
+        store.put("rules", {"id": "b"})
+        feed = store.changes("rules", start)
+        assert [c.id for c in feed] == ["a", "b"]
+        assert list(store.changes("rules", feed.end)) == []
+        store.put("rules", {"id": "c"})
+        assert [c.id for c in store.changes("rules", feed.end)] == ["c"]
+
     def test_change_feed_failed_writes_emit_nothing(self, store):
         store.insert("rules", {"id": "a", "owner": "x"})
         start = store.head("rules")

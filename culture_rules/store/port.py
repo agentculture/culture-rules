@@ -62,7 +62,8 @@ transactions or write through the store itself inside one.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterator, Mapping
+import time
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -160,6 +161,29 @@ class Change:
     document: Document | None
 
 
+class ChangeFeed(Iterator[Change]):
+    """What :meth:`StoragePort.changes` returns: its changes, in commit order, plus ``end``.
+
+    ``end`` is the feed position after everything that call read, including writes to
+    other collections that were skipped. A consumer that has handled every change in the
+    feed saves ``end`` as its cursor, so a quiet collection's cursor still moves forward
+    and the next call does not re-read the same stretch of the feed. ``end`` is None when
+    the adapter cannot tell; the consumer then keeps the last change's token.
+    """
+
+    def __init__(self, changes: list[Change], end: str | None) -> None:
+        self._changes = iter(changes)
+        self.end = end
+
+    def __next__(self) -> Change:
+        return next(self._changes)
+
+
+def feed_end(feed: Iterator[Change]) -> str | None:
+    """``feed.end`` for a :class:`ChangeFeed`, None for any other iterator of changes."""
+    return getattr(feed, "end", None)
+
+
 @runtime_checkable
 class StoreOps(Protocol):
     """Document operations, available on the store and on a transaction handle."""
@@ -223,12 +247,12 @@ class StoragePort(StoreOps, Protocol):
     def head(self, collection: str) -> str:
         """Return a token for the current end of ``collection``'s change feed."""
 
-    def changes(self, collection: str, after: str, *, timeout: float = 0.0) -> Iterator[Change]:
+    def changes(self, collection: str, after: str, *, timeout: float = 0.0) -> ChangeFeed:
         """Yield changes committed to ``collection`` strictly after token ``after``.
 
         If none are available, wait up to ``timeout`` seconds for the first
         one. Yields what is available, in commit order, then stops; call again
-        with the last change's token to continue.
+        with the feed's ``end`` (or, without one, the last change's token) to continue.
         """
 
     def save_cursor(self, consumer: str, collection: str, token: str) -> None:
@@ -310,6 +334,70 @@ def cursor_id(consumer: str, collection: str) -> str:
     if not isinstance(collection, str) or not collection:
         raise ValueError("collection must be a non-empty string")
     return f"{consumer}/{collection}"
+
+
+QUIET_CURSOR_EVERY_S = 300.0
+"""How often a consumer saves a cursor that moved only past other collections' writes."""
+
+
+class QuietCursor:
+    """When each of a consumer's quiet cursors may next be saved (:func:`settle_cursor`).
+
+    Monotonic, so a wall-clock step cannot stall it. The first quiet save of a collection
+    is due :data:`QUIET_CURSOR_EVERY_S` after the consumer started: its first poll pins
+    the head exactly as before.
+    """
+
+    def __init__(self, ticks: Callable[[], float] | None = None) -> None:
+        self._ticks = ticks or time.monotonic
+        self._started = self._ticks()
+        self._saved: dict[str, float] = {}
+
+    def due(self, collection: str) -> bool:
+        last = self._saved.get(collection, self._started)
+        return self._ticks() - last >= QUIET_CURSOR_EVERY_S
+
+    def saved(self, collection: str) -> None:
+        self._saved[collection] = self._ticks()
+
+
+def settle_cursor(
+    store: StoragePort,
+    consumer: str,
+    collection: str,
+    *,
+    token: str,
+    saved: str,
+    end: str | None,
+    quiet: QuietCursor,
+) -> str:
+    """Store ``consumer``'s cursor after it handled every change of a :class:`ChangeFeed`;
+    answer the cursor it now has.
+
+    ``token`` is the last change's token (or the poll's start), ``saved`` what the store
+    holds, ``end`` the feed's end. Without the end, a quiet collection's cursor never
+    moves and every poll makes the store re-read the feed from that old point (on
+    MongoDB, a rescan of the oplog since the last change). So:
+
+    - a cursor that has to be saved anyway goes straight to ``end``;
+    - one that moved only past other collections' writes is saved at most every
+      :data:`QUIET_CURSOR_EVERY_S` (the save is itself a feed write the next feed
+      passes), and only if the stored cursor is still ``saved``: a cursor several nodes
+      share must never move back past what another node just committed.
+    """
+    target = token if end is None else end
+    if token != saved:
+        store.save_cursor(consumer, collection, target)
+        return target
+    if target == token or not quiet.due(collection):
+        return token
+    moved = store.update_if(
+        CURSOR_COLLECTION, cursor_id(consumer, collection), {"token": saved}, {"token": target}
+    )
+    if not moved.won:
+        return token
+    quiet.saved(collection)
+    return target
 
 
 def init_cursor(store: StoragePort, consumer: str, collection: str) -> str:
