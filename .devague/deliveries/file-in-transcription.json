@@ -2,7 +2,7 @@
   "plan_slug": "file-in-transcription",
   "schema_version": 2,
   "created": "2026-10-23T03:34:49Z",
-  "updated": "2026-10-23T16:00:31Z",
+  "updated": "2026-10-23T18:11:20Z",
   "deviations": [
     {
       "id": "d1",
@@ -43,7 +43,7 @@
         "c25"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 25
     }

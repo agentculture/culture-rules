@@ -415,10 +415,12 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
     // One workflow: the list still shows, with its one row current.
     await waitFor(() => expect(rowLink("Nightly report")).toHaveAttribute("aria-current", "page"));
     await user.click(screen.getByRole("button", { name: "Delete workflow" }));
-    // the delete, the reload and the empty state: a loaded CI runner can take over the default 1 s
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "No workflows yet" }, { timeout: 5000 }),
-    ).toBeInTheDocument();
+    // the delete, the reload and the empty state: a loaded CI runner can take over the default 1 s,
+    // and the reload can mount the empty state twice, so query it fresh on every attempt
+    await waitFor(
+      () => expect(screen.getByRole("heading", { level: 1, name: "No workflows yet" })).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
     expect(within(emptyState()).getByRole("button", { name: "New workflow" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
   });
