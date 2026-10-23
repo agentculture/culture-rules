@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.3] - 2026-10-23
+
+### Added
+
+- docs/deliveries/2026-10-22-file-in-transcription.md: the file-in transcription delivery summary (all eight tasks delivered; claims backed by e2–e22)
+- A Benchmark section in docs/operations/pocket-transcribe.md: the operator's 56 min reference recording for comparing STT models, with counts only
+- The Benchmark section's first comparison: `ivrit-ai/zipformer2-66m-streaming-he` on thor's CPU, which the operator read as far better than the whisper benchmark
+
+### Changed
+
+- c27 now passes: after lobes-cli#330, the live re-run on spark was read by the operator as usable (e2 supersedes e1). Evidence e2–e22 and delta b1 (data.error_reason, from d2) recorded and approved
+
 ## [0.23.2] - 2026-10-23
 
 ### Changed

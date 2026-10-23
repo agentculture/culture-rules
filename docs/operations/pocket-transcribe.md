@@ -239,6 +239,55 @@ From then on, each `pocketsync.recording.landed` event starts a run on
 spark. Runs queue on the `stt-spark` pool one at a time, and a step waits
 for the pool as `blocked`.
 
+## Benchmark
+
+The operator's reference recording for comparing STT models is the 56 min
+Hebrew recording with audio sha256 `bfe4937c…f11f145c` (3380 s, poor
+recording quality). Its read-only reference result sits beside the live
+one:
+
+```text
+$HOME/.local/share/culture-rules/transcripts/<audio_sha256>/
+  benchmark-2026-10-23.ivrit-ai-whisper-large-v3-turbo.json   sha256 9491b669…
+  transcript.ivrit-ai-whisper-large-v3-turbo.before-329.json  the run before lobes-cli#330
+```
+
+The text stays on spark; only these counts are recorded here. The operator
+read the benchmark and judged it usable, better than the source transcript.
+
+| | Before lobes-cli#330 | Benchmark (2026-10-23) |
+|---|---|---|
+| Windows / empty | 8 / 1 | 8 / 0 |
+| Characters | 15,475 | 19,902 |
+| Longest repeated word or phrase run | 29 | 2 |
+| lobes chunks dropped (of 125) | 61 | 16 (17 skipped as silence, 2 recovered) |
+
+To compare a new model, run step 4 again with `"model": "<model id>"`, then
+lay the new file against the benchmark: same window count, no empty
+windows, no repeated run above 3, and fewer dropped chunks. lobes writes a
+per-request `stt_request` line (chunks, decoded, `vad_skipped`, `retried`,
+`recovered`, `dropped`) to the container's log file under
+`/logs/model-gear/`, not to `docker logs`. Those lines carry the decoded
+text, so quote only the counts. The counts are signals; the operator's read
+decides.
+
+### Compared models
+
+| Model | Where | Time for 3380 s | Windows / empty | Characters | Longest repeat | Operator's read |
+|---|---|---|---|---|---|---|
+| `ivrit-ai/whisper-large-v3-turbo` | lobes on spark, GPU | about 5 min | 8 / 0 | 19,902 | 2 | usable (the benchmark) |
+| `ivrit-ai/zipformer2-66m-streaming-he` | thor, CPU, 1.5 GB, 2 cores | 213 s | 8 / 0 | 19,673 | 4 | far better (2026-10-23) |
+
+The zipformer run used the same `audio.transcribe` code and windows, through
+an in-memory actor at `http://127.0.0.1:18090` (a thor-localhost endpoint
+reached by an ssh tunnel on spark); no live actor was added.
+
+zipformer is a Hebrew model (`-he`). The operator expects it to be weaker on
+English: it wrote 57 Latin-letter words where whisper wrote 75, so English
+terms in mixed speech may come out in Hebrew letters or be lost. An English
+or mixed recording would need its own comparison before routing those
+languages to it.
+
 ## Known limits
 
 - **Window timestamps only.** Until lobes-cli#328 ships, each window is one
