@@ -389,6 +389,19 @@ def _item(value: Any) -> int | None:
     return value
 
 
+def _reply_item_id(reply: Mapping[str, Any], item_id: int | None) -> int:
+    """The item id an upload or replace reply names. An upload answers ``{"item": {"id"}}``; a
+    replace may also answer with the item itself (culture-library does), and must name
+    ``item_id``."""
+    item = reply.get("item")
+    if item_id is not None and not isinstance(item, dict):
+        item = reply
+    got_id = _int_id(item.get("id") if isinstance(item, dict) else None, "upload")
+    if item_id is not None and got_id != item_id:
+        raise _Refused(_BAD_RESPONSE, f"replace reply names item {got_id}, not {item_id}")
+    return got_id
+
+
 def _replace_target(params: Mapping[str, Any], item_id: int | None) -> tuple[str, str] | None:
     """``(method, path)`` of the actor's replace route. Both are checked whenever either is
     set; a replace (``item_id`` given) needs both."""
@@ -563,12 +576,7 @@ class LibraryPushPort:
         if not 200 <= status < 300:
             raise _status_failure("upload_failed", status, raw)
         reply = _json_reply(raw, "upload")
-        item = reply.get("item")
-        if item_id is not None and not isinstance(item, dict):
-            item = reply  # a replace may answer with the item itself (culture-library does)
-        got_id = _int_id(item.get("id") if isinstance(item, dict) else None, "upload")
-        if item_id is not None and got_id != item_id:
-            raise _Refused(_BAD_RESPONSE, f"replace reply names item {got_id}, not {item_id}")
+        got_id = _reply_item_id(reply, item_id)
         queue_id = None
         if item_id is None and queue_path is not None and device is not None:
             queue_id = self._queue(base + queue_path, device, got_id, auth, deadline)
