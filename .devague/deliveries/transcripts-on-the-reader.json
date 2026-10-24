@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T04:53:57Z",
+  "updated": "2026-10-24T05:13:33Z",
   "deviations": [
     {
       "id": "d1",
@@ -377,6 +377,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 21
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o13",
+      "test_ref": "operator device check: synced device 3 and opened the transcript books",
+      "behavior_text": "the operator reported 'Hebrew unreadable': the books arrive, but their Hebrew text cannot be read; the flat /xteink/ list also takes many presses to navigate",
+      "contract_text": "c19: after a sync the reader shows one dated book per recording, Hebrew right to left",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "the operator's own reading on the device; cause found in the firmware docs: the built-in reader fonts lack Hebrew and no pre-built SD font covers it (agentculture/xteink#9). The EPUB declares lang he and dir rtl",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-24T05:30:00Z",
+        "commit": "35ed23d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
     }
   ],
   "deltas": [

@@ -36,7 +36,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t4` | delivered | The `transcript-to-reader` workflow (fallback, keep and pick, summary, render, push) and the `pocket-to-reader` rule (OR, d3, disabled, on spark). `recorded_at` passes through. The fold reads `either` (Python and TS), and the corpus went from 11 to 12. Live check fix: the summary asks for up to 2000 tokens. |
 | `t5` | delivered | `docs/operations/transcripts-on-the-reader.md`, its links, the four harness files and 0.25.0 (with `release.json` and `uv.lock`). |
 | `t6` | delivered | agentculture/xteink#8, with the firmware ask as a comment on it (d1), and the `recording_at` ask on agentculture/pocketsync#12. |
-| `t7` | partial | The backfill ran live from a local node with the live actors and real ports (d6). Pass 1: 33 of 33 succeeded, giving 33 distinct library items, all queued on device 3. Pass 2 created 0 and gave the same 33 items and titles. 0.26.0 is rolled out (`rollout verify` passed), the bundle is imported (its actors skipped, so the live STT roots stay), and `pocket-to-reader` is enabled. On the engine, a transcription success started one reader run 3.5 s later, which queued its book 15 s after the transcription finished (e14). Still pending: the device sync (the operator, o13). |
+| `t7` | partial | The backfill ran live from a local node with the live actors and real ports (d6). Pass 1: 33 of 33 succeeded, giving 33 distinct library items, all queued on device 3. Pass 2 created 0 and gave the same 33 items and titles. 0.26.0 is rolled out (`rollout verify` passed), the bundle is imported (its actors skipped, so the live STT roots stay), and `pocket-to-reader` is enabled. On the engine, a transcription success started one reader run 3.5 s later, which queued its book 15 s after the transcription finished (e14). The operator's device check failed (e16): the books arrive, but their Hebrew text is unreadable, because the device has no Hebrew reader font. The flat list is also slow to navigate. Both are filed as agentculture/xteink#9. |
 
 ## Mid-work Decisions
 
@@ -84,7 +84,7 @@ Quoted verbatim from the `devague summary` skeleton:
   - Both succeeded, the summary was used, and the title has the `<date> <word>` shape.
   - The book is RTL, and both runs pushed the same bytes. Each run took 39–46 s.
 - live (deployed engine 0.26.0, after the rollout): `rollout verify` passed (4 nodes on 0.26.0, API 0.26.0, engine running, the 2 snapshot rules enabled). Then `transcribe-file-he` was run directly for recording `a41fdac7bee2`, whose result was already on disk (run `run-1ac3947609254ae19e941f1a71d44256`). `pocket-to-reader` started exactly one reader run (`run-75def4e5483f342bc068c65b612f978f`), with every step on spark. It gave the same book (item 29, the same title), `created: false`. Device 3's queue holds the 33 transcript entries plus the day's newspaper.
-- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. o13 (the device) has no evidence yet.
+- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. e16 (proposed) records the operator's failed device check for o13.
 - commits: `062c9c8..1883d88` on `rules/transcript-reader`.
 - issues: culture-rules#83 (the decisions log), #82 (lighter test runs), agentculture/xteink#8, agentculture/pocketsync#12.
 
@@ -102,11 +102,11 @@ Quoted verbatim from the `devague summary` skeleton:
 | A real recording's summary and book work against the live model | high | e12 (backfill, real ports) and e14 (the deployed engine) |
 | All 33 past recordings are in the reader's library and queue, with 0 duplicates after a re-run | high | e12, e13, e14: observed live (33 items, the device 3 queue holds them, pass 2 and the engine re-run created 0) |
 | A new recording's book is queued within 10 minutes of its transcription | medium | e14: on the engine, 15 s from a transcription success to the queued book; shown with an already-transcribed recording, because the STT rules stay off until pocketsync#12 |
-| Books appear on the device and read right to left | unverified | the operator's device sync (o13) |
+| Books appear on the device and read right to left | low | e16 (fail): the books arrive, but the Hebrew text is unreadable; the device has no Hebrew reader font (agentculture/xteink#9) |
 
 ## Remaining Work / Follow-up
 
-- Sync the reader and check the 33 books, Hebrew right to left (o13). Owner: the operator.
+- agentculture/xteink#9: a Hebrew-capable reader font, so Hebrew books render right to left (o13 fails until then), and an uploader-named nested `folder`. Once it ships, send `folder: transcripts/<YYYY-MM>` from `library.push`, and `newspapers/<YYYY-MM>` for the newspaper, then re-check o13 on the device. Owner: xteink, then culture-rules.
 - agentculture/xteink#8: once the `transcript` kind and the firmware folder ship, switch the push to `kind: transcript`.
 - agentculture/pocketsync#12: the landed event with `recording_at`; then enable the STT rules (item 6 of the earlier plan).
 - culture-rules#82: lighter local test runs, and cleanup of orphaned test rigs.
