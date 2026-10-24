@@ -178,6 +178,20 @@ plan. What exists today:
   - the bundles point at culture-library (library.culture.dev, no device
     queue): the newspaper as kind `newspaper`, visibility `public`, and
     transcripts as kind `transcript`, visibility `private`.
+- **Library items** (spec `docs/specs/2026-10-24-gwen-reads-the-library.md`,
+  guide `docs/operations/library-items.md`): generic steps that keep library
+  items current; the flows that use them are configured live, never committed:
+  - `library.push` takes a `format` the actor lists (`md` among them) and
+    replaces an item's file by `item_id` through the actor's `replace_path` and
+    `replace_method` (the route is culture-library#10's);
+  - `llm.complete`'s locked `recording` brief returns {summary, word, facts,
+    action_items}, and `cache: true` keeps the first valid answer beside the
+    transcript; `transcript.render` takes `format: md`;
+  - the builtins `json.read` (fields from a JSON file under a root) and
+    `checklist.merge|set|render|bind` (a stored to-do list: stable ids kept
+    across re-extraction, a flip applied only when newer, Markdown with a
+    revision, a bound library item and stale-push detection);
+  - `audio.transcribe` hashes the audio itself when no `audio_sha256` is given.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

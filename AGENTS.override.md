@@ -126,6 +126,13 @@ Each push step names its `kind`. The bundles push to culture-library
 (library.culture.dev): the newspaper as `newspaper`, `public`; transcripts as
 `transcript`, `private`.
 
+**Library items** (guide `docs/operations/library-items.md`). `library.push` takes a
+`format` and replaces an item by `item_id`; `llm.complete`'s `recording` brief returns
+summary, key facts and action items, with an answer cache; `transcript.render` writes
+Markdown; the builtins `json.read` and `checklist.merge|set|render|bind` keep a stored
+to-do list with stable ids; `audio.transcribe` hashes the audio itself. The flows that
+use them are configured live, never committed.
+
 Two GitHub issues carried the design:
 
 - **#1** is the build brief: repo shape, packaging/CI pitfalls, and the

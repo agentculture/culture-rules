@@ -83,21 +83,39 @@ The `llm.complete` action takes:
 | Param | Required | Meaning |
 |---|---|---|
 | `actor` | yes | the LLM actor's id |
-| `content` | yes | the user message: a string as is, or any JSON value, serialised with sorted keys; at most 48,000 characters |
+| `content` | one of the two | the user message: a string as is, or any JSON value, serialised with sorted keys; at most 48,000 characters |
+| `content_path` | one of the two | a schema-1 transcript file the port reads itself (the text never enters run state); needs `content_root` |
+| `content_root` | with `content_path` | the folder `content_path` must resolve under |
+| `content_max_chars` | no | how much of the transcript to send |
+| `brief` | no | which locked brief: `newspaper` (default), `transcript` or `recording` |
+| `cache` | no | `true` with `brief: recording` and a `content_path`: keep the first valid answer beside the file |
 | `max_tokens` | no | default 1500, capped at 4000 |
 | `temperature` | no | a number from 0 to 2 |
 | `not_after` | no | an ISO-8601 time with a UTC offset: the work does not start after it, and the request's timeout ends at it |
 
-Every other param is ignored. The system message is always
-`NEWSPAPER_BRIEF` in `culture_rules/node/actions/llm.py`: summarise only the
-given search results, one bullet per item, each linking its source, and
-reply "No results." to an empty list. A step cannot replace it.
+Every other param is ignored. The system message is one of the briefs in
+`culture_rules/node/actions/llm.py`, and a step cannot replace it:
+
+- `NEWSPAPER_BRIEF`: summarise only the given search results, one bullet per
+  item, each linking its source, and reply "No results." to an empty list.
+- `TRANSCRIPT_BRIEF`: a JSON `{summary, word}` for a transcript.
+- `RECORDING_BRIEF`: a JSON `{summary, word, facts, action_items}` for a
+  transcript, with empty lists when there are none and nothing invented. The
+  answer is checked: a reply that is not that JSON fails `answer_not_json` or
+  `answer_invalid` and is never cached.
+
+With `cache: true`, the first valid recording answer is written beside the
+content file as `answer.recording.<first 16 hex of its sha256>.json`. A later
+run for the same file returns it without calling the model, so re-extracting
+a transcript gives the same answer. A changed file has a new sha256 and is
+asked again.
 
 The request body has exactly `model`, `messages`, `max_tokens`,
 `stream: false` and, when given, `temperature`. It never has a `tools`
 field. Environment proxies are ignored and redirects are not followed.
 
-The output is `{text, model, usage}`. `text` is the first choice's message,
+The output is `{text, model, usage}`, plus `answer` (the parsed JSON) and
+`cached` for the recording brief. `text` is the first choice's message,
 with a leading `<think>` block dropped. `usage` keeps the token counts, which
 count toward the actor's token budget.
 

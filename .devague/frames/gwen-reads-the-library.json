@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-24T21:25:38Z",
-  "updated": "2026-10-24T21:54:48Z",
+  "updated": "2026-10-24T22:01:56Z",
   "claims": [
     {
       "id": "c1",
@@ -772,6 +772,18 @@
       "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "grader-unverified",
+      "what": "t6 agent ran bandit on stt.py but did not read its output before committing",
+      "skipped_check": "reading bandit's result for culture_rules/node/actions/stt.py",
+      "refs": [
+        "plan t6, branch rules/gl-t6 1e00649"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": []
 }
