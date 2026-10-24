@@ -98,6 +98,19 @@ scalars, and the same audio and model again is a no-op. The bundle
 `docs/rules/pocket-transcribe` (workflow `transcribe-file`, fired by
 `pocketsync.recording.landed`) ships disabled.
 
+**Transcripts on the reader** (spec
+`docs/specs/2026-10-23-transcripts-on-the-reader.md`, setup
+`docs/operations/transcripts-on-the-reader.md`): the action kind
+`transcript.render` builds one deterministic EPUB from a transcript file,
+titled `<YYYY-MM-DD> <HHMM> <word>`, a 1-2 line summary then the transcript, right to
+left unless the language is `en`. `llm.complete` takes `brief: transcript` and
+`content_path` + `content_root` (the transcript text never enters run state),
+and `library.push` takes `kind`. The workflow `transcript-to-reader` and the
+disabled rule `pocket-to-reader` (after `transcribe-file-he`, or after
+`transcribe-file` for an `en` recording) put each finished transcript on the
+Xteink reader; the editor's fold reads an OR of one predecessor per branch as
+continuing from either.
+
 Two GitHub issues carried the design:
 
 - **#1** is the build brief: repo shape, packaging/CI pitfalls, and the

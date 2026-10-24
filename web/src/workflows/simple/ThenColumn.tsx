@@ -2,12 +2,12 @@ import { forwardRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Actor } from "../../api/actors";
 import type { Action, Rule, Workflow } from "../../api/types";
-import { predecessorTerms, type Continuation } from "../../fold/model";
+import { type Continuation, eitherText } from "../../fold/model";
 import { actionChips } from "../../routes/rules-view";
 import { useFocusReturn } from "./focus";
 import { useFrozen } from "./freeze";
 import { RunsForm, SharedActionForm } from "./SharedForms";
-import { actionBody, actionText, attemptsText, conditionRows, rowText, runEventWords, split, valueText, type Split } from "./text";
+import { actionBody, actionText, attemptsText, onwardRest, runEventWords, split, valueText, type Split } from "./text";
 
 export type Editing = "ends" | "failure" | "runs" | null;
 
@@ -101,9 +101,16 @@ function Overrides({ items }: Readonly<{ items: { rule: Rule; text: string }[] }
   );
 }
 
+/** How an onward continuation's sentence starts: after any run, after one of an `either`, or after this run. */
+function onwardLead(entry: Continuation): string {
+  if (entry.predecessor.kind === "any") return "after any workflow's run ";
+  if (entry.predecessor.kind === "either") return `when a run of ${eitherText(entry.predecessor.workflowIds)} `;
+  return "when this run ";
+}
+
 /** A continuation that starts after this workflow, as a read-only link to the workflow it starts (D2). */
 function Onward({ entry, nameOf, hrefFor }: Readonly<{ entry: Continuation; nameOf: (id: string) => string; hrefFor: (id: string) => string }>) {
-  const rest = conditionRows(entry.rule.condition, predecessorTerms(entry.rule.condition)).map(rowText);
+  const rest = onwardRest(entry);
   return (
     <li className="fold-onward">
       <Link className="fold-onward__link" to={hrefFor(entry.workflowId)}>
@@ -111,7 +118,7 @@ function Onward({ entry, nameOf, hrefFor }: Readonly<{ entry: Continuation; name
         <span aria-hidden="true"> ›</span>
       </Link>
       <span className="fold-then__words">
-        {entry.predecessor.kind === "any" ? "after any workflow's run " : "when this run "}
+        {onwardLead(entry)}
         {runEventWords(entry.rule.trigger)}
         {rest.length ? " and " : ""}
         {rest.map((text, i) => (

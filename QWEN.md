@@ -74,6 +74,15 @@ On disk today:
   `output_root`; ffmpeg windows of at most 480 s, resume on retry, a
   model-suffixed result file, scalar outputs, and the disabled bundle
   `docs/rules/pocket-transcribe` fired by `pocketsync.recording.landed`.
+- transcripts on the reader (spec
+  `docs/specs/2026-10-23-transcripts-on-the-reader.md`, setup
+  `docs/operations/transcripts-on-the-reader.md`): the action kind
+  `transcript.render` (one deterministic EPUB, `<YYYY-MM-DD> <HHMM> <word>`, summary
+  then transcript, right to left unless `en`), `llm.complete`'s `brief:
+  transcript` and `content_path` + `content_root` (the transcript text never
+  enters run state), `library.push`'s `kind`, and the disabled rule
+  `pocket-to-reader` with the workflow `transcript-to-reader`; the fold reads
+  an OR of one predecessor per branch as continuing from either.
 - the workflow phrases (#69, spec
   `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language
   `description` plus an optional technical `notes` on workflows and steps,

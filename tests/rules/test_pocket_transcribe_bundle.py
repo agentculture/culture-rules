@@ -49,7 +49,7 @@ DIR_VAR = "transcripts_dir"
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 APPLY = "--apply"
 VALUE = "value"
-INPUTS = ("audio_path", "audio_sha256", "language", "model", "output_dir")
+INPUTS = ("audio_path", "audio_sha256", "language", "model", "output_dir", "recorded_at")
 OUTPUTS = (
     "result_path",
     "result_sha256",
@@ -60,6 +60,10 @@ OUTPUTS = (
     "window_count",
     "empty_window_count",
 )
+# transcripts on the reader (t4): passed through from the inputs for pocket-to-reader
+PASS_THROUGH = ("audio_path", "output_dir", "recorded_at")
+READER_RULE = "pocket-to-reader"
+READER_WORKFLOW = "transcript-to-reader"
 
 
 def bundle():
@@ -95,8 +99,8 @@ def bundle_files() -> list[Path]:
 def test_the_bundle_reads_without_errors():
     b = bundle()
     assert sorted(a.id for a in b.actors) == [STT, STT_HE]
-    assert sorted(w.id for w in b.workflows) == [WORKFLOW, WORKFLOW_HE]
-    assert sorted(r.id for r in b.rules) == [RULE, RULE_HE]
+    assert sorted(w.id for w in b.workflows) == [WORKFLOW, WORKFLOW_HE, READER_WORKFLOW]
+    assert sorted(r.id for r in b.rules) == [READER_RULE, RULE, RULE_HE]
 
 
 def test_it_imports_into_a_store_with_the_rule_disabled():
@@ -167,8 +171,10 @@ def test_the_workflow_has_the_file_in_inputs_and_eight_scalar_outputs():
     assert tuple(p.name for p in wf.inputs) == INPUTS
     required = {p.name for p in wf.inputs if p.required}
     assert required == {"audio_path", "audio_sha256", "output_dir"}
-    assert tuple(o.name for o in wf.outputs) == OUTPUTS
-    assert {o.source for o in wf.outputs} == {f"steps.{STEP}.outputs.{n}" for n in OUTPUTS}
+    assert tuple(o.name for o in wf.outputs) == OUTPUTS + PASS_THROUGH
+    sources = {o.name: o.source for o in wf.outputs}
+    assert {sources[n] for n in OUTPUTS} == {f"steps.{STEP}.outputs.{n}" for n in OUTPUTS}
+    assert {sources[n] for n in PASS_THROUGH} == {f"inputs.{n}" for n in PASS_THROUGH}
 
 
 def test_the_workflow_is_one_audio_transcribe_step_on_the_stt_actor():
@@ -176,7 +182,9 @@ def test_the_workflow_is_one_audio_transcribe_step_on_the_stt_actor():
     assert spec["kind"] == "audio.transcribe"
     assert spec["params"]["actor"] == STT
     for name in INPUTS:
-        assert spec["params"][name] == f"inputs.{name}"
+        if name != "recorded_at":  # passed through to the outputs, not used by the step
+            assert spec["params"][name] == f"inputs.{name}"
+    assert "recorded_at" not in spec["params"]
     assert step().config.get("idempotent") is True
 
 

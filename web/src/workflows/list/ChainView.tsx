@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { Link } from "react-router-dom";
-import type { Chain, FoldModel } from "../../fold/model";
+import { linkSources, type Chain, type Continuation, type FoldModel } from "../../fold/model";
 import { count, SameEventNote, EndSummary, EntrySummary, fromText, guardText, triggerText, workflowName, workflowUrl } from "./presentation";
 import "./list.css";
 
@@ -12,6 +12,13 @@ export interface ChainViewProps {
   onOpen?: (id: string) => void;
 }
 
+/** One drawn continuation edge: an `either` continuation has one per predecessor shown. */
+interface Edge {
+  entry: Continuation;
+  source: string;
+  key: string;
+}
+
 /** A read-only, scrollable directed graph. Coordinates depend only on model order/counts. */
 export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainViewProps>) {
   const arrowId = useId().replaceAll(":", "");
@@ -21,8 +28,11 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
   const positions = new Map(ids.map((id, index) => [id, { x: 360 + index * 340, y: 60 }]));
   const width = Math.max(680, 380 + ids.length * 340);
   const laneStart = Math.max(320, 60 + entries.length * 180);
-  const linked = continuations.filter((entry) => entry.fromWorkflowId !== null && positions.has(entry.fromWorkflowId));
-  const height = laneStart + linked.length * 100 + 40;
+  const edges: Edge[] = continuations.flatMap((entry) =>
+    linkSources(entry).filter((source) => positions.has(source)).map((source) => ({ entry, source, key: `${entry.rule.id}:${source}` })),
+  );
+  const linked = continuations.filter((entry) => edges.some((edge) => edge.entry === entry));
+  const height = laneStart + edges.length * 100 + 40;
   const unresolved = continuations.filter((entry) => !linked.includes(entry));
   return <section className="fold-chain" aria-label="Chain view">
     <p>{count(entries.length + continuations.length + (chain ? 0 : model.d7Candidates.length), "rule")} → {count(entries.length, "entry point")}, {count(continuations.length, "continuation")}, {count(ids.length, "workflow")}</p>
@@ -37,11 +47,11 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
             return <path key={entry.rule.id} data-entry-id={entry.rule.id} d={`M 280 ${y} C 320 ${y}, 320 ${target.y + 80}, ${target.x} ${target.y + 80}`}
               markerEnd={`url(#${arrowId})`}><title>{entry.rule.name} → {workflowName(model, entry.workflowId)}</title></path>;
           })}
-          {linked.map((entry, index) => {
-            const source = positions.get(entry.fromWorkflowId!)!, target = positions.get(entry.workflowId)!;
+          {edges.map(({ entry, source: from, key }, index) => {
+            const source = positions.get(from)!, target = positions.get(entry.workflowId)!;
             const lane = laneStart + index * 100;
             const sx = source.x + 180, tx = target.x + 80;
-            return <path key={entry.rule.id} data-continuation-id={entry.rule.id} data-source={entry.fromWorkflowId} data-target={entry.workflowId}
+            return <path key={key} data-continuation-id={entry.rule.id} data-source={from} data-target={entry.workflowId}
               className="fold-chain__continuation" d={`M ${sx} 280 V ${lane} H ${tx} V 280`} markerEnd={`url(#${arrowId})`}>
               <title>{entry.rule.name}: {fromText(entry)} → {workflowName(model, entry.workflowId)}</title>
             </path>;
@@ -63,7 +73,7 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
             <strong>Ends with</strong><div className="fold-chain__end"><EndSummary workflow={workflow} /></div>
           </fieldset>;
         })}
-        {linked.map((entry, index) => <div key={entry.rule.id} className="fold-chain__edge-label" style={{ left: 360, top: laneStart + index * 100 + 8, width: width - 400 }}>
+        {edges.map(({ entry, key }, index) => <div key={key} className="fold-chain__edge-label" style={{ left: 360, top: laneStart + index * 100 + 8, width: width - 400 }}>
           <Link to={workflowUrl(entry.workflowId, entry.rule.id)} onClick={() => onOpen?.(entry.workflowId)}>{entry.rule.name}</Link>
           <small>{fromText(entry)} → {workflowName(model, entry.workflowId)} · {triggerText(entry.rule)}{!entry.enabled ? " · Disabled" : ""}</small>
           <SameEventNote model={model} entry={entry} />

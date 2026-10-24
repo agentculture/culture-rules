@@ -214,3 +214,6 @@ The bundle ships two STT actors on machine `spark`:
 Both have `max_concurrency: 1`, and their roots ship as `/home/OPERATOR/...`
 placeholders that you replace; see
 [the pocket-transcribe setup](../operations/pocket-transcribe.md).
+
+Each finished transcript can also go to the Xteink reader as a book; see
+[Transcripts on the reader](../operations/transcripts-on-the-reader.md).

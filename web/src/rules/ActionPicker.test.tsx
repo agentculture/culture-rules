@@ -25,11 +25,11 @@ const kinds = () =>
   within(screen.getByLabelText("What happens")).getAllByRole("option").map((o) => o.getAttribute("value"));
 
 describe("kinds offered", () => {
-  it("offers only kinds some enabled actor supports, plus the mesh message and noop", () => {
+  it("offers only kinds some enabled actor supports, plus the actorless mesh message, noop and transcript.render", () => {
     render(<Harness />);
     // github-app (enabled) declares github.comment; ci-runner runs machine.command;
     // jira.comment is declared only by the DISABLED discord app; http.call has no actor.
-    expect(kinds()).toEqual(["noop", "message", "github.comment", "machine.command"]);
+    expect(kinds()).toEqual(["noop", "message", "github.comment", "machine.command", "transcript.render"]);
   });
 
   it("offers http.call once an enabled runner allows a host", () => {

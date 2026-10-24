@@ -103,7 +103,8 @@ export type ActionKind =
   | "search.web"
   | "llm.complete"
   | "library.push"
-  | "audio.transcribe";
+  | "audio.transcribe"
+  | "transcript.render";
 
 /**
  * An action. A param may be a literal, a reference (`trigger.data.number`), a `{"$ref"}` object

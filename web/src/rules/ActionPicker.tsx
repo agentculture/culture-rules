@@ -21,6 +21,8 @@ interface ParamSpec {
 interface KindSpec {
   label: string;
   params: Record<string, ParamSpec>;
+  /** Groups of params of which at least one must be set (the catalog's `any_of`). */
+  anyOf?: readonly (readonly string[])[];
 }
 
 const S: ParamSpec = { type: "str" };
@@ -30,6 +32,17 @@ const RI: ParamSpec = { type: "int", required: true };
 
 const METHODS: readonly Choice[] = ["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => ({ value: m, label: m }));
 /** Brave's freshness windows (search.web `freshness`). */
+/** llm.complete's locked briefs. */
+const BRIEFS: readonly Choice[] = [
+  { value: "newspaper", label: "Newspaper" },
+  { value: "transcript", label: "Transcript" },
+];
+/** library.push kinds. */
+const LIBRARY_KINDS: readonly Choice[] = [
+  { value: "book", label: "Book" },
+  { value: "article", label: "Article" },
+  { value: "transcript", label: "Transcript" },
+];
 const FRESHNESS: readonly Choice[] = [
   { value: "pd", label: "Past day" },
   { value: "pw", label: "Past week" },
@@ -109,15 +122,37 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   },
   "llm.complete": {
     label: "Summarise with a language model",
-    params: { actor: RS, content: { type: "any", required: true }, max_tokens: I, temperature: { type: "number" } },
+    params: {
+      actor: RS,
+      brief: { ...S, options: BRIEFS, choose: "Newspaper (default)" },
+      content: { type: "any" },
+      content_path: S,
+      content_root: S,
+      content_max_chars: I,
+      max_tokens: I,
+      temperature: { type: "number" },
+      not_after: S,
+    },
+    anyOf: [["content", "content_path"]],
   },
   "audio.transcribe": {
     label: "Transcribe an audio file",
     params: { actor: RS, audio_path: RS, audio_sha256: RS, output_dir: RS, language: S, model: S },
   },
+  "transcript.render": {
+    label: "Make a book from a transcript",
+    params: { actor: S, result_path: RS, root: RS, recorded_at: RS, language: S, summary: { type: "any" } },
+  },
   "library.push": {
     label: "Send a book to the e-reader library",
-    params: { actor: RS, content_base64: RS, title: RS, author: S, device_id: S },
+    params: {
+      actor: RS,
+      content_base64: RS,
+      title: RS,
+      author: S,
+      device_id: S,
+      kind: { ...S, options: LIBRARY_KINDS, choose: "Article (default)" },
+    },
   },
 };
 
@@ -194,6 +229,9 @@ export function actionProblem(stored: Action): "no_actor_port" | "empty" | "inva
   for (const [name, p] of Object.entries(spec.params)) {
     if (name !== "actor" && p.required && isEmpty(params[name])) return "empty";
   }
+  for (const group of spec.anyOf ?? []) {
+    if (group.every((name) => isEmpty(params[name]))) return "empty";
+  }
   for (const [name, p] of Object.entries(spec.params)) {
     if (!isEmpty(params[name]) && !typeOk(p, params[name])) return "invalid_value";
   }
@@ -207,11 +245,14 @@ const allowsHttp = (a: Actor) => enabled(a) && ((a.params?.http as HttpPolicy | 
 const commandsOf = (a?: Actor) => (a?.params as RunnerActorParams | undefined)?.commands ?? {};
 const onSurface = (a: Actor, surface: string) => a.kind === "app" && enabled(a) && a.params?.surface === surface;
 const hasBaseUrl = (a: Actor) => enabled(a) && typeof a.params?.base_url === "string" && a.params.base_url !== "";
+const hasTranscriptsRoot = (a: Actor) =>
+  enabled(a) && ["transcripts_root", "output_root"].some((k) => typeof a.params?.[k] === "string" && a.params[k] !== "");
 
 /**
  * Enabled actors able to perform `kind`: app actors by declared actions (email and search by
  * surface), runners by command, an OpenAI-compatible agent (one with a `base_url`) for
  * llm.complete and audio.transcribe, and any other actor with a `base_url` (the library service) for library.push.
+ * transcript.render needs no actor; one with a transcripts or output root may narrow where it reads.
  */
 export function actorsFor(kind: string, actors: Actor[]): Actor[] {
   switch (canonical(kind)) {
@@ -229,6 +270,8 @@ export function actorsFor(kind: string, actors: Actor[]): Actor[] {
       return actors.filter((a) => a.kind === "agent" && hasBaseUrl(a));
     case "library.push":
       return actors.filter((a) => a.kind !== "agent" && a.kind !== "app" && hasBaseUrl(a));
+    case "transcript.render":
+      return actors.filter(hasTranscriptsRoot);
     case "noop":
       return [];
     default:
@@ -236,9 +279,9 @@ export function actorsFor(kind: string, actors: Actor[]): Actor[] {
   }
 }
 
-/** The mesh message and noop need no actor; every other kind needs one enabled actor that supports it. */
+/** The mesh message, noop and transcript.render need no actor; every other kind needs one enabled actor that supports it. */
 const offered = (kind: string, actors: Actor[]) =>
-  kind === "noop" || kind === "message" || actorsFor(kind, actors).length > 0;
+  kind === "noop" || kind === "message" || kind === "transcript.render" || actorsFor(kind, actors).length > 0;
 
 function triggerFields(triggerType: string | undefined): string[] {
   const hit = TRIGGER_FIELDS.find((t) => triggerType?.startsWith(t.prefix));

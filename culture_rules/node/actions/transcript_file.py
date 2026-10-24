@@ -5,6 +5,10 @@ transcription runs, each window's reply is kept at
 ``<output_dir>/<audio_sha256>/.work.<model-slug>/window-NNNN.json`` (written atomically) so a
 restart resumes instead of re-asking. The caller validates ``audio_sha256`` before calling here;
 :func:`result_path` re-checks it only because it builds a filesystem path from it.
+
+:func:`read_excerpt` reads a finished transcript's text back for a summary (``llm.complete``'s
+``content_path``, d2): the path must resolve under a given root, symlinks followed, and the text
+is cut to a limit, so the transcript itself never passes through a run's step outputs.
 """
 
 from __future__ import annotations
@@ -17,9 +21,13 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 SCHEMA = 1
+TRANSCRIPT_FILE_CAP = 32 << 20  # a transcript file larger than this is not read (excerpt or book)
+EXCERPT_FILE_CAP = TRANSCRIPT_FILE_CAP
+PATH_REFUSED, INVALID_REQUEST = "path_refused", "invalid_request"
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -143,3 +151,49 @@ class WorkDir:
 
     def clear(self) -> None:
         shutil.rmtree(self.path, ignore_errors=True)
+
+
+class ExcerptRefused(ValueError):
+    """:func:`read_excerpt` refused: ``code`` is ``path_refused`` or ``invalid_request``."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
+def _under(path_value: Any, root_value: Any) -> Path:
+    if not isinstance(root_value, str) or not os.path.isabs(root_value):
+        raise ExcerptRefused(PATH_REFUSED, "the root must be an absolute path")
+    if not isinstance(path_value, str) or not os.path.isabs(path_value):
+        raise ExcerptRefused(PATH_REFUSED, "the transcript path must be an absolute path")
+    try:
+        root = Path(root_value).resolve(strict=True)
+        path = Path(path_value).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ExcerptRefused(PATH_REFUSED, "the transcript or its root does not exist") from exc
+    if not path.is_relative_to(root) or not path.is_file():
+        raise ExcerptRefused(PATH_REFUSED, "the transcript is not a file under the root")
+    return path
+
+
+def read_excerpt(path_value: Any, root_value: Any, limit: int) -> str:
+    """The non-empty segment texts of the schema-1 transcript at ``path_value``, one per line,
+    cut to ``limit`` characters. The path must resolve under ``root_value``."""
+    path = _under(path_value, root_value)
+    try:
+        if path.stat().st_size > EXCERPT_FILE_CAP:
+            raise ExcerptRefused(INVALID_REQUEST, "the transcript file is too large")
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:
+        raise ExcerptRefused(INVALID_REQUEST, "the transcript is not readable JSON") from exc
+    segments = doc.get("segments") if isinstance(doc, Mapping) else None
+    if (
+        not isinstance(doc, Mapping)
+        or doc.get("schema") != SCHEMA
+        or not isinstance(segments, list)
+    ):
+        raise ExcerptRefused(INVALID_REQUEST, "not a schema-1 transcript")
+    texts = (s.get("text") for s in segments if isinstance(s, Mapping))
+    lines = [t.strip() for t in texts if isinstance(t, str) and t.strip()]
+    return "\n".join(lines)[:limit]

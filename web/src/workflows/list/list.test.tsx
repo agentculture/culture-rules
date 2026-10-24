@@ -88,6 +88,18 @@ describe("Chain view", () => {
     for (const rule of rules) expect(screen.getByText(`was ${rule.id}`)).toBeInTheDocument();
   });
 
+  it("draws an either continuation from each of its predecessors (d3)", () => {
+    const wf = [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }, { id: "c", name: "Gamma" }];
+    const either: Rule = { id: "after-either", name: "After either", workflow: { id: "c" },
+      trigger: { kind: "event", params: { type: "rules.run.succeeded" } },
+      condition: { op: "or", args: [compare("a"), compare("b")] }, action: { kind: "noop" } };
+    const model = foldModel([either], wf);
+    const { container } = render(<MemoryRouter><ChainView model={model} chain={model.chains[0]} /></MemoryRouter>);
+    const edges = [...container.querySelectorAll("path[data-continuation-id='after-either']")];
+    expect(edges.map((edge) => [edge.getAttribute("data-source"), edge.getAttribute("data-target")])).toEqual([["a", "c"], ["b", "c"]]);
+    expect(screen.queryByRole("region", { name: "Continuations without a visible predecessor" })).not.toBeInTheDocument();
+  });
+
   it("uses dynamic counts and names, preserving ambiguous, unscoped and empty predecessors", () => {
     const wf = [{ id: "custom", name: "Custom work" }];
     const entries: Rule[] = [undefined, compare(""), { op: "and", args: [compare("a"), compare("b")] } as Condition]

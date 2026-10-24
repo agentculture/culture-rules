@@ -280,6 +280,14 @@ no event. Backfill them with the direct runs of step 4, one pair per
 recording (skip `transcribe-file-he` for those marked `en`); a recording
 already transcribed by a model is a no-op for that model.
 
+## Then: the reader
+
+The rule `pocket-to-reader` turns each finished transcript into a book on the Xteink
+reader (a dated title, a short summary, then the transcript); see
+[Transcripts on the reader](transcripts-on-the-reader.md). The transcribe workflows pass
+`audio_path`, `output_dir` and `recorded_at` through to it; both transcription rules map
+`recorded_at` from the landed event's `recording_at`.
+
 ## Benchmark
 
 The operator's reference recording for comparing STT models is the 56 min
