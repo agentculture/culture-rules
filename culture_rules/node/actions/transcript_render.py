@@ -27,7 +27,9 @@ summary, a ``Key facts`` list (the answer's optional ``facts``; omitted when the
 then ``Transcript`` with one paragraph per non-empty segment; a right-to-left document is
 wrapped in a ``<div dir="rtl">`` block. The answer may also be a mapping that already is
 ``{summary, word, facts}``; ``action_items`` is ignored here. The Markdown is kept like the
-book, as ``book.<sha16>.md`` (+ ``.md.json``), so a re-run sends the same bytes.
+book, as ``book.<sha16>.md`` (+ ``.md.json``), so a re-run sends the same bytes. The
+Markdown HTML-escapes ``&``, ``<`` and ``>`` in the word, summary, facts and segments; that
+changed its bytes, but nothing had cached Markdown yet, so no migration is needed.
 
 Output
 ======
@@ -334,18 +336,24 @@ def _epub(
     return buffer.getvalue()
 
 
+def _md_esc(text: str) -> str:
+    """Escape ``&``, ``<`` and ``>`` (in that order) in model- or transcript-derived text, so
+    it cannot inject HTML; Markdown syntax characters are left alone."""
+    clean = _INVALID_XML.sub("", text)
+    return clean.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _markdown(
     title: str, lines: list[str], facts: list[str], paragraphs: list[str], rtl: bool
 ) -> str:
     """The transcript as Markdown: H1 title, summary, Key facts, Transcript. A right-to-left
     document is wrapped in a ``dir="rtl"`` block (blank lines around it keep the Markdown
     inside rendering)."""
-    clean = _INVALID_XML.sub("", title)
-    parts = [f"# {clean}", "\n\n".join(lines)]
+    parts = [f"# {_md_esc(title)}", "\n\n".join(_md_esc(ln) for ln in lines)]
     if facts:
-        parts.append("## Key facts\n\n" + "\n".join(f"- {fact}" for fact in facts))
+        parts.append("## Key facts\n\n" + "\n".join(f"- {_md_esc(fact)}" for fact in facts))
     body = "\n\n".join(parts)
-    body += "\n\n## Transcript\n\n" + "\n\n".join(paragraphs)
+    body += "\n\n## Transcript\n\n" + "\n\n".join(_md_esc(p) for p in paragraphs)
     if rtl:
         body = f'<div dir="rtl">\n\n{body}\n\n</div>'
     return body + "\n"

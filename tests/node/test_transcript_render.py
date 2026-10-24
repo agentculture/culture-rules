@@ -427,3 +427,13 @@ def test_port_md_without_summary_is_not_kept(root: Path) -> None:
     path = _write(root, _doc("en"))
     assert _invoke(root, path, format="md").outcome == COMPLETED
     assert list(path.parent.glob("book.*")) == []
+
+
+def test_md_escapes_ampersand_and_angle_brackets_in_derived_text() -> None:
+    raw = "<b>&x</b>"
+    answer = {"text": json.dumps({"summary": raw, "word": "Plans", "facts": [raw]})}
+    out = tr.render_transcript(_doc("en", (raw,)), recorded_at=AT, summary=answer, format="md")
+    text = _md(out)
+    assert text.count("&lt;b&gt;&amp;x&lt;/b&gt;") == 3
+    assert "<b>" not in text and "&amp;amp;" not in text
+    assert out["title"] == "2026-10-24 0130 plans"
