@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T20:28:38Z",
+  "updated": "2026-10-24T20:29:42Z",
   "deviations": [
     {
       "id": "d1",
@@ -511,7 +511,7 @@
         "commit": "31bf4d1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 29
     },
@@ -530,7 +530,7 @@
         "commit": "31bf4d1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 30
     },
@@ -549,7 +549,7 @@
         "commit": "31bf4d1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 31
     }
@@ -632,7 +632,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     }
   ],

@@ -110,7 +110,7 @@ Quoted verbatim from the `devague summary` skeleton:
   - the full suite passed with 7256 passed and 9 skipped; vitest 827 of 827, tsc clean, e2e `workflows-described` 19 of 19; all lint gates clean;
   - sensitivity: 40 of the 138 `test_library_push.py` tests fail against `origin/main`'s `library.py` (e17);
   - live: 0.27.0 rolled out with the operator's approval (`rollout verify` passed: 4 nodes and the API on 0.27.0, the 3 snapshot rules enabled). The live actor points at culture-library, `daily-newspaper` (rev 5) has its push enabled again as `newspaper`/`public`, and `transcript-to-reader` (rev 2) pushes `transcript`/`private`. No live push has run yet: the first is the next 05:00 newspaper.
-- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. e16 (proposed) records the operator's failed device check for o13. d8, e17–e19, b4 and b5 are approved; d9 is approved, and e20–e22 and b6 are proposed.
+- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. e16 (proposed) records the operator's failed device check for o13. d8, e17–e19, b4 and b5 are approved; d9, e20–e22 and b6 are approved.
 - commits: `062c9c8..1883d88` on `rules/transcript-reader`.
 - issues: culture-rules#83 (the decisions log), #82 (lighter test runs), agentculture/xteink#8, agentculture/pocketsync#12.
 
