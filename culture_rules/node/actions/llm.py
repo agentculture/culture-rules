@@ -10,7 +10,8 @@ is summarised from its start instead of refused; the text never enters the run's
 optional ``max_tokens`` (int >= 1, default
 :data:`DEFAULT_MAX_TOKENS`, capped at :data:`MAX_TOKENS_CAP`) and ``temperature`` (a number
 0..2), and optional ``brief``: absent or ``"newspaper"`` selects :data:`NEWSPAPER_BRIEF`,
-``"transcript"`` selects :data:`TRANSCRIPT_BRIEF`, anything else (including null) fails
+``"transcript"`` selects :data:`TRANSCRIPT_BRIEF`, ``"recording"`` selects
+:data:`RECORDING_BRIEF`, anything else (including null) fails
 ``invalid_request`` before any request. Every other param is ignored: a step cannot
 replace the brief, add tools or name a repository.
 
@@ -48,10 +49,23 @@ summary waiting ``blocked`` behind a busy pool gives up at its next re-ask after
 issue's ``summaries_until`` (the slot plus the summary window), so the issue goes out on
 time with the results only (Codex r1 #3).
 
+Answer cache (``brief: "recording"`` only): with the param ``cache: true`` and a ``content_path``,
+the parsed answer is kept beside the content file as
+``answer.recording.<first 16 hex of the content file's sha256>.json`` (written atomically,
+like ``transcript.render``'s book) and a later run over the same file bytes returns it without
+calling the model (``cached: true``). Only a parsed, valid answer is stored; a cache file that
+does not check out is ignored and rewritten; a folder that cannot be written still returns the
+answer. ``cache`` is a boolean, and only the recording brief has a parser, so ``cache: true``
+with another brief or without ``content_path`` fails ``invalid_request`` before any request.
+The recording brief's reply is parsed by
+:func:`~culture_rules.node.actions.recording_answer.parse_recording_answer`; a reply that does
+not qualify fails ``answer_not_json`` / ``answer_invalid`` (not retryable).
+
 Outcome: completed ``{text, model, usage}`` (``text`` is the first choice's message content
 with a leading ``<think>`` block dropped; ``usage`` keeps the integer token counts, so the
-actor's token budget counts them). Failures (``"<code>: <detail>"``, never a body, a header
-value or a secret):
+actor's token budget counts them; the recording brief also returns ``answer``, the parsed
+``{summary: [lines], word, facts, action_items}``, and ``cached``). Failures
+(``"<code>: <detail>"``, never a body, a header value or a secret):
 
 * ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
   5xx, 408 or 429. The newspaper's summary step tolerates any failure
@@ -70,12 +84,17 @@ Standard-library only.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import http.client
 import json
+import os
+import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -85,7 +104,8 @@ from culture_rules.engine.actorport import COMPLETED, InvocationContext, Invocat
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.machine import load_bound_actor
-from culture_rules.node.actions.transcript_file import ExcerptRefused, read_excerpt
+from culture_rules.node.actions.recording_answer import AnswerRefused, parse_recording_answer
+from culture_rules.node.actions.transcript_file import ExcerptRefused, _under, read_excerpt
 from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
@@ -93,6 +113,7 @@ __all__ = [
     "DEFAULT_MAX_TOKENS",
     "MAX_TOKENS_CAP",
     "NEWSPAPER_BRIEF",
+    "RECORDING_BRIEF",
     "TRANSCRIPT_BRIEF",
     "LlmCompletePort",
     "Transport",
@@ -120,7 +141,28 @@ TRANSCRIPT_BRIEF = (
 )
 """The locked system prompt for ``brief: "transcript"``. Also code-only, never built from params."""
 
-_BRIEFS = {"newspaper": NEWSPAPER_BRIEF, "transcript": TRANSCRIPT_BRIEF}
+RECORDING_BRIEF = (
+    "You digest one audio recording from its transcript. The user message holds the "
+    "transcript text, in any language. Reply with only a JSON object of exactly this shape: "
+    '{"summary": "...", "word": "...", "facts": ["..."], "action_items": ["..."]}. '
+    '"summary" is one or two short lines, in the same language as the transcript, saying '
+    'what the recording is about. "word" is a single short English word, in Latin letters '
+    '(letters and hyphens only), naming its topic. "facts" is a list of short key facts the '
+    'recording states. "action_items" is a list of short imperative to-dos that the '
+    "recording actually states or agrees on. Use an empty list when there are none, and "
+    "never invent a fact or a to-do. Use only what the transcript says. Write no other text, "
+    "no markdown fence and no preamble."
+)
+"""The locked system prompt for ``brief: "recording"``. Code-only, never built from params."""
+
+_BRIEFS = {
+    "newspaper": NEWSPAPER_BRIEF,
+    "transcript": TRANSCRIPT_BRIEF,
+    "recording": RECORDING_BRIEF,
+}
+_CACHE = "cache"
+_CACHE_BRIEF = "recording"
+_CACHE_SCHEMA = 1
 
 DEFAULT_MAX_TOKENS = 1500
 MAX_TOKENS_CAP = 4000
@@ -259,7 +301,7 @@ def _brief(input: Mapping[str, Any]) -> str:
         return NEWSPAPER_BRIEF
     name = input["brief"]
     if not isinstance(name, str) or name not in _BRIEFS:
-        raise _Refused(INVALID, "brief must be 'newspaper' or 'transcript'")
+        raise _Refused(INVALID, "brief must be 'newspaper', 'transcript' or 'recording'")
     return _BRIEFS[name]
 
 
@@ -336,6 +378,80 @@ def _usage(usage: Mapping[str, Any]) -> dict[str, int]:
         for k in _USAGE_KEYS
         if isinstance(v := usage.get(k), int) and not isinstance(v, bool) and v >= 0
     }
+
+
+def _write_atomic(target: Path, data: bytes) -> None:
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def _cache_path(input: Mapping[str, Any]) -> tuple[Path, str] | None:
+    """``(answer cache file, content sha256)`` when ``cache: true`` applies, else None."""
+    flag = input.get(_CACHE)
+    if flag is None or flag is False:
+        return None
+    if flag is not True:
+        raise _Refused(INVALID, "cache must be a boolean")
+    if input.get("brief") != _CACHE_BRIEF or input.get(_CONTENT_PATH) is None:
+        raise _Refused(INVALID, "cache needs brief 'recording' and a content_path")
+    try:
+        path = _under(input.get(_CONTENT_PATH), input.get(_CONTENT_ROOT))
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except ExcerptRefused as exc:
+        raise _Refused(exc.code, exc.detail) from exc
+    except OSError as exc:
+        raise _Refused(INVALID, "the content file is not readable") from exc
+    return path.parent / f"answer.{_CACHE_BRIEF}.{digest[:16]}.json", digest
+
+
+def _cached_answer(file: Path, digest: str) -> dict[str, Any] | None:
+    """The outputs stored for exactly this content file, or None (a damaged file is ignored)."""
+    try:
+        doc = json.loads(file.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict) or doc.get("content_sha256") != digest:
+            return None
+        if doc.get("schema") != _CACHE_SCHEMA or doc.get("brief") != _CACHE_BRIEF:
+            return None
+        stored = doc.get("answer")
+        if not isinstance(stored, dict) or not isinstance(stored.get("summary"), list):
+            return None
+        answer = parse_recording_answer(
+            json.dumps({**stored, "summary": "\n".join(map(str, stored["summary"]))})
+        )
+        model, usage = doc.get(_MODEL), doc.get("usage")
+    except (OSError, ValueError, RecursionError, AnswerRefused):
+        return None
+    if not isinstance(model, str) or not model or not isinstance(usage, dict):
+        return None
+    return {
+        "text": json.dumps(answer, sort_keys=True, ensure_ascii=False),
+        _MODEL: model,
+        "usage": _usage(usage),
+        "answer": answer,
+        "cached": True,
+    }
+
+
+def _store_answer(file: Path, digest: str, out: Mapping[str, Any]) -> None:
+    """Keep a parsed answer beside its content file (best effort: an unwritable folder only
+    means the model is asked again next time)."""
+    doc = {
+        "schema": _CACHE_SCHEMA,
+        "brief": _CACHE_BRIEF,
+        "content_sha256": digest,
+        _MODEL: out[_MODEL],
+        "usage": out["usage"],
+        "answer": out["answer"],
+    }
+    with contextlib.suppress(OSError):
+        _write_atomic(file, json.dumps(doc, sort_keys=True, ensure_ascii=False).encode("utf-8"))
 
 
 def _status_failure(status: int) -> _Refused:
@@ -469,15 +585,12 @@ class LlmCompletePort:
             raise _Refused(INVALID, "the transcript has no text to send")
         return text
 
-    def _request(self, input: Mapping[str, Any], model: str) -> bytes:
+    def _request(self, input: Mapping[str, Any], model: str, content: str) -> bytes:
         body: dict[str, Any] = {
             _MODEL: model,
             "messages": [
                 {"role": "system", _CONTENT: _brief(input)},
-                {
-                    "role": "user",
-                    _CONTENT: self._user_content(input),
-                },
+                {"role": "user", _CONTENT: content},
             ],
             "max_tokens": _max_tokens(input.get("max_tokens")),
             "stream": False,
@@ -509,7 +622,13 @@ class LlmCompletePort:
         if problem:
             raise _Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
         model = str(actor.params.get(_MODEL) or actor.model).strip()
-        data = self._request(input, model)
+        cache = _cache_path(input)
+        if cache is not None:
+            hit = _cached_answer(*cache)
+            if hit is not None:
+                return InvocationResult.completed(hit)
+        _brief(input)  # a bad brief is refused before the content is read
+        data = self._request(input, model, self._user_content(input))
         headers = self._headers(actor.params)  # may block on a grant lookup (Codex r2 #2)
         url = _completions_url(actor.params["base_url"])
         timeout = self._remaining(input, deadline)
@@ -519,4 +638,13 @@ class LlmCompletePort:
             raise _Refused(UNAVAILABLE, type(exc).__name__, retryable=True) from exc
         if not 200 <= status < 300:
             raise _status_failure(status)
-        return InvocationResult.completed(_parse(raw, model))
+        out = _parse(raw, model)
+        if input.get("brief") == _CACHE_BRIEF:
+            try:
+                out["answer"] = parse_recording_answer(out["text"])
+            except AnswerRefused as exc:
+                raise _Refused(exc.code, exc.detail) from exc
+            out["cached"] = False
+            if cache is not None:
+                _store_answer(*cache, out)
+        return InvocationResult.completed(out)

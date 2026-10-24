@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import http.server
 import json
 import socket
@@ -16,10 +17,12 @@ from culture_rules.node.actions.llm import (
     DEFAULT_MAX_TOKENS,
     MAX_TOKENS_CAP,
     NEWSPAPER_BRIEF,
+    RECORDING_BRIEF,
     TRANSCRIPT_BRIEF,
     LlmCompletePort,
     urllib_transport,
 )
+from culture_rules.node.actions.recording_answer import AnswerRefused, parse_recording_answer
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter
 from culture_rules.store.memory import MemoryStore
 
@@ -853,8 +856,10 @@ def _transcript(root, texts):
 
 def _from_file(port, path, root, **params):
     params.setdefault("actor", "llm")
-    params.update(content_path=str(path), content_root=str(root), brief="transcript")
-    return port.invoke(params, "k1", _deadline(), context=_ctx("llm"))
+    params.update(content_path=str(path), content_root=str(root))
+    params.setdefault("brief", "transcript")
+    key = params.pop("key", "k1")
+    return port.invoke(params, key, _deadline(), context=_ctx("llm"))
 
 
 def test_content_path_sends_the_transcript_text_as_the_user_message(tmp_path):
@@ -936,3 +941,174 @@ def test_an_empty_transcript_is_refused_before_any_request(tmp_path):
     assert result.outcome == FAILED
     assert result.error.startswith("invalid_request")
     assert transport.calls == []
+
+
+# ---- the recording brief and its answer cache ----------------------------------------------
+
+ANSWER = {
+    "summary": "Planning the move.",
+    "word": "Moving",
+    "facts": ["Truck on Friday"],
+    "action_items": ["Book the truck"],
+}
+
+
+_KEYS = iter(f"rk{n}" for n in range(1000))
+
+
+def _rec(port, path, root, **params):
+    """A recording-brief run from a file, each call under its own idempotency key."""
+    return _from_file(port, path, root, brief="recording", key=next(_KEYS), **params)
+
+
+def _answer_reply(**over):
+    return _reply(json.dumps({**ANSWER, **over}, ensure_ascii=False))
+
+
+def _cache_files(path):
+    return sorted(p.name for p in path.parent.glob("answer.*"))
+
+
+def test_the_recording_brief_is_the_system_message_and_a_step_cannot_replace_it():
+    port, transport = _port(transport=FakeTransport(body=_answer_reply()))
+    res = _invoke(port, brief="recording", content="hello", system="be creative")
+    assert res.outcome == COMPLETED
+    assert transport.sent["messages"][0] == {"role": "system", "content": RECORDING_BRIEF}
+    assert "be creative" not in json.dumps(transport.sent)
+    assert RECORDING_BRIEF not in (NEWSPAPER_BRIEF, TRANSCRIPT_BRIEF)
+    for phrase in ("summary", "word", "facts", "action_items", "JSON", "never invent"):
+        assert phrase in RECORDING_BRIEF
+
+
+def test_the_other_briefs_are_unchanged_by_the_recording_brief():
+    port, transport = _port()
+    _invoke(port, key="a", brief="transcript", content="x")
+    assert transport.sent["messages"][0]["content"] == TRANSCRIPT_BRIEF
+    _invoke(port, key="b", brief="newspaper", content="x")
+    assert transport.sent["messages"][0]["content"] == NEWSPAPER_BRIEF
+
+
+def test_the_recording_brief_returns_the_parsed_answer(tmp_path):
+    port, _ = _port(transport=FakeTransport(body=_answer_reply()))
+    res = _invoke(port, brief="recording", content="hello")
+    assert res.output["answer"] == {**ANSWER, "summary": ["Planning the move."], "word": "moving"}
+    assert res.output["cached"] is False
+    assert res.output["text"]
+
+
+def test_an_invalid_recording_answer_fails_with_a_refusal_code():
+    port, _ = _port(transport=FakeTransport(body=_reply("not json at all")))
+    res = _invoke(port, brief="recording", content="hello")
+    assert _failed(res) == (FAILED, "answer_not_json", False)
+
+
+def test_first_answer_is_cached_beside_the_content_file_and_replayed(tmp_path):
+    path = _transcript(tmp_path, ["private one"])
+    first, t1 = _port(transport=FakeTransport(body=_answer_reply()))
+    one = _rec(first, path, tmp_path, cache=True)
+    assert one.outcome == COMPLETED and one.output["cached"] is False
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    assert _cache_files(path) == [f"answer.recording.{digest}.json"]
+    other = FakeTransport(body=_answer_reply(summary="Something else."))
+    second, t2 = _port(transport=other)
+    two = _rec(second, path, tmp_path, cache=True)
+    assert other.calls == []
+    assert two.outcome == COMPLETED and two.output["cached"] is True
+    assert two.output["answer"] == one.output["answer"]
+    assert two.output["model"] == one.output["model"]
+    assert not [p for p in path.parent.iterdir() if p.name.startswith(".")]
+
+
+def test_without_cache_true_nothing_is_stored_or_read(tmp_path):
+    path = _transcript(tmp_path, ["text"])
+    port, transport = _port(transport=FakeTransport(body=_answer_reply()))
+    _rec(port, path, tmp_path)
+    _rec(port, path, tmp_path, cache=False)
+    assert len(transport.calls) == 2 and _cache_files(path) == []
+
+
+def test_a_changed_content_file_misses_the_cache(tmp_path):
+    path = _transcript(tmp_path, ["text"])
+    port, transport = _port(transport=FakeTransport(body=_answer_reply()))
+    _rec(port, path, tmp_path, cache=True)
+    _transcript(tmp_path, ["different text"])
+    _rec(port, path, tmp_path, cache=True)
+    assert len(transport.calls) == 2 and len(_cache_files(path)) == 2
+
+
+def test_an_invalid_answer_is_not_cached(tmp_path):
+    path = _transcript(tmp_path, ["text"])
+    port, _ = _port(transport=FakeTransport(body=_reply("nope")))
+    res = _rec(port, path, tmp_path, cache=True)
+    assert res.outcome == FAILED and _cache_files(path) == []
+
+
+def test_a_damaged_cache_file_is_ignored_and_rewritten(tmp_path):
+    path = _transcript(tmp_path, ["text"])
+    port, transport = _port(transport=FakeTransport(body=_answer_reply()))
+    _rec(port, path, tmp_path, cache=True)
+    cache = path.parent / _cache_files(path)[0]
+    cache.write_text("{broken", encoding="utf-8")
+    res = _rec(port, path, tmp_path, cache=True)
+    assert res.output["cached"] is False and len(transport.calls) == 2
+    assert json.loads(cache.read_text(encoding="utf-8"))["answer"]["word"] == "moving"
+
+
+def test_an_unwritable_folder_still_returns_the_answer(tmp_path):
+    path = _transcript(tmp_path, ["text"])
+    path.parent.chmod(0o500)
+    try:
+        port, _ = _port(transport=FakeTransport(body=_answer_reply()))
+        res = _rec(port, path, tmp_path, cache=True)
+    finally:
+        path.parent.chmod(0o700)
+    assert res.outcome == COMPLETED and res.output["answer"]["word"] == "moving"
+
+
+def test_cache_needs_the_recording_brief_and_content_path(tmp_path):
+    path = _transcript(tmp_path, ["text"])
+    port, transport = _port()
+    res = _from_file(port, path, tmp_path, brief="transcript", cache=True)
+    assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
+    res = _invoke(port, brief="recording", content="hello", cache=True)
+    assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
+
+
+def test_cache_must_be_a_boolean(tmp_path):
+    path = _transcript(tmp_path, ["text"])
+    port, transport = _port()
+    res = _rec(port, path, tmp_path, cache="yes")
+    assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
+
+
+def test_parse_recording_answer_accepts_fenced_and_think_wrapped_json():
+    raw = "<think>hm</think>\n```json\n" + json.dumps(ANSWER) + "\n```"
+    out = parse_recording_answer({"text": raw})
+    assert out["facts"] == ["Truck on Friday"] and out["action_items"] == ["Book the truck"]
+    empty = parse_recording_answer(json.dumps({**ANSWER, "facts": [], "action_items": []}))
+    assert empty["facts"] == [] and empty["action_items"] == []
+
+
+@pytest.mark.parametrize(
+    "raw, code",
+    [
+        (None, "answer_not_json"),
+        ("plain", "answer_not_json"),
+        ("[1]", "answer_not_json"),
+        (json.dumps({**ANSWER, "summary": ""}), "answer_invalid"),
+        (json.dumps({**ANSWER, "summary": "a\nb\nc"}), "answer_invalid"),
+        (json.dumps({**ANSWER, "summary": 3}), "answer_invalid"),
+        (json.dumps({**ANSWER, "word": "שלום"}), "answer_invalid"),
+        (json.dumps({**ANSWER, "word": "two words"}), "answer_invalid"),
+        (json.dumps({k: v for k, v in ANSWER.items() if k != "facts"}), "answer_invalid"),
+        (json.dumps({**ANSWER, "facts": "one"}), "answer_invalid"),
+        (json.dumps({**ANSWER, "facts": ["ok", 3]}), "answer_invalid"),
+        (json.dumps({**ANSWER, "facts": [""]}), "answer_invalid"),
+        (json.dumps({**ANSWER, "action_items": ["x" * 301]}), "answer_invalid"),
+        (json.dumps({**ANSWER, "action_items": ["a"] * 31}), "answer_invalid"),
+    ],
+)
+def test_parse_recording_answer_refuses_with_a_code(raw, code):
+    with pytest.raises(AnswerRefused) as info:
+        parse_recording_answer(raw)
+    assert info.value.code == code
