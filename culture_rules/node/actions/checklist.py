@@ -40,13 +40,14 @@ The builtins
   only when ``at`` is newer than the item's last applied ``at``. Output ``{list_key, id,
   applied, reason, done, revision}``; ``reason`` is None when applied, else ``unknown_list``,
   ``unknown_id`` or ``stale`` (all completed steps: a flip for a gone list is not an error).
-* ``checklist.render`` - input ``list_key``. Output ``{list_key, markdown, content_base64,
-  revision, empty, item_count, done_count, title}``: the title as ``# title`` and a blank
-  line, then one line per item, ``- [ ] text <!-- todo:<id> -->`` or ``- [x] text <!--
-  todo:<id> done_at=<ISO 8601 UTC, Z> by=<by> -->``. ``content_base64`` is the markdown in
-  UTF-8, for ``library.push``. Item text cannot break its line or comment: whitespace
-  (newlines included) collapses to one space, ``<!--`` and ``-->`` are escaped. A missing
-  list renders as ``""`` with revision 0; ``empty`` is true whenever there are no items.
+* ``checklist.render`` - input ``list_key``. Output ``{list_key, markdown, content_base64, revision,
+  empty, item_count, done_count, title, item_id}`` (``item_id`` is the bound library item or None,
+  so the next ``library.push`` replaces it or uploads a new one): the title as ``# title`` and a
+  blank line, then one line per item, ``- [ ] text <!-- todo:<id> -->`` or ``- [x] text <!--
+  todo:<id> done_at=<ISO 8601 UTC, Z> by=<by> -->``. ``content_base64`` is the markdown in UTF-8,
+  for ``library.push``. Item text cannot break its line or comment: whitespace (newlines included)
+  collapses to one space, ``<!--`` and ``-->`` are escaped. A missing list renders as ``""`` with
+  revision 0; ``empty`` is true whenever there are no items.
 * ``checklist.bind`` - inputs ``list_key``, ``item_id`` (the library item: a positive int, as
   ``library.push`` returns it, or a string; kept as given), ``revision`` (the
   rendered revision that was pushed). Stores both only when ``revision`` is newer than the
@@ -418,6 +419,7 @@ class ChecklistRenderPort(_ChecklistPort):
             "item_count": len(items),
             "done_count": sum(1 for i in items if i.get("done")),
             _TITLE: (doc or {}).get(_TITLE),
+            _ITEM_ID: (doc or {}).get(_ITEM_ID),  # the bound library item: push replaces it
         }
 
 

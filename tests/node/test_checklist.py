@@ -446,3 +446,10 @@ def test_bind_refuses_a_bad_item_id(store, bad):
     ok(merge(store, ["Buy milk"]))
     result = bind(store, bad, 1)
     assert result.outcome == "failed" and result.error.startswith("bad_input")
+
+
+def test_render_returns_the_bound_item_so_the_next_push_replaces_it(store):
+    ok(merge(store, ["Buy milk"]))
+    assert ok(render(store))["item_id"] is None
+    ok(bind(store, 42, 1))
+    assert ok(render(store))["item_id"] == 42
