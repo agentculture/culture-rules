@@ -2,7 +2,7 @@
   "plan_slug": "decider-step-in-workflows",
   "schema_version": 2,
   "created": "2026-10-24T00:37:47Z",
-  "updated": "2026-10-24T00:37:47Z",
+  "updated": "2026-10-24T00:44:05Z",
   "deviations": [
     {
       "id": "d1",
@@ -19,7 +19,270 @@
       "seq": 1
     }
   ],
-  "evidence": [],
-  "deltas": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_decider_assess.py::test_posts_exactly_model_state_questions_to_systemone; tests/node/test_decider_assess.py::test_bearer_comes_from_the_grant_and_the_domain_header_defaults_to_general; tests/node/test_decider_assess.py::test_the_domain_header_follows_the_actor_domain; tests/node/test_decider_assess.py::test_a_base_url_ending_in_v1_is_not_doubled",
+      "behavior_text": "asserts the exact body, URL, bearer and X-Lobes-Model header",
+      "contract_text": "the request goes to /v1/systemone with the actor's bearer and domain header",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 2
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_decider_assess.py::test_invalid_requests_fail_before_any_request; tests/node/test_decider_assess.py::test_a_request_over_the_size_cap_is_refused",
+      "behavior_text": "asserts each malformed case fails invalid_request with no call",
+      "contract_text": "every malformed request fails invalid_request before any request",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 3
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_decider_assess.py::test_outputs_carry_answers_picks_host_domain_usage; tests/node/test_decider_assess.py::test_the_host_is_the_mesh_member_header_case_insensitively; tests/node/test_decider_assess.py::test_usage_total_is_input_plus_output_as_integers",
+      "behavior_text": "asserts answers unchanged and host/domain/usage",
+      "contract_text": "answers pass through; host, domain and integer usage are set",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/node/test_decider_assess.py::test_noul_pick_is_at_least_one_half; tests/node/test_decider_assess.py::test_score_pick_is_the_legend_of_the_most_probable_index; tests/node/test_decider_assess.py::test_score_ties_go_to_the_lower_index; tests/node/test_decider_assess.py::test_score_indexes_compare_numerically_not_as_text",
+      "behavior_text": "asserts picks per type, the 0.5 boundary and ties",
+      "contract_text": "picks: choice, noul >= 0.5, score legend[argmax] ties to the lower index",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/node/test_decider_assess.py::test_unavailable_statuses_are_retryable; tests/node/test_decider_assess.py::test_network_errors_are_unavailable_and_retryable; tests/node/test_decider_assess.py::test_other_statuses_are_rejected_with_status_and_code_not_retryable; tests/node/test_decider_assess.py::test_no_failure_string_carries_the_state_the_body_or_the_key",
+      "behavior_text": "table-driven status mapping and leak check",
+      "contract_text": "each status class maps to its code and retryability; no body or key in failures",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_decider_assess.py::test_a_bad_reply_fails_bad_response_never_partial_picks",
+      "behavior_text": "asserts a non-Clef reply fails decider_bad_response with no picks",
+      "contract_text": "a non-Clef reply fails decider_bad_response with no partial picks",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_decider_assess.py::test_no_failure_string_carries_the_state_the_body_or_the_key; tests/node/test_decider_assess.py::test_the_port_does_not_log; tests/node/test_decider_flow.py::test_the_state_text_is_not_kept_in_the_run_outputs",
+      "behavior_text": "asserts a sentinel state never appears in outputs, failures, logs or run outputs",
+      "contract_text": "the state text never appears in outputs, failures or logs",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/node/test_decider_assess.py::test_one_request_per_invocation",
+      "behavior_text": "asserts exactly one transport call per invocation",
+      "contract_text": "exactly one request per invocation and nothing else",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/rules/test_decider_bundle.py::test_the_bundle_holds_one_decider_actor_on_the_spark_gateway; tests/rules/test_decider_bundle.py::test_it_imports_and_a_second_enabled_clef_actor_is_refused_model_taken; tests/rules/test_decider_bundle.py::test_decider_assess_is_catalogued_routed_described_and_an_endpoint_kind",
+      "behavior_text": "asserts the actor's params, import, model_taken and ENDPOINT_KINDS",
+      "contract_text": "the decider actor imports; an endpoint kind; a second clef actor is refused",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green at the named commit (fake transport)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/rules/test_decider_bundle.py::test_decider_assess_is_catalogued_routed_described_and_an_endpoint_kind; web/src/rules/ActionPicker.decider.test.tsx (4 cases)",
+      "behavior_text": "asserts the catalog, default port, describe phrase and the editor picker's actors and fields",
+      "contract_text": "decider.assess is listed everywhere a kind must be and offered with agent actors with a base_url",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest and vitest ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/node/test_decider_flow.py::test_the_pick_runs_the_matching_branch_and_skips_the_other; tests/node/test_decider_flow.py::test_another_answer_takes_the_other_branch",
+      "behavior_text": "a real Node on MemoryStore runs the workflow; go/hold/careful run or skip by picks and answers",
+      "contract_text": "a later step's when on picks runs or skips according to the decider step's output",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "flow test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "scratchpad decider_live.py (local Node, real DeciderAssessPort, real lobes gateway, committed decider actor)",
+      "behavior_text": "2 runs: succeeded in 0.88 s and 0.94 s, answered by orin, every option with a probability, the same picks",
+      "contract_text": "a real run succeeds in under 5 s with a probability for every option and the same pick on a second run",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed against the live gateway from a local node, not the deployed engine (d1: the engine check waits for a rollout)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "docs/actors/decider.md 'A missing field is false' + its exists example (validated with validate())",
+      "behavior_text": "the warning and an exists example are present and the example step validates",
+      "contract_text": "the missing-field warning with an exists example is present",
+      "evidence_type": "manual",
+      "strength": "coverage",
+      "strength_basis": "read the committed doc and validated its example steps at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:43:37",
+        "commit": "33af3bb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "reply checking is stricter than c19 states: a choice not among the asked criteria, or a score legend whose size differs from the criteria count, also fails decider_bad_response",
+      "caused_by": [
+        "c19"
+      ],
+      "evidence_refs": [
+        "e6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
