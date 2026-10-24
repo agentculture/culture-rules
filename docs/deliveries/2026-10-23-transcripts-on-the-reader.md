@@ -9,8 +9,10 @@ baseline: `devague summary skeleton`
 
 The run built the six code and docs tasks on `rules/transcript-reader` (0.25.0). In t7, the
 33-recording backfill ran live from a local node on the branch code (d6), and the books are
-queued on the operator's reader. The rule on the deployed engine waits for a rollout (d5),
-and the device sync is the operator's. This makes the run partial.
+queued on the operator's reader. After the operator approved it, 0.26.0 (this branch plus the
+stacked decider step, at `35ed23d`) was rolled out to all four nodes. `pocket-to-reader` is
+now enabled on the engine, and an engine run proved the chain. The device sync is the
+operator's, so the run is still partial.
 
 ## Planned Work
 
@@ -34,7 +36,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t4` | delivered | The `transcript-to-reader` workflow (fallback, keep and pick, summary, render, push) and the `pocket-to-reader` rule (OR, d3, disabled, on spark). `recorded_at` passes through. The fold reads `either` (Python and TS), and the corpus went from 11 to 12. Live check fix: the summary asks for up to 2000 tokens. |
 | `t5` | delivered | `docs/operations/transcripts-on-the-reader.md`, its links, the four harness files and 0.25.0 (with `release.json` and `uv.lock`). |
 | `t6` | delivered | agentculture/xteink#8, with the firmware ask as a comment on it (d1), and the `recording_at` ask on agentculture/pocketsync#12. |
-| `t7` | partial | The backfill ran live from a local node with the live actors and real ports (d6). Pass 1: 33 of 33 succeeded, giving 33 distinct library items, all queued on device 3. Pass 2 created 0 and gave the same 33 items and titles. Still pending: enabling `pocket-to-reader` on the engine (a rollout, d5) and the device sync (the operator). |
+| `t7` | partial | The backfill ran live from a local node with the live actors and real ports (d6). Pass 1: 33 of 33 succeeded, giving 33 distinct library items, all queued on device 3. Pass 2 created 0 and gave the same 33 items and titles. 0.26.0 is rolled out (`rollout verify` passed), the bundle is imported (its actors skipped, so the live STT roots stay), and `pocket-to-reader` is enabled. On the engine, a transcription success started one reader run 3.5 s later, which queued its book 15 s after the transcription finished (e14). Still pending: the device sync (the operator, o13). |
 
 ## Mid-work Decisions
 
@@ -42,7 +44,8 @@ Quoted verbatim from the `devague summary` skeleton:
 - `d2` — `llm.complete` reads the transcript excerpt itself, so the transcript text never enters run state. The short summary reply stays a step output. The operator chose this.
 - `d3` — one rule `pocket-to-reader` with an OR condition, and the fold learns to read an OR of one predecessor per branch. The operator chose one rule over two.
 - `d4` (proposed) — `transcript.render` keeps the first book beside its transcript and returns it on later runs. Reason: a colleague review found that a re-run's different summary would make a second book. The decider (domain `general`) gave `cache_book_file` 0.93 against three other options. Logged in culture-rules#83.
-- `d5` (proposed) — t7 waits for a rollout approval, and the pre-PR live check runs on a local node with the push stubbed. Decider: `local_now_engine_after_merge` 0.59, `ask_then_rollout` 0.37, `rollout_branch_now` 0.04. Logged in culture-rules#83.
+- `d5` (proposed) — t7 waits for a rollout approval, and the pre-PR live check runs on a local node with the push stubbed. Decider: `local_now_engine_after_merge` 0.59, `ask_then_rollout` 0.37, `rollout_branch_now` 0.04. Logged in culture-rules#83. The operator then approved the rollout ("Approve rollout"), and 0.26.0 went out from the unmerged branch head `35ed23d`.
+- At import, the bundle's actors were left out: importing them would have reset the live `stt-en` and `stt-he` roots to the committed placeholders. Only the workflows and rules were imported.
 - The live check found that `max_tokens: 400` left cortex-spark2 no room to answer after its reasoning (`llm_bad_response`). It is now 2000, as the newspaper uses (delta b1).
 - `d6` (proposed) — the backfill runs before the merge, from a local node with the live actors and real ports. Reason: the operator asked for the backfill and for live tests before the PR. Decider: backfill must wait P=0.31.
 - Preparing the backfill found that the live `newspaper-library` actor has no `device_id`. The newspaper passes the `newspaper_device` variable instead, so every push would have failed. The workflow now takes `device_id`, and `pocket-to-reader` maps it from that variable (delta b3).
@@ -60,7 +63,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t4` (`d2`) | the excerpt would otherwise be stored in every run; the operator chose to keep the transcript out and allow the summary | acceptable |
 | `t4` (`d3`) | the fold read the OR rule as continuing from every workflow; the operator chose one rule with OR | acceptable |
 | `t1` (`d4`, proposed) | re-runs could create a second book; the render now writes a cache file into the transcripts folder | acceptable |
-| `t7` (`d5`, `d6`, proposed) | rollouts need the operator; the backfill ran live from a local node, and the engine rule and the device sync are still pending | needs-follow-up |
+| `t7` (`d5`, `d6`, proposed) | rollouts need the operator; the backfill ran live from a local node, and the engine rule went live after the approved rollout; the device sync is still pending | needs-follow-up |
 | `t4` | `device_id` input mapped from `newspaper_device` (b3) | acceptable |
 | `t2` | `max_tokens` 400 → 2000 after the live check | acceptable |
 
@@ -80,7 +83,8 @@ Quoted verbatim from the `devague summary` skeleton:
 - live (local node, push stubbed): one real Hebrew recording, 2 runs.
   - Both succeeded, the summary was used, and the title has the `<date> <word>` shape.
   - The book is RTL, and both runs pushed the same bytes. Each run took 39–46 s.
-- devague: obligations o1–o14 and evidence e1–e11 are filed, all proposed. o12–o14 have no evidence yet: they wait for t7.
+- live (deployed engine 0.26.0, after the rollout): `rollout verify` passed (4 nodes on 0.26.0, API 0.26.0, engine running, the 2 snapshot rules enabled). Then `transcribe-file-he` was run directly for recording `a41fdac7bee2`, whose result was already on disk (run `run-1ac3947609254ae19e941f1a71d44256`). `pocket-to-reader` started exactly one reader run (`run-75def4e5483f342bc068c65b612f978f`), with every step on spark. It gave the same book, item 29 "2026-10-15 summer", `created: false`. Device 3's queue holds the 33 transcript entries plus the day's newspaper.
+- devague: obligations o1–o14 and evidence e1–e15 are filed, all proposed. o13 (the device) has no evidence yet.
 - commits: `062c9c8..1883d88` on `rules/transcript-reader`.
 - issues: culture-rules#83 (the decisions log), #82 (lighter test runs), agentculture/xteink#8, agentculture/pocketsync#12.
 
@@ -95,16 +99,15 @@ Quoted verbatim from the `devague summary` skeleton:
 | A re-run never makes a second book, even with a different summary | high | e9 (sensitivity) |
 | `library.push` takes `kind` | medium | e7: capped by l1 (not test-first; the control was run afterwards) |
 | The cross-repo asks exist | high | e8 |
-| A real recording's summary and book work against the live model | medium | the local live check (d5): not the deployed engine, push stubbed |
-| All 33 past recordings are in the reader's library and queue, with 0 duplicates after a re-run | high | e12, e13: observed live (33 items, the device 3 queue holds them, pass 2 created 0) |
-| A new recording's book is queued within 10 minutes of its transcription | unverified | needs the engine rule (a rollout, d5) |
+| A real recording's summary and book work against the live model | high | e12 (backfill, real ports) and e14 (the deployed engine) |
+| All 33 past recordings are in the reader's library and queue, with 0 duplicates after a re-run | high | e12, e13, e14: observed live (33 items, the device 3 queue holds them, pass 2 and the engine re-run created 0) |
+| A new recording's book is queued within 10 minutes of its transcription | medium | e14: on the engine, 15 s from a transcription success to the queued book; shown with an already-transcribed recording, because the STT rules stay off until pocketsync#12 |
 | Books appear on the device and read right to left | unverified | the operator's device sync (o13) |
 
 ## Remaining Work / Follow-up
 
-- t7: roll out 0.26.0 (both features), then import the bundles and enable `pocket-to-reader`, so new recordings get their books. Owner: the operator's approval, then Claude.
 - Sync the reader and check the 33 books, Hebrew right to left (o13). Owner: the operator.
-- Adjudicate the proposed records: d4, d5, d6, o1–o14, e1–e13, b1–b3. Owner: the operator.
+- Adjudicate the proposed records: d4, d5, d6, o1–o14, e1–e15, b1–b3. Owner: the operator.
 - agentculture/xteink#8: once the `transcript` kind and the firmware folder ship, switch the push to `kind: transcript`.
 - agentculture/pocketsync#12: the landed event with `recording_at`; then enable the STT rules (item 6 of the earlier plan).
 - culture-rules#82: lighter local test runs, and cleanup of orphaned test rigs.

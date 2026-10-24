@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T02:00:31Z",
+  "updated": "2026-10-24T04:48:10Z",
   "deviations": [
     {
       "id": "d1",
@@ -339,6 +339,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 19
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "deployed engine 0.26.0, pocket-to-reader enabled: transcribe-file-he run run-1ac3947609254ae19e941f1a71d44256 (recording a41fdac7bee2, result already on disk) -> pocket-to-reader run run-75def4e5483f342bc068c65b612f978f",
+      "behavior_text": "the transcription run finished 04:47:02Z; rules.run.succeeded started exactly one transcript-to-reader run at 04:47:05Z (3.5 s), which succeeded at 04:47:17Z: title 2026-10-15 summer, summary used, item 29, created false; device 3 queue still holds the 33 transcript entries plus the day's newspaper",
+      "contract_text": "c21: 33 items for 33 recordings, 0 new after a re-run, a new book queued within 10 minutes",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "the engine chain from a transcription success to the queued book takes 15 s, far inside 10 minutes; a recording that pocketsync has not yet seen is not shown, because the STT rules stay disabled until pocketsync#12 ships the landed event",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T04:47:17Z",
+        "commit": "35ed23d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o11",
+      "test_ref": "deployed engine run run-75def4e5483f342bc068c65b612f978f (rule pocket-to-reader)",
+      "behavior_text": "every executed step (keep, pick, summary, render, push) ran on host spark; fallback skipped",
+      "contract_text": "c22: pocket-to-reader is placed on machine spark",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed on the live engine after the rollout",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T04:47:17Z",
+        "commit": "35ed23d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
     }
   ],
   "deltas": [
