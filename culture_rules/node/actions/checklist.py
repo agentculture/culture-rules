@@ -47,7 +47,8 @@ The builtins
   UTF-8, for ``library.push``. Item text cannot break its line or comment: whitespace
   (newlines included) collapses to one space, ``<!--`` and ``-->`` are escaped. A missing
   list renders as ``""`` with revision 0; ``empty`` is true whenever there are no items.
-* ``checklist.bind`` - inputs ``list_key``, ``item_id`` (the library item), ``revision`` (the
+* ``checklist.bind`` - inputs ``list_key``, ``item_id`` (the library item: a positive int, as
+  ``library.push`` returns it, or a string; kept as given), ``revision`` (the
   rendered revision that was pushed). Stores both only when ``revision`` is newer than the
   stored ``pushed_revision`` (re-binding the same item at the same revision answers bound,
   without a write). Output ``{bound, stale, pushed_revision, item_id, revision, reason}``:
@@ -213,6 +214,16 @@ def _text_id(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value or len(value) > _MAX_ID:
         raise _bad(f"{name}: a non-empty string (at most {_MAX_ID})")
     return value
+
+
+def _item_ref(value: Any) -> int | str:
+    """The library item id: a positive int (library.push's ``item_id``) or a non-empty string,
+    kept as given so it maps straight back into a replace."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value < 1:
+            raise _bad(f"{_ITEM_ID}: a positive int or a non-empty string")
+        return value
+    return _text_id(value, _ITEM_ID)
 
 
 def _at(value: Any) -> float:
@@ -415,7 +426,7 @@ class ChecklistBindPort(_ChecklistPort):
 
     def _run(self, input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
         key = _list_key(_param(input, config, _LIST_KEY))
-        item_id = _text_id(input.get(_ITEM_ID), _ITEM_ID)
+        item_id = _item_ref(input.get(_ITEM_ID))
         pushed = _revision(input.get(_REVISION))
         for _ in range(CAS_TRIES):
             doc = self._get(key)

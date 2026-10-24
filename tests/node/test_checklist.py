@@ -49,7 +49,7 @@ def merge(store, items, *, key=KEY, prefix=PREFIX, title=None, config=None):
     return ChecklistMergePort(store).invoke(inputs, "k", DEADLINE, context=ctx(config))
 
 
-def flip(store, item_id, done, at, by="ori", *, key=KEY):
+def flip(store, item_id, done, at, by="operator", *, key=KEY):
     inputs = {"list_key": key, "id": item_id, "done": done, "at": at, "by": by}
     return ChecklistSetPort(store).invoke(inputs, "k", DEADLINE, context=ctx())
 
@@ -106,7 +106,7 @@ def test_merge_keeps_id_and_done_mark_of_a_matching_item(store):
     out = ok(merge(store, ["  buy MILK. ", "call the bank"]))
     assert out["added"] == 0 and out["kept"] == 2 and out["total"] == 2
     item = items_of(store)["todo.weekly.1"]
-    assert item["done"] is True and item["at"] == 100.0 and item["by"] == "ori"
+    assert item["done"] is True and item["at"] == 100.0 and item["by"] == "operator"
     # the original wording is kept: a match differs only by case, space or end punctuation
     assert item["text"] == "Buy milk"
 
@@ -401,7 +401,7 @@ def test_bind_unknown_list(store):
     assert out["bound"] is False and out["reason"] == "unknown_list"
 
 
-@pytest.mark.parametrize("item_id,revision", [("", 1), ("x", -1), ("x", True), ("x", 1.5), (3, 1)])
+@pytest.mark.parametrize("item_id,revision", [("", 1), ("x", -1), ("x", True), ("x", 1.5), (0, 1)])
 def test_bind_refuses_bad_input(store, item_id, revision):
     ok(merge(store, ["a"]))
     res = bind(store, item_id, revision)
@@ -431,3 +431,18 @@ def test_a_set_landing_during_a_merge_survives(store):
     out = ok(ChecklistMergePort(racing).invoke(inputs, "k", DEADLINE, context=ctx()))
     assert out["added"] == 1 and out["revision"] == 3
     assert items_of(store)["todo.weekly.1"]["done"] is True
+
+
+def test_bind_takes_library_push_s_integer_item_id_and_keeps_it(store):
+    """t7 integration: library.push returns item_id as an int; bind keeps it for a replace."""
+    ok(merge(store, ["Buy milk"]))
+    out = ok(bind(store, 42, 1))
+    assert out["bound"] is True and out["item_id"] == 42
+    assert store.get(CHECKLISTS_COLLECTION, KEY)["item_id"] == 42
+
+
+@pytest.mark.parametrize("bad", [0, -3, True, 2.5, ""])
+def test_bind_refuses_a_bad_item_id(store, bad):
+    ok(merge(store, ["Buy milk"]))
+    result = bind(store, bad, 1)
+    assert result.outcome == "failed" and result.error.startswith("bad_input")
