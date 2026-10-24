@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-24T21:25:38Z",
-  "updated": "2026-10-24T22:01:56Z",
+  "updated": "2026-10-24T22:17:34Z",
   "claims": [
     {
       "id": "c1",
@@ -785,5 +785,168 @@
       "status": "proposed"
     }
   ],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c25",
+      "seam": "library.push format",
+      "behavior": "a listed format uploads with its extension and content type; an unlisted one is refused before any request; no format sends EPUB as before",
+      "source_text": "library.push takes a `format` (the file extension, e.g. md or epub) and sends the matching content type and filename; the actor lists the `formats` its library accepts, like kinds; the default stays epub so existing steps are unchanged",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c26",
+      "seam": "library.push replace",
+      "behavior": "item_id goes to the actor's replace_path with replace_method; without a replace_path it is refused before any request",
+      "source_text": "library.push replaces an item when given `item_id`: it sends the bytes to the actor's `replace_path` (with `{item_id}` as one segment) with the actor's `replace_method`, and refuses item_id when the actor has no replace_path; the exact route is culture-library's to define",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c15",
+      "seam": "culture-library ask + replace mode",
+      "behavior": "an issue asks culture-library for the replace route and the todo kind; the replace mode is driven only by actor config",
+      "source_text": "culture-rules asks culture-library (an issue on its repo) for a replace-under-the-same-id route and a `todo` kind; library.push gains an actor-configured replace path that uses the route (operator 2026-10-25)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c17",
+      "seam": "transcript.render format md",
+      "behavior": "Markdown with the title, summary, key facts, then the transcript; right to left for Hebrew; derived text escaped",
+      "source_text": "a transcript item is one Markdown file of kind transcript: the summary and key facts first, then the transcript (operator 2026-10-25)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c23",
+      "seam": "llm.complete recording brief",
+      "behavior": "brief recording sends a locked constant and returns a parsed {summary, word, facts, action_items}",
+      "source_text": "one new locked brief, `recording`, returns JSON {summary, word, facts, action_items} for a transcript, read through content_path so the text never enters run state; the existing `transcript` brief and the reader book are unchanged",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c29",
+      "seam": "llm.complete answer cache",
+      "behavior": "a second run on the same content file returns the first valid answer without calling the model",
+      "source_text": "re-running a recording's extraction gives the same items: the recording brief's parsed answer is kept beside its transcript file (keyed by the transcript sha256, as the reader book is, d4), so matching by text only matters when the transcript itself changed",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c24",
+      "seam": "checklist builtins",
+      "behavior": "merge keeps ids and done marks, set applies only newer, render writes the line shape, bind records the pushed item",
+      "source_text": "generic checklist builtins over their own store collection, keyed by a list key (e.g. a recording id): `checklist.merge` merges newly extracted item texts into the stored list (an item that matches an existing one by normalized text keeps its id and done mark; a new one gets the next unused index, never reused; an existing item not found again is kept), `checklist.set` sets one item done or not done with at and by, applying it only if its at is newer than the item's last one and ignoring unknown ids, and `checklist.render` writes the Markdown (`- [ ] text <!-- todo:<id> -->`, done lines carry when and by in the comment); the list also remembers its library item id",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c16",
+      "seam": "re-extraction",
+      "behavior": "items matched by normalized text keep their ids and done marks across two extractions",
+      "source_text": "a recording's to-dos are extracted by a model through a new locked brief over our transcript, not taken from Pocket's action items (operator 2026-10-25); because model output can vary between runs, re-extraction must still keep existing ids and done marks",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c27",
+      "seam": "concurrent flips",
+      "behavior": "two flips on different items of one list both survive, in either order, under a real rev conflict",
+      "source_text": "no todo event is ever coalesced away: a concurrency key shared by a recording's flips drops all but the newest pending event (culture_rules/node/firing.py), so every flip is recorded in the stored list by its own run, and the library item is always rendered from the stored list, never from the event alone",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c28",
+      "seam": "stale push",
+      "behavior": "bind keeps only a newer revision and reports stale when the list moved on",
+      "source_text": "a stale replace can't win: checklist.render returns the stored list's revision, and recording the pushed item (`checklist.bind`) stores the pushed revision only if newer and reports when the stored list has moved on, so a workflow can render and push again until the library holds the latest revision",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c34",
+      "seam": "json.read",
+      "behavior": "named scalar fields from a JSON file under a root; outside the root, symlink out, missing, not JSON are refused",
+      "source_text": "a generic `json.read` builtin returns named fields (dotted paths, scalars only) from a JSON file that resolves under a configured root, symlinks included; a missing field is null, a file outside the root or not JSON fails before reading further",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c18",
+      "seam": "audio.transcribe without a hash",
+      "behavior": "without audio_sha256 the port hashes the file and writes under the same result path",
+      "source_text": "transcription fires from pocketsync.recording.enriched with change created, and audio.transcribe hashes the audio itself when no audio_sha256 is given (operator 2026-10-25)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c30",
+      "seam": "audio.transcribe missing file",
+      "behavior": "a missing audio file fails audio_missing, non-retryable",
+      "source_text": "a recording with no audio is skipped, not retried: audio.transcribe fails a missing audio file with a final, non-retryable code",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c19",
+      "seam": "the PR's code and tests",
+      "behavior": "no code, test or web file names Gwen, embodiment or a person",
+      "source_text": "the operator, who configures the Gwen flows live from generic steps, and Gwen (embodiment), who reads culture-library with GET only and is never a writer",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c2",
+      "seam": "embodiment ingest",
+      "behavior": "no live definition or repo code calls embodiment memory ingest",
+      "source_text": "culture-rules runs no embodiment memory ingest today: no code, no committed bundle and no live workflow, rule or actor calls `embodiment memory ingest`, so request item 5 (stop the ingest calls) has nothing to stop on culture-rules' side",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c21",
+      "seam": "live flows",
+      "behavior": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "source_text": "each new Pocket recording is transcribed on its own, and culture-library gets a Markdown `transcript` item (summary and key facts, then the transcript) and, when the recording has action items, a `todo` checklist item; when Gwen marks a to-do done, the checklist item is replaced under the same id; everything Gwen knows is in the library",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c22",
+      "seam": "live success signal",
+      "behavior": "a todo event flips its line within 60 s under the same item id; re-extraction keeps ids",
+      "source_text": "with the flows configured live: a recording's `enriched` event yields its transcript item and, when it has action items, its todo item with no manual step; an `embodiment.bus.todo` event changes its line within 60 s and the todo item keeps its id; re-extracting a recording keeps 100% of the ids and done marks of the to-dos it still finds",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c14",
+      "seam": "live newspaper",
+      "behavior": "the live newspaper push sends kind newspaper with its links",
+      "source_text": "newspapers already keep their article links in the issue (HTML and EPUB anchors, summary links checked against the section's results) and already go to culture-library as kind newspaper; no newspaper code change",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
 }
