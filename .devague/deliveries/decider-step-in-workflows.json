@@ -2,7 +2,7 @@
   "plan_slug": "decider-step-in-workflows",
   "schema_version": 2,
   "created": "2026-10-24T00:37:47Z",
-  "updated": "2026-10-24T00:44:05Z",
+  "updated": "2026-10-24T04:48:10Z",
   "deviations": [
     {
       "id": "d1",
@@ -266,6 +266,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 14
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o12",
+      "test_ref": "deployed engine 0.26.0: runs run-bb18006ce01f4495aab396f1dd87601e, run-717d7af467c64bf5aff27885dfdeac2c of a throwaway workflow decider-live-check (made with workflows create, then deleted and purged)",
+      "behavior_text": "two direct runs on the rolled-out engine: both succeeded, end to end 3.4 s and 2.4 s (the decider-general pool ran them one at a time); the ask step ran on spark and was answered by host orin, domain general; every option has a probability; picks identical both runs (action run_as_usual, disk_ok true, risk low); go ran, hold and careful skipped",
+      "contract_text": "c18: a real run succeeds in under 5 s with a probability for every option and the same pick on a second run",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "observed on the deployed engine (not a local node) after the operator approved the 0.26.0 rollout; it closes d1's pending engine check",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T04:46:19Z",
+        "commit": "35ed23d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
     }
   ],
   "deltas": [
