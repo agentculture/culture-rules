@@ -417,7 +417,8 @@ action step that names `A` at `B` (a step placed on `A` is only warned about). W
 stale one is 409 `revision_conflict` (exit 1). A trusted workflow is refused
 (`workflow_trusted`) unless `--force`, which drops its trust. `B` must be able to run the
 steps: the same kind as `A` (an `app` on the same surface), and an endpoint actor when `A`
-is one or a step is `llm.complete` (`target_kind_mismatch` otherwise). The dry-run lists
+is one or a step is an endpoint kind (`llm.complete`, `audio.transcribe`,
+`decider.assess`; `target_kind_mismatch` otherwise). The dry-run lists
 the changed step paths and warnings.
 
 One enabled endpoint actor per model: create, update, enable, restore and import refuse a

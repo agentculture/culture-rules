@@ -659,7 +659,14 @@ def test_a_status_comment_action_says_so():
 
 
 def test_action_words_cover_the_newspaper_kinds():
-    for kind in (EMAIL_SEND, "search.web", "llm.complete", "library.push", "audio.transcribe"):
+    for kind in (
+        EMAIL_SEND,
+        "search.web",
+        "llm.complete",
+        "library.push",
+        "audio.transcribe",
+        "decider.assess",
+    ):
         assert kind in ACTION_WORDS, kind
 
 
