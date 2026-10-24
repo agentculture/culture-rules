@@ -274,6 +274,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         HandoffImportPort,
     )
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
+    from culture_rules.node.actions import checklist  # noqa: PLC0415
     from culture_rules.node.actions.decider import DeciderAssessPort  # noqa: PLC0415
     from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
     from culture_rules.node.actions.fixer_cooldown import (  # noqa: PLC0415
@@ -299,6 +300,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     )
     from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
     from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
+    from culture_rules.node.actions.json_read import (  # noqa: PLC0415
+        JSON_READ_BUILTIN,
+        JsonReadPort,
+    )
     from culture_rules.node.actions.library import LibraryPushPort  # noqa: PLC0415
     from culture_rules.node.actions.llm import LlmCompletePort  # noqa: PLC0415
     from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
@@ -382,6 +387,17 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 IMPORT_BUILTIN: HandoffImportPort.from_env(store),  # #39: ... into spark2
                 FIXER_COOLDOWN_BUILTIN: FixerCooldownPort(store),  # #39: capacity_exhausted
                 SELECT_BUILTIN: SelectPort(),  # #39: the gate's one source, whichever path ran
+                JSON_READ_BUILTIN: JsonReadPort(),  # named fields from a JSON file under a root
+                checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
+                    store
+                ),  # stored lists, stable ids
+                checklist.SET_BUILTIN: checklist.ChecklistSetPort(store),  # a newer flip wins
+                checklist.RENDER_BUILTIN: checklist.ChecklistRenderPort(
+                    store
+                ),  # Markdown + revision
+                checklist.BIND_BUILTIN: checklist.ChecklistBindPort(
+                    store
+                ),  # pushed item + revision
             }
         ),
     }

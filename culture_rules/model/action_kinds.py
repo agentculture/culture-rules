@@ -29,9 +29,10 @@ addresses on its recipient allowlist; ``search.web`` queries through a ``search`
 kind of endpoint for a transcript written under ``output_dir``;
 ``transcript.render`` renders a transcript under the transcripts root, with its summary, as
 an EPUB (no actor needed);
-``library.push`` uploads ``content_base64`` (an EPUB) as ``kind`` (and ``visibility``) to the
-library its actor describes, queueing it for ``device_id`` when that library has a device
-queue (culture-rules#86).
+``library.push`` uploads ``content_base64`` (an EPUB, or another ``format`` the actor lists) as
+``kind`` (and ``visibility``) to the library its actor describes, or replaces ``item_id`` there
+through the actor's ``replace_path``, queueing a new upload for ``device_id`` when that library
+has a device queue (culture-rules#86).
 Standard-library only.
 """
 
@@ -175,7 +176,8 @@ _KINDS = (
         max_tokens=_I,
         temperature=ParamSpec("any"),
         not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
-        brief=_S,  # which locked brief: newspaper (default) or transcript
+        brief=_S,  # which locked brief: newspaper (default), transcript or recording
+        cache=ParamSpec("bool"),  # recording + content_path: keep the first valid answer
     ),
     _k(
         "decider.assess",
@@ -192,24 +194,25 @@ _KINDS = (
         "Transcribe an audio file with a speech-to-text endpoint on an agent actor",
         actor=_RS,
         audio_path=_RS,
-        audio_sha256=_RS,
+        audio_sha256=_S,  # optional: without it the port hashes the file itself
         output_dir=_RS,
         language=_S,
         model=_S,
     ),
     _k(
         "transcript.render",
-        "Render one transcript and its summary as an EPUB (right to left for Hebrew)",
+        "Render one transcript and its summary as an EPUB or Markdown (right to left for Hebrew)",
         actor=_S,  # optional: its transcripts_root/output_root is a second boundary
         result_path=_RS,
         root=_RS,  # the transcripts root: result_path must resolve under it
         recorded_at=_RS,  # ISO-8601 with a zone; dated in Asia/Jerusalem
         language=_S,
         summary=ParamSpec("any"),  # llm.complete's output: {text} or a string, or none
+        format=_S,  # epub (default) or md: summary, key facts, then the transcript
     ),
     _k(
         "library.push",
-        "Upload an EPUB to a library (and queue it when the library has a device queue)",
+        "Upload a file to a library, or replace one by id (and queue it on a device queue)",
         actor=_RS,
         content_base64=_RS,
         title=_RS,
@@ -217,6 +220,8 @@ _KINDS = (
         visibility=_S,  # one of the actor's params.visibilities
         author=_S,
         device_id=_S,  # used only when the actor has a queue_path
+        format=_S,  # one of the actor's params.formats; epub when unset
+        item_id=ParamSpec("int"),  # replace this item through the actor's replace_path
     ),
 )
 

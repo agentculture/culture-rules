@@ -1,4 +1,4 @@
-"""The checklist builtins (gwen-reads-the-library): a to-do list kept in the store.
+"""The checklist builtins (library items): a to-do list kept in the store.
 
 Four built-in code ports over :data:`CHECKLISTS_COLLECTION`, one document per list. Standard
 library only; every output is a scalar or a plain value. Each step input is read from the

@@ -1,4 +1,4 @@
-"""gwen-reads-the-library t4: the checklist builtins over a stored list.
+"""library items t4: the checklist builtins over a stored list.
 
 ``checklist.merge`` folds a fresh extraction into a list (ids and done marks kept, c16/c29),
 ``checklist.set`` applies one flip (newest ``at`` wins, no flip lost under contention, c27),
@@ -209,10 +209,10 @@ def test_set_applies_only_when_at_is_newer(store):
     out = ok(flip(store, "todo.weekly.1", False, 9))
     assert out["applied"] is False and out["reason"] == "stale"
     assert items_of(store)["todo.weekly.1"]["done"] is True
-    out = ok(flip(store, "todo.weekly.1", False, 11, "gwen"))
+    out = ok(flip(store, "todo.weekly.1", False, 11, "assistant"))
     assert out["applied"] is True
     item = items_of(store)["todo.weekly.1"]
-    assert (item["done"], item["at"], item["by"]) == (False, 11, "gwen")
+    assert (item["done"], item["at"], item["by"]) == (False, 11, "assistant")
 
 
 def test_set_unknown_list_or_id_is_ignored_with_a_reason(store):
@@ -307,12 +307,13 @@ def test_set_gives_up_retryably_when_always_contended(store):
 
 def test_render_writes_todo_and_done_lines_under_a_title(store):
     ok(merge(store, ["Buy milk", "Call the bank"], title="This week"))
-    ok(flip(store, "todo.weekly.2", True, 1_700_000_000, "gwen"))
+    ok(flip(store, "todo.weekly.2", True, 1_700_000_000, "assistant"))
     out = ok(render(store))
     assert out["markdown"] == (
         "# This week\n\n"
         "- [ ] Buy milk <!-- todo:todo.weekly.1 -->\n"
-        "- [x] Call the bank <!-- todo:todo.weekly.2 done_at=2023-11-14T22:13:20Z by=gwen -->\n"
+        "- [x] Call the bank"
+        " <!-- todo:todo.weekly.2 done_at=2023-11-14T22:13:20Z by=assistant -->\n"
     )
     assert base64.b64decode(out["content_base64"]).decode("utf-8") == out["markdown"]
     assert out["revision"] == 2 and out["empty"] is False and out["item_count"] == 2

@@ -248,7 +248,7 @@ OPTIONAL = {
     EMAIL_SEND: ("html", "text"),
     SEARCH_WEB: ("count", "freshness", "country", "lang"),
     LLM_COMPLETE: ("max_tokens", "temperature"),
-    LIBRARY_PUSH: ("author", "device_id", "visibility"),
+    LIBRARY_PUSH: ("author", "device_id", "visibility", "format", "item_id"),
 }
 
 
@@ -315,10 +315,10 @@ AUDIO = {
 def test_audio_transcribe_params_and_required_flags() -> None:
     params = ACTION_KINDS["audio.transcribe"].params
     assert set(params) == {"actor", "audio_path", "audio_sha256", "output_dir", "language", "model"}
-    for name in ("actor", "audio_path", "audio_sha256", "output_dir"):
+    for name in ("actor", "audio_path", "output_dir"):
         assert params[name].type == "str", name
         assert params[name].required, name
-    for name in ("language", "model"):
+    for name in ("audio_sha256", "language", "model"):  # the port hashes the file itself
         assert params[name].type == "str", name
         assert not params[name].required, name
 
@@ -337,3 +337,34 @@ def test_llm_complete_takes_content_or_content_path() -> None:
     assert ("action.params.content", "action_param_required") in _errs(LLM_COMPLETE, base)
     for one in ({"content": "text"}, {"content_path": "/t/x.json", "content_root": "/t"}):
         assert not [e for e in _errs(LLM_COMPLETE, {**base, **one}) if e[0].endswith("content")]
+
+
+# --- the generic pieces for library items (library items, t7) ----------------------
+
+
+def test_audio_transcribe_is_valid_without_audio_sha256() -> None:
+    no_hash = {k: v for k, v in AUDIO.items() if k != "audio_sha256"}
+    assert _errs("audio.transcribe", no_hash) == set()
+
+
+def test_llm_complete_takes_cache_as_a_bool() -> None:
+    params = ACTION_KINDS[LLM_COMPLETE].params
+    assert params["cache"].type == "bool" and not params["cache"].required
+    ok = {"actor": "c", "content_path": "/t/x.json", "content_root": "/t", "brief": "recording"}
+    assert _errs(LLM_COMPLETE, {**ok, "cache": True}) == set()
+    assert ("action.params.cache", "action_param_type") in _errs(LLM_COMPLETE, {**ok, "cache": "y"})
+
+
+def test_transcript_render_takes_a_format() -> None:
+    params = ACTION_KINDS["transcript.render"].params
+    assert params["format"].type == "str" and not params["format"].required
+
+
+def test_library_push_takes_format_and_an_int_item_id() -> None:
+    params = ACTION_KINDS[LIBRARY_PUSH].params
+    assert params["format"].type == "str" and params["item_id"].type == "int"
+    base = NEWSPAPER_KINDS[LIBRARY_PUSH]
+    assert _errs(LIBRARY_PUSH, {**base, "format": "md", "item_id": 7}) == set()
+    assert ("action.params.item_id", "action_param_type") in _errs(
+        LIBRARY_PUSH, {**base, "item_id": "7"}
+    )

@@ -38,6 +38,12 @@ const METHODS: readonly Choice[] = ["GET", "POST", "PUT", "PATCH", "DELETE"].map
 const BRIEFS: readonly Choice[] = [
   { value: "newspaper", label: "Newspaper" },
   { value: "transcript", label: "Transcript" },
+  { value: "recording", label: "Recording: summary, key facts, action items" },
+];
+/** transcript.render's output formats. */
+const RENDER_FORMATS: readonly Choice[] = [
+  { value: "epub", label: "EPUB book" },
+  { value: "md", label: "Markdown" },
 ];
 const FRESHNESS: readonly Choice[] = [
   { value: "pd", label: "Past day" },
@@ -128,16 +134,25 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
       max_tokens: I,
       temperature: { type: "number" },
       not_after: S,
+      cache: { type: "bool" },
     },
     anyOf: [["content", "content_path"]],
   },
   "audio.transcribe": {
     label: "Transcribe an audio file",
-    params: { actor: RS, audio_path: RS, audio_sha256: RS, output_dir: RS, language: S, model: S },
+    params: { actor: RS, audio_path: RS, audio_sha256: S, output_dir: RS, language: S, model: S },
   },
   "transcript.render": {
-    label: "Make a book from a transcript",
-    params: { actor: S, result_path: RS, root: RS, recorded_at: RS, language: S, summary: { type: "any" } },
+    label: "Make a book or Markdown from a transcript",
+    params: {
+      actor: S,
+      result_path: RS,
+      root: RS,
+      recorded_at: RS,
+      language: S,
+      summary: { type: "any" },
+      format: { ...S, options: RENDER_FORMATS, choose: "EPUB book (default)" },
+    },
   },
   "decider.assess": {
     label: "Ask the decider",
@@ -151,10 +166,18 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
       title: RS,
       kind: { ...RS, optionsFrom: "kinds", choose: "Choose a kind…" },
       visibility: { ...S, optionsFrom: "visibilities", choose: "The library's default" },
+      format: { ...S, optionsFrom: "formats", choose: "EPUB (default)" },
+      item_id: I,
       author: S,
       device_id: S,
     },
   },
+};
+
+/** Checkbox labels that read better than the param name. */
+const BOOL_LABELS: Record<string, string> = {
+  resolve: "Resolve the thread",
+  cache: "Keep the first answer for this file",
 };
 
 /** Params shown as a textarea: long text. */
@@ -795,6 +818,7 @@ function libraryCarryOver(
     device_id: actor?.params?.queue_path == null ? undefined : params.device_id,
     kind: listed("kinds", params.kind),
     visibility: listed("visibilities", params.visibility),
+    format: listed("formats", params.format),
   };
 }
 
@@ -892,7 +916,7 @@ function ParamField({
           checked={params[name] === true}
           onChange={(e) => setParam(name, e.target.checked ? true : undefined)}
         />
-        <span>{name === "resolve" ? "Resolve the thread" : cap(name)}</span>
+        <span>{BOOL_LABELS[name] ?? cap(name)}</span>
       </label>
     );
   }

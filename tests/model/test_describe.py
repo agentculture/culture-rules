@@ -378,6 +378,13 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
         ),
         (
             {
+                "kind": "library.push",
+                "params": {"actor": "library", "kind": "todo", "format": "md", "item_id": 7},
+            },
+            "library.push as library kind todo as .md replacing item 7",
+        ),
+        (
+            {
                 "kind": "audio.transcribe",
                 "params": {"actor": "whisper", "audio_path": "/data/a.wav"},
             },

@@ -89,3 +89,25 @@ describe("library.push kind", () => {
     expect(ACTION_KINDS["library.push"].params.visibility.optionsFrom).toBe("visibilities");
   });
 });
+
+describe("the library-item pieces (library items, t7)", () => {
+  it("offers the recording brief and a cache switch on llm.complete", () => {
+    const params = ACTION_KINDS["llm.complete"].params;
+    expect(params.brief.options?.map((o) => o.value)).toContain("recording");
+    expect(params.cache.type).toBe("bool");
+  });
+
+  it("lets transcript.render write Markdown and audio.transcribe go without a hash", () => {
+    expect(ACTION_KINDS["transcript.render"].params.format.options?.map((o) => o.value)).toEqual([
+      "epub",
+      "md",
+    ]);
+    expect(ACTION_KINDS["audio.transcribe"].params.audio_sha256.required).toBeFalsy();
+  });
+
+  it("lets library.push pick a format from the actor and replace an item by id", () => {
+    const params = ACTION_KINDS["library.push"].params;
+    expect(params.format.optionsFrom).toBe("formats");
+    expect(params.item_id.type).toBe("int");
+  });
+});

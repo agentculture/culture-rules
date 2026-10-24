@@ -77,6 +77,11 @@ BUILTIN_WORDS: dict[str, str] = {
     "handoff.import": "handoff.import: that pack into a fresh fixer-owned worktree",
     "fixer.cooldown": "fixer.cooldown: the failed try's level rests after capacity_exhausted",
     "select": "select: the outputs of the path that ran (one source for the next step)",
+    "json.read": "json.read: named fields from a JSON file under its root",
+    "checklist.merge": "checklist.merge: add new items, keep ids and done marks",
+    "checklist.set": "checklist.set: mark one item done or not, if newer",
+    "checklist.render": "checklist.render: the list as Markdown, with its revision",
+    "checklist.bind": "checklist.bind: record the pushed library item and revision",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
@@ -105,7 +110,13 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "audio.transcribe": (("audio_path", "of {}"),),
     "transcript.render": (("result_path", "of {}"),),
     "decider.assess": (),
-    "library.push": (("kind", "kind {}"), ("visibility", "({})"), ("device_id", "to device {}")),
+    "library.push": (
+        ("kind", "kind {}"),
+        ("visibility", "({})"),
+        ("format", "as .{}"),
+        ("item_id", "replacing item {}"),
+        ("device_id", "to device {}"),
+    ),
     "noop": (),
 }
 
