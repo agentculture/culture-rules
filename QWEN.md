@@ -86,7 +86,8 @@ On disk today:
 - the decider step (spec `docs/specs/2026-10-24-decider-step-in-workflows.md`,
   guide `docs/actors/decider.md`): the action kind `decider.assess` (the mesh's
   decider on the lobes gateway; `answers` and `picks` for a later step's `when`;
-  the domain is the actor's) and the `decider` actor bundle `docs/rules/decider`.
+  the domain is the actor's; one decider actor per domain, held as `clef@general`)
+  and the `decider` actor bundle `docs/rules/decider`.
 - the workflow phrases (#69, spec
   `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language
   `description` plus an optional technical `notes` on workflows and steps,

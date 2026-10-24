@@ -293,7 +293,7 @@ def _json_object(raw: bytes) -> dict[str, Any]:
         raise _bad("response too large")
     try:
         data = json.loads(raw.decode("utf-8"))
-    except ValueError as exc:  # UnicodeDecodeError is a ValueError
+    except (ValueError, RecursionError) as exc:  # UnicodeDecodeError is a ValueError
         raise _bad("response is not JSON") from exc
     if not isinstance(data, dict):
         raise _bad("response is not an object")
@@ -377,7 +377,7 @@ def _error_code(raw: bytes) -> str | None:
     """The reply's short error code (``{"error": {"code": ...}}``), never its detail text."""
     try:
         data = json.loads(raw.decode("utf-8"))
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     error = data.get("error") if isinstance(data, dict) else None
     code = error.get("code") if isinstance(error, dict) else None

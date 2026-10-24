@@ -2,7 +2,7 @@
   "plan_slug": "decider-step-in-workflows",
   "schema_version": 2,
   "created": "2026-10-24T00:37:47Z",
-  "updated": "2026-10-24T04:53:58Z",
+  "updated": "2026-10-24T05:30:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -17,6 +17,19 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "Review fixes on #85: the model rule's key is the model plus @<params.domain> when set (clef@general), so one decider actor per domain is allowed; decider.assess catches RecursionError while parsing a reply; version 0.26.1 so the fixed code can roll out under its own version",
+      "task_ref": "t2",
+      "reason": "the operator ran /code-review medium on #85 and asked to fix all its findings ('Please fix all 8'); the guide says one decider actor per domain, but every decider holds model clef, so a second domain was refused model_taken; a reply nested past json's limit raised instead of failing decider_bad_response",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 16
     }
   ],
   "evidence": [

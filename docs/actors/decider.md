@@ -27,8 +27,10 @@ The domain belongs to the actor, never to the step. A step picks a decider by na
 its actor in `params.actor`. For another domain, add another actor, one per domain.
 `general` is Clef on the Jetson Orin, and the spark gateway forwards it there.
 
-`decider.assess` is an endpoint kind. One enabled actor per model applies
-(`model_taken`), and `workflows repoint-actor` needs an endpoint actor as its target.
+`decider.assess` is an endpoint kind, so the one-enabled-actor-per-model rule applies
+(`model_taken`). For a decider the model and the domain count together (`clef@general`),
+so one actor per domain is allowed and a second one for the same domain is refused.
+`workflows repoint-actor` needs an endpoint actor as its target.
 
 Import the actor with `culture-rules actors import docs/rules/decider --apply` (a dry run
 without `--apply`). The bundle holds only the actor, so `rules import` and `workflows import`
