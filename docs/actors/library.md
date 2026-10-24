@@ -129,10 +129,13 @@ visibilities, and the device id field only when the actor has a
 `queue_path`.
 
 A push with `item_id` is one call, `<replace_method> <base_url><replace_path>`
-(`{item_id}` filled in), with the same multipart body. It queues nothing, and
-the reply must name the same item id. culture-library's route for it is being
-defined in agentculture/culture-library#10; set `replace_path` and
-`replace_method` to what it ships.
+(`{item_id}` filled in), with the same multipart body. It queues nothing. The
+reply is either `{"item": {"id"}}` or the item itself (`{"id", …}`), and it
+must name the same item id. culture-library defines its route in
+agentculture/culture-library#10 (shipping in its 0.12.0): `replace_method`
+`PUT`, `replace_path` `/api/library/{item_id}/file`. It reads only the `file`
+part, keeps the item's title, kind and visibility, and answers the same bytes
+with the item unchanged.
 
 A new upload is one or two calls, each with `Authorization: Bearer <key>`:
 

@@ -817,8 +817,9 @@ def test_bad_visibilities_on_the_actor_are_refused(visibilities):
 
 # ------------------------------------------------------------------ formats and replace (gl-t1)
 
-REPLACE_PATH = "/api/library/{item_id}"
-REPLACE_OK = (200, {"item": {"id": 7, "title": TITLE}, "created": False})
+REPLACE_PATH = "/api/library/{item_id}/file"
+# culture-library answers a replace with the item itself, as GET /api/library/{id} does.
+REPLACE_OK = (200, {"id": 7, "title": TITLE, "sha256": "ab" * 32})
 
 
 def _fmt_params(**over):
@@ -894,7 +895,7 @@ def test_item_id_sends_the_bytes_to_the_replace_path_with_the_method(method):
     port, _ = _port(_store(_replace_params(replace_method=method)), transport)
     result = _invoke(port, item_id=7)
     assert result.outcome == COMPLETED
-    assert [(c.method, c.url) for c in transport.calls] == [(method, BASE + "/api/library/7")]
+    assert [(c.method, c.url) for c in transport.calls] == [(method, BASE + "/api/library/7/file")]
     assert _parts(transport.calls[0])[FILE][1] == EPUB
     assert transport.calls[0].headers["Authorization"] == "Bearer " + KEY_VALUE
     assert dict(result.output)["item_id"] == 7
@@ -957,6 +958,38 @@ def test_a_replace_reply_with_another_id_is_a_bad_response():
     transport = FakeTransport((200, {"item": {"id": 8}, "created": False}))
     port, _ = _port(_store(_replace_params()), transport)
     result = _invoke(port, item_id=7)
+    assert result.outcome == FAILED
+    assert result.error.startswith(BAD_RESPONSE)
+
+
+def test_a_flat_replace_reply_with_another_id_is_a_bad_response():
+    transport = FakeTransport((200, {"id": 8, "title": TITLE}))
+    port, _ = _port(_store(_replace_params()), transport)
+    result = _invoke(port, item_id=7)
+    assert result.outcome == FAILED
+    assert result.error.startswith(BAD_RESPONSE)
+
+
+def test_a_replace_reply_wrapped_like_an_upload_is_accepted():
+    transport = FakeTransport((200, {"item": {"id": 7}, "created": False}))
+    port, _ = _port(_store(_replace_params()), transport)
+    result = _invoke(port, item_id=7)
+    assert result.outcome == COMPLETED
+    assert result.output["item_id"] == 7
+
+
+def test_a_replace_reply_naming_no_id_is_a_bad_response():
+    transport = FakeTransport((200, {"title": TITLE}))
+    port, _ = _port(_store(_replace_params()), transport)
+    result = _invoke(port, item_id=7)
+    assert result.outcome == FAILED
+    assert result.error.startswith(BAD_RESPONSE)
+
+
+def test_an_upload_reply_must_still_wrap_the_item():
+    transport = FakeTransport((201, {"id": 7, "created": True}))
+    port, _ = _port(_store(_params()), transport)
+    result = _invoke(port)
     assert result.outcome == FAILED
     assert result.error.startswith(BAD_RESPONSE)
 

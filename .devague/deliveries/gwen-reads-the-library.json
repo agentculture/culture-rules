@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-24T22:18:54Z",
+  "updated": "2026-10-24T23:11:12Z",
   "deviations": [
     {
       "id": "d1",
@@ -18,6 +18,19 @@
       "status": "proposed",
       "classification": "needs-follow-up",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "library.push's replace also accepts a reply that is the item itself ({id, ...}), as culture-library's PUT /api/library/{id}/file answers, besides {item: {id}}; the upload reply is unchanged",
+      "task_ref": "t1",
+      "reason": "culture-library#12 fixed the replace reply as the flat item JSON after t1 shipped against a guessed {item: {id}} shape; every live replace would have failed bad_response",
+      "affects": [
+        "c26"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 17
     }
   ],
   "evidence": [

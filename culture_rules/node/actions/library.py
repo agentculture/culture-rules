@@ -20,7 +20,8 @@ Replace: with ``item_id`` (a positive integer) the bytes go to the actor's ``rep
 (an absolute path of plain segments holding ``{item_id}`` as exactly one whole segment) with
 the actor's ``replace_method`` (``PUT``, ``POST`` or ``PATCH``; there is no default, the actor
 must say). ``item_id`` without both fails ``invalid_actor`` before any request. A replace has
-no queue step, and answers ``{"item": {"id"}}`` with the same id (else ``bad_response``). The
+no queue step, and answers ``{"item": {"id"}}`` or the item itself (``{"id"}``, as
+culture-library does) with the same id (else ``bad_response``). The
 route belongs to the library: agentculture/culture-library#10 defines it; nothing about it is
 built in here.
 
@@ -563,6 +564,8 @@ class LibraryPushPort:
             raise _status_failure("upload_failed", status, raw)
         reply = _json_reply(raw, "upload")
         item = reply.get("item")
+        if item_id is not None and not isinstance(item, dict):
+            item = reply  # a replace may answer with the item itself (culture-library does)
         got_id = _int_id(item.get("id") if isinstance(item, dict) else None, "upload")
         if item_id is not None and got_id != item_id:
             raise _Refused(_BAD_RESPONSE, f"replace reply names item {got_id}, not {item_id}")

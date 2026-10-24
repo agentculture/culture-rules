@@ -12,7 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Builtins `json.read` (named fields from a JSON file under a root) and `checklist.merge`, `checklist.set`, `checklist.render`, `checklist.bind` (a stored to-do list per key: ids kept across re-extraction and never reused, a flip applied only when its `at` is newer, unknown ids ignored, Markdown with a revision and the bound library item, stale-push detection)
 - `llm.complete` brief `recording` ({summary, word, facts, action_items}) and `cache: true`, which keeps the first valid answer beside the content file
 - `transcript.render` `format: md`: the title, summary, key facts and the transcript as Markdown, right to left for Hebrew, derived text HTML-escaped
-- `library.push` `format` (the actor lists its `formats`; md, txt, json, epub, pdf) and replace by `item_id` through the actor's `replace_path` and `replace_method` (culture-library#10)
+- `library.push` `format` (the actor lists its `formats`; md, txt, json, epub, pdf) and replace by `item_id` through the actor's `replace_path` and `replace_method`; the reply may wrap the item (`{item: {id}}`) or be the item itself, as culture-library's `PUT /api/library/{id}/file` answers (culture-library#10)
 - docs/operations/library-items.md: the pieces, the rules that keep a to-do list correct, and a worked configuration
 - The spec, plan and split for gwen-reads-the-library (docs/specs, docs/plans)
 
