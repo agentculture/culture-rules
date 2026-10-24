@@ -54,7 +54,7 @@ Quoted verbatim from the `devague summary` skeleton:
   - the catalog notes `content_path` needs `content_root`;
   - the Then column words `either`;
   - the cap relationship is documented.
-- `d7` (proposed) — the operator's `/code-review medium` of #84 found five defects, and the operator asked for all of them fixed ("Please fix all 8", with #85's). The fixes:
+- `d7` (approved) — the operator's `/code-review medium` of #84 found five defects, and the operator asked for all of them fixed ("Please fix all 8", with #85's). The fixes:
   - `transcript.render` keeps and returns only a book whose summary was used, so a passing model outage no longer fixes "Summary unavailable" on a recording;
   - the title gains the local time (`<YYYY-MM-DD> <HHMM> <word>`, where the spec said `<YYYY-MM-DD> <word>`), so two recordings of one day with one word differ;
   - one 32 MiB transcript file cap for the excerpt and the book;
@@ -74,8 +74,8 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t7` (`d5`, `d6`, approved) | rollouts need the operator; the backfill ran live from a local node, and the engine rule went live after the approved rollout; the device sync is still pending | needs-follow-up |
 | `t4` | `device_id` input mapped from `newspaper_device` (b3) | acceptable |
 | `t2` | `max_tokens` 400 → 2000 after the live check | acceptable |
-| `t1` (`d7`, proposed) | the review fixes: the summary-only cache, the title's local time, one file cap | acceptable |
-| `t4` (`d7`, proposed) | the review fixes in the editor: the picker's params and kinds, the `either` sentence and chain edges | acceptable |
+| `t1` (`d7`, approved) | the review fixes: the summary-only cache, the title's local time, one file cap | acceptable |
+| `t4` (`d7`, approved) | the review fixes in the editor: the picker's params and kinds, the `either` sentence and chain edges | acceptable |
 
 ## Evidence
 

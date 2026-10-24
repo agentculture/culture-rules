@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T05:27:45Z",
+  "updated": "2026-10-24T05:55:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -101,7 +101,7 @@
         "t4"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 23
     }
