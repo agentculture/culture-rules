@@ -1108,8 +1108,9 @@ def test_parse_recording_answer_unwraps_any_one_fence(wrap):
 
 
 def test_parse_recording_answer_refuses_an_unclosed_fence():
+    unclosed = "```json\n" + json.dumps(ANSWER)
     with pytest.raises(AnswerRefused) as caught:
-        parse_recording_answer("```json\n" + json.dumps(ANSWER))
+        parse_recording_answer(unclosed)
     assert caught.value.code == "answer_not_json"
 
 
