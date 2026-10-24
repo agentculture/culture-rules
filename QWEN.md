@@ -48,7 +48,7 @@ On disk today:
   setup `docs/operations/newspaper.md`): `email` and `search` app surfaces;
   the action kinds `email.send` (Resend), `search.web` (Brave),
   `llm.complete` (an OpenAI-compatible endpoint, a locked brief, no tools)
-  and `library.push` (an EPUB to xteink); the step option
+  and `library.push` (an EPUB to the library its actor describes); the step option
   `config.on_error: "skip"`; and the disabled bundle `docs/rules/newspaper`.
 - the model actors (spec
   `docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`, setup
@@ -88,6 +88,10 @@ On disk today:
   decider on the lobes gateway; `answers` and `picks` for a later step's `when`;
   the domain is the actor's; one decider actor per domain, held as `clef@general`)
   and the `decider` actor bundle `docs/rules/decider`.
+- the library as configuration (culture-rules#86, guide `docs/actors/library.md`):
+  `library.push`'s actor holds `upload_path`, the `kinds` and `visibilities` it
+  accepts and an optional `queue_path`; each push names its `kind`; the bundles push
+  to culture-library, the newspaper `public` and transcripts `private`.
 - the workflow phrases (#69, spec
   `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language
   `description` plus an optional technical `notes` on workflows and steps,

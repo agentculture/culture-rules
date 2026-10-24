@@ -81,11 +81,11 @@ describe("transcript.render", () => {
 });
 
 describe("library.push kind", () => {
-  it("offers book, article and transcript", () => {
-    expect(ACTION_KINDS["library.push"].params.kind.options?.map((o) => o.value)).toEqual([
-      "book",
-      "article",
-      "transcript",
-    ]);
+  it("is required and listed by the library actor, not built in", () => {
+    const kind = ACTION_KINDS["library.push"].params.kind;
+    expect(kind.required).toBe(true);
+    expect(kind.options).toBeUndefined();
+    expect(kind.optionsFrom).toBe("kinds");
+    expect(ACTION_KINDS["library.push"].params.visibility.optionsFrom).toBe("visibilities");
   });
 });

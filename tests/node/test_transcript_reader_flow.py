@@ -232,7 +232,7 @@ def test_a_hebrew_recording_gets_one_book_from_the_zipformer_run(world):
     assert run["concurrency_key"] == f"reader:{SHA}"
     (push,) = world.library.pushes
     assert push["title"] == f"{DAY} {TIME} meeting"
-    assert push["kind"] == "article"
+    assert (push["kind"], push["visibility"]) == ("transcript", "private")
     assert push["actor"] == "newspaper-library"
     assert 'page-progression-direction="rtl"' in _opf(world.book())
     assert run["outputs"]["source"] == "given"
@@ -335,7 +335,7 @@ def test_a_rerun_whose_summary_answers_differently_still_adds_no_second_book(wor
     assert len(world.library.items) == 1
 
 
-def test_the_book_is_queued_on_the_newspaper_device(world):
+def test_the_push_carries_the_newspaper_device_for_a_library_with_a_queue(world):
     world.land(language="he")
     (push,) = world.library.pushes
     assert push["device_id"] == 3

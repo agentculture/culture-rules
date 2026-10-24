@@ -1,4 +1,5 @@
-"""library.push action port: multipart upload to xteink, then queue the item (#53 t5)."""
+"""library.push action port: multipart upload to a library, then queue the item when the actor
+has a queue_path (#53 t5, culture-rules#86)."""
 
 from __future__ import annotations
 
@@ -69,8 +70,20 @@ class FakeTransport:
         return status, raw
 
 
+KINDS = ["book", "article", "transcript", "newspaper"]
+QUEUE_PATH = "/api/devices/{device_id}/queue"
+
+
 def _params(**over):
-    params = {"base_url": BASE, "api_key": KEY_REF, "device_id": 3}
+    params = {
+        "base_url": BASE,
+        "api_key": KEY_REF,
+        "device_id": 3,
+        "upload_path": "/api/library",
+        "queue_path": QUEUE_PATH,
+        "kinds": KINDS,
+        "visibilities": ["private", "public"],
+    }
     params.update(over)
     return {k: v for k, v in params.items() if v is not _DROP}
 
@@ -106,7 +119,7 @@ def _ctx():
 
 
 def _input(**over):
-    data = {"actor": ACTOR_ID, "content_base64": _b64(), "title": TITLE}
+    data = {"actor": ACTOR_ID, "content_base64": _b64(), "title": TITLE, "kind": "article"}
     data.update(over)
     return data
 
@@ -159,9 +172,10 @@ def test_upload_carries_file_title_author_and_kind():
     assert parts[TITLE_FIELD][1] == TITLE.encode()
     assert parts[AUTHOR][1] == b"culture-rules"
     assert parts["kind"][1] == b"article"
+    assert "visibility" not in parts
 
 
-@pytest.mark.parametrize("kind", ["book", "article", "transcript"])
+@pytest.mark.parametrize("kind", KINDS)
 def test_kind_param_is_sent_as_given(kind):
     transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
     port, _ = _port(_store(), transport)
@@ -399,7 +413,7 @@ def test_a_missing_title_is_refused(title):
     assert result.error.startswith(INVALID_REQUEST)
 
 
-@pytest.mark.parametrize("kind", ["magazine", "", "Book", " article", 5, ["book"], True])
+@pytest.mark.parametrize("kind", ["magazine", "", "Book", " article", 5, ["book"], True, None])
 def test_an_unknown_kind_is_refused_before_any_request(kind):
     result = _refused(kind=kind)
     assert result.retryable is False
@@ -667,3 +681,120 @@ def test_the_push_ledger_still_replays_a_recent_push(monkeypatch):
     port, transport = _pushes(monkeypatch, ["k1", "k2", "k3"])
     _invoke(port, key="k3")
     assert len(transport.calls) == 6
+
+
+# ------------------------------------------------------------------ the actor describes the library
+
+
+UPLOAD_ONLY = {"queue_path": _DROP, "device_id": _DROP}
+
+
+def test_without_a_queue_path_the_push_only_uploads():
+    transport = FakeTransport(UPLOAD_OK)
+    port, _ = _port(_store(_params(**UPLOAD_ONLY)), transport)
+    result = _invoke(port)
+    assert result.outcome == COMPLETED
+    assert dict(result.output) == {"item_id": 7, "created": True, "queue_id": None}
+    assert [call.url for call in transport.calls] == [UPLOAD_URL]
+
+
+def test_without_a_queue_path_a_device_id_is_not_needed_or_used():
+    transport = FakeTransport(UPLOAD_OK)
+    port, _ = _port(_store(_params(**UPLOAD_ONLY)), transport)
+    assert _invoke(port, device_id="12").outcome == COMPLETED
+    assert len(transport.calls) == 1
+
+
+def test_the_upload_path_comes_from_the_actor():
+    store = _store(_params(upload_path="/v2/items", **UPLOAD_ONLY))
+    transport = FakeTransport(UPLOAD_OK)
+    port, _ = _port(store, transport)
+    _invoke(port)
+    assert transport.calls[0].url == BASE + "/v2/items"
+
+
+def test_the_queue_path_template_comes_from_the_actor():
+    store = _store(_params(queue_path="/q/{device_id}/items"))
+    transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
+    port, _ = _port(store, transport)
+    _invoke(port)
+    assert transport.calls[1].url == BASE + "/q/3/items"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        None,
+        "",
+        "api/library",
+        "/api/../keys",
+        "/api/./library",
+        "/api//library",
+        "/a?b=1",
+        "/a#f",
+        "/{device_id}",
+        5,
+    ],
+)
+def test_a_bad_upload_path_is_refused(path):
+    result = _refused(_store(_params(upload_path=path)))
+    assert result.error.startswith(INVALID_ACTOR)
+    assert result.retryable is False
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/devices/queue",
+        "/a/{device_id}/{device_id}",
+        "/a/x{device_id}",
+        "a/{device_id}",
+        "/a/../{device_id}",
+        3,
+    ],
+)
+def test_a_bad_queue_path_is_refused(path):
+    result = _refused(_store(_params(queue_path=path)))
+    assert result.error.startswith(INVALID_ACTOR)
+
+
+@pytest.mark.parametrize("kinds", [None, [], "newspaper", ["News"], [5], ["a b"]])
+def test_the_actor_must_list_its_kinds(kinds):
+    result = _refused(_store(_params(kinds=kinds)))
+    assert result.error.startswith(INVALID_ACTOR)
+
+
+def test_a_kind_the_actor_does_not_list_is_refused():
+    result = _refused(_store(_params(kinds=["newspaper"])), kind="article")
+    assert result.error == "invalid_request: kind must be one of newspaper"
+
+
+@pytest.mark.parametrize("visibility", ["private", "public"])
+def test_a_visibility_is_sent_as_given(visibility):
+    transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
+    port, _ = _port(_store(), transport)
+    assert _invoke(port, visibility=visibility).outcome == COMPLETED
+    assert _parts(transport.calls[0])["visibility"][1] == visibility.encode()
+
+
+@pytest.mark.parametrize("visibility", ["secret", "", "Public", 1, True])
+def test_a_visibility_the_actor_does_not_list_is_refused(visibility):
+    result = _refused(visibility=visibility)
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+def test_a_visibility_needs_the_actor_to_list_visibilities():
+    result = _refused(_store(_params(visibilities=_DROP)), visibility="public")
+    assert result.error == "invalid_request: the library actor lists no visibility values"
+
+
+def test_without_visibilities_a_push_without_visibility_still_works():
+    transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
+    port, _ = _port(_store(_params(visibilities=_DROP)), transport)
+    assert _invoke(port).outcome == COMPLETED
+
+
+@pytest.mark.parametrize("visibilities", [[], "public", ["Public"]])
+def test_bad_visibilities_on_the_actor_are_refused(visibilities):
+    result = _refused(_store(_params(visibilities=visibilities)))
+    assert result.error.startswith(INVALID_ACTOR)

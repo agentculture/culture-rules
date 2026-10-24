@@ -28,7 +28,13 @@ const NEWSPAPER_ACTORS: Actor[] = [
   { id: "brave", name: "Brave", kind: "app", enabled: true, params: { surface: "search", connection: {} } },
   { id: "cortex", name: "Cortex", kind: "agent", enabled: true, params: { base_url: "http://localhost:8000", model: "qwen" } },
   { id: "plain-agent", name: "Plain agent", kind: "agent", enabled: true },
-  { id: "xteink", name: "xteink", kind: "service", enabled: true, params: { base_url: "http://localhost:8080" } },
+  {
+    id: "xteink",
+    name: "xteink",
+    kind: "service",
+    enabled: true,
+    params: { base_url: "http://localhost:8080", kinds: ["newspaper", "transcript"], visibilities: ["private", "public"] },
+  },
 ];
 
 function Harness({ start }: Readonly<{ start?: Action }>) {
@@ -151,12 +157,14 @@ describe("llm.complete", () => {
 });
 
 describe("library.push", () => {
-  it("saves the EPUB reference, title, author and device", async () => {
+  it("saves the EPUB reference, title, kind, visibility and device", async () => {
     render(<Harness />);
     const user = await pick("library.push", "xteink");
     await user.selectOptions(screen.getByLabelText("Map Content base64"), "__custom__");
     await user.type(screen.getByLabelText("Path for Content base64"), "workflow.outputs.epub");
     await user.type(screen.getByLabelText("Title"), "Daily newspaper");
+    await user.selectOptions(screen.getByLabelText("Kind"), "newspaper");
+    await user.selectOptions(screen.getByLabelText("Visibility"), "public");
     await user.type(screen.getByLabelText("Device id"), "reader-1");
     expect(saved()).toEqual({
       kind: "library.push",
@@ -164,14 +172,30 @@ describe("library.push", () => {
         actor: "xteink",
         content_base64: "workflow.outputs.epub",
         title: "Daily newspaper",
+        kind: "newspaper",
+        visibility: "public",
         device_id: "reader-1",
       },
     });
     expect(actionProblem(saved())).toBeNull();
   });
 
-  it("needs the content and a title", () => {
-    expect(actionProblem({ kind: "library.push", params: { actor: "xteink", title: "t" } })).toBe("empty");
-    expect(actionProblem({ kind: "library.push", params: { actor: "xteink", content_base64: "x" } })).toBe("empty");
+  it("offers the kinds and visibilities the library actor lists", async () => {
+    render(<Harness />);
+    await pick("library.push", "xteink");
+    const values = (label: string) =>
+      within(screen.getByLabelText(label))
+        .getAllByRole("option")
+        .map((o) => (o as HTMLOptionElement).value);
+    expect(values("Kind")).toEqual(["", "newspaper", "transcript"]);
+    expect(values("Visibility")).toEqual(["", "private", "public"]);
+  });
+
+  it("needs the content, a title and a kind", () => {
+    const full = { actor: "xteink", content_base64: "x", title: "t", kind: "newspaper" };
+    expect(actionProblem({ kind: "library.push", params: { ...full, content_base64: undefined } })).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: { ...full, title: undefined } })).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: { ...full, kind: undefined } })).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: full })).toBeNull();
   });
 });

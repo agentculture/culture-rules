@@ -20,7 +20,7 @@ secrets, no webhook, no actor.
 | Web search (Brave) | [search.md](search.md) | nothing (read only) | `search.web` |
 | OpenAI-compatible model (`agent` actor) | [llm.md](llm.md) | nothing | `llm.complete` |
 | OpenAI-compatible speech-to-text (`agent` actor) | [stt.md](stt.md) | nothing | `audio.transcribe` |
-| xteink library (`service` actor) | [library.md](library.md) | nothing | `library.push` |
+| A library: culture-library, or xteink's (`service` actor) | [library.md](library.md) | nothing | `library.push` |
 | The mesh decider (`agent` actor) | [decider.md](decider.md) | nothing | `decider.assess` |
 
 Email, web search, the model and the library are what the daily newspaper

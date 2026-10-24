@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-10-24
+
+### Added
+
+- library.push reads its library from the actor (culture-rules#86, d8): `upload_path`, the `kinds` and `visibilities` it accepts, and an optional `queue_path` (`{device_id}` as one segment; unset, the push only uploads and needs no device id)
+- library.push takes `visibility`, checked against the actor's `visibilities`
+- The editor's action picker offers the kinds and visibilities the chosen library actor lists
+
+### Changed
+
+- library.push's `kind` is required and must be one of the actor's `kinds`: there is no built-in kind list and no default `article`
+- The newspaper and transcripts bundles point the library actor at culture-library (127.0.0.1:8796, grant LIBRARY_PUSH_API_KEY, no device queue): the newspaper is pushed as kind `newspaper`, visibility `public`; transcripts as kind `transcript`, visibility `private`
+- docs/actors/library.md, the newspaper and transcripts-on-the-reader operations docs and the harness prompt files describe the library as configuration
+
+### Fixed
+
+- The action picker's param selects no longer share an element id with the "What happens" select (a param named `kind` collided with it)
+
 ## [0.26.1] - 2026-10-24
 
 ### Fixed

@@ -84,7 +84,7 @@ plan. What exists today:
     `jetson-ai-lab.org`, a recipient allowlist);
   - action kinds `email.send` (Resend), `search.web` (Brave),
     `llm.complete` (an OpenAI-compatible endpoint on an `agent` actor, with
-    a locked brief and no tools) and `library.push` (an EPUB to xteink),
+    a locked brief and no tools) and `library.push` (an EPUB to the library its actor describes),
     plus the `newspaper.*` builtins;
   - the step option `config.on_error: "skip"`, which turns a failed step
     `skipped`;
@@ -152,8 +152,8 @@ plan. What exists today:
     text never enters run state (d2); `library.push` takes `kind`;
   - the workflow `transcript-to-reader` and the rule `pocket-to-reader`
     (`rules.run.succeeded` of `transcribe-file-he`, or of `transcribe-file`
-    for an `en` recording; disabled) put each finished transcript on the
-    Xteink reader; the editor's fold reads an OR of one predecessor per
+    for an `en` recording; disabled) put each finished transcript in the
+    library; the editor's fold reads an OR of one predecessor per
     branch as continuing from either (d3).
 - **The decider step** (spec `docs/specs/2026-10-24-decider-step-in-workflows.md`,
   guide `docs/actors/decider.md`):
@@ -168,6 +168,16 @@ plan. What exists today:
     by its actor; the bundle `docs/rules/decider` holds the `decider` actor
     (domain `general`, model `clef`); it is an endpoint kind, and the model rule
     holds a decider by model and domain (`clef@general`), one actor per domain.
+- **The library is configuration** (culture-rules#86, deviation d8 on
+  `transcripts-on-the-reader`, guide `docs/actors/library.md`):
+  - `library.push`'s actor describes its library: `base_url`, `upload_path`,
+    the `kinds` and `visibilities` it accepts, and an optional `queue_path`
+    (`{device_id}` as one segment; unset, the push only uploads);
+  - each push step names its `kind` (no built-in list, no default) and may
+    name a `visibility`; the editor offers what the chosen actor lists;
+  - the bundles point at culture-library (library.culture.dev, no device
+    queue): the newspaper as kind `newspaper`, visibility `public`, and
+    transcripts as kind `transcript`, visibility `private`.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

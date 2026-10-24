@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T05:55:45Z",
+  "updated": "2026-10-24T19:06:03Z",
   "deviations": [
     {
       "id": "d1",
@@ -104,6 +104,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 23
+    },
+    {
+      "id": "d8",
+      "what": "library.push no longer hard-codes its library: the actor params name upload_path (required), an optional queue_path template (unset = upload only, no device_id needed), the accepted kinds and visibilities; each push step names its kind (no KINDS list, no default article) and an optional visibility; the editor reads both choices from the actor. Configuration then points the library actor at culture-library (127.0.0.1:8796, grant LIBRARY_PUSH_API_KEY, no queue) with the newspaper pushed as kind newspaper, visibility public, and transcripts as kind transcript, visibility private.",
+      "task_ref": "t3",
+      "reason": "Operator 2026-10-24: the library is now culture-library at library.culture.dev (\"that is our destination\"); \"1 should be configurable, so code change to make it configurable, then configuration. We never hardcode urls.\" \"2. kinds also should be configurable, like 1.\" \"newspaper is public.\" Process approved: straight to a PR with this record (culture-rules#86 items 1 and 3).",
+      "affects": [
+        "t4",
+        "t7"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 24
     }
   ],
   "evidence": [
