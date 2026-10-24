@@ -813,3 +813,164 @@ def test_without_visibilities_a_push_without_visibility_still_works():
 def test_bad_visibilities_on_the_actor_are_refused(visibilities):
     result = _refused(_store(_params(visibilities=visibilities)))
     assert result.error.startswith(INVALID_ACTOR)
+
+
+# ------------------------------------------------------------------ formats and replace (gl-t1)
+
+REPLACE_PATH = "/api/library/{item_id}"
+REPLACE_OK = (200, {"item": {"id": 7, "title": TITLE}, "created": False})
+
+
+def _fmt_params(**over):
+    return _params(formats=["epub", "md", "txt"], **over)
+
+
+def test_format_md_sends_a_md_filename_and_markdown_type():
+    transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
+    port, _ = _port(_store(_fmt_params()), transport)
+    assert _invoke(port, format="md").outcome == COMPLETED
+    head, value = _parts(transport.calls[0])[FILE]
+    assert 'filename="daily-newspaper-2026-10-11.md"' in head
+    assert "Content-Type: text/markdown" in head
+    assert value == EPUB
+
+
+@pytest.mark.parametrize(
+    ("fmt", "ctype"),
+    [
+        ("txt", "text/plain"),
+        ("json", "application/json"),
+        ("epub", "application/epub+zip"),
+        ("pdf", "application/pdf"),
+    ],
+)
+def test_each_known_format_maps_to_its_type(fmt, ctype):
+    transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
+    port, _ = _port(_store(_params(formats=[fmt])), transport)
+    assert _invoke(port, format=fmt).outcome == COMPLETED
+    head, _value = _parts(transport.calls[0])[FILE]
+    assert f'filename="daily-newspaper-2026-10-11.{fmt}"' in head
+    assert f"Content-Type: {ctype}" in head
+
+
+@pytest.mark.parametrize("fmt", ["pdf", "MD", "", 3, "docx"])
+def test_a_format_the_actor_does_not_list_is_refused_before_any_request(fmt):
+    result = _refused(_store(_fmt_params()), format=fmt)
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+def test_a_format_needs_the_actor_to_list_formats():
+    result = _refused(format="md")
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+def test_no_format_sends_epub_exactly_as_before():
+    transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
+    port, _ = _port(_store(), transport)
+    assert _invoke(port).outcome == COMPLETED
+    head, _value = _parts(transport.calls[0])[FILE]
+    assert 'filename="daily-newspaper-2026-10-11.epub"' in head
+    assert "Content-Type: application/epub+zip" in head
+
+
+def test_no_format_with_formats_that_exclude_epub_is_refused():
+    result = _refused(_store(_params(formats=["md"])))
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+@pytest.mark.parametrize("formats", [[], "md", ["MD"], ["docx"], [5]])
+def test_bad_formats_on_the_actor_are_refused(formats):
+    result = _refused(_store(_params(formats=formats)))
+    assert result.error.startswith(INVALID_ACTOR)
+
+
+def _replace_params(**over):
+    return _params(**{"replace_path": REPLACE_PATH, "replace_method": "PUT", **over})
+
+
+@pytest.mark.parametrize("method", ["PUT", "POST", "PATCH"])
+def test_item_id_sends_the_bytes_to_the_replace_path_with_the_method(method):
+    transport = FakeTransport(REPLACE_OK)
+    port, _ = _port(_store(_replace_params(replace_method=method)), transport)
+    result = _invoke(port, item_id=7)
+    assert result.outcome == COMPLETED
+    assert [(c.method, c.url) for c in transport.calls] == [(method, BASE + "/api/library/7")]
+    assert _parts(transport.calls[0])[FILE][1] == EPUB
+    assert transport.calls[0].headers["Authorization"] == "Bearer " + KEY_VALUE
+    assert dict(result.output)["item_id"] == 7
+
+
+def test_a_replace_does_not_queue():
+    transport = FakeTransport(REPLACE_OK)
+    port, _ = _port(_store(_replace_params()), transport)
+    result = _invoke(port, item_id=7)
+    assert len(transport.calls) == 1
+    assert dict(result.output)["queue_id"] is None
+
+
+def test_a_replace_needs_no_device():
+    transport = FakeTransport(REPLACE_OK)
+    port, _ = _port(_store(_replace_params(device_id=_DROP)), transport)
+    assert _invoke(port, item_id=7).outcome == COMPLETED
+
+
+def test_item_id_without_a_replace_path_is_invalid_actor():
+    result = _refused(item_id=7)
+    assert result.error.startswith(INVALID_ACTOR)
+
+
+def test_item_id_without_a_replace_method_is_invalid_actor():
+    result = _refused(_store(_params(replace_path=REPLACE_PATH)), item_id=7)
+    assert result.error.startswith(INVALID_ACTOR)
+
+
+@pytest.mark.parametrize("method", ["DELETE", "put", "GET", 5, ""])
+def test_a_bad_replace_method_is_refused(method):
+    result = _refused(_store(_replace_params(replace_method=method)), item_id=7)
+    assert result.error.startswith(INVALID_ACTOR)
+
+
+@pytest.mark.parametrize("item_id", [0, -1, "x", 1.5, True, [7]])
+def test_a_bad_item_id_is_refused_before_any_request(item_id):
+    result = _refused(_store(_replace_params()), item_id=item_id)
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/library",
+        "/a/{item_id}/{item_id}",
+        "/a/x{item_id}",
+        "a/{item_id}",
+        "/a/../{item_id}",
+        "/a/{device_id}",
+        3,
+    ],
+)
+def test_a_bad_replace_path_is_refused(path):
+    result = _refused(_store(_replace_params(replace_path=path)), item_id=7)
+    assert result.error.startswith(INVALID_ACTOR)
+
+
+def test_a_replace_reply_with_another_id_is_a_bad_response():
+    transport = FakeTransport((200, {"item": {"id": 8}, "created": False}))
+    port, _ = _port(_store(_replace_params()), transport)
+    result = _invoke(port, item_id=7)
+    assert result.outcome == FAILED
+    assert result.error.startswith(BAD_RESPONSE)
+
+
+def test_a_failed_replace_names_the_status_and_code():
+    transport = FakeTransport((404, {"code": "not_found"}))
+    port, _ = _port(_store(_replace_params()), transport)
+    result = _invoke(port, item_id=7)
+    assert result.error == "upload_failed: http 404 not_found"
+    assert result.retryable is False
+
+
+def test_replace_and_format_combine():
+    transport = FakeTransport(REPLACE_OK)
+    port, _ = _port(_store(_replace_params(formats=["md"])), transport)
+    assert _invoke(port, item_id=7, format="md").outcome == COMPLETED
+    assert 'filename="daily-newspaper-2026-10-11.md"' in _parts(transport.calls[0])[FILE][0]
