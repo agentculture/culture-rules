@@ -30,7 +30,7 @@ Quoted verbatim from the `devague summary` skeleton:
 
 | Plan task | Status | What actually landed |
 |-----------|--------|----------------------|
-| `t1` | delivered | `culture_rules/node/actions/transcript_render.py`: the deterministic EPUB with the summary and the RTL/LTR choice. After review it also gained the per-transcript book cache (d4, proposed). |
+| `t1` | delivered | `culture_rules/node/actions/transcript_render.py`: the deterministic EPUB with the summary and the RTL/LTR choice. After review it also gained the per-transcript book cache (d4, approved). |
 | `t2` | delivered | `brief: transcript` in `llm.complete`. It also gained `content_path` + `content_root` + `content_max_chars` (d2) and the empty-excerpt refusal. The catalog gained `any_of`. |
 | `t3` | delivered | `library.push` `kind` (book, article, transcript). It was not test-first (l1); the control was run afterwards. |
 | `t4` | delivered | The `transcript-to-reader` workflow (fallback, keep and pick, summary, render, push) and the `pocket-to-reader` rule (OR, d3, disabled, on spark). `recorded_at` passes through. The fold reads `either` (Python and TS), and the corpus went from 11 to 12. Live check fix: the summary asks for up to 2000 tokens. |
@@ -43,11 +43,11 @@ Quoted verbatim from the `devague summary` skeleton:
 - `d1` — the firmware ask is a comment on agentculture/xteink#8. Reason: agentculture/xteink-firmware is a fork of crosspoint-reader with issues disabled. Approved.
 - `d2` — `llm.complete` reads the transcript excerpt itself, so the transcript text never enters run state. The short summary reply stays a step output. The operator chose this.
 - `d3` — one rule `pocket-to-reader` with an OR condition, and the fold learns to read an OR of one predecessor per branch. The operator chose one rule over two.
-- `d4` (proposed) — `transcript.render` keeps the first book beside its transcript and returns it on later runs. Reason: a colleague review found that a re-run's different summary would make a second book. The decider (domain `general`) gave `cache_book_file` 0.93 against three other options. Logged in culture-rules#83.
-- `d5` (proposed) — t7 waits for a rollout approval, and the pre-PR live check runs on a local node with the push stubbed. Decider: `local_now_engine_after_merge` 0.59, `ask_then_rollout` 0.37, `rollout_branch_now` 0.04. Logged in culture-rules#83. The operator then approved the rollout ("Approve rollout"), and 0.26.0 went out from the unmerged branch head `35ed23d`.
+- `d4` (approved) — `transcript.render` keeps the first book beside its transcript and returns it on later runs. Reason: a colleague review found that a re-run's different summary would make a second book. The decider (domain `general`) gave `cache_book_file` 0.93 against three other options. Logged in culture-rules#83.
+- `d5` (approved) — t7 waits for a rollout approval, and the pre-PR live check runs on a local node with the push stubbed. Decider: `local_now_engine_after_merge` 0.59, `ask_then_rollout` 0.37, `rollout_branch_now` 0.04. Logged in culture-rules#83. The operator then approved the rollout ("Approve rollout"), and 0.26.0 went out from the unmerged branch head `35ed23d`.
 - At import, the bundle's actors were left out: importing them would have reset the live `stt-en` and `stt-he` roots to the committed placeholders. Only the workflows and rules were imported.
 - The live check found that `max_tokens: 400` left cortex-spark2 no room to answer after its reasoning (`llm_bad_response`). It is now 2000, as the newspaper uses (delta b1).
-- `d6` (proposed) — the backfill runs before the merge, from a local node with the live actors and real ports. Reason: the operator asked for the backfill and for live tests before the PR. Decider: backfill must wait P=0.31.
+- `d6` (approved) — the backfill runs before the merge, from a local node with the live actors and real ports. Reason: the operator asked for the backfill and for live tests before the PR. Decider: backfill must wait P=0.31.
 - Preparing the backfill found that the live `newspaper-library` actor has no `device_id`. The newspaper passes the `newspaper_device` variable instead, so every push would have failed. The workflow now takes `device_id`, and `pocket-to-reader` maps it from that variable (delta b3).
 - The colleague review's smaller findings were fixed in the same commit (`bf039c2`):
   - an empty excerpt is refused;
@@ -62,8 +62,8 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t6` (`d1`) | agentculture/xteink-firmware has GitHub issues disabled | acceptable |
 | `t4` (`d2`) | the excerpt would otherwise be stored in every run; the operator chose to keep the transcript out and allow the summary | acceptable |
 | `t4` (`d3`) | the fold read the OR rule as continuing from every workflow; the operator chose one rule with OR | acceptable |
-| `t1` (`d4`, proposed) | re-runs could create a second book; the render now writes a cache file into the transcripts folder | acceptable |
-| `t7` (`d5`, `d6`, proposed) | rollouts need the operator; the backfill ran live from a local node, and the engine rule went live after the approved rollout; the device sync is still pending | needs-follow-up |
+| `t1` (`d4`, approved) | re-runs could create a second book; the render now writes a cache file into the transcripts folder | acceptable |
+| `t7` (`d5`, `d6`, approved) | rollouts need the operator; the backfill ran live from a local node, and the engine rule went live after the approved rollout; the device sync is still pending | needs-follow-up |
 | `t4` | `device_id` input mapped from `newspaper_device` (b3) | acceptable |
 | `t2` | `max_tokens` 400 → 2000 after the live check | acceptable |
 
@@ -84,7 +84,7 @@ Quoted verbatim from the `devague summary` skeleton:
   - Both succeeded, the summary was used, and the title has the `<date> <word>` shape.
   - The book is RTL, and both runs pushed the same bytes. Each run took 39–46 s.
 - live (deployed engine 0.26.0, after the rollout): `rollout verify` passed (4 nodes on 0.26.0, API 0.26.0, engine running, the 2 snapshot rules enabled). Then `transcribe-file-he` was run directly for recording `a41fdac7bee2`, whose result was already on disk (run `run-1ac3947609254ae19e941f1a71d44256`). `pocket-to-reader` started exactly one reader run (`run-75def4e5483f342bc068c65b612f978f`), with every step on spark. It gave the same book (item 29, the same title), `created: false`. Device 3's queue holds the 33 transcript entries plus the day's newspaper.
-- devague: obligations o1–o14 and evidence e1–e15 are filed, all proposed. o13 (the device) has no evidence yet.
+- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. o13 (the device) has no evidence yet.
 - commits: `062c9c8..1883d88` on `rules/transcript-reader`.
 - issues: culture-rules#83 (the decisions log), #82 (lighter test runs), agentculture/xteink#8, agentculture/pocketsync#12.
 
@@ -107,7 +107,6 @@ Quoted verbatim from the `devague summary` skeleton:
 ## Remaining Work / Follow-up
 
 - Sync the reader and check the 33 books, Hebrew right to left (o13). Owner: the operator.
-- Adjudicate the proposed records: d4, d5, d6, o1–o14, e1–e15, b1–b3. Owner: the operator.
 - agentculture/xteink#8: once the `transcript` kind and the firmware folder ship, switch the push to `kind: transcript`.
 - agentculture/pocketsync#12: the landed event with `recording_at`; then enable the STT rules (item 6 of the earlier plan).
 - culture-rules#82: lighter local test runs, and cleanup of orphaned test rigs.
