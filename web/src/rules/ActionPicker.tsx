@@ -143,6 +143,10 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     label: "Make a book from a transcript",
     params: { actor: S, result_path: RS, root: RS, recorded_at: RS, language: S, summary: { type: "any" } },
   },
+  "decider.assess": {
+    label: "Ask the decider",
+    params: { actor: RS, state: RS, questions: { type: "any", required: true }, not_after: S },
+  },
   "library.push": {
     label: "Send a book to the e-reader library",
     params: {
@@ -157,7 +161,7 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
 };
 
 /** Params shown as a textarea: long text. */
-const MULTILINE = new Set(["body", "text", "html", "content"]);
+const MULTILINE = new Set(["body", "text", "html", "content", "state"]);
 
 /** Legacy names the backend accepts as aliases of a catalogued kind. */
 const ALIASES: Record<string, string> = { "mesh.message": "message" };
@@ -251,7 +255,7 @@ const hasTranscriptsRoot = (a: Actor) =>
 /**
  * Enabled actors able to perform `kind`: app actors by declared actions (email and search by
  * surface), runners by command, an OpenAI-compatible agent (one with a `base_url`) for
- * llm.complete and audio.transcribe, and any other actor with a `base_url` (the library service) for library.push.
+ * llm.complete, audio.transcribe and decider.assess, and any other actor with a `base_url` (the library service) for library.push.
  * transcript.render needs no actor; one with a transcripts or output root may narrow where it reads.
  */
 export function actorsFor(kind: string, actors: Actor[]): Actor[] {
@@ -267,6 +271,7 @@ export function actorsFor(kind: string, actors: Actor[]): Actor[] {
     case "llm.complete":
       return actors.filter((a) => a.kind === "agent" && hasBaseUrl(a));
     case "audio.transcribe":
+    case "decider.assess":
       return actors.filter((a) => a.kind === "agent" && hasBaseUrl(a));
     case "library.push":
       return actors.filter((a) => a.kind !== "agent" && a.kind !== "app" && hasBaseUrl(a));

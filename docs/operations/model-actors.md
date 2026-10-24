@@ -99,7 +99,9 @@ the new one.
 One **enabled** endpoint actor per model. An endpoint actor is an `agent` actor
 with a non-empty `params.base_url`; a disabled or deleted actor holds nothing.
 
-- An actor's model is `params.model`, else its own `model` field.
+- An actor's model is `params.model`, else its own `model` field. When the actor
+  sets `params.domain` (a decider), what it holds is `<model>@<domain>`, so there is
+  one enabled decider actor per domain (`clef@general`, `clef@code`).
 - Creating, updating, enabling or restoring an enabled endpoint actor whose
   model another enabled endpoint actor holds is refused: 409 `model_taken`,
   naming the holder. Saving the actor disabled is fine. An import is checked

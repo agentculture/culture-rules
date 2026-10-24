@@ -127,6 +127,14 @@ disabled rule `pocket-to-reader` (after `transcribe-file-he`, or after
 Xteink reader; the editor's fold reads an OR of one predecessor per branch as
 continuing from either.
 
+**The decider step** (spec `docs/specs/2026-10-24-decider-step-in-workflows.md`,
+guide `docs/actors/decider.md`): the action kind `decider.assess` asks the mesh's
+decider (`/v1/systemone` on the lobes gateway) for probabilities over a step's
+`choice`, `noul` and `score` questions and outputs `answers`, `picks` (the top pick
+per question), `host`, `domain` and `usage` for a later step's `when`. The domain is
+the actor's; the bundle `docs/rules/decider` holds the `decider` actor. The model rule
+holds a decider by model and domain (`clef@general`), so there is one actor per domain.
+
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's
 conventions if you need more context than fits here. It covers:

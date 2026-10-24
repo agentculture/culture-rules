@@ -1,0 +1,22 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "decider.assess endpoint: the mesh decider through the lobes gateway on spark, domain general (Clef, hosted on the Orin and reached by mesh forwarding). One actor per decider domain: add another for another domain.",
+  "enabled": true,
+  "harness": null,
+  "id": "decider",
+  "kind": "agent",
+  "machine": "spark",
+  "model": null,
+  "name": "decider",
+  "params": {
+    "api_key": "grant:LOBES_GATEWAY_API_KEY",
+    "base_url": "http://127.0.0.1:8001",
+    "concurrency_pool": "decider-general",
+    "domain": "general",
+    "max_concurrency": 1,
+    "model": "clef"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

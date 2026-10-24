@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1] - 2026-10-24
+
+### Fixed
+
+- The model rule holds a decider by model and domain (`clef@general`), so one decider actor per domain is allowed, as docs/actors/decider.md says; a second for the same domain is still refused model_taken
+- decider.assess: a reply nested deeper than json can parse fails decider_bad_response (or keeps its status mapping) instead of raising
+- decider.assess reuses llm.complete's base-URL check, opener and refusal type instead of copies (SonarCloud's duplication gate on the rebased PR)
+- Carries the 0.25.0 review fixes (the summary-only book cache, the title's local time, one transcript file cap, the editor picker and either fixes); 0.26.0 went live before them
+
+## [0.26.0] - 2026-10-24
+
+### Added
+
+- The decider step: action kind decider.assess asks the mesh decider (POST /v1/systemone on the lobes gateway) for probabilities over a step's choice, noul and score questions; outputs answers (unchanged), picks (the top pick per question), host, domain and usage for a later step's when (docs/actors/decider.md)
+- The bundle docs/rules/decider: the decider agent actor (lobes gateway on spark, domain general, model clef); decider.assess is an endpoint kind
+- The editor's action picker offers Ask the decider with agent actors that have a base_url
+
 ## [0.25.0] - 2026-10-24
 
 ### Added
