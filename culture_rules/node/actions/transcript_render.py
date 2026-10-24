@@ -2,7 +2,7 @@
 
 The transcript file is the one :mod:`~culture_rules.node.actions.transcript_file` writes
 (``audio.transcribe``). The port reads it, but only from under a transcripts root, and builds an
-EPUB 3 (with an EPUB 2 NCX) for the Xteink reader. Standard-library only.
+EPUB 3 (with an EPUB 2 NCX) for the library and its readers. Standard-library only.
 
 Input
 =====
@@ -38,7 +38,7 @@ bytes and give the reader a second book. So the first render keeps the book besi
 transcript, ``book.<first 16 hex of the transcript file's sha256>.epub`` plus a ``.json`` of its
 title, date, word, ``summary_used``, ``segment_count`` and both sha256s, each written
 atomically. A later run for the same transcript file returns those stored bytes and fields
-unchanged, whatever its summary says, so xteink deduplicates the upload; a changed transcript
+unchanged, whatever its summary says, so the library deduplicates the upload; a changed transcript
 file has a new sha256 and gets a new book. A cache that does not check out is rendered again,
 and a folder that cannot be written to still gets its book (only rendered again next time).
 Only a book whose summary was used is kept: one rendered without a summary (the summary step

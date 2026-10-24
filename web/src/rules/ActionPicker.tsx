@@ -778,6 +778,26 @@ function hiddenForActor(kind: string, name: string, actor: Actor | undefined): b
   return false;
 }
 
+/**
+ * On an actor change, the library.push values the new actor makes moot or refuses: a
+ * `device_id` it has no `queue_path` for, a `kind` or `visibility` it does not list (#91 review).
+ * Hidden values would otherwise stay saved where the step can no longer show or fix them.
+ */
+function libraryCarryOver(
+  kind: string,
+  params: Record<string, unknown>,
+  actor: Actor | undefined,
+): Record<string, unknown> {
+  if (kind !== "library.push") return {};
+  const listed = (key: string, value: unknown) =>
+    actorChoices(actor, key).some((c) => c.value === value) ? value : undefined;
+  return {
+    device_id: actor?.params?.queue_path == null ? undefined : params.device_id,
+    kind: listed("kinds", params.kind),
+    visibility: listed("visibilities", params.visibility),
+  };
+}
+
 /** The string list an actor's `params[key]` holds (library.push `kinds`), as choices. */
 function actorChoices(actor: Actor | undefined, key: string): Choice[] {
   const list = actor?.params?.[key];
@@ -973,6 +993,7 @@ export default function ActionPicker({
                 args: undefined,
                 guild: undefined,
                 channel: kind === "discord.message" ? undefined : params.channel,
+                ...libraryCarryOver(kind, params, actors.find((a) => a.id === e.target.value)),
               })
             }
           >

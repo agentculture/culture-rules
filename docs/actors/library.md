@@ -42,10 +42,14 @@ These are checked when the action runs, before any request.
 ## 1. Mint a key and seal it
 
 On the culture-library host, mint a key for culture-rules alone, so it can be
-revoked on its own:
+revoked on its own. Give it `--private`: culture-library answers an upload of
+bytes it already holds as a private item with that item only to a key that
+can see private items (or to the key that uploaded it). Without `--private`,
+re-pushing an item another key uploaded, such as one the xteink migration
+moved in, fails `upload_failed: http 409 (conflict)`.
 
 ```bash
-culture-library keys mint --name culture-rules --scope write --kind newspaper --kind transcript
+culture-library keys mint --name culture-rules --scope write --kind newspaper --kind transcript --private
 ```
 
 Then, on the host whose node runs the actor's actions:
@@ -112,7 +116,7 @@ The `library.push` action takes:
 | `kind` | yes | one of the actor's `kinds` |
 | `visibility` | no | one of the actor's `visibilities`; unset, the library decides |
 | `author` | no | default `culture-rules` |
-| `device_id` | no | overrides the actor's `device_id`; used only with a `queue_path` (then one of the two is needed), and refused when malformed either way |
+| `device_id` | no | overrides the actor's `device_id`; used, and checked, only with a `queue_path` (then one of the two is needed). Without one it is ignored, so a leftover value never blocks a push |
 
 The editor's action picker offers the kinds and visibilities the chosen
 actor lists. It shows the visibility field only when the actor lists

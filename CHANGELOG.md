@@ -26,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - The action picker's param selects no longer share an element id with the "What happens" select (a param named `kind` collided with it)
+- The editor drops a `device_id`, `kind` or `visibility` the newly chosen library actor does not use or list, so a hidden value can no longer stay saved (#91 review)
+- `library.push` ignores `device_id` when the actor has no `queue_path`, so a leftover value never blocks an upload-only push (#91 review)
+- `workflows describe` names a push's kind and visibility (`kind newspaper (public)`) (#91 review)
+- The culture-rules library key is minted `--private`, so re-pushing an item another key uploaded (the 33 migrated transcripts) returns that item instead of 409 (#91 review)
 
 ## [0.26.1] - 2026-10-24
 

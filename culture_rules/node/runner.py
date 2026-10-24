@@ -354,7 +354,9 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:email.send": EmailSendPort(store),  # #53: Resend
         "action:search.web": SearchWebPort(store),  # #53: Brave
         "action:llm.complete": LlmCompletePort(store),  # #53: OpenAI-compatible, no tools
-        "action:library.push": LibraryPushPort(store),  # #53: xteink upload + queue
+        "action:library.push": LibraryPushPort(
+            store
+        ),  # #53, #86: upload to the actor's library (+ queue)
         "action:audio.transcribe": AudioTranscribePort(store),  # file-in STT, split by ffmpeg
         "action:transcript.render": TranscriptRenderPort(store),  # one transcript as an EPUB
         "action:decider.assess": DeciderAssessPort(store),  # the mesh decider: probabilities

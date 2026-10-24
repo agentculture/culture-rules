@@ -67,7 +67,7 @@
           "depth": 0,
           "label": "9",
           "step": "push",
-          "text": "library.push as newspaper-library, when deliver = true and push = true (≤3 attempts)"
+          "text": "library.push as newspaper-library kind newspaper (public), when deliver = true and push = true (≤3 attempts)"
         },
         {
           "depth": 0,
@@ -89,7 +89,7 @@
         "6 email_gate — builtin newspaper.issue, when deliver = true",
         "7 email — email.send as newspaper-email, when send = true (≤3 attempts)",
         "8 push_gate — builtin newspaper.issue, when deliver = true",
-        "9 push — library.push as newspaper-library, when deliver = true and push = true (≤3 attempts)",
+        "9 push — library.push as newspaper-library kind newspaper (public), when deliver = true and push = true (≤3 attempts)",
         "10 record — builtin newspaper.issue, when deliver = true"
       ],
       "paragraph": {
@@ -2196,7 +2196,7 @@
           "depth": 0,
           "label": "6",
           "step": "push",
-          "text": "library.push as newspaper-library (≤3 attempts)"
+          "text": "library.push as newspaper-library kind transcript (private) (≤3 attempts)"
         }
       ],
       "id": "transcript-to-reader",
@@ -2207,7 +2207,7 @@
         "3 pick — select: the outputs of the path that ran (one source for the next step)",
         "4 summary — llm.complete as cortex-spark2 (≤2 attempts)",
         "5 render — transcript.render",
-        "6 push — library.push as newspaper-library (≤3 attempts)"
+        "6 push — library.push as newspaper-library kind transcript (private) (≤3 attempts)"
       ],
       "paragraph": {
         "segments": [
@@ -5504,7 +5504,7 @@
         }
       ],
       "name": "Daily newspaper",
-      "notes": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex until the summary window closes (a failed or late summary leaves the results-only rendering), render the HTML and the EPUB, then deliver behind lease fences: the email (once per date, with a durable per-date key and the first rendered payload), the queue on the Xteink reader, the delivery record. Non-agentic: no bridge actor, no agent step.",
+      "notes": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex until the summary window closes (a failed or late summary leaves the results-only rendering), render the HTML and the EPUB, then deliver behind lease fences: the email (once per date, with a durable per-date key and the first rendered payload), the push to the library, the delivery record. Non-agentic: no bridge actor, no agent step.",
       "outputs": [
         {
           "name": "message_id",
@@ -11610,7 +11610,7 @@
           "type": "integer"
         },
         {
-          "description": "the Xteink device to queue on (newspaper_device); unset: the actor's device_id",
+          "description": "the device to queue on (newspaper_device), used only when the library actor has a queue_path; unset: the actor's device_id",
           "name": "device_id",
           "required": false,
           "type": "any"
@@ -12020,7 +12020,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Make the book",
-          "notes": "transcript.render: one EPUB, titled <YYYY-MM-DD> <HHMM> <word> (the Asia/Jerusalem date and time of recorded_at), the summary then the transcript; right to left unless the language is en. The same inputs give the same bytes, so a repeat is deduplicated by xteink.",
+          "notes": "transcript.render: one EPUB, titled <YYYY-MM-DD> <HHMM> <word> (the Asia/Jerusalem date and time of recorded_at), the summary then the transcript; right to left unless the language is en. The same inputs give the same bytes, so a repeat is deduplicated by the library.",
           "outputs": [
             {
               "description": "",

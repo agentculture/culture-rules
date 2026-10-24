@@ -210,8 +210,9 @@ fails `secret_unavailable`.
 
 **The library key.** Mint a key for culture-rules alone, so it can be
 revoked on its own: on the culture-library host,
-`culture-library keys mint --name culture-rules --scope write --kind newspaper --kind transcript`.
-Store it under the grant name above.
+`culture-library keys mint --name culture-rules --scope write --kind newspaper --kind transcript --private`.
+Store it under the grant name above. `--private` keeps a re-push of an item
+another key uploaded idempotent ([the library actor guide](../actors/library.md)).
 
 ## 2. Actor addresses and placement
 

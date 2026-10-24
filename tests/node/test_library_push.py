@@ -699,9 +699,18 @@ def test_without_a_queue_path_the_push_only_uploads():
 
 
 @pytest.mark.parametrize("device", ["reader-1", "-1", 0])
-def test_without_a_queue_path_a_bad_device_id_is_still_refused(device):
-    result = _refused(_store(_params(**UPLOAD_ONLY)), device_id=device)
-    assert result.error.startswith(INVALID_REQUEST)
+def test_without_a_queue_path_even_a_malformed_device_id_is_ignored(device):  # #91 review
+    transport = FakeTransport(UPLOAD_OK)
+    port, _ = _port(_store(_params(**UPLOAD_ONLY)), transport)
+    assert _invoke(port, device_id=device).outcome == COMPLETED
+    assert len(transport.calls) == 1
+
+
+def test_without_a_queue_path_a_malformed_actor_device_id_is_ignored():
+    transport = FakeTransport(UPLOAD_OK)
+    store = _store(_params(queue_path=_DROP, device_id="reader-1"))
+    port, _ = _port(store, transport)
+    assert _invoke(port).outcome == COMPLETED
 
 
 def test_without_a_queue_path_a_device_id_is_not_needed_or_used():

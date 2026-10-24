@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T19:39:30Z",
+  "updated": "2026-10-24T20:23:19Z",
   "deviations": [
     {
       "id": "d1",
@@ -118,6 +118,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 24
+    },
+    {
+      "id": "d9",
+      "what": "Review fixes on #91: (1) the culture-rules library key is re-minted with --private so re-pushing bytes another key uploaded (the 33 migrated transcripts) returns the existing item instead of 409, and the docs say so; (2,8) the editor drops device_id, kind and visibility values the newly chosen actor does not use or list; (3) library.push ignores device_id again when the actor has no queue_path (reverting the colleague suggestion that made a hidden value fatal); (4) the describe phrase names the kind and visibility instead of a device; (6) _choice takes required= instead of special-casing the name kind; (7) strings that still named xteink as the target are reworded; (5) no change: the migration kept xteink item ids, so the newspaper push fence is right, answered on the PR.",
+      "task_ref": "t3",
+      "reason": "Operator 2026-10-24 on the /code-review medium of PR #91 (8 findings): \"fix all\".",
+      "affects": [
+        "t4",
+        "t7"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 28
     }
   ],
   "evidence": [

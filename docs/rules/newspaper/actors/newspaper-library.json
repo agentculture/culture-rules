@@ -1,7 +1,7 @@
 {
   "capabilities": [],
   "config_source": "db",
-  "description": "culture-rules#86: library.push's library is culture-library (library.culture.dev), reached on spark's loopback (the action runs where the actor lives, machine spark; on another machine set its LAN address). Everything about the library is this actor's params: upload_path, the kinds and visibilities it accepts, and no queue_path (culture-library has no device queue; a library that has one, like xteink's, sets queue_path /api/devices/{device_id}/queue and a device_id). The key is minted with culture-library keys mint --name culture-rules --scope write --kind newspaper --kind transcript and stored in grant as LIBRARY_PUSH_API_KEY.",
+  "description": "culture-rules#86: library.push's library is culture-library (library.culture.dev), reached on spark's loopback (the action runs where the actor lives, machine spark; on another machine set its LAN address). Everything about the library is this actor's params: upload_path, the kinds and visibilities it accepts, and no queue_path (culture-library has no device queue; a library that has one, like xteink's, sets queue_path /api/devices/{device_id}/queue and a device_id). The key is minted with culture-library keys mint --name culture-rules --scope write --kind newspaper --kind transcript --private (so a re-push of an item another key uploaded returns that item, not 409) and stored in grant as LIBRARY_PUSH_API_KEY.",
   "enabled": true,
   "harness": null,
   "id": "newspaper-library",

@@ -5,8 +5,9 @@ Params (``culture_rules.model.action_kinds``): ``actor`` (falls back to ``contex
 ``content_base64`` (the EPUB bytes, base64), ``title``, ``kind`` (one of the actor's
 ``kinds``), optional ``visibility`` (one of the actor's ``visibilities``), optional
 ``author`` (default ``culture-rules``) and optional ``device_id`` (overrides the actor's;
-used only when the actor has a ``queue_path``, but checked either way). A kind or
-visibility the actor does not list fails ``invalid_request``.
+used, and checked, only when the actor has a ``queue_path``: a library without a device
+queue ignores it, so a leftover value never blocks a push). A kind or visibility the actor
+does not list fails ``invalid_request``.
 
 What stays fixed is the wire contract both known libraries share (xteink's and
 culture-library's): the multipart field names, the ``{"item": {"id"}, "created"}`` upload
@@ -320,10 +321,12 @@ def _words(value: Any, name: str) -> tuple[str, ...]:
     return tuple(value)
 
 
-def _choice(input: Mapping[str, Any], name: str, allowed: tuple[str, ...] | None) -> str | None:
-    """``input[name]`` if the actor allows it; ``None`` when unset and optional."""
+def _choice(
+    input: Mapping[str, Any], name: str, allowed: tuple[str, ...] | None, *, required: bool
+) -> str | None:
+    """``input[name]`` if the actor allows it; ``None`` when unset and not ``required``."""
     value = input.get(name)
-    if value is None and name != "kind":
+    if value is None and not required:
         return None
     if allowed is None:
         raise _Refused(_INVALID_REQUEST, f"the library actor lists no {name} values")
@@ -436,9 +439,10 @@ class LibraryPushPort:
         base = _base_url(params.get("base_url"))
         upload_path = _path(params.get("upload_path"), "upload_path")
         queue_path = params.get("queue_path")
-        device = _device(input.get("device_id")) or _device(params.get("device_id"))
+        device = None
         if queue_path is not None:
             queue_path = _path(queue_path, "queue_path", slot=True)
+            device = _device(input.get("device_id")) or _device(params.get("device_id"))
             if device is None:
                 raise _Refused("device_missing", "no device_id on the action or the actor")
         kinds = _words(params.get("kinds"), "kinds")
@@ -449,8 +453,12 @@ class LibraryPushPort:
         data = _content(input.get("content_base64"))
         title = _text(input, "title")
         author = _text(input, "author", DEFAULT_AUTHOR)
-        fields = [("title", title), ("author", author), ("kind", _choice(input, "kind", kinds))]
-        visibility = _choice(input, "visibility", visibilities)
+        fields = [
+            ("title", title),
+            ("author", author),
+            ("kind", _choice(input, "kind", kinds, required=True)),
+        ]
+        visibility = _choice(input, "visibility", visibilities, required=False)
         if visibility is not None:
             fields.append(("visibility", visibility))
         timeout = self._remaining(deadline, "before the upload")

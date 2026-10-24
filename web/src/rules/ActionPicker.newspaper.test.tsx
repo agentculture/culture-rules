@@ -212,6 +212,24 @@ describe("library.push", () => {
     expect(optionValues("Kind")).toEqual(["", "newspaper"]);
   });
 
+  it("drops a device id, kind or visibility the newly chosen actor does not use or list", async () => {
+    render(<Harness />);
+    const user = await pick("library.push", "xteink");
+    await user.selectOptions(screen.getByLabelText("Kind"), "transcript");
+    await user.selectOptions(screen.getByLabelText("Visibility"), "public");
+    await user.type(screen.getByLabelText("Device id"), "reader-1");
+    await user.selectOptions(screen.getByLabelText("Actor"), "library");
+    expect(saved().params).toEqual({ actor: "library" });
+  });
+
+  it("keeps a kind the newly chosen actor also lists", async () => {
+    render(<Harness />);
+    const user = await pick("library.push", "xteink");
+    await user.selectOptions(screen.getByLabelText("Kind"), "newspaper");
+    await user.selectOptions(screen.getByLabelText("Actor"), "library");
+    expect(saved().params).toEqual({ actor: "library", kind: "newspaper" });
+  });
+
   it("needs the content, a title and a kind", () => {
     const full = { actor: "xteink", content_base64: "x", title: "t", kind: "newspaper" };
     expect(actionProblem({ kind: "library.push", params: { ...full, content_base64: undefined } })).toBe("empty");

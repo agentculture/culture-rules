@@ -56,7 +56,8 @@ recording, the book waits for a re-run of `transcribe-file-he`.
    - as kind `transcript`, visibility `private` (culture-rules#86); a reader pulls it from
      the library;
    - uploading the same bytes again returns the existing item, so a repeat never adds a
-     second copy.
+     second copy. That includes the 33 books the xteink migration moved in, because the
+     culture-rules key is minted `--private` ([the library actor guide](../actors/library.md)).
 
 The run's outputs are `title`, `date`, `word`, `summary_used`, `source` (`given` or
 `stt-he`), `item_id`, `created` and `audio_sha256`. They hold no transcript or summary
