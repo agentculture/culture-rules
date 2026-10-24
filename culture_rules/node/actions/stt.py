@@ -1,8 +1,9 @@
 """``audio.transcribe`` action port: one audio file to an OpenAI-compatible STT endpoint.
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (required; falls back to
-``context.actor``), ``audio_path`` (an absolute path to the audio file), ``audio_sha256``
-(64 lowercase hex characters: the file's expected sha256), ``output_dir`` (an absolute
+``context.actor``), ``audio_path`` (an absolute path to the audio file), optional ``audio_sha256``
+(64 lowercase hex characters: the file's expected sha256; when absent the port hashes the
+file itself), ``output_dir`` (an absolute
 directory the result goes under), and optional ``language`` (sent as the ``language`` form
 field only when given) and ``model`` (else the actor's ``params.model``, else its ``model``).
 
@@ -17,12 +18,14 @@ one-enabled-endpoint-actor-per-model rule refuses at run time (``model_taken``).
 Order of work (every refusal before the first request names no body, header value or
 secret):
 
-1. ``audio_sha256`` is validated by regex before it forms any path (``invalid_request``);
-2. the audio path is resolved strictly (symlinks followed) and must lie under
-   ``audio_root``; ``output_dir`` (and its ``<audio_sha256>`` directory, when it exists)
-   must lie under ``output_root`` (``path_refused``);
+1. ``audio_sha256``, when given, is validated by regex before it forms any path
+   (``invalid_request``);
+2. the audio path is resolved (symlinks followed) and must lie under ``audio_root``; a file
+   that does not exist is ``audio_missing`` (final), and without ``audio_sha256`` the file
+   is hashed here, in 1 MiB reads, to form the result path; ``output_dir`` (and its ``<audio_sha256>`` directory, when it
+   exists) must lie under ``output_root`` (``path_refused``);
 3. ``ffmpeg`` and ``ffprobe`` must be on PATH (``ffmpeg_missing``);
-4. the file is hashed in 1 MiB reads and must match ``audio_sha256`` (``audio_mismatch``);
+4. a given ``audio_sha256`` must match the file, hashed in 1 MiB reads (``audio_mismatch``);
 5. an existing ``<output_dir>/<audio_sha256>/transcript.<model-slug>.json`` whose
    ``audio_sha256`` and ``model`` match is returned as is: no request, no ffmpeg run;
 6. the file is probed, its silences found and its windows planned
@@ -44,7 +47,9 @@ segment_count, window_count, empty_window_count}`` - never the transcript text. 
 (``"<code>: <detail>"``): ``stt_unavailable`` (the only retryable one: connection error,
 timeout, 5xx, 408, 429 or a passed attempt deadline), ``stt_rejected`` (any other non-2xx,
 including 413), ``audio_undecodable`` (ffprobe/ffmpeg failed, or a 400 whose body says
-``invalid_audio``), ``stt_bad_response``, ``path_refused``, ``invalid_request``,
+``invalid_audio``), ``stt_bad_response``, ``path_refused``, ``audio_missing`` (final: the
+audio file does not exist; the message names its path relative to ``audio_root``),
+``invalid_request``,
 ``audio_mismatch``, ``ffmpeg_missing``, ``model_taken``, ``stt_actor_invalid``,
 ``actor_kind_mismatch`` and ``secret_unresolved``.
 
@@ -99,6 +104,7 @@ UNDECODABLE = "audio_undecodable"
 PATH_REFUSED = "path_refused"
 INVALID = "invalid_request"
 MISMATCH = "audio_mismatch"
+AUDIO_MISSING = "audio_missing"
 FFMPEG_MISSING = "ffmpeg_missing"
 ACTOR_INVALID = "stt_actor_invalid"
 
@@ -106,7 +112,7 @@ _RETRYABLE_4XX = frozenset({408, 429})
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _LANGUAGE_RE = re.compile(r"^[A-Za-z0-9_-]{1,35}$")
 _MODEL = "model"
-_REQUIRED = ("audio_path", "audio_sha256", "output_dir")
+_REQUIRED = ("audio_path", "output_dir")
 
 Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
 """``(url, body, headers, timeout) -> (status, body)``; raises OSError /
@@ -182,7 +188,8 @@ def _check_input(input: Mapping[str, Any]) -> None:
         value = input.get(name)
         if not isinstance(value, str) or not value:
             raise _Refused(INVALID, f"{name} is required")
-    if not _SHA_RE.match(input["audio_sha256"]):
+    sha = input.get("audio_sha256")
+    if sha is not None and not (isinstance(sha, str) and _SHA_RE.match(sha)):
         raise _Refused(INVALID, "audio_sha256 must be 64 lowercase hex characters")
     language = input.get("language")
     if language not in (None, "") and not (
@@ -209,11 +216,15 @@ def _audio_file(actor: Actor, audio_path: str) -> Path:
     if not os.path.isabs(audio_path):
         raise _Refused(PATH_REFUSED, "audio_path must be absolute")
     try:
-        path = Path(audio_path).resolve(strict=True)
+        path = Path(audio_path).resolve(strict=False)
     except (OSError, RuntimeError) as exc:
-        raise _Refused(PATH_REFUSED, "audio_path does not exist") from exc
+        raise _Refused(PATH_REFUSED, "audio_path cannot be resolved") from exc
     if not path.is_relative_to(root):
         raise _Refused(PATH_REFUSED, "audio_path is outside the actor's audio_root")
+    if not path.exists():
+        raise _Refused(
+            AUDIO_MISSING, f"audio file {path.relative_to(root).as_posix()!r} is missing"
+        )
     if not path.is_file():
         raise _Refused(PATH_REFUSED, "audio_path is not a regular file")
     return path
@@ -389,16 +400,17 @@ class AudioTranscribePort:
         deadline: datetime,
     ) -> InvocationResult:
         self._check_actor(actor, doc)
-        sha = input["audio_sha256"]
+        given = input.get("audio_sha256")
         model = str(input.get(_MODEL) or actor.params.get(_MODEL) or actor.model).strip()
         language = input.get("language") or None
         audio = _audio_file(actor, input["audio_path"])
+        sha = given or _hash_file(str(audio))
         out_dir = str(_output_dir(actor, input["output_dir"], sha))
         try:
             audio_split.require_tools()
         except audio_split.ToolMissing as exc:
             raise _Refused(FFMPEG_MISSING, str(exc)) from exc
-        if _hash_file(str(audio)) != sha:
+        if given and _hash_file(str(audio)) != given:
             raise _Refused(MISMATCH, "the audio file's sha256 differs from audio_sha256")
         target = transcript_file.result_path(out_dir, sha, model)
         existing = transcript_file.read_existing(target)
