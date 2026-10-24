@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-24T00:11:29Z",
-  "updated": "2026-10-24T00:20:20Z",
+  "updated": "2026-10-24T00:21:36Z",
   "claims": [
     {
       "id": "c1",
@@ -536,5 +536,123 @@
     }
   ],
   "lapses": [],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "DeciderAssessPort -> gateway HTTP request",
+      "behavior": "posts exactly {model: clef, state, questions} to <base_url>/v1/systemone with the actor's bearer and X-Lobes-Model decider:<the actor's domain>",
+      "source_text": "Action kind decider.assess (params actor, state, questions; optional not_after) POSTs {model: clef, state, questions} to `<base_url>/v1/systemone` with Authorization Bearer (the actor's grant) and `X-Lobes-Model: decider:<domain>`, the domain from the actor's params.domain (default general); the body is sent as given, the gateway forwards it byte-identical",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "DeciderAssessPort input validation",
+      "behavior": "every malformed request fails invalid_request before any request is sent",
+      "source_text": "The request is checked before any call: state a non-empty string, questions a non-empty object with snake_case keys, each with type choice|noul|score and non-empty instructions, choice and score with at least 2 criteria, no images or videos, and the serialised request under a size cap; anything else fails invalid_request",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "DeciderAssessPort outputs",
+      "behavior": "answers pass through unchanged; host, domain and integer usage are set",
+      "source_text": "Outputs: answers (an object, passed through: per question {type, noul} or {type, choice, confidence, probabilities} or {type, probabilities, legend, score}), host (X-Lobes-Mesh-Member, else local), domain, and usage {input_tokens, output_tokens, total_tokens}; a step declares one object output port answers and a later step reads e.g. answers.risky.noul in its when",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c14",
+      "seam": "DeciderAssessPort outputs.picks",
+      "behavior": "choice copies choice, noul is noul >= 0.5, score is legend[argmax] with ties to the lower index",
+      "source_text": "Besides answers, an object output picks holds the decider's highest-probability pick per question, so a step can take it without reading probabilities: choice -> the chosen option key (the reply's choice); noul -> true when noul >= 0.5, else false; score -> the criteria key of the most probable index (ties: the lower index); a later step's when reads e.g. picks.setup == keep_current",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c5",
+      "seam": "DeciderAssessPort failure mapping",
+      "behavior": "each status class maps to its code and retryability; no failure carries the body or the key",
+      "source_text": "Failures, never echoing a body or the key: 5xx, 503 (backend_unavailable, loading), 408, 429 and network errors are decider_unavailable (retryable); 404 (model_not_found, role_infeasible), 401, 409, 422 and other non-2xx are decider_rejected naming the status and the gateway's error code; a reply without an answers object for every question asked is decider_bad_response",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c19",
+      "seam": "DeciderAssessPort reply parsing",
+      "behavior": "a non-Clef reply fails decider_bad_response with no partial picks",
+      "source_text": "decider.assess reads the Clef answer shape only: a domain that answers in another shape (strands-general, per the assess skill and lobes docs/decider.md) fails decider_bad_response rather than being guessed at; supporting it is later work",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c10",
+      "seam": "DeciderAssessPort outputs and logs",
+      "behavior": "the state text never appears in outputs, failures or logs",
+      "source_text": "The state is forwarded across the mesh to the box hosting the domain (general: the Orin): the docs say not to put secrets or private personal data in it, and the port never logs or outputs the state",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c9",
+      "seam": "DeciderAssessPort side effects",
+      "behavior": "exactly one request per invocation and nothing else",
+      "source_text": "The decider assesses; it never decides and never writes text: the step returns probabilities only, and no workflow action is taken by the port itself",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c6",
+      "seam": "docs/rules/decider bundle + the model rule",
+      "behavior": "the decider actor imports; decider.assess is an endpoint kind; a second enabled clef actor is refused model_taken",
+      "source_text": "A new agent actor decider (lobes gateway http://127.0.0.1:8001 on spark, api_key grant:LOBES_GATEWAY_API_KEY, params.domain general, model clef, max_concurrency 1) is committed as data, one actor per decider lane; decider.assess joins ENDPOINT_KINDS so the model rule and repoint-actor checks apply to it",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c7",
+      "seam": "action catalog, default ports, describe vocabulary, editor picker",
+      "behavior": "decider.assess is listed everywhere a kind must be and offered with agent actors that have a base_url",
+      "source_text": "The editor's action picker lists decider.assess (label, params, agent actors with a base_url), the describe vocabulary has its phrase, and the catalog, default ports and parity tests include it",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c17",
+      "seam": "workflow engine: a decider step feeding a later step's when",
+      "behavior": "a later step's when on picks.<q> runs or skips according to the decider step's output",
+      "source_text": "A workflow step asks the decider by naming a decider actor, gets probabilities and a pick per question as structured outputs, and a later step's when branches on them",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c18",
+      "seam": "live gateway, general domain",
+      "behavior": "a real run succeeds in under 5 s with a probability for every option and the same pick on a second run",
+      "source_text": "A workflow run with one decider.assess step (choice, noul and score questions) on the live general domain succeeds in under 5 s, its answers carry a probability for every option, and a following step whose when reads `picks.<question>` runs or skips accordingly; the same request again gives the same pick",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c20",
+      "seam": "docs/actors/decider.md",
+      "behavior": "the missing-field warning with an exists example is present",
+      "source_text": "docs/actors/decider.md warns that a when over answers or picks of a decider step that failed (with config.on_error skip) or was skipped reads a missing field, and a missing field makes every comparison false, == and != alike; a branch that must not run on a missing assessment should test exists first",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
 }
