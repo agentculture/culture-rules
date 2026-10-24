@@ -262,6 +262,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     ``output_root``; it needs ``ffmpeg``/``ffprobe`` on PATH only when it runs.
     ``action:transcript.render`` (``node.actions.transcript_render.TranscriptRenderPort``)
     renders one transcript under the transcripts root, with its summary, as an EPUB (stdlib).
+    ``action:decider.assess`` (``node.actions.decider.DeciderAssessPort``) asks the mesh's
+    decider for probabilities over a step's questions (``/v1/systemone``, stdlib).
     """
     del host
     from culture_rules.actors.gate import GatePort  # noqa: PLC0415
@@ -272,6 +274,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         HandoffImportPort,
     )
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
+    from culture_rules.node.actions.decider import DeciderAssessPort  # noqa: PLC0415
     from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
     from culture_rules.node.actions.fixer_cooldown import (  # noqa: PLC0415
         FIXER_COOLDOWN_BUILTIN,
@@ -354,6 +357,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:library.push": LibraryPushPort(store),  # #53: xteink upload + queue
         "action:audio.transcribe": AudioTranscribePort(store),  # file-in STT, split by ffmpeg
         "action:transcript.render": TranscriptRenderPort(store),  # one transcript as an EPUB
+        "action:decider.assess": DeciderAssessPort(store),  # the mesh decider: probabilities
         "action:http.call": HttpCallPort(store),
         "action:machine.command": MachineCommandPort(store),
         "code": BuiltinCodePort(
