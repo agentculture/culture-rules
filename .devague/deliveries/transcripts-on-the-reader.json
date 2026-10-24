@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T00:45:01Z",
+  "updated": "2026-10-24T01:14:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -313,6 +313,20 @@
       ],
       "evidence_refs": [
         "e9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "the push queues on the device in the newspaper_device variable (workflow input device_id, mapped by pocket-to-reader); without it every push would have failed on the live library actor, which carries no device_id",
+      "caused_by": [
+        "c8"
+      ],
+      "evidence_refs": [
+        "e7"
       ],
       "origin": "llm",
       "status": "proposed",
