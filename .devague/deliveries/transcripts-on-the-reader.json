@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T00:37:47Z",
+  "updated": "2026-10-24T00:45:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -78,7 +78,246 @@
       "seq": 5
     }
   ],
-  "evidence": [],
-  "deltas": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_a_hebrew_recording_gets_one_book_from_the_zipformer_run; tests/node/test_transcript_reader_flow.py::test_a_failed_zipformer_run_starts_no_book",
+      "behavior_text": "one reader run per success; none for a failed run",
+      "contract_text": "a transcription success starts exactly one reader run; a failure starts none",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "flow test on a real Node, test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_an_unlabelled_recording_gets_one_book_and_the_whisper_success_starts_nothing; tests/node/test_transcript_reader_flow.py::test_an_english_recording_gets_its_book_from_whisper; tests/node/test_transcript_reader_flow.py::test_an_english_recording_with_empty_whisper_is_transcribed_again_on_stt_he",
+      "behavior_text": "the lane per language and the stt-he fallback",
+      "contract_text": "he/unlabelled zipformer, en whisper, all-empty en again on stt-he",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "flow test, test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_transcript_render.py::test_render_is_byte_identical; tests/node/test_transcript_render.py::test_he_is_rtl_and_en_is_ltr; tests/node/test_transcript_render.py::test_title_uses_jerusalem_date_and_lowercased_word; tests/node/test_transcript_render.py::test_path_outside_root_refused_before_reading; tests/node/test_transcript_render.py::test_symlink_escape_refused",
+      "behavior_text": "determinism, direction, title, path checks",
+      "contract_text": "deterministic RTL/LTR EPUB titled with date and word, read only under the root",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/node/test_llm_complete.py::test_the_transcript_brief_is_the_system_message; tests/node/test_llm_complete.py::test_an_unknown_brief_is_invalid_without_a_request; tests/node/test_llm_complete.py::test_content_path_sends_the_transcript_text_as_the_user_message; tests/node/test_llm_complete.py::test_content_path_outside_content_root_is_refused_before_any_request; tests/node/test_llm_complete.py::test_an_empty_transcript_is_refused_before_any_request",
+      "behavior_text": "the locked brief and content_path reads",
+      "contract_text": "brief transcript and content_path behave as the spec says",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_a_summary_failure_still_ships_the_book_as_a_recording; tests/node/test_transcript_render.py::test_unusable_summary_falls_back",
+      "behavior_text": "the book ships as date recording with Summary unavailable.",
+      "contract_text": "a failed summary still ships the book",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_transcript_render.py::test_title_uses_jerusalem_date_and_lowercased_word; tests/node/test_transcript_render.py::test_bad_recorded_at_fails_invalid_request",
+      "behavior_text": "22:30Z on Oct 23 is titled 2026-10-24; a bad recorded_at fails",
+      "contract_text": "the Israel local date titles the book",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_library_push.py::test_upload_carries_file_title_author_and_kind; tests/node/test_library_push.py::test_kind_param_is_sent_as_given; tests/node/test_library_push.py::test_an_unknown_kind_is_refused_before_any_request",
+      "behavior_text": "default article, given kinds, refused others",
+      "contract_text": "library.push kind",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "the kind tests were run against the old library.py and 9 failed, then all 97 passed on the new one (l1)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "agentculture/xteink#8 (+ firmware comment), agentculture/pocketsync#12 comment 6375111397",
+      "behavior_text": "the issues exist, quote the code they ask to change, signed",
+      "contract_text": "the cross-repo asks exist and are self-contained",
+      "evidence_type": "manual",
+      "strength": "coverage",
+      "strength_basis": "read on GitHub when posted",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_a_rerun_whose_summary_answers_differently_still_adds_no_second_book; tests/node/test_transcript_render.py::test_a_later_run_returns_the_first_book_even_if_the_summary_changed",
+      "behavior_text": "a different summary on a re-run still pushes identical bytes",
+      "contract_text": "no second book on a re-run",
+      "evidence_type": "integration",
+      "strength": "sensitivity",
+      "strength_basis": "the flow test fails with the pre-d4 transcript_render.py and passes with the cache",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_no_transcript_text_enters_the_run_and_no_summary_text_its_outputs; tests/node/test_transcript_render.py::test_port_outputs_hold_no_text",
+      "behavior_text": "sentinels never appear in the run or events",
+      "contract_text": "no transcript text in the run; no summary text in outputs",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/model/test_rule_paragraph.py + tests/fixtures/fold_docs_rules.json (pocket-to-reader placement spark)",
+      "behavior_text": "the committed rule has placement machine spark",
+      "contract_text": "pocket-to-reader is placed on spark",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "the committed rule file read by the bundle tests at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "the summary step asks for up to 2000 tokens (400 left cortex-spark2 no answer after its reasoning)",
+      "caused_by": [
+        "c5"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "transcript.render keeps the first book beside its transcript (book.<sha16>.epub + .json) and returns it on later runs (d4, proposed)",
+      "caused_by": [
+        "c11"
+      ],
+      "evidence_refs": [
+        "e9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
