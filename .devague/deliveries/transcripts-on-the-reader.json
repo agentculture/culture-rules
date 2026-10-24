@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T01:14:28Z",
+  "updated": "2026-10-24T02:00:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -76,6 +76,20 @@
       "status": "proposed",
       "classification": "needs-follow-up",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t7's backfill runs before the PR merges, from a local node on the branch's code with the live actors (stt-he, cortex-spark2, newspaper-library) and the real ports: 33 recordings oldest first, pushed to the operator's library on device newspaper_device (3), then a second pass to show no new items; enabling pocket-to-reader on the engine still waits for a rollout",
+      "task_ref": "t7",
+      "reason": "the operator asked for the backfill ('Yes, all of them') and for live tests before the PR; the books go only to the operator's own library and can be deleted. Decider (general, 2026-10-24): backfill must wait for the operator P=0.31; rollout_branch_now 0.04, so no engine rollout",
+      "affects": [
+        "c10",
+        "c21"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 17
     }
   ],
   "evidence": [
@@ -287,6 +301,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 16
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "scratchpad backfill_reader.py pass 1 (local node, branch code, live actors, real ports)",
+      "behavior_text": "33 of 33 runs succeeded oldest first; 33 distinct library items (32 created + 1 from the smoke push); 31 with a summary, 2 empty clips titled recording; 4 fallbacks on stt-he",
+      "contract_text": "33 recordings each get their book, oldest first",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed live on the operator's xteink library from a local node; the engine-level rule waits for a rollout (d6)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T02:00:31",
+        "commit": "43ae495"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o14",
+      "test_ref": "backfill_reader.py pass 2 + GET /api/devices/3/queue",
+      "behavior_text": "pass 2: 33 of 33 succeeded, 0 created, the same 33 item ids and titles; device 3's queue holds exactly those 33 entries",
+      "contract_text": "33 items for 33 recordings, 0 new after a re-run, a new book queued within 10 minutes",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the counts hold live; the 10-minutes-after-a-new-transcription part needs the engine rule (a rollout) and is not yet observed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T02:00:31",
+        "commit": "43ae495"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
     }
   ],
   "deltas": [
