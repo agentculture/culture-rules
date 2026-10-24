@@ -1,13 +1,28 @@
-"""``library.push`` action port: upload an EPUB to a library, and queue it when the library has
-a device queue (#53, culture-rules#86).
+"""``library.push`` action port: upload a file (an EPUB by default) to a library, queue it when
+the library has a device queue, or replace an existing item by id (#53, culture-rules#86).
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (falls back to ``context.actor``),
-``content_base64`` (the EPUB bytes, base64), ``title``, ``kind`` (one of the actor's
+``content_base64`` (the file bytes, base64), ``title``, ``kind`` (one of the actor's
 ``kinds``), optional ``visibility`` (one of the actor's ``visibilities``), optional
 ``author`` (default ``culture-rules``) and optional ``device_id`` (overrides the actor's;
 used, and checked, only when the actor has a ``queue_path``: a library without a device
-queue ignores it, so a leftover value never blocks a push). A kind or visibility the actor
-does not list fails ``invalid_request``.
+queue ignores it, so a leftover value never blocks a push), optional ``format`` and optional
+``item_id``. A kind or visibility the actor does not list fails ``invalid_request``.
+
+Formats: the actor's optional ``formats`` is a non-empty list of the words ``md``, ``txt``,
+``json``, ``epub``, ``pdf`` (types ``text/markdown``, ``text/plain``, ``application/json``,
+``application/epub+zip``, ``application/pdf``). The step's ``format`` must be one the actor
+lists; without ``format`` the file is an EPUB, so an actor that lists ``formats`` without
+``epub`` refuses a step with no format, and an actor with no ``formats`` accepts only EPUB
+(a ``format`` of ``epub`` or none). The filename is the title slug plus ``.<format>``.
+
+Replace: with ``item_id`` (a positive integer) the bytes go to the actor's ``replace_path``
+(an absolute path of plain segments holding ``{item_id}`` as exactly one whole segment) with
+the actor's ``replace_method`` (``PUT``, ``POST`` or ``PATCH``; there is no default, the actor
+must say). ``item_id`` without both fails ``invalid_actor`` before any request. A replace has
+no queue step, and answers ``{"item": {"id"}}`` with the same id (else ``bad_response``). The
+route belongs to the library: agentculture/culture-library#10 defines it; nothing about it is
+built in here.
 
 What stays fixed is the wire contract both known libraries share (xteink's and
 culture-library's): the multipart field names, the ``{"item": {"id"}, "created"}`` upload
@@ -27,8 +42,9 @@ and, for a library with a device queue (xteink's), also
 ``"queue_path": "/api/devices/{device_id}/queue"`` and an optional ``device_id``.
 
 ``base_url`` is http or https with a host and no credentials, query or fragment (a path
-prefix is kept). ``upload_path`` (required) and ``queue_path`` (optional) are absolute
-paths of plain segments; ``queue_path`` holds ``{device_id}`` as exactly one whole segment.
+prefix is kept). ``upload_path`` (required), ``queue_path`` and ``replace_path`` (optional)
+are absolute paths of plain segments; ``queue_path`` holds ``{device_id}`` as exactly one
+whole segment, ``replace_path`` holds ``{item_id}`` likewise.
 ``kinds`` (required) and ``visibilities`` (optional; without it no visibility may be sent)
 are non-empty lists of lowercase words. ``api_key`` must be a ``grant:<NAME>`` reference to
 a dedicated, revocable key; a literal key is refused and never echoed. The reference is
@@ -38,16 +54,19 @@ any request is made.
 
 The push is one or two calls, each with ``Authorization: Bearer <key>``:
 
-1. ``POST <base_url><upload_path>``, ``multipart/form-data`` built here with a random
+1. ``POST <base_url><upload_path>`` (or, for a replace, ``<replace_method>
+   <base_url><replace_path>``), ``multipart/form-data`` built here with a random
    boundary: ``file`` (named after the title, e.g. ``daily-newspaper-2026-10-11.epub``,
-   ``application/epub+zip``), ``title``, ``author``, ``kind`` and, when given,
-   ``visibility``. The library answers 201 ``{"item": {"id"}, "created": true}`` or 200
-   with ``created: false`` when the same bytes are already stored.
+   typed by the format, ``application/epub+zip`` by default), ``title``, ``author``, ``kind``
+   and, when given, ``visibility``. The library answers 201
+   ``{"item": {"id"}, "created": true}`` or 200 with ``created: false`` when the same bytes
+   are already stored.
 2. Only with a ``queue_path`` and only after a 2xx upload: ``POST <base_url><queue_path>``
    (``{device_id}`` filled in) with ``{"item_id": <id>}``, answered 201 with the queue
    entry.
 
-Outputs ``{item_id, created, queue_id}``; ``queue_id`` is ``None`` without a queue step.
+Outputs ``{item_id, created, queue_id}``; ``queue_id`` is ``None`` without a queue step (and
+on a replace, whose ``item_id`` is the one given).
 
 Failures: content that is not valid base64, empty, or over 50 MiB decoded (``too_large``),
 a missing title or kind, a bad device id or actor config fail before any request, never
@@ -101,6 +120,7 @@ __all__ = [
     "Transport",
     "encode_multipart",
     "epub_filename",
+    "item_filename",
     "urllib_transport",
 ]
 
@@ -120,6 +140,17 @@ _DEVICE_RE = re.compile(r"^[1-9]\d{0,17}$")
 _WORD_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$")
 _DEVICE_SLOT = "{device_id}"
+_ITEM_SLOT = "{item_id}"
+FORMAT_TYPES = {
+    "md": "text/markdown",
+    "txt": "text/plain",
+    "json": "application/json",
+    "epub": EPUB_TYPE,
+    "pdf": "application/pdf",
+}
+"""The formats a library actor may list, and the type each is uploaded as."""
+DEFAULT_FORMAT = "epub"
+REPLACE_METHODS = ("PUT", "POST", "PATCH")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _UNSAFE_HEADER_TEXT = re.compile(r'["\r\n]')
 _INVALID_REQUEST = "invalid_request"
@@ -179,11 +210,17 @@ def _boundary(values: Sequence[bytes]) -> str:
             return boundary
 
 
+def item_filename(title: str, fmt: str = DEFAULT_FORMAT) -> str:
+    """A safe filename from ``title`` and ``fmt`` (``Daily newspaper 2026-10-11``, ``md`` ->
+    ``daily-newspaper-2026-10-11.md``)."""
+    slug = _SLUG_RE.sub("-", title.lower()).strip("-")[:100].strip("-")
+    return f"{slug or 'upload'}.{fmt}"
+
+
 def epub_filename(title: str) -> str:
     """A safe ``.epub`` filename from ``title`` (``Daily newspaper 2026-10-11`` ->
     ``daily-newspaper-2026-10-11.epub``)."""
-    slug = _SLUG_RE.sub("-", title.lower()).strip("-")[:100].strip("-")
-    return f"{slug or 'upload'}.epub"
+    return item_filename(title, DEFAULT_FORMAT)
 
 
 # ------------------------------------------------------------------ the transport
@@ -293,19 +330,19 @@ def _text(input: Mapping[str, Any], name: str, default: str | None = None) -> st
     return value
 
 
-def _path(value: Any, name: str, *, slot: bool = False) -> str:
+def _path(value: Any, name: str, *, slot: str | None = None) -> str:
     """An absolute path of plain segments (no ``.``/``..``, query or fragment); with
-    ``slot``, exactly one segment is ``{device_id}``."""
+    ``slot`` (e.g. ``{device_id}``), exactly one segment is that slot."""
     if not isinstance(value, str) or not value.startswith("/"):
         raise _Refused(_INVALID_ACTOR, f"{name} must be an absolute path")
     segments = value[1:].split("/")
-    slots = sum(segment == _DEVICE_SLOT for segment in segments)
+    slots = sum(segment == slot for segment in segments)
     plain = all(
-        segment == _DEVICE_SLOT or (_SEGMENT_RE.match(segment) and segment not in (".", ".."))
+        segment == slot or (_SEGMENT_RE.match(segment) and segment not in (".", ".."))
         for segment in segments
     )
     if not plain or slots != (1 if slot else 0):
-        hint = f" with {_DEVICE_SLOT} as one segment" if slot else ""
+        hint = f" with {slot} as one segment" if slot else ""
         raise _Refused(_INVALID_ACTOR, f"{name} must be plain path segments{hint}")
     return value
 
@@ -319,6 +356,54 @@ def _words(value: Any, name: str) -> tuple[str, ...]:
     ):
         raise _Refused(_INVALID_ACTOR, f"{name} must be a non-empty list of lowercase words")
     return tuple(value)
+
+
+def _formats(value: Any) -> tuple[str, ...] | None:
+    """The actor's ``formats`` (known words only), ``None`` when unset."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or not value or not all(v in FORMAT_TYPES for v in value):
+        known = ", ".join(FORMAT_TYPES)
+        raise _Refused(_INVALID_ACTOR, f"formats must be a non-empty list of: {known}")
+    return tuple(value)
+
+
+def _format(input: Mapping[str, Any], allowed: tuple[str, ...] | None) -> str:
+    """The step's format (epub when unset) if the actor allows it; an actor with no
+    ``formats`` allows only epub."""
+    value = input.get("format")
+    chosen = DEFAULT_FORMAT if value is None else value
+    permitted = allowed if allowed is not None else (DEFAULT_FORMAT,)
+    if not isinstance(chosen, str) or chosen not in permitted:
+        raise _Refused(_INVALID_REQUEST, f"format must be one of {', '.join(permitted)}")
+    return chosen
+
+
+def _item(value: Any) -> int | None:
+    """The ``item_id`` to replace (a positive integer), ``None`` when unset."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise _Refused(_INVALID_REQUEST, "item_id must be a positive integer")
+    return value
+
+
+def _replace_target(params: Mapping[str, Any], item_id: int | None) -> tuple[str, str] | None:
+    """``(method, path)`` of the actor's replace route. Both are checked whenever either is
+    set; a replace (``item_id`` given) needs both."""
+    path, method = params.get("replace_path"), params.get("replace_method")
+    if path is None and method is None:
+        if item_id is not None:
+            raise _Refused(_INVALID_ACTOR, "item_id needs replace_path and replace_method")
+        return None
+    if path is None or method is None:
+        raise _Refused(_INVALID_ACTOR, "replace_path and replace_method go together")
+    path = _path(path, "replace_path", slot=_ITEM_SLOT)
+    if not isinstance(method, str) or method not in REPLACE_METHODS:
+        raise _Refused(
+            _INVALID_ACTOR, f"replace_method must be one of {', '.join(REPLACE_METHODS)}"
+        )
+    return method, path
 
 
 def _choice(
@@ -438,14 +523,17 @@ class LibraryPushPort:
     ) -> InvocationResult:
         base = _base_url(params.get("base_url"))
         upload_path = _path(params.get("upload_path"), "upload_path")
+        item_id = _item(input.get("item_id"))
+        replace = _replace_target(params, item_id)
         queue_path = params.get("queue_path")
         device = None
         if queue_path is not None:
-            queue_path = _path(queue_path, "queue_path", slot=True)
+            queue_path = _path(queue_path, "queue_path", slot=_DEVICE_SLOT)
             device = _device(input.get("device_id")) or _device(params.get("device_id"))
-            if device is None:
+            if device is None and item_id is None:
                 raise _Refused("device_missing", "no device_id on the action or the actor")
         kinds = _words(params.get("kinds"), "kinds")
+        fmt = _format(input, _formats(params.get("formats")))
         raw_visibilities = params.get("visibilities")
         visibilities = (
             None if raw_visibilities is None else _words(raw_visibilities, "visibilities")
@@ -464,21 +552,25 @@ class LibraryPushPort:
         timeout = self._remaining(deadline, "before the upload")
         auth = {"Authorization": "Bearer " + self._key(params.get("api_key"))}
         content_type, body = encode_multipart(
-            fields, [("file", epub_filename(title), EPUB_TYPE, data)]
+            fields, [("file", item_filename(title, fmt), FORMAT_TYPES[fmt], data)]
         )
-        status, raw = self._send(
-            base + upload_path, {**auth, "Content-Type": content_type}, body, timeout
-        )
+        method, url = "POST", base + upload_path
+        if item_id is not None and replace is not None:
+            method = replace[0]
+            url = base + replace[1].replace(_ITEM_SLOT, str(item_id))
+        status, raw = self._send(method, url, {**auth, "Content-Type": content_type}, body, timeout)
         if not 200 <= status < 300:
             raise _status_failure("upload_failed", status, raw)
         reply = _json_reply(raw, "upload")
         item = reply.get("item")
-        item_id = _int_id(item.get("id") if isinstance(item, dict) else None, "upload")
+        got_id = _int_id(item.get("id") if isinstance(item, dict) else None, "upload")
+        if item_id is not None and got_id != item_id:
+            raise _Refused(_BAD_RESPONSE, f"replace reply names item {got_id}, not {item_id}")
         queue_id = None
-        if queue_path is not None and device is not None:
-            queue_id = self._queue(base + queue_path, device, item_id, auth, deadline)
+        if item_id is None and queue_path is not None and device is not None:
+            queue_id = self._queue(base + queue_path, device, got_id, auth, deadline)
         return InvocationResult.completed(
-            {"item_id": item_id, "created": bool(reply.get("created")), "queue_id": queue_id}
+            {"item_id": got_id, "created": bool(reply.get("created")), "queue_id": queue_id}
         )
 
     def _queue(
@@ -493,15 +585,15 @@ class LibraryPushPort:
         queue_body = json.dumps({"item_id": item_id}).encode("utf-8")
         headers = {**auth, "Content-Type": "application/json"}
         timeout = self._remaining(deadline, f"after the upload (item {item_id} uploaded)")
-        status, raw = self._send(queue_url, headers, queue_body, timeout)
+        status, raw = self._send("POST", queue_url, headers, queue_body, timeout)
         if not 200 <= status < 300:
             raise _status_failure("queue_failed", status, raw, f" (item {item_id} uploaded)")
         return _int_id(_json_reply(raw, "queue").get("id"), "queue")
 
     def _send(
-        self, url: str, headers: Mapping[str, str], body: bytes, timeout: float
+        self, method: str, url: str, headers: Mapping[str, str], body: bytes, timeout: float
     ) -> tuple[int, bytes]:
         try:
-            return self._transport("POST", url, headers, body, timeout)
+            return self._transport(method, url, headers, body, timeout)
         except (http.client.HTTPException, OSError) as exc:  # URLError/timeouts are OSError
             raise _Refused(_NETWORK_ERROR, type(exc).__name__, retryable=True) from exc
