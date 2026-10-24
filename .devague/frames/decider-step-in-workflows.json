@@ -1,0 +1,476 @@
+{
+  "slug": "decider-step-in-workflows",
+  "title": "Decider step in workflows",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-24T00:11:29Z",
+  "updated": "2026-10-24T00:18:37Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Workflows can ask the mesh's decider: a decider.assess step sends a state and the questions it defines (choice, yes/no, score) to the decider on the lobes gateway and returns calibrated probabilities that a later step's condition branches on",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "a workflow with a decider.assess step validates, runs on the live gateway, and a later step branches on its outputs",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "Action kind decider.assess (params actor, state, questions; optional not_after) POSTs {model: clef, state, questions} to `<base_url>/v1/systemone` with Authorization Bearer (the actor's grant) and `X-Lobes-Model: decider:<domain>`, the domain from the actor's params.domain (default general); the body is sent as given, the gateway forwards it byte-identical",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "the request goes to <base_url>/v1/systemone with the bearer from the actor's grant and X-Lobes-Model decider:<the actor's domain>; the body is {model: clef, state, questions} exactly",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Action kind decider.assess (params actor, state, questions; optional not_after) POSTs {model: clef, state, questions} to <base_url>/v1/systemone with Authorization Bearer (the actor's grant) and X-Lobes-Model: decider:<domain>, the domain from the actor's params.domain (default general); the body is sent as given, the gateway forwards it byte-identical",
+          "kind": "requirement",
+          "reason": "backtick placeholders for markdown lint (MD033); wording unchanged"
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "The request is checked before any call: state a non-empty string, questions a non-empty object with snake_case keys, each with type choice|noul|score and non-empty instructions, choice and score with at least 2 criteria, no images or videos, and the serialised request under a size cap; anything else fails invalid_request",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "each malformed request case (empty state, no questions, a bad key, a bad type, no instructions, under 2 criteria, images, over the size cap) fails invalid_request with no request sent",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Outputs: answers (an object, passed through: per question {type, noul} or {type, choice, confidence, probabilities} or {type, probabilities, legend, score}), host (X-Lobes-Mesh-Member, else local), domain, and usage {input_tokens, output_tokens, total_tokens}; a step declares one object output port answers and a later step reads e.g. answers.risky.noul in its when",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "the outputs hold answers exactly as the reply gave them, host from X-Lobes-Mesh-Member (else local), domain and integer usage; and a later step's when on answers.<q>.noul runs or skips",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h18",
+          "text": "the outputs hold answers exactly as the reply gave them, host from X-Lobes-Mesh-Member (else local), domain and integer usage; and a later step's when on `answers.<q>.noul` runs or skips (h4 with the placeholder backticked)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Failures, never echoing a body or the key: 5xx, 503 (backend_unavailable, loading), 408, 429 and network errors are decider_unavailable (retryable); 404 (model_not_found, role_infeasible), 401, 409, 422 and other non-2xx are decider_rejected naming the status and the gateway's error code; a reply without an answers object for every question asked is decider_bad_response",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "each status class maps to its code and retryability in a table-driven test; no failure string contains the reply body or the key",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "A new agent actor decider (lobes gateway http://127.0.0.1:8001 on spark, api_key grant:LOBES_GATEWAY_API_KEY, params.domain general, model clef, max_concurrency 1) is committed as data, one actor per decider lane; decider.assess joins ENDPOINT_KINDS so the model rule and repoint-actor checks apply to it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "the committed decider actor reads and imports from docs/rules/decider; decider.assess is in ENDPOINT_KINDS, a second enabled actor with model clef is refused model_taken",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Domain on the actor or on the step? One actor per decider lane (decider = general, a second actor for strands-general) keeps the lane rule; a per-step domain param would let one actor reach every domain. Which?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Operator 2026-10-24: the domain lives on the actor (params.domain); the step chooses which decider by naming the actor in params.actor"
+        },
+        {
+          "id": "q2",
+          "text": "Where is the decider actor committed: a new small bundle docs/rules/decider/ (actor only), or beside cortex-spark2 in the newspaper bundle?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Operator 2026-10-24: a new bundle docs/rules/decider/ holding the decider actor"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The editor's action picker lists decider.assess (label, params, agent actors with a base_url), the describe vocabulary has its phrase, and the catalog, default ports and parity tests include it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "the editor offers decider.assess with agent actors that have a base_url; test_describe, test_action_kinds and test_default_ports cover it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "docs/actors/decider.md: the actor setup, the request shape, the three answer shapes, an example step wiring answers into a later step's when, and the request-writing lessons from the assess skill (facts in state, concrete mutually exclusive options)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "docs/actors/decider.md exists, lints clean, and its example step validates",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "The decider assesses; it never decides and never writes text: the step returns probabilities only, and no workflow action is taken by the port itself",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "the port performs exactly one request per invocation and no other side effect",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "The state is forwarded across the mesh to the box hosting the domain (general: the Orin): the docs say not to put secrets or private personal data in it, and the port never logs or outputs the state",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "neither the outputs, the failure strings nor any log contain the state text",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "non_goal",
+      "text": "No committed workflow in docs/rules uses decider.assess yet: the step ships ready to compose, the corpus fixtures stay at 12 workflows",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "assumption",
+      "text": "The decider is deterministic and fast (no sampling, output_tokens 0, about 0.5-2 s), so the step is idempotent and a retry with the same key replays the same answer (ReplayLedger)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "Operator 2026-10-24: the decider domain is the actor's (params.domain, default general), never a step param; a step picks the decider lane by its params.actor, so one actor per domain; the decider actor ships in a new bundle docs/rules/decider/",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Besides answers, an object output picks holds the decider's highest-probability pick per question, so a step can take it without reading probabilities: choice -> the chosen option key (the reply's choice); noul -> true when noul >= 0.5, else false; score -> the criteria key of the most probable index (ties: the lower index); a later step's when reads e.g. picks.setup == keep_current",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "picks is exact on fixed replies: choice copies choice, noul 0.5 -> true and 0.49 -> false, score picks the most probable criteria key with ties to the lower index",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "audience",
+      "text": "Workflow authors (the operator, and agents composing workflows) who want a judgment call inside a workflow - which option, how likely, how risky - and the engine that runs the step",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "docs/actors/decider.md addresses workflow authors, with a worked example a later step can copy",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "before_state",
+      "text": "The decider is reachable only from an agent's shell through the assess skill; a workflow has no step for it, so a judgment call inside a workflow means an llm.complete prompt and parsing its text",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "as of 0.25.0 no action kind posts to /v1/systemone",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "after_state",
+      "text": "A workflow step asks the decider by naming a decider actor, gets probabilities and a pick per question as structured outputs, and a later step's when branches on them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "docs/actors/decider.md addresses workflow authors, with a worked example a later step can copy",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h16",
+          "text": "a workflow step with params.actor decider returns answers and picks, and a when on picks branches",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "success_signal",
+      "text": "A workflow run with one decider.assess step (choice, noul and score questions) on the live general domain succeeds in under 5 s, its answers carry a probability for every option, and a following step whose when reads `picks.<question>` runs or skips accordingly; the same request again gives the same pick",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "as of 0.25.0 no action kind posts to /v1/systemone",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h17",
+          "text": "the live check run: success, under 5 s, every option has a probability, the branch step ran or skipped as its when said, and a second run gave the same pick",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "A workflow run with one decider.assess step (choice, noul and score questions) on the live general domain succeeds in under 5 s, its answers carry a probability for every option, and a following step whose when reads picks.<question> runs or skips accordingly; the same request again gives the same pick",
+          "kind": "success_signal",
+          "reason": "backtick placeholders for markdown lint (MD033); wording unchanged"
+        }
+      ]
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "lobes-cli lobes/gateway/_routing.py:251-316, server.py handle_systemone, docs/decider.md",
+      "finding": "the domain is chosen only by the `X-Lobes-Model: decider:<domain>` header (missing or bare decider = general; regex `^[a-z0-9][a-z0-9-]*$`); the gateway forwards the body byte-identical and never reads model; a domain not served locally is forwarded once to the mesh member announcing it, the reply naming it in X-Lobes-Mesh-Member",
+      "seeds": [
+        "c2",
+        "c10"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "lobes-cli lobes/decider_sidecar/clef_vllm.py:62,86-107,136-155,310",
+      "finding": "the sidecar requires model, state and a non-empty questions object, each type noul|choice|score, choice/score with non-empty criteria, no images/videos; DECIDER_MAX_MODEL_LEN 16384 tokens, an over-long schema is 422; the response is {model, answers{...}, usage{input_tokens, output_tokens}} passed through unreshaped",
+      "seeds": [
+        "c3",
+        "c4"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "lobes-cli server.py:775,4220; decider_sidecar/server.py _not_ready; _pressure_policy.py:436",
+      "finding": "errors: 404 model_not_found / role_infeasible, 503 backend_unavailable (Retry-After 5), 503 loading, 500 failed, 422 validation, 409 decider_domain_conflict, 503 role_unverified, 508 a second hop, 401 bad key; the decider is never shed (no 429 from pressure)",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "~/.claude/skills/assess/scripts/assess.py",
+      "finding": "the skill's client: X-Lobes-Model header, default model clef, 120 s timeout, requires instructions on each question and at least 2 criteria for non-noul types; reads answers, usage.input_tokens and X-Lobes-Mesh-Member",
+      "seeds": [
+        "c2",
+        "c3",
+        "c4"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_rules/node/actions/llm.py:151-519",
+      "finding": "the port pattern to copy: injectable transport (no proxies, no redirects, capped response), grant-only api_key resolved at call time, base_url checks, not_after + refuse_before_admit, ReplayLedger replay of completed results, code: detail failures that never carry a body or secret",
+      "seeds": [
+        "c2",
+        "c5",
+        "c12"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_rules/actors/model_rule.py:17,40; server/model_actors.py:42,337",
+      "finding": "ENDPOINT_KINDS is (llm.complete, audio.transcribe); an agent actor with params.base_url is an endpoint actor and model_taken applies when another enabled endpoint actor has the same model; joining ENDPOINT_KINDS makes repoint-actor require an endpoint target",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "culture_rules/actors/limits.py:186,425-437; node/actors.py:139-176",
+      "finding": "ActorRouter wraps every action naming params.actor in LimitedActor with that actor's concurrency_pool / max_concurrency; tokens_of counts output.usage.total_tokens against a token_budget",
+      "seeds": [
+        "c4",
+        "c6"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "culture_rules/engine/runs.py:2188-2260, model/condition.py:191-227, model/workflow.py:26-29,80, model/validate.py:947,1025",
+      "finding": "a step's when reads only its own input ports; field paths walk nested dicts and compare numbers with < <= > >=; a missing path is false so the step is skipped silently; ports are declared statically and may be type object, so one object port answers wired into a later step is the workable design",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_rules/model/describe.py:92-109,341; paragraph.py:344-358,570-591; tests/model/test_describe.py:662",
+      "finding": "ACTION_WORDS needs an entry (a test lists every kind); a new action kind cannot trip the c9 paragraph fallback, which is about unknown step kinds and invalid config",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "web/src/api/types.ts:104-112, web/src/rules/ActionPicker.tsx:110-117,214-230",
+      "finding": "the editor's action catalog is a hand-kept TS copy: the ActionKind union, the picker's params/label catalog and the actorsFor switch (llm.complete and audio.transcribe offer agent actors with a base_url)",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "docs/rules/newspaper/actors/cortex-spark2.json, docs/rules/pocket-transcribe/actors/stt-en.json",
+      "finding": "both gateway actors use base_url http://127.0.0.1:8001 and api_key grant:LOBES_GATEWAY_API_KEY with their own pools; no decider actor exists",
+      "seeds": [
+        "c6"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
