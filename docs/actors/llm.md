@@ -116,7 +116,9 @@ field. Environment proxies are ignored and redirects are not followed.
 
 The output is `{text, model, usage}`, plus `answer` (the parsed JSON) and
 `cached` for the recording brief. `text` is the first choice's message,
-with a leading `<think>` block dropped. `usage` keeps the token counts, which
+with a leading `<think>` block dropped. On a cache hit (`cached: true`),
+`text` is the stored answer as canonical JSON, not the model's original
+reply, so map later steps from `answer`, not `text`. `usage` keeps the token counts, which
 count toward the actor's token budget.
 
 ## Failures

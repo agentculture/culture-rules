@@ -5,8 +5,9 @@ path comes from an event field, so later steps can use them.
 
 Inputs (each may instead sit in ``config``; the input wins): ``path`` - the file, absolute or
 relative to ``root``; ``root`` - an absolute directory the file must resolve under (symlinks
-followed, so a link pointing out of it is refused). Config: ``fields`` - ``{output name:
-dotted path}``, e.g. ``{"audio": "files.audio.rel_path"}``. A dotted path walks object keys
+followed, so a link pointing out of it is refused); ``fields`` (required, usually in
+config) - ``{output name: dotted path}``, e.g. ``{"audio": "files.audio.rel_path"}``; none
+given fails ``bad_params``. A dotted path walks object keys
 only; a list index is not supported (a list on the way yields null, a list at the end is
 refused as ``not_scalar``).
 
