@@ -11,6 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The model rule holds a decider by model and domain (`clef@general`), so one decider actor per domain is allowed, as docs/actors/decider.md says; a second for the same domain is still refused model_taken
 - decider.assess: a reply nested deeper than json can parse fails decider_bad_response (or keeps its status mapping) instead of raising
+- decider.assess reuses llm.complete's base-URL check, opener and refusal type instead of copies (SonarCloud's duplication gate on the rebased PR)
 - Carries the 0.25.0 review fixes (the summary-only book cache, the title's local time, one transcript file cap, the editor picker and either fixes); 0.26.0 went live before them
 
 ## [0.26.0] - 2026-10-24

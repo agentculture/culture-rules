@@ -69,13 +69,13 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit
 
 from culture_rules.actors.model_rule import senior_holder
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
+from culture_rules.node.actions.llm import _base_url_problem, _opener, _Refused
 from culture_rules.node.actions.machine import load_bound_actor
 from culture_rules.node.actors import ACTORS_COLLECTION
 
@@ -120,34 +120,7 @@ Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, Mapping[
 ``http.client.HTTPException`` when the server cannot be reached."""
 
 
-class _Refused(Exception):
-    def __init__(self, code: str, detail: str, *, retryable: bool = False) -> None:
-        super().__init__(f"{code}: {detail}")
-        self.retryable = retryable
-
-    def result(self) -> InvocationResult:
-        return InvocationResult.failed(str(self), retryable=self.retryable)
-
-
 # ------------------------------------------------------------------ the default transport
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *_: Any, **__: Any) -> None:
-        return None  # the 3xx then surfaces as an HTTPError: answered, not followed
-
-
-def _opener() -> urllib.request.OpenerDirector:
-    opener = urllib.request.OpenerDirector()
-    for handler in (
-        urllib.request.HTTPHandler(),
-        urllib.request.HTTPSHandler(),
-        urllib.request.HTTPDefaultErrorHandler(),
-        _NoRedirect(),
-        urllib.request.HTTPErrorProcessor(),
-    ):
-        opener.add_handler(handler)
-    return opener  # no ProxyHandler: environment proxies are ignored
 
 
 def urllib_transport(
@@ -165,23 +138,6 @@ def urllib_transport(
 
 
 # ------------------------------------------------------------------ the actor
-
-
-def _base_url_problem(base_url: Any) -> str | None:
-    if not isinstance(base_url, str) or not base_url.strip():
-        return "params.base_url must be an http(s) URL"
-    try:
-        parts = urlsplit(base_url.strip())
-        _ = parts.port  # raises on a malformed port
-    except ValueError:
-        return "params.base_url is malformed"
-    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
-        return "params.base_url must be an http(s) URL with a host"
-    if parts.username is not None or parts.password is not None:
-        return "params.base_url must not carry credentials"
-    if parts.query or parts.fragment:
-        return "params.base_url must not carry a query or fragment"
-    return None
 
 
 def _domain(params: Mapping[str, Any]) -> str | None:
