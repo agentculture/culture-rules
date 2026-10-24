@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-24T00:11:29Z",
-  "updated": "2026-10-24T00:18:37Z",
+  "updated": "2026-10-24T00:20:20Z",
   "claims": [
     {
       "id": "c1",
@@ -371,6 +371,44 @@
           "reason": "backtick placeholders for markdown lint (MD033); wording unchanged"
         }
       ]
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "decider.assess reads the Clef answer shape only: a domain that answers in another shape (strands-general, per the assess skill and lobes docs/decider.md) fails decider_bad_response rather than being guessed at; supporting it is later work",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "a reply whose answers lack the Clef fields for a question asked (e.g. a strands-shaped reply) fails decider_bad_response, never a partial or guessed `picks`",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "docs/actors/decider.md warns that a when over answers or picks of a decider step that failed (with config.on_error skip) or was skipped reads a missing field, and a missing field makes every comparison false, == and != alike; a branch that must not run on a missing assessment should test exists first",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "docs/actors/decider.md has the missing-field warning with an example using exists",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [],
@@ -469,6 +507,32 @@
       "seeds": [
         "c6"
       ]
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / cheap probe: live POST /v1/systemone (general, synthetic request)",
+      "finding": "verified the three answer shapes: choice {type, choice, confidence, probabilities by key}; noul {type, noul}; score {type, score, confidence, legend {index: criteria key}, probabilities {index: p}} with string indexes; usage {input_tokens, output_tokens: 0}; a second identical call gave identical numbers in about 1.2 s",
+      "seeds": [
+        "c14"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / concurrency lens: actors/limits.py + lobes _pressure_policy.py:436",
+      "finding": "clean: the decider actor's max_concurrency 1 queues local steps (blocked, not failed); the gateway never sheds the decider role, and the sidecar serialises calls with a lock",
+      "seeds": []
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / reversibility + side-effects lens: the port",
+      "finding": "clean: one request, no writes, no action taken; nothing to roll back",
+      "seeds": []
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / observability lens: the outputs",
+      "finding": "host (X-Lobes-Mesh-Member) and domain on every run say which box answered; usage counts tokens; failures carry the gateway's status and error code",
+      "seeds": []
     }
   ],
   "lapses": [],

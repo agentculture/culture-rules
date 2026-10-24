@@ -29,6 +29,8 @@
   - honesty: docs/actors/decider.md exists, lints clean, and its example step validates
 - Besides answers, an object output picks holds the decider's highest-probability pick per question, so a step can take it without reading probabilities: choice -> the chosen option key (the reply's choice); noul -> true when noul >= 0.5, else false; score -> the criteria key of the most probable index (ties: the lower index); a later step's when reads e.g. picks.setup == `keep_current`
   - honesty: picks is exact on fixed replies: choice copies choice, noul 0.5 -> true and 0.49 -> false, score picks the most probable criteria key with ties to the lower index
+- docs/actors/decider.md warns that a when over answers or picks of a decider step that failed (with config.`on_error` skip) or was skipped reads a missing field, and a missing field makes every comparison false, == and != alike; a branch that must not run on a missing assessment should test exists first
+  - honesty: docs/actors/decider.md has the missing-field warning with an example using exists
 
 ## Honesty conditions
 
@@ -39,6 +41,7 @@
 - as of 0.25.0 no action kind posts to /v1/systemone
 - a workflow step with params.actor decider returns answers and picks, and a when on picks branches
 - the live check run: success, under 5 s, every option has a probability, the branch step ran or skipped as its when said, and a second run gave the same pick
+- a reply whose answers lack the Clef fields for a question asked (e.g. a strands-shaped reply) fails `decider_bad_response`, never a partial or guessed `picks`
 
 ## Success signals
 
@@ -48,6 +51,7 @@
 
 - The decider assesses; it never decides and never writes text: the step returns probabilities only, and no workflow action is taken by the port itself
 - The state is forwarded across the mesh to the box hosting the domain (general: the Orin): the docs say not to put secrets or private personal data in it, and the port never logs or outputs the state
+- decider.assess reads the Clef answer shape only: a domain that answers in another shape (strands-general, per the assess skill and lobes docs/decider.md) fails `decider_bad_response` rather than being guessed at; supporting it is later work
 
 ## Non-goals
 
@@ -81,6 +85,11 @@
   - seeds: `c7`
 - `s11` — `docs/rules/newspaper/actors/cortex-spark2.json, docs/rules/pocket-transcribe/actors/stt-en.json`: both gateway actors use `base_url` <http://127.0.0.1:8001> and `api_key` grant:`LOBES_GATEWAY_API_KEY` with their own pools; no decider actor exists
   - seeds: `c6`
+- `s12` — `challenge pass / cheap probe: live POST /v1/systemone (general, synthetic request)`: verified the three answer shapes: choice {type, choice, confidence, probabilities by key}; noul {type, noul}; score {type, score, confidence, legend {index: criteria key}, probabilities {index: p}} with string indexes; usage {`input_tokens`, `output_tokens`: 0}; a second identical call gave identical numbers in about 1.2 s
+  - seeds: `c14`
+- `s13` — `challenge pass / concurrency lens: actors/limits.py + lobes _pressure_policy.py:436`: clean: the decider actor's `max_concurrency` 1 queues local steps (blocked, not failed); the gateway never sheds the decider role, and the sidecar serialises calls with a lock
+- `s14` — `challenge pass / reversibility + side-effects lens: the port`: clean: one request, no writes, no action taken; nothing to roll back
+- `s15` — `challenge pass / observability lens: the outputs`: host (X-Lobes-Mesh-Member) and domain on every run say which box answered; usage counts tokens; failures carry the gateway's status and error code
 
 ## Decisions
 
