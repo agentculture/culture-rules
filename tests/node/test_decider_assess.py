@@ -161,7 +161,8 @@ def test_a_step_domain_param_is_ignored():
 def test_a_malformed_actor_domain_is_refused_before_a_request(domain):
     port, transport = _port(_store(_actor(domain=domain)))
     result = _invoke(port)
-    assert result.outcome == FAILED and result.error.startswith("decider_actor_invalid")
+    assert result.outcome == FAILED
+    assert result.error.startswith("decider_actor_invalid")
     assert transport.calls == []
 
 
@@ -175,7 +176,8 @@ def test_actor_falls_back_to_the_context_actor():
     port, transport = _port()
     deadline = datetime.now(UTC) + timedelta(seconds=60)
     res = port.invoke({"state": "s", "questions": QUESTIONS}, "k", deadline, context=_ctx())
-    assert res.outcome == COMPLETED and len(transport.calls) == 1
+    assert res.outcome == COMPLETED
+    assert len(transport.calls) == 1
 
 
 def test_a_non_grant_api_key_is_refused():
@@ -249,7 +251,8 @@ BAD_INPUTS = {
 def test_invalid_requests_fail_before_any_request(name):
     port, transport = _port()
     result = _invoke(port, **BAD_INPUTS[name])
-    assert result.outcome == FAILED and result.error.startswith("invalid_request")
+    assert result.outcome == FAILED
+    assert result.error.startswith("invalid_request")
     assert result.retryable is False
     assert transport.calls == []
 
@@ -347,7 +350,8 @@ def _err(code=None):
 def test_unavailable_statuses_are_retryable(status):
     port, _ = _port(transport=FakeTransport(status=status, body=_err("backend_unavailable")))
     res = _invoke(port)
-    assert res.outcome == FAILED and res.retryable is True
+    assert res.outcome == FAILED
+    assert res.retryable is True
     assert res.error.startswith("decider_unavailable")
 
 
@@ -355,7 +359,8 @@ def test_unavailable_statuses_are_retryable(status):
 def test_network_errors_are_unavailable_and_retryable(exc):
     port, _ = _port(transport=FakeTransport(exc=exc))
     res = _invoke(port)
-    assert res.error.startswith("decider_unavailable") and res.retryable is True
+    assert res.error.startswith("decider_unavailable")
+    assert res.retryable is True
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 422, 301])
@@ -418,7 +423,8 @@ BAD_REPLIES = {
 def test_a_bad_reply_fails_bad_response_never_partial_picks(name):
     port, _ = _port(transport=FakeTransport(body=BAD_REPLIES[name]))
     res = _invoke(port)
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("decider_bad_response")
     assert not res.output
 
@@ -482,7 +488,8 @@ def test_a_passed_not_after_fails_deadline_without_a_request():
     clock = ManualClock()
     port, transport = _port(clock=clock)
     res = _at(port, clock, -1)
-    assert res.error.startswith("decider_deadline") and res.retryable is False
+    assert res.error.startswith("decider_deadline")
+    assert res.retryable is False
     assert transport.calls == []
 
 
@@ -500,7 +507,8 @@ def test_a_secret_lookup_past_not_after_sends_no_request():
     clock = ManualClock()
     port, transport = _port(clock=clock, secret_runner=clock.slow_secret(20))
     res = _at(port, clock, 10)
-    assert res.error.startswith("decider_deadline") and transport.calls == []
+    assert res.error.startswith("decider_deadline")
+    assert transport.calls == []
 
 
 def test_the_timeout_is_what_remains_after_the_secret_lookup():
@@ -519,7 +527,8 @@ def test_the_timeout_is_capped():
 def test_a_passed_attempt_deadline_is_unavailable_and_retryable():
     port, transport = _port()
     res = _invoke(port, seconds=-5)
-    assert res.error.startswith("decider_unavailable") and res.retryable is True
+    assert res.error.startswith("decider_unavailable")
+    assert res.retryable is True
     assert transport.calls == []
 
 
@@ -530,7 +539,8 @@ def test_a_completed_key_replays_without_a_second_request_even_after_not_after()
     assert first.outcome == COMPLETED
     clock.now += timedelta(seconds=600)
     again = _at(port, clock, -540)
-    assert again.outcome == COMPLETED and again.output == first.output
+    assert again.outcome == COMPLETED
+    assert again.output == first.output
     assert len(transport.calls) == 1
     assert port.replay("kc") is not None
 
@@ -550,7 +560,8 @@ def test_the_ledger_is_bounded(monkeypatch):
     port, _ = _port()
     for key in ("k1", "k2", "k3"):
         _invoke(port, key=key)
-    assert port.replay("k1") is None and port.replay("k3") is not None
+    assert port.replay("k1") is None
+    assert port.replay("k3") is not None
 
 
 # ---- the model rule -----------------------------------------------------------------------
@@ -560,7 +571,8 @@ def test_fails_model_taken_when_a_senior_endpoint_actor_holds_clef():
     other = _actor("a-holder", base_url="http://127.0.0.1:8002")
     port, transport = _port(_store(_actor("decider"), other))
     res = _invoke(port)
-    assert res.error == "model_taken: a-holder" and res.retryable is False
+    assert res.error == "model_taken: a-holder"
+    assert res.retryable is False
     assert transport.calls == []
 
 
