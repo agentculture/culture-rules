@@ -2,7 +2,7 @@ import { forwardRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Actor } from "../../api/actors";
 import type { Action, Rule, Workflow } from "../../api/types";
-import { predecessorTerms, type Continuation } from "../../fold/model";
+import { predecessorTerms, type Continuation, eitherText } from "../../fold/model";
 import { actionChips } from "../../routes/rules-view";
 import { useFocusReturn } from "./focus";
 import { useFrozen } from "./freeze";
@@ -111,7 +111,11 @@ function Onward({ entry, nameOf, hrefFor }: Readonly<{ entry: Continuation; name
         <span aria-hidden="true"> ›</span>
       </Link>
       <span className="fold-then__words">
-        {entry.predecessor.kind === "any" ? "after any workflow's run " : "when this run "}
+        {entry.predecessor.kind === "any"
+          ? "after any workflow's run "
+          : entry.predecessor.kind === "either"
+            ? `when a run of ${eitherText(entry.predecessor.workflowIds)} `
+            : "when this run "}
         {runEventWords(entry.rule.trigger)}
         {rest.length ? " and " : ""}
         {rest.map((text, i) => (

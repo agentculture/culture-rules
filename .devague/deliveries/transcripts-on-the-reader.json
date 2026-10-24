@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-23T23:38:22Z",
+  "updated": "2026-10-24T00:25:41Z",
   "deviations": [
     {
       "id": "d1",
@@ -45,6 +45,22 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "transcript.render caches the finished book beside its transcript: the first render writes book.<transcript sha256 prefix>.epub (+ a small .json of its title, date, word, summary_used, segment_count) into the recording's subfolder under the root; a later run for the same transcript file returns those stored bytes and fields unchanged, so a re-run uploads identical bytes and xteink deduplicates them (c11). Also: llm.complete refuses an empty content_path excerpt (invalid_request); the catalog notes content_path needs content_root; the editor's Then column words an either continuation; the render caps' relationship is documented",
+      "task_ref": "t4",
+      "reason": "colleague review finding A: the summary is asked again on every run and the model may answer differently, so new bytes would make a second book (c11's test used a fixed fake reply and could not show it). Decider (general, 2026-10-24) on four options: cache_book_file 0.93, delivered_record 0.03, library_title_check 0.02, accept_and_document 0.02; cache safe P=0.88; harm unfixed negligible 0.50 / minor 0.47. Findings B-E are small fixes from the same review",
+      "affects": [
+        "t1",
+        "c4",
+        "c11",
+        "h11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],

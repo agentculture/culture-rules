@@ -927,3 +927,12 @@ def test_bad_content_path_params_fail_before_any_request(tmp_path, params):
     assert result.outcome == FAILED
     assert result.error.split(":")[0] in ("invalid_request", "path_refused")
     assert transport.calls == []
+
+
+def test_an_empty_transcript_is_refused_before_any_request(tmp_path):
+    port, transport = _port()
+    path = _transcript(tmp_path, ["", "  "])
+    result = _from_file(port, path, tmp_path)
+    assert result.outcome == FAILED
+    assert result.error.startswith("invalid_request")
+    assert transport.calls == []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import zipfile
@@ -221,3 +222,65 @@ def test_actor_root_is_a_second_boundary(root: Path, tmp_path: Path) -> None:
     inside.write_text(json.dumps(_doc()))
     params["result_path"] = str(inside)
     assert TranscriptRenderPort(store).invoke(params, "k", None, context=ctx).outcome == COMPLETED
+
+
+# ---- the book cache: one book per transcript file (d4) --------------------------------------
+
+
+def test_a_later_run_returns_the_first_book_even_if_the_summary_changed(root):
+    path = _write(root, _doc())
+    first = _invoke(root, path, summary=_reply(word="Meeting"))
+    second = _invoke(root, path, summary=_reply(summary="Another line.", word="Budget"))
+    assert first.output["content_base64"] == second.output["content_base64"]
+    assert second.output["title"] == first.output["title"]
+    assert second.output["word"] == "meeting"
+
+
+def test_a_failed_summary_on_a_later_run_still_returns_the_first_book(root):
+    path = _write(root, _doc())
+    first = _invoke(root, path, summary=_reply(word="Meeting"))
+    second = _invoke(root, path)
+    assert second.output["content_base64"] == first.output["content_base64"]
+    assert second.output["summary_used"] is True
+
+
+def test_the_cache_sits_beside_the_transcript_named_after_its_sha256(root):
+    path = _write(root, _doc())
+    _invoke(root, path, summary=_reply())
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    assert {p.name for p in path.parent.iterdir()} == {
+        path.name,
+        f"book.{digest}.epub",
+        f"book.{digest}.json",
+    }
+
+
+def test_a_changed_transcript_gets_a_new_book(root):
+    path = _write(root, _doc(texts=("one",)))
+    first = _invoke(root, path, summary=_reply(word="Meeting"))
+    path.write_text(json.dumps(_doc(texts=("one", "two", "three"))), encoding="utf-8")
+    second = _invoke(root, path, summary=_reply(word="Budget"))
+    assert second.output["content_base64"] != first.output["content_base64"]
+    assert second.output["word"] == "budget"
+
+
+@pytest.mark.parametrize("damage", ["epub", "json"])
+def test_a_damaged_cache_is_rendered_again(root, damage):
+    path = _write(root, _doc())
+    _invoke(root, path, summary=_reply(word="Meeting"))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    (path.parent / f"book.{digest}.{damage}").write_bytes(b"garbage")
+    again = _invoke(root, path, summary=_reply(word="Budget"))
+    assert again.outcome == "completed"
+    assert again.output["word"] == "budget"
+
+
+def test_an_unwritable_folder_still_returns_the_book(root):
+    path = _write(root, _doc())
+    path.parent.chmod(0o500)
+    try:
+        result = _invoke(root, path, summary=_reply())
+    finally:
+        path.parent.chmod(0o700)
+    assert result.outcome == "completed"
+    assert result.output["title"].endswith(" topic")

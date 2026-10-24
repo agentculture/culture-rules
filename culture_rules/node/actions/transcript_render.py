@@ -28,16 +28,35 @@ Scalars and base64 only: ``content_base64``, ``title`` (``<date> <word>``), ``da
 ``summary_used``, ``segment_count`` (the non-empty segments rendered). Never the summary or
 the transcript text. The EPUB is deterministic: fixed zip times, order and permissions, and an
 identifier derived from the transcript's ``audio_sha256``.
+
+One book per transcript file (d4)
+=================================
+
+The summary comes from a model that may answer differently on a re-run, which would change the
+bytes and give the reader a second book. So the first render keeps the book beside its
+transcript, ``book.<first 16 hex of the transcript file's sha256>.epub`` plus a ``.json`` of its
+title, date, word, ``summary_used``, ``segment_count`` and both sha256s, each written
+atomically. A later run for the same transcript file returns those stored bytes and fields
+unchanged, whatever its summary says, so xteink deduplicates the upload; a changed transcript
+file has a new sha256 and gets a new book. A cache that does not check out is rendered again,
+and a folder that cannot be written to still gets its book (only rendered again next time).
+
+Caps: the transcript file is read only up to :data:`TRANSCRIPT_CAP` (JSON, with timestamps),
+and the book must fit :data:`EPUB_CAP` (deflated text, typically a fraction of the
+transcript's size); a book over it fails ``epub_too_large``.
 """
 
 from __future__ import annotations
 
 import base64
+import contextlib
+import hashlib
 import html
 import io
 import json
 import os
 import re
+import tempfile
 import zipfile
 from collections.abc import Mapping
 from datetime import datetime
@@ -333,13 +352,76 @@ def _root(value: Any, label: str) -> Path:
         raise _fail(PATH_REFUSED, f"{label} does not exist") from exc
 
 
-def _read(path: Path) -> Any:
+def _read_bytes(path: Path) -> bytes:
     try:
         if path.stat().st_size > TRANSCRIPT_CAP:
             raise _fail(INVALID, "transcript file is too large")
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:
+        return path.read_bytes()
+    except OSError as exc:
         raise _fail(INVALID, "transcript file is not readable JSON") from exc
+
+
+def _parse(raw: bytes) -> Any:
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (ValueError, RecursionError) as exc:
+        raise _fail(INVALID, "transcript file is not readable JSON") from exc
+
+
+# ------------------------------------------------------------------ the book cache (d4)
+
+_CACHED_FIELDS = ("title", "date", "word", "summary_used", "segment_count")
+
+
+def _book_paths(path: Path, raw: bytes) -> tuple[Path, Path, str]:
+    digest = hashlib.sha256(raw).hexdigest()
+    stem = f"book.{digest[:16]}"
+    return path.parent / f"{stem}.epub", path.parent / f"{stem}.json", digest
+
+
+def _cached_book(path: Path, raw: bytes) -> dict[str, Any] | None:
+    """The book stored for exactly this transcript file, or None when there is none or it
+    does not check out (a damaged cache is rendered again)."""
+    epub_path, meta_path, digest = _book_paths(path, raw)
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        book = epub_path.read_bytes()
+    except (OSError, ValueError, RecursionError):
+        return None
+    if (
+        not isinstance(meta, Mapping)
+        or meta.get("transcript_sha256") != digest
+        or meta.get("book_sha256") != hashlib.sha256(book).hexdigest()
+        or any(name not in meta for name in _CACHED_FIELDS)
+    ):
+        return None
+    out = {name: meta[name] for name in _CACHED_FIELDS}
+    out["content_base64"] = base64.b64encode(book).decode("ascii")
+    return out
+
+
+def _write_atomic(target: Path, data: bytes) -> None:
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def _store_book(path: Path, raw: bytes, out: Mapping[str, Any]) -> None:
+    """Keep the rendered book beside its transcript (best effort: a folder that cannot be
+    written to still gets its book, it is only rendered again next time)."""
+    epub_path, meta_path, digest = _book_paths(path, raw)
+    book = base64.b64decode(out["content_base64"])
+    meta = {name: out[name] for name in _CACHED_FIELDS}
+    meta.update(transcript_sha256=digest, book_sha256=hashlib.sha256(book).hexdigest())
+    with contextlib.suppress(OSError):
+        _write_atomic(epub_path, book)  # the book first: the record is only valid with it
+        _write_atomic(meta_path, json.dumps(meta, sort_keys=True).encode("utf-8"))
 
 
 class TranscriptRenderPort:
@@ -386,13 +468,17 @@ class TranscriptRenderPort:
             if actor_root is not None:
                 roots.append(actor_root)
             path = _resolve_under(input.get("result_path"), roots)  # before anything is read
-            doc = _read(path)
+            raw = _read_bytes(path)
+            cached = _cached_book(path, raw)
+            if cached is not None:
+                return InvocationResult.completed(cached)
             out = render_transcript(
-                doc,
+                _parse(raw),
                 recorded_at=input.get("recorded_at"),
                 language=input.get("language"),
                 summary=input.get("summary"),
             )
         except RenderError as exc:
             return InvocationResult.failed(str(exc), retryable=False)
+        _store_book(path, raw, out)
         return InvocationResult.completed(out)

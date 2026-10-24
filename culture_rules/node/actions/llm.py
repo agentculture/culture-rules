@@ -458,13 +458,16 @@ class LlmCompletePort:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise _Refused(INVALID, "content_max_chars must be an integer >= 1")
         try:
-            return read_excerpt(
+            text = read_excerpt(
                 input.get(_CONTENT_PATH),
                 input.get(_CONTENT_ROOT),
                 min(limit, self._max_content_chars),
             )
         except ExcerptRefused as exc:
             raise _Refused(exc.code, exc.detail) from exc
+        if not text:
+            raise _Refused(INVALID, "the transcript has no text to send")
+        return text
 
     def _request(self, input: Mapping[str, Any], model: str) -> bytes:
         body: dict[str, Any] = {

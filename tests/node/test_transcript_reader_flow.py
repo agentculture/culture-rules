@@ -311,3 +311,14 @@ def test_no_transcript_text_enters_the_run_and_no_summary_text_its_outputs(world
     for event in world.run_events():
         assert PRIVATE_TEXT not in json.dumps(event)
         assert PRIVATE_SUMMARY not in json.dumps(event)
+
+
+def test_a_rerun_whose_summary_answers_differently_still_adds_no_second_book(world):
+    world.land(language="he")
+    world.llm.body = _reply(summary="a different line", word="budget")
+    world.land(language="he")
+    pushes = world.library.pushes
+    assert len(pushes) == 2
+    assert {p["title"] for p in pushes} == {f"{DAY} meeting"}
+    assert len({p["content_base64"] for p in pushes}) == 1
+    assert len(world.library.items) == 1

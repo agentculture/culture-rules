@@ -44,7 +44,11 @@ recording, the book waits for a re-run of `transcribe-file-he`.
    - it has `config.on_error: "skip"`, so when cortex is down the book still ships,
      titled `<date> recording`, with "Summary unavailable.".
 4. `render` (`transcript.render`) builds one EPUB. It reads only under the transcripts
-   root, and the same inputs always give the same bytes.
+   root, and the same inputs always give the same bytes. The summary may come back
+   different on a re-run, so the first book is kept beside its transcript
+   (`book.<16 hex>.epub` and `.json`, named after the transcript file's sha256). A later
+   run for the same transcript file sends that stored book again. A transcript that is
+   transcribed again has a new sha256 and gets a new book.
 5. `push` (`library.push` through `newspaper-library`) uploads the book and queues it on
    the device:
    - it uses `kind: article` for now, so the book lands in `/xteink/` named after its
