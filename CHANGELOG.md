@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-10-24
+
+### Added
+
+- The decider step: action kind decider.assess asks the mesh decider (POST /v1/systemone on the lobes gateway) for probabilities over a step's choice, noul and score questions; outputs answers (unchanged), picks (the top pick per question), host, domain and usage for a later step's when (docs/actors/decider.md)
+- The bundle docs/rules/decider: the decider agent actor (lobes gateway on spark, domain general, model clef); decider.assess is an endpoint kind
+- The editor's action picker offers Ask the decider with agent actors that have a base_url
+
 ## [0.25.0] - 2026-10-24
 
 ### Added
