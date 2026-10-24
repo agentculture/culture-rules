@@ -90,10 +90,10 @@ def test_he_is_rtl_and_en_is_ltr() -> None:
     assert 'dir="ltr"' in z.read("OEBPS/c1.xhtml").decode()
 
 
-def test_title_uses_jerusalem_date_and_lowercased_word() -> None:
+def test_title_uses_jerusalem_date_time_and_lowercased_word() -> None:
     out = tr.render_transcript(_doc(), recorded_at=AT, summary=_reply(word="Garden-Notes"))
     assert out["date"] == "2026-10-24"
-    assert out["title"] == "2026-10-24 garden-notes"
+    assert out["title"] == "2026-10-24 0130 garden-notes"
     assert out["word"] == "garden-notes"
     assert out["summary_used"] is True
 
@@ -124,7 +124,7 @@ def test_bad_recorded_at_fails_invalid_request(bad: Any, root: Path) -> None:
 )
 def test_unusable_summary_falls_back(reply: Any) -> None:
     out = tr.render_transcript(_doc(), recorded_at=AT, summary=reply)
-    assert out["title"] == "2026-10-24 recording"
+    assert out["title"] == "2026-10-24 0130 recording"
     assert out["summary_used"] is False
     assert tr.SUMMARY_UNAVAILABLE in _zip(out).read("OEBPS/c1.xhtml").decode()
 
@@ -239,6 +239,45 @@ def test_a_later_run_returns_the_first_book_even_if_the_summary_changed(root):
     assert first.output["content_base64"] == second.output["content_base64"]
     assert second.output["title"] == first.output["title"]
     assert second.output["word"] == "meeting"
+
+
+def test_two_recordings_of_one_day_with_one_word_get_different_titles() -> None:
+    morning = tr.render_transcript(_doc(), recorded_at="2026-10-24T06:05:00Z", summary=_reply())
+    evening = tr.render_transcript(_doc(), recorded_at="2026-10-24T17:40:00Z", summary=_reply())
+    assert morning["date"] == evening["date"] == "2026-10-24"
+    assert morning["title"] == "2026-10-24 0905 topic"
+    assert evening["title"] == "2026-10-24 2040 topic"
+
+
+def test_the_book_and_the_excerpt_share_one_file_cap() -> None:
+    from culture_rules.node.actions import transcript_file
+
+    cap = transcript_file.TRANSCRIPT_FILE_CAP
+    assert tr.TRANSCRIPT_CAP == transcript_file.EXCERPT_FILE_CAP == cap
+
+
+def test_a_book_without_its_summary_is_not_kept(root):
+    path = _write(root, _doc())
+    first = _invoke(root, path)  # the summary step failed or was skipped
+    assert first.output["summary_used"] is False
+    assert {p.name for p in path.parent.iterdir()} == {path.name}
+    second = _invoke(root, path, summary=_reply(word="Meeting"))
+    assert second.output["summary_used"] is True
+    assert second.output["word"] == "meeting"
+    assert second.output["content_base64"] != first.output["content_base64"]
+
+
+def test_a_stored_summaryless_book_is_ignored(root):
+    path = _write(root, _doc())
+    stale = _invoke(root, path).output  # as a release before this fix would have stored it
+    tr._store_book(path, path.read_bytes(), {**stale, "summary_used": True})
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    meta_path = path.parent / f"book.{digest}.json"
+    meta = json.loads(meta_path.read_text())
+    meta_path.write_text(json.dumps({**meta, "summary_used": False}))
+    again = _invoke(root, path, summary=_reply(word="Meeting"))
+    assert again.output["summary_used"] is True
+    assert again.output["word"] == "meeting"
 
 
 def test_a_failed_summary_on_a_later_run_still_returns_the_first_book(root):

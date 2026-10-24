@@ -513,7 +513,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Summarise the recording",
-      "notes": "llm.complete on cortex-spark2 with the locked transcript brief: it reads the first 48000 characters of the transcript itself (content_path, d2), so the transcript text never enters the run; the reply is JSON {summary, word}. on_error skip: the book still ships, titled <date> recording, with \"Summary unavailable.\".",
+      "notes": "llm.complete on cortex-spark2 with the locked transcript brief: it reads the first 48000 characters of the transcript itself (content_path, d2), so the transcript text never enters the run; the reply is JSON {summary, word}. on_error skip: the book still ships, titled <date> <HHMM> recording, with \"Summary unavailable.\" (that book is not kept, so a later run with a summary replaces it).",
       "outputs": [
         {
           "description": "",
@@ -596,7 +596,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Make the book",
-      "notes": "transcript.render: one EPUB, titled <YYYY-MM-DD> <word> (the Asia/Jerusalem date of recorded_at), the summary then the transcript; right to left unless the language is en. The same inputs give the same bytes, so a repeat is deduplicated by xteink.",
+      "notes": "transcript.render: one EPUB, titled <YYYY-MM-DD> <HHMM> <word> (the Asia/Jerusalem date and time of recorded_at), the summary then the transcript; right to left unless the language is en. The same inputs give the same bytes, so a repeat is deduplicated by xteink.",
       "outputs": [
         {
           "description": "",

@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T05:13:33Z",
+  "updated": "2026-10-24T05:27:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -90,6 +90,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 17
+    },
+    {
+      "id": "d7",
+      "what": "Review fixes on #84: transcript.render stores and returns only a book whose summary was used; the title becomes <YYYY-MM-DD> <HHMM> <word> (the spec said <YYYY-MM-DD> <word>); one 32 MiB transcript file cap; the editor picker gains llm.complete's excerpt params and brief, transcript.render and library.push kind; the Simple view's either sentence matches the API paragraph; the chain view draws each either edge",
+      "task_ref": "t1",
+      "reason": "the operator ran /code-review medium on #84 and asked to fix all its findings ('Please fix all 8'); the book cache would keep a summaryless book for good, two recordings of one day with one word shared a title, the two transcript caps differed, and the editor did not know #84's params or draw an either continuation",
+      "affects": [
+        "t2",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 23
     }
   ],
   "evidence": [

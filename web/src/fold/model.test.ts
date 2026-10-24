@@ -3,7 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Condition, Rule, Workflow } from "../api/types";
-import { EXCLUDED_RULE_FIELDS, SHAREABLE_RULE_FIELDS, foldModel, predecessorTerms, sharedValues, eitherSources } from "./model";
+import { EXCLUDED_RULE_FIELDS, SHAREABLE_RULE_FIELDS, foldModel, predecessorTerms, sharedValues, eitherSources, eitherAlone } from "./model";
+import { onwardRest } from "../workflows/simple/text";
 
 function fixture<T>(directory: string): T[] {
   const path = resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/rules/pr-fixer", directory);
@@ -124,6 +125,21 @@ describe("foldModel", () => {
     });
     expect(model.chains).toHaveLength(1);
     expect(model.chains[0].workflowIds).toEqual(["a", "b", "c"]);
+  });
+
+  it("says nothing more of an either whose branches are their predecessors alone, else the whole OR", () => {
+    const lang: Condition = { op: "compare", cmp: "==", left: { field: "data.outputs.language" }, right: { literal: "en" } };
+    const alone: Condition = { op: "or", args: [compare("a"), compare("b")] };
+    const guarded: Condition = { op: "or", args: [compare("a"), { op: "and", args: [compare("b"), lang] }] };
+    expect(eitherAlone(alone)).toBe(true);
+    expect(eitherAlone(guarded)).toBe(false);
+    expect(eitherAlone(compare("a"))).toBe(false);
+    const onward = (condition: Condition) =>
+      onwardRest(foldModel([rule("r", { ...run(condition), workflow: { id: "c" } })], workflows).continuations[0]);
+    expect(onward(alone)).toEqual([]);
+    expect(onward(guarded)).toHaveLength(1);
+    expect(onward(guarded)).toEqual(["any of 2 conditions"]);
+    expect(onward({ op: "and", args: [compare("a"), lang] })).toHaveLength(1);
   });
 
   it.each([

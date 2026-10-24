@@ -77,7 +77,7 @@ On disk today:
 - transcripts on the reader (spec
   `docs/specs/2026-10-23-transcripts-on-the-reader.md`, setup
   `docs/operations/transcripts-on-the-reader.md`): the action kind
-  `transcript.render` (one deterministic EPUB, `<YYYY-MM-DD> <word>`, summary
+  `transcript.render` (one deterministic EPUB, `<YYYY-MM-DD> <HHMM> <word>`, summary
   then transcript, right to left unless `en`), `llm.complete`'s `brief:
   transcript` and `content_path` + `content_root` (the transcript text never
   enters run state), `library.push`'s `kind`, and the disabled rule

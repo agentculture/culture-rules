@@ -44,6 +44,7 @@ READER_WORKFLOW = "transcript-to-reader"
 SHA = "ab" * 32
 RECORDED_AT = "2026-10-23T22:30:00Z"  # 01:30 on 2026-10-24 in Israel
 DAY = "2026-10-24"
+TIME = "0130"
 PRIVATE_TEXT = "sentinel-transcript-words"
 PRIVATE_SUMMARY = "sentinel-summary-line"
 SUCCEEDED = "rules.run.succeeded"
@@ -230,13 +231,13 @@ def test_a_hebrew_recording_gets_one_book_from_the_zipformer_run(world):
     assert run["status"] == "succeeded", (run.get("error"), run["steps"])
     assert run["concurrency_key"] == f"reader:{SHA}"
     (push,) = world.library.pushes
-    assert push["title"] == f"{DAY} meeting"
+    assert push["title"] == f"{DAY} {TIME} meeting"
     assert push["kind"] == "article"
     assert push["actor"] == "newspaper-library"
     assert 'page-progression-direction="rtl"' in _opf(world.book())
     assert run["outputs"]["source"] == "given"
     (event,) = [e for e in world.run_events() if e["data"]["rule_id"] == READER_RULE]
-    assert event["data"]["outputs"]["title"] == f"{DAY} meeting"
+    assert event["data"]["outputs"]["title"] == f"{DAY} {TIME} meeting"
 
 
 def test_an_unlabelled_recording_gets_one_book_and_the_whisper_success_starts_nothing(world):
@@ -244,7 +245,7 @@ def test_an_unlabelled_recording_gets_one_book_and_the_whisper_success_starts_no
     (run,) = world.reader_runs()
     assert run["status"] == "succeeded", (run.get("error"), run["steps"])
     (push,) = world.library.pushes
-    assert push["title"] == f"{DAY} meeting"
+    assert push["title"] == f"{DAY} {TIME} meeting"
     starts = [e for e in world.run_events() if e["data"]["rule_id"] != READER_RULE]
     assert {e["data"]["workflow_id"] for e in starts} == {"transcribe-file", "transcribe-file-he"}
 
@@ -267,7 +268,7 @@ def test_an_english_recording_with_empty_whisper_is_transcribed_again_on_stt_he(
     assert [c["actor"] for c in world.stt.calls] == ["stt-en", "stt-he"]
     assert run["outputs"]["source"] == "stt-he"
     (push,) = world.library.pushes
-    assert push["title"] == f"{DAY} meeting"
+    assert push["title"] == f"{DAY} {TIME} meeting"
 
 
 def test_a_failed_zipformer_run_starts_no_book(world):
@@ -283,9 +284,18 @@ def test_a_summary_failure_still_ships_the_book_as_a_recording(world):
     (run,) = world.reader_runs()
     assert run["status"] == "succeeded", (run.get("error"), run["steps"])
     (push,) = world.library.pushes
-    assert push["title"] == f"{DAY} recording"
+    assert push["title"] == f"{DAY} {TIME} recording"
     assert "Summary unavailable." in world.book().read("OEBPS/c1.xhtml").decode()
     assert run["outputs"]["summary_used"] is False
+
+
+def test_a_run_after_a_summary_failure_ships_the_summarised_book(world):
+    world.llm.status = 400
+    world.land(language="he")
+    world.llm.status = 200
+    world.land(language="he")
+    titles = [p["title"] for p in world.library.pushes]
+    assert titles == [f"{DAY} {TIME} recording", f"{DAY} {TIME} meeting"]
 
 
 def test_the_summary_reads_the_transcript_itself_with_the_transcript_brief(world):
@@ -320,7 +330,7 @@ def test_a_rerun_whose_summary_answers_differently_still_adds_no_second_book(wor
     world.land(language="he")
     pushes = world.library.pushes
     assert len(pushes) == 2
-    assert {p["title"] for p in pushes} == {f"{DAY} meeting"}
+    assert {p["title"] for p in pushes} == {f"{DAY} {TIME} meeting"}
     assert len({p["content_base64"] for p in pushes}) == 1
     assert len(world.library.items) == 1
 

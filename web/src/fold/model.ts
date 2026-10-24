@@ -104,6 +104,22 @@ export function eitherSources(condition: Condition | null | undefined): string[]
   return distinct.length > 1 ? distinct : [];
 }
 
+/** An all-term list: AND flattened, anything else as itself. */
+const allTerms = (node: Condition): Condition[] => (node.op === "and" ? node.args.flatMap(allTerms) : [node]);
+
+/**
+ * An `either` OR whose every branch is its predecessor term alone: once the sentence names
+ * the predecessors, nothing of the condition is left to say. Otherwise a branch's other
+ * terms belong to that branch only, so the whole condition is said (Python `_trigger_part`).
+ */
+export function eitherAlone(condition: Condition | null | undefined): boolean {
+  if (condition?.op !== "or") return false;
+  return condition.args.every((branch) => {
+    const own = predecessorTerms(branch);
+    return allTerms(branch).every((term) => own.includes(term as PredecessorTerm));
+  });
+}
+
 function entryFor(rule: Rule, workflowId: string): FoldEntry {
   const base = { rule, workflowId, enabled: rule.enabled !== false };
   const params = rule.trigger.params;
@@ -189,7 +205,8 @@ export function sharedValues(rules: readonly Rule[]): Record<string, SharedValue
 }
 
 /** The workflows a continuation links back to: each of an `either`, else its one linked source. */
-function linkSources(entry: Continuation): readonly string[] {
+/** The workflows a continuation runs after: its linked predecessor, or each of an `either`'s. */
+export function linkSources(entry: Continuation): readonly string[] {
   if (entry.predecessor.kind === "either") return entry.predecessor.workflowIds;
   if (entry.fromWorkflowId === null) return [];
   return [entry.fromWorkflowId];

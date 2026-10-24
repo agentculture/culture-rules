@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = 1
-EXCERPT_FILE_CAP = 64 * 1024 * 1024  # a transcript file larger than this is not read
+TRANSCRIPT_FILE_CAP = 32 << 20  # a transcript file larger than this is not read (excerpt or book)
+EXCERPT_FILE_CAP = TRANSCRIPT_FILE_CAP
 PATH_REFUSED, INVALID_REQUEST = "path_refused", "invalid_request"
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]")

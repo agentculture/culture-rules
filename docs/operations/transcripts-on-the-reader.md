@@ -3,8 +3,8 @@
 Once a Pocket recording is transcribed ([Pocket transcription](pocket-transcribe.md)),
 culture-rules turns the transcript into one book on the Xteink reader:
 
-- **Title:** `<YYYY-MM-DD> <word>`, using the recording's local date in Israel and a
-  short English topic word.
+- **Title:** `<YYYY-MM-DD> <HHMM> <word>`, using the recording's local date and time in
+  Israel and a short English topic word. The time keeps two recordings of one day apart.
 - **Contents:** a one- or two-line summary in the recording's language, then the
   transcript.
 - **Direction:** right to left for Hebrew.
@@ -42,12 +42,14 @@ recording, the book waits for a re-run of `transcribe-file-he`.
      `content_root`), so the transcript text never enters the run's state;
    - the reply is JSON `{summary, word}`;
    - it has `config.on_error: "skip"`, so when cortex is down the book still ships,
-     titled `<date> recording`, with "Summary unavailable.".
+     titled `<date> <HHMM> recording`, with "Summary unavailable.". That book is not
+     kept, so the next run with a working summary makes the summarised book.
 4. `render` (`transcript.render`) builds one EPUB. It reads only under the transcripts
    root, and the same inputs always give the same bytes. The summary may come back
    different on a re-run, so the first book is kept beside its transcript
    (`book.<16 hex>.epub` and `.json`, named after the transcript file's sha256). A later
-   run for the same transcript file sends that stored book again. A transcript that is
+   run for the same transcript file sends that stored book again. Only a book with its
+   summary is kept. A transcript that is
    transcribed again has a new sha256 and gets a new book.
 5. `push` (`library.push` through `newspaper-library`) uploads the book and queues it on
    the device:

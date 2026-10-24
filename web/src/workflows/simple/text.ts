@@ -6,6 +6,7 @@
  * React, no network.
  */
 import type { Action, Condition, Operand, Placement, Rule, Trigger } from "../../api/types";
+import { eitherAlone, predecessorTerms, type Continuation } from "../../fold/model";
 
 /** A stored rule field read by name; open API bodies carry fields the types do not name. */
 export const fieldOf = (rule: Rule, field: string): unknown => (rule as unknown as Record<string, unknown>)[field];
@@ -117,6 +118,17 @@ function withoutTermIn(arg: Condition, node: Condition): Condition | null {
 /** A row as plain words, for one-line summaries ("verdict in [...]"). */
 export function rowText(row: ConditionRow): string {
   return [row.not ? "not" : "", row.left, row.op, row.right].filter(Boolean).join(" ");
+}
+
+/**
+ * What an onward continuation's sentence says after its lead: its condition without the
+ * predecessor term; for an `either`, nothing when every branch is its predecessor alone,
+ * else the whole condition (as the API's paragraph does).
+ */
+export function onwardRest(entry: Continuation): string[] {
+  const condition = entry.rule.condition;
+  if (entry.predecessor.kind === "either") return eitherAlone(condition) ? [] : conditionRows(condition).map(rowText);
+  return conditionRows(condition, predecessorTerms(condition)).map(rowText);
 }
 
 /** The trigger's kind and its one telling value (event type, cron, probe command or legacy label). */

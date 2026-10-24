@@ -10,24 +10,25 @@ Input
 ``result_path`` (absolute path of the transcript JSON), ``root`` (the transcripts root; the
 path must resolve under it, symlinks followed, else ``path_refused`` before anything is read;
 a bound actor's ``params.transcripts_root`` or ``output_root`` is a second boundary and the
-path must also resolve under it), ``recorded_at`` (ISO-8601 with a zone; the book is dated the
-Asia/Jerusalem local date; missing or invalid is ``invalid_request``), ``language`` (``en`` is
-left-to-right; ``he``, any other code, or none at all is Hebrew, right-to-left; when empty the
-transcript's own ``language`` is used) and ``summary`` (llm.complete's ``{text}``, a string, or
-null when that step was skipped).
+path must also resolve under it), ``recorded_at`` (ISO-8601 with a zone; the book is dated
+with the Asia/Jerusalem local date and time; missing or invalid is ``invalid_request``),
+``language`` (``en`` is left-to-right; ``he``, any other code, or none at all is Hebrew,
+right-to-left; when empty the transcript's own ``language`` is used) and ``summary``
+(llm.complete's ``{text}``, a string, or null when that step was skipped).
 
 The summary text must be a JSON object ``{"summary", "word"}`` (a ``json`` fence or an empty
 ``<think>`` block is tolerated): ``summary`` is one or two non-blank lines and ``word`` one
-short Latin word. Anything else, or no summary, gives the title ``<date> recording`` and the
-line :data:`SUMMARY_UNAVAILABLE`.
+short Latin word. Anything else, or no summary, gives the title ``<date> <HHMM> recording``
+and the line :data:`SUMMARY_UNAVAILABLE`.
 
 Output
 ======
 
-Scalars and base64 only: ``content_base64``, ``title`` (``<date> <word>``), ``date``, ``word``,
-``summary_used``, ``segment_count`` (the non-empty segments rendered). Never the summary or
-the transcript text. The EPUB is deterministic: fixed zip times, order and permissions, and an
-identifier derived from the transcript's ``audio_sha256``.
+Scalars and base64 only: ``content_base64``, ``title`` (``<date> <HHMM> <word>``: the local time
+keeps two recordings of one day apart), ``date``, ``word``, ``summary_used``, ``segment_count``
+(the non-empty segments rendered). Never the summary or the transcript text. The EPUB is
+deterministic: fixed zip times, order and permissions, and an identifier derived from the
+transcript's ``audio_sha256``.
 
 One book per transcript file (d4)
 =================================
@@ -40,8 +41,12 @@ atomically. A later run for the same transcript file returns those stored bytes 
 unchanged, whatever its summary says, so xteink deduplicates the upload; a changed transcript
 file has a new sha256 and gets a new book. A cache that does not check out is rendered again,
 and a folder that cannot be written to still gets its book (only rendered again next time).
+Only a book whose summary was used is kept: one rendered without a summary (the summary step
+failed or was skipped) is not stored, and a stored one is ignored, so a passing model outage
+does not leave "Summary unavailable" on that recording for good.
 
-Caps: the transcript file is read only up to :data:`TRANSCRIPT_CAP` (JSON, with timestamps),
+Caps: the transcript file is read only up to :data:`TRANSCRIPT_CAP` (JSON, with timestamps;
+the same cap as ``llm.complete``'s excerpt, so a file one step reads the other reads too),
 and the book must fit :data:`EPUB_CAP` (deflated text, typically a fraction of the
 transcript's size); a book over it fails ``epub_too_large``.
 """
@@ -65,6 +70,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.node.actions.transcript_file import TRANSCRIPT_FILE_CAP
 
 __all__ = [
     "DEFAULT_WORD",
@@ -81,7 +87,7 @@ TRANSCRIPT_RENDER = "transcript.render"
 SUMMARY_UNAVAILABLE = "Summary unavailable."
 DEFAULT_WORD = "recording"
 EPUB_CAP = 8 << 20
-TRANSCRIPT_CAP = 32 << 20
+TRANSCRIPT_CAP = TRANSCRIPT_FILE_CAP
 INVALID = "invalid_request"
 PATH_REFUSED = "path_refused"
 TIMEZONE = "Asia/Jerusalem"
@@ -122,7 +128,7 @@ def _esc(text: str) -> str:
 # ------------------------------------------------------------------ inputs
 
 
-def _local_date(recorded_at: Any) -> str:
+def _local_moment(recorded_at: Any) -> datetime:
     if not isinstance(recorded_at, str) or not recorded_at.strip():
         raise _fail(INVALID, "recorded_at is required")
     try:
@@ -131,7 +137,7 @@ def _local_date(recorded_at: Any) -> str:
         raise _fail(INVALID, "recorded_at must be an ISO-8601 time") from exc
     if moment.tzinfo is None:
         raise _fail(INVALID, "recorded_at needs a time zone (for example a trailing Z)")
-    return moment.astimezone(ZoneInfo(TIMEZONE)).date().isoformat()
+    return moment.astimezone(ZoneInfo(TIMEZONE))
 
 
 def _summary_text(value: Any) -> str | None:
@@ -303,13 +309,14 @@ def render_transcript(
     sha = doc.get("audio_sha256")
     if not isinstance(sha, str) or not _SHA_RE.match(sha):
         raise _fail(INVALID, "transcript audio_sha256 must be 64 lowercase hex characters")
-    day = _local_date(recorded_at)
+    local = _local_moment(recorded_at)
+    day = local.date().isoformat()
     paragraphs = _paragraphs(doc)
     parsed = parse_summary(summary)
     lines, word = parsed if parsed else ([SUMMARY_UNAVAILABLE], DEFAULT_WORD)
     rtl = _rtl(language, doc)
     lang, direction = ("he", "rtl") if rtl else ("en", "ltr")
-    title = f"{day} {word}"
+    title = f"{day} {local:%H%M} {word}"
     uid = f"urn:culture-rules:transcript:{sha}"
     data = _epub(uid, title, day, lines, paragraphs, lang, direction)
     if len(data) > EPUB_CAP:
@@ -390,6 +397,7 @@ def _cached_book(path: Path, raw: bytes) -> dict[str, Any] | None:
         return None
     if (
         not isinstance(meta, Mapping)
+        or meta.get("summary_used") is not True  # a summaryless book is rendered again
         or meta.get("transcript_sha256") != digest
         or meta.get("book_sha256") != hashlib.sha256(book).hexdigest()
         or any(name not in meta for name in _CACHED_FIELDS)
@@ -414,7 +422,10 @@ def _write_atomic(target: Path, data: bytes) -> None:
 
 def _store_book(path: Path, raw: bytes, out: Mapping[str, Any]) -> None:
     """Keep the rendered book beside its transcript (best effort: a folder that cannot be
-    written to still gets its book, it is only rendered again next time)."""
+    written to still gets its book, it is only rendered again next time). A book without
+    its summary is not kept, so a later run with a working summary replaces it."""
+    if out.get("summary_used") is not True:
+        return
     epub_path, meta_path, digest = _book_paths(path, raw)
     book = base64.b64decode(out["content_base64"])
     meta = {name: out[name] for name in _CACHED_FIELDS}

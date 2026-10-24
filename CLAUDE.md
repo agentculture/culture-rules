@@ -144,8 +144,8 @@ plan. What exists today:
   `docs/specs/2026-10-23-transcripts-on-the-reader.md`, setup
   `docs/operations/transcripts-on-the-reader.md`):
   - the action kind `transcript.render` builds one deterministic EPUB from a
-    transcript file under a given root: titled `<YYYY-MM-DD> <word>` (the
-    Asia/Jerusalem date of `recorded_at`), a 1-2 line summary, then the
+    transcript file under a given root: titled `<YYYY-MM-DD> <HHMM> <word>`
+    (the Asia/Jerusalem date and time of `recorded_at`), a 1-2 line summary, then the
     transcript, right to left unless the language is `en`;
   - `llm.complete` takes `brief: transcript` (a second locked brief) and
     `content_path` + `content_root`, reading the transcript itself so its

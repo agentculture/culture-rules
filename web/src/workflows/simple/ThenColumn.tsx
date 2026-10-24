@@ -2,12 +2,12 @@ import { forwardRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Actor } from "../../api/actors";
 import type { Action, Rule, Workflow } from "../../api/types";
-import { predecessorTerms, type Continuation, eitherText } from "../../fold/model";
+import { type Continuation, eitherText } from "../../fold/model";
 import { actionChips } from "../../routes/rules-view";
 import { useFocusReturn } from "./focus";
 import { useFrozen } from "./freeze";
 import { RunsForm, SharedActionForm } from "./SharedForms";
-import { actionBody, actionText, attemptsText, conditionRows, rowText, runEventWords, split, valueText, type Split } from "./text";
+import { actionBody, actionText, attemptsText, onwardRest, runEventWords, split, valueText, type Split } from "./text";
 
 export type Editing = "ends" | "failure" | "runs" | null;
 
@@ -110,7 +110,7 @@ function onwardLead(entry: Continuation): string {
 
 /** A continuation that starts after this workflow, as a read-only link to the workflow it starts (D2). */
 function Onward({ entry, nameOf, hrefFor }: Readonly<{ entry: Continuation; nameOf: (id: string) => string; hrefFor: (id: string) => string }>) {
-  const rest = conditionRows(entry.rule.condition, predecessorTerms(entry.rule.condition)).map(rowText);
+  const rest = onwardRest(entry);
   return (
     <li className="fold-onward">
       <Link className="fold-onward__link" to={hrefFor(entry.workflowId)}>
