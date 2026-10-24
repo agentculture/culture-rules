@@ -155,6 +155,18 @@ plan. What exists today:
     for an `en` recording; disabled) put each finished transcript on the
     Xteink reader; the editor's fold reads an OR of one predecessor per
     branch as continuing from either (d3).
+- **The decider step** (spec `docs/specs/2026-10-24-decider-step-in-workflows.md`,
+  guide `docs/actors/decider.md`):
+  - the action kind `decider.assess` asks the mesh's decider
+    (`POST <base_url>/v1/systemone` on the lobes gateway, `X-Lobes-Model:
+    decider:<domain>`) for probabilities over the questions a step defines
+    (`choice`, `noul`, `score`); it never writes text;
+  - outputs `answers` (the reply, unchanged), `picks` (the highest-probability
+    pick per question), `host`, `domain` and `usage`, so a later step's `when`
+    branches on e.g. `picks.action`;
+  - the domain belongs to the actor (`params.domain`), and a step picks a decider
+    by its actor; the bundle `docs/rules/decider` holds the `decider` actor
+    (domain `general`, model `clef`); it is an endpoint kind.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for
