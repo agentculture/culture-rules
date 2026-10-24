@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import string
 from collections.abc import Mapping
 from typing import Any
 
@@ -36,7 +37,14 @@ MAX_ITEMS = 30
 MAX_ITEM_CHARS = 300
 _WORD_RE = re.compile(r"^[A-Za-z][A-Za-z-]{1,23}$")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-_FENCE_RE = re.compile(r"^```[A-Za-z]*\s*\n?(.*?)\n?```$", re.DOTALL)
+_FENCE = "```"
+
+
+def _unfenced(text: str) -> str:
+    """The body of a reply wrapped in one Markdown code fence (its language word dropped)."""
+    if len(text) < 2 * len(_FENCE) or not (text.startswith(_FENCE) and text.endswith(_FENCE)):
+        return text
+    return text[len(_FENCE) : -len(_FENCE)].lstrip(string.ascii_letters).strip()
 
 
 class AnswerRefused(ValueError):
@@ -74,9 +82,7 @@ def parse_recording_answer(value: Any) -> dict[str, Any]:
     if not isinstance(value, str):
         raise AnswerRefused(NOT_JSON, "the reply has no text")
     text = _THINK_RE.sub("", value).strip()
-    fenced = _FENCE_RE.match(text)
-    if fenced:
-        text = fenced.group(1).strip()
+    text = _unfenced(text)
     try:
         data = json.loads(text)
     except (ValueError, RecursionError) as exc:

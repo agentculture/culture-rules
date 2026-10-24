@@ -292,14 +292,11 @@ class _ChecklistPort:
         return _Refusal(f"checklist_contended: {CHECKLISTS_COLLECTION}/{key}", retryable=True)
 
 
-def _merged(
-    doc: Mapping[str, Any] | None, key: str, prefix: str, texts: list[str], title: str | None
-) -> tuple[dict[str, Any], dict[str, int]]:
-    """The merge's changes (empty when nothing changes) and its counts."""
-    items = [dict(i) for i in (doc or {}).get(_ITEMS) or []]
-    by_norm = {i.get("norm"): i for i in items}
-    prefix = (doc or {}).get(_PREFIX_F) or prefix
-    next_index = int((doc or {}).get(_NEXT) or 1)
+def _add_items(
+    items: list[dict[str, Any]], texts: list[str], id_stem: str, next_index: int
+) -> dict[str, int]:
+    """Append each new text to ``items`` (in place) with the next ids; the merge's counts."""
+    known = {i.get("norm") for i in items}
     added = kept = ignored = 0
     seen: set[str] = set()
     for raw in texts:
@@ -309,22 +306,34 @@ def _merged(
             ignored += 1
             continue
         seen.add(norm)
-        if norm in by_norm:
+        if norm in known:
             kept += 1
             continue
-        item = {
-            "id": f"{prefix}.{key}.{next_index}",
-            "text": text,
-            "norm": norm,
-            "done": False,
-            "at": None,
-            "by": None,
-        }
-        items.append(item)
-        by_norm[norm] = item
-        next_index += 1
+        items.append(
+            {
+                "id": f"{id_stem}{next_index + added}",
+                "text": text,
+                "norm": norm,
+                "done": False,
+                "at": None,
+                "by": None,
+            }
+        )
+        known.add(norm)
         added += 1
-    counts = {"added": added, "kept": kept, "ignored": ignored, "total": len(items)}
+    return {"added": added, "kept": kept, "ignored": ignored, "total": len(items)}
+
+
+def _merged(
+    doc: Mapping[str, Any] | None, key: str, prefix: str, texts: list[str], title: str | None
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """The merge's changes (empty when nothing changes) and its counts."""
+    items = [dict(i) for i in (doc or {}).get(_ITEMS) or []]
+    prefix = (doc or {}).get(_PREFIX_F) or prefix
+    next_index = int((doc or {}).get(_NEXT) or 1)
+    counts = _add_items(items, texts, f"{prefix}.{key}.", next_index)
+    added = counts["added"]
+    next_index += added
     retitled = title is not None and title != (doc or {}).get(_TITLE)
     if not added and (not retitled or doc is None):
         return {}, counts

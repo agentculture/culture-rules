@@ -426,7 +426,7 @@ def _cached_answer(file: Path, digest: str) -> dict[str, Any] | None:
             json.dumps({**stored, "summary": "\n".join(map(str, stored["summary"]))})
         )
         model, usage = doc.get(_MODEL), doc.get("usage")
-    except (OSError, ValueError, RecursionError, AnswerRefused):
+    except (OSError, ValueError, RecursionError):
         return None
     if not isinstance(model, str) or not model or not isinstance(usage, dict):
         return None

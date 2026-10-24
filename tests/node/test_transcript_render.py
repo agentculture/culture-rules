@@ -374,16 +374,20 @@ def test_md_missing_answer_says_unavailable_and_has_no_facts() -> None:
 
 def test_md_accepts_old_shape_a_direct_mapping_and_ignores_action_items() -> None:
     old = tr.render_transcript(_doc("en"), recorded_at=AT, summary=_reply(), format="md")
-    assert "Key facts" not in _md(old) and old["summary_used"] is True
+    assert "Key facts" not in _md(old)
+    assert old["summary_used"] is True
     direct = {"summary": "Direct.", "word": "Plans", "facts": ["F"], "action_items": ["DO-IT"]}
     text = _md(tr.render_transcript(_doc("en"), recorded_at=AT, summary=direct, format="md"))
-    assert "Direct." in text and "- F" in text and "DO-IT" not in text
+    assert "Direct." in text
+    assert "- F" in text
+    assert "DO-IT" not in text
 
 
 def test_facts_are_optional_short_strings() -> None:
     facts = ["ok", "", 5, "x" * 400, "  spaced   out "]
     parsed = tr.parse_answer(_answer(facts=facts))
-    assert parsed is not None and parsed[2] == ["ok", "spaced out"]
+    assert parsed is not None
+    assert parsed[2] == ["ok", "spaced out"]
     assert tr.parse_answer(_answer(facts="nope"))[2] == []  # type: ignore[index]
     assert parse_summary(_answer()) == (["Line one.", "Line two."], "plans")
 
@@ -392,7 +396,8 @@ def test_the_epub_path_is_unchanged_by_facts_and_format() -> None:
     a = tr.render_transcript(_doc(), recorded_at=AT, summary=_reply())
     b = tr.render_transcript(_doc(), recorded_at=AT, summary=_reply(), format="epub")
     c = tr.render_transcript(_doc(), recorded_at=AT, summary=_answer(facts=[]))
-    assert a == b and "format" not in a
+    assert a == b
+    assert "format" not in a
     assert (
         a["content_base64"]
         != tr.render_transcript(_doc(), recorded_at=AT, format="md")["content_base64"]
@@ -402,7 +407,8 @@ def test_the_epub_path_is_unchanged_by_facts_and_format() -> None:
 
 def test_bad_format_fails_invalid_request(root: Path) -> None:
     result = _invoke(root, _write(root, _doc()), format="pdf")
-    assert result.outcome != COMPLETED and "invalid_request" in str(result.error)
+    assert result.outcome != COMPLETED
+    assert "invalid_request" in str(result.error)
 
 
 def test_port_md_returns_markdown_and_keeps_it_byte_stable(root: Path) -> None:
@@ -435,5 +441,6 @@ def test_md_escapes_ampersand_and_angle_brackets_in_derived_text() -> None:
     out = tr.render_transcript(_doc("en", (raw,)), recorded_at=AT, summary=answer, format="md")
     text = _md(out)
     assert text.count("&lt;b&gt;&amp;x&lt;/b&gt;") == 3
-    assert "<b>" not in text and "&amp;amp;" not in text
+    assert "<b>" not in text
+    assert "&amp;amp;" not in text
     assert out["title"] == "2026-10-24 0130 plans"

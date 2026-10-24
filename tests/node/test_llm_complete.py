@@ -1006,14 +1006,16 @@ def test_first_answer_is_cached_beside_the_content_file_and_replayed(tmp_path):
     path = _transcript(tmp_path, ["private one"])
     first, t1 = _port(transport=FakeTransport(body=_answer_reply()))
     one = _rec(first, path, tmp_path, cache=True)
-    assert one.outcome == COMPLETED and one.output["cached"] is False
+    assert one.outcome == COMPLETED
+    assert one.output["cached"] is False
     digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
     assert _cache_files(path) == [f"answer.recording.{digest}.json"]
     other = FakeTransport(body=_answer_reply(summary="Something else."))
     second, t2 = _port(transport=other)
     two = _rec(second, path, tmp_path, cache=True)
     assert other.calls == []
-    assert two.outcome == COMPLETED and two.output["cached"] is True
+    assert two.outcome == COMPLETED
+    assert two.output["cached"] is True
     assert two.output["answer"] == one.output["answer"]
     assert two.output["model"] == one.output["model"]
     assert not [p for p in path.parent.iterdir() if p.name.startswith(".")]
@@ -1024,7 +1026,8 @@ def test_without_cache_true_nothing_is_stored_or_read(tmp_path):
     port, transport = _port(transport=FakeTransport(body=_answer_reply()))
     _rec(port, path, tmp_path)
     _rec(port, path, tmp_path, cache=False)
-    assert len(transport.calls) == 2 and _cache_files(path) == []
+    assert len(transport.calls) == 2
+    assert _cache_files(path) == []
 
 
 def test_a_changed_content_file_misses_the_cache(tmp_path):
@@ -1033,14 +1036,16 @@ def test_a_changed_content_file_misses_the_cache(tmp_path):
     _rec(port, path, tmp_path, cache=True)
     _transcript(tmp_path, ["different text"])
     _rec(port, path, tmp_path, cache=True)
-    assert len(transport.calls) == 2 and len(_cache_files(path)) == 2
+    assert len(transport.calls) == 2
+    assert len(_cache_files(path)) == 2
 
 
 def test_an_invalid_answer_is_not_cached(tmp_path):
     path = _transcript(tmp_path, ["text"])
     port, _ = _port(transport=FakeTransport(body=_reply("nope")))
     res = _rec(port, path, tmp_path, cache=True)
-    assert res.outcome == FAILED and _cache_files(path) == []
+    assert res.outcome == FAILED
+    assert _cache_files(path) == []
 
 
 def test_a_damaged_cache_file_is_ignored_and_rewritten(tmp_path):
@@ -1050,7 +1055,8 @@ def test_a_damaged_cache_file_is_ignored_and_rewritten(tmp_path):
     cache = path.parent / _cache_files(path)[0]
     cache.write_text("{broken", encoding="utf-8")
     res = _rec(port, path, tmp_path, cache=True)
-    assert res.output["cached"] is False and len(transport.calls) == 2
+    assert res.output["cached"] is False
+    assert len(transport.calls) == 2
     assert json.loads(cache.read_text(encoding="utf-8"))["answer"]["word"] == "moving"
 
 
@@ -1062,7 +1068,8 @@ def test_an_unwritable_folder_still_returns_the_answer(tmp_path):
         res = _rec(port, path, tmp_path, cache=True)
     finally:
         path.parent.chmod(0o700)
-    assert res.outcome == COMPLETED and res.output["answer"]["word"] == "moving"
+    assert res.outcome == COMPLETED
+    assert res.output["answer"]["word"] == "moving"
 
 
 def test_cache_needs_the_recording_brief_and_content_path(tmp_path):
@@ -1084,9 +1091,26 @@ def test_cache_must_be_a_boolean(tmp_path):
 def test_parse_recording_answer_accepts_fenced_and_think_wrapped_json():
     raw = "<think>hm</think>\n```json\n" + json.dumps(ANSWER) + "\n```"
     out = parse_recording_answer({"text": raw})
-    assert out["facts"] == ["Truck on Friday"] and out["action_items"] == ["Book the truck"]
+    assert out["facts"] == ["Truck on Friday"]
+    assert out["action_items"] == ["Book the truck"]
     empty = parse_recording_answer(json.dumps({**ANSWER, "facts": [], "action_items": []}))
-    assert empty["facts"] == [] and empty["action_items"] == []
+    assert empty["facts"] == []
+    assert empty["action_items"] == []
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    ["```\n{}\n```", "```{}```", "```JSON  \n{}```", "  ```json\n{}\n```  "],
+)
+def test_parse_recording_answer_unwraps_any_one_fence(wrap):
+    out = parse_recording_answer(wrap.format(json.dumps(ANSWER)).strip())
+    assert out["action_items"] == ["Book the truck"]
+
+
+def test_parse_recording_answer_refuses_an_unclosed_fence():
+    with pytest.raises(AnswerRefused) as caught:
+        parse_recording_answer("```json\n" + json.dumps(ANSWER))
+    assert caught.value.code == "answer_not_json"
 
 
 @pytest.mark.parametrize(

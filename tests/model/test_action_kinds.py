@@ -349,7 +349,8 @@ def test_audio_transcribe_is_valid_without_audio_sha256() -> None:
 
 def test_llm_complete_takes_cache_as_a_bool() -> None:
     params = ACTION_KINDS[LLM_COMPLETE].params
-    assert params["cache"].type == "bool" and not params["cache"].required
+    assert params["cache"].type == "bool"
+    assert not params["cache"].required
     ok = {"actor": "c", "content_path": "/t/x.json", "content_root": "/t", "brief": "recording"}
     assert _errs(LLM_COMPLETE, {**ok, "cache": True}) == set()
     assert ("action.params.cache", "action_param_type") in _errs(LLM_COMPLETE, {**ok, "cache": "y"})
@@ -357,12 +358,14 @@ def test_llm_complete_takes_cache_as_a_bool() -> None:
 
 def test_transcript_render_takes_a_format() -> None:
     params = ACTION_KINDS["transcript.render"].params
-    assert params["format"].type == "str" and not params["format"].required
+    assert params["format"].type == "str"
+    assert not params["format"].required
 
 
 def test_library_push_takes_format_and_an_int_item_id() -> None:
     params = ACTION_KINDS[LIBRARY_PUSH].params
-    assert params["format"].type == "str" and params["item_id"].type == "int"
+    assert params["format"].type == "str"
+    assert params["item_id"].type == "int"
     base = NEWSPAPER_KINDS[LIBRARY_PUSH]
     assert _errs(LIBRARY_PUSH, {**base, "format": "md", "item_id": 7}) == set()
     assert ("action.params.item_id", "action_param_type") in _errs(
