@@ -441,16 +441,13 @@ def test_an_actor_without_roots_refuses_every_path(tmp_path, short_audio):
     assert no_output_root.transport.calls == []
 
 
-@pytest.mark.parametrize("bad", ["../../etc", "A" * 64, "0" * 63, "", 12, None])
+@pytest.mark.parametrize("bad", ["../../etc", "A" * 64, "0" * 63, "", 12])
 def test_a_bad_audio_sha256_is_invalid_request(tmp_path, bad, monkeypatch):
     env = Env(tmp_path)
     touched: list[str] = []
     monkeypatch.setattr(stt, "_hash_file", lambda p: touched.append(p) or "x")
     params = env.params()
-    if bad is None:
-        params.pop("audio_sha256")
-    else:
-        params["audio_sha256"] = bad
+    params["audio_sha256"] = bad
     res = env.port.invoke(params, "k", datetime.now(UTC) + timedelta(hours=1), context=_ctx())
     _failed(res, "invalid_request")
     assert env.port.refuse_before_admit(params) is not None
@@ -726,3 +723,73 @@ def test_the_urllib_transport_raises_oserror_on_a_closed_port():
         free = s.getsockname()[1]
     with pytest.raises(OSError):
         urllib_transport(f"http://127.0.0.1:{free}/v1/audio/transcriptions", b"", {}, 2)
+
+
+# ---- audio_sha256 optional, missing audio final (ffmpeg-independent) -------------------------
+
+
+@pytest.fixture
+def fake_audio(tmp_path, monkeypatch):
+    """Opaque bytes as the audio, with the ffmpeg-backed helpers faked out."""
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"not really audio" * 100_000)  # ~1.6 MB: more than one hash chunk
+    monkeypatch.setattr(stt.audio_split, "require_tools", lambda: None)
+    monkeypatch.setattr(stt.audio_split, "probe_duration", lambda p: 10.0)
+    monkeypatch.setattr(stt.audio_split, "detect_silences", lambda p: [])
+
+    def extract(path, start, end, dest):
+        Path(dest).write_bytes(b"RIFFfake")
+        return Path(dest)
+
+    monkeypatch.setattr(stt.audio_split, "extract_window", extract)
+    monkeypatch.setattr(stt, "_parse", lambda raw, s, e: {"text": "hello"})
+    return src
+
+
+def test_without_audio_sha256_the_port_hashes_the_file_and_writes_under_it(
+    tmp_path, fake_audio, monkeypatch
+):
+    monkeypatch.setattr(stt, "HASH_CHUNK", 4096)  # force many chunked reads
+    env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
+    sha = _sha(env.audio)
+    given = env.invoke(key="k1")
+    assert given.outcome == COMPLETED, given
+    omitted = env.invoke(key="k2", port=env.new_port(), audio_sha256=None)
+    assert omitted.outcome == COMPLETED, omitted
+    assert omitted.output["audio_sha256"] == sha
+    assert omitted.output["result_path"] == given.output["result_path"]
+    assert omitted.output["result_path"] == result_path(
+        str((env.output_root / "transcripts").resolve()), sha, MODEL
+    )
+    assert omitted.output == given.output
+
+
+def test_a_first_run_without_audio_sha256_writes_the_result_under_the_hash(tmp_path, fake_audio):
+    env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
+    res = env.invoke(audio_sha256=None)
+    assert res.outcome == COMPLETED, res
+    sha = _sha(env.audio)
+    assert res.output["audio_sha256"] == sha
+    assert (env.output_root / "transcripts" / sha).is_dir()
+    assert Path(res.output["result_path"]).parent.name == sha
+
+
+def test_a_missing_audio_file_is_a_final_audio_missing(tmp_path, fake_audio):
+    env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
+    gone = env.audio_root / "sub" / "gone.wav"
+    for over in ({"audio_sha256": None}, {"audio_sha256": "0" * 64}):
+        res = _failed(env.invoke(audio_path=str(gone), **over), "audio_missing")
+        assert "sub/gone.wav" in res.error
+        assert str(env.audio_root) not in res.error
+    assert not (env.output_root / "transcripts").exists()
+
+
+def test_a_missing_file_outside_audio_root_is_still_path_refused(tmp_path, fake_audio):
+    env = Env(tmp_path, fake_audio)
+    _failed(env.invoke(audio_path=str(tmp_path / "nope.wav")), "path_refused")
+
+
+def test_a_wrong_given_audio_sha256_is_still_audio_mismatch(tmp_path, fake_audio):
+    env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
+    _failed(env.invoke(audio_sha256="1" * 64), "audio_mismatch")
+    assert not (env.output_root / "transcripts" / ("1" * 64)).exists()
