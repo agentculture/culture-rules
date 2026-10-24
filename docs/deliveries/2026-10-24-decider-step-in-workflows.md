@@ -36,8 +36,8 @@ Quoted verbatim from the `devague summary` skeleton:
 
 - The operator's decision c13: the domain belongs to the actor, and a step picks the decider by its actor. The actor ships in a new bundle, `docs/rules/decider`.
 - The operator's caveat c14: a `picks` output with the decider's top pick per question.
-- `d1` (proposed) — t5's pre-PR live check runs on a local node; the engine check waits for a rollout. Decider (domain `general`): `local_now_engine_after_merge` 0.59, `ask_then_rollout` 0.37, `rollout_branch_now` 0.04. Logged in culture-rules#83. The operator then approved the rollout ("Approve rollout"), and the engine check ran on 0.26.0 from the unmerged branch head `35ed23d`.
-- t1 made reply checking stricter than c19 states (delta b1, proposed). A reply choice outside the asked criteria, or a legend whose size differs from the criteria, is `decider_bad_response`.
+- `d1` (approved) — t5's pre-PR live check runs on a local node; the engine check waits for a rollout. Decider (domain `general`): `local_now_engine_after_merge` 0.59, `ask_then_rollout` 0.37, `rollout_branch_now` 0.04. Logged in culture-rules#83. The operator then approved the rollout ("Approve rollout"), and the engine check ran on 0.26.0 from the unmerged branch head `35ed23d`.
+- t1 made reply checking stricter than c19 states (delta b1, approved). A reply choice outside the asked criteria, or a legend whose size differs from the criteria, is `decider_bad_response`.
 - The engine check found that `docs/actors/decider.md` gave the import as `rules import docs/rules/decider`, which fails "nothing to import" because the bundle holds only the actor. The guide now says `actors import`, which is what the rollout used.
 - The scope probe of the live gateway confirmed the score shape: `legend` and `probabilities` keyed by string index. The scope survey had only inferred it.
 
@@ -45,7 +45,7 @@ Quoted verbatim from the `devague summary` skeleton:
 
 | Plan item | Reason for divergence | Classification |
 |-----------|-----------------------|----------------|
-| `t5` (`d1`, proposed) | rollouts of the shared engine need the operator; the live check ran on a local node first, then on the engine after the approved rollout | acceptable |
+| `t5` (`d1`, approved) | rollouts of the shared engine need the operator; the live check ran on a local node first, then on the engine after the approved rollout | acceptable |
 | `t1` | stricter reply checks than c19 states (b1) | acceptable |
 
 ## Evidence
@@ -66,7 +66,7 @@ Quoted verbatim from the `devague summary` skeleton:
   - The ask step ran on spark and was answered by `orin`, domain `general`.
   - Every option has a probability, and the picks were the same both times.
   - `go` ran, and `hold` and `careful` were skipped.
-- devague: obligations o1–o13 (approved), evidence e1–e14 and delta b1 (proposed).
+- devague: obligations o1–o13 (approved), evidence e1–e14 and delta b1 (approved by the operator).
 - commits: `9934b19..` on `rules/decider-assess`.
 - issues: culture-rules#83 (the decisions log).
 
@@ -88,5 +88,4 @@ Quoted verbatim from the `devague summary` skeleton:
 
 ## Remaining Work / Follow-up
 
-- Adjudicate d1, e1–e14 and b1. Owner: you.
 - A second decider actor (for example `strands-general`) needs its answer shape supported first (c19). Later work.
