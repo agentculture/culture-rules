@@ -26,6 +26,8 @@ addresses on its recipient allowlist; ``search.web`` queries through a ``search`
 ``llm.complete`` asks an agent actor's OpenAI-compatible endpoint (never with tools);
 ``audio.transcribe`` sends an audio file (checked against ``audio_sha256``) to the same
 kind of endpoint for a transcript written under ``output_dir``;
+``transcript.render`` renders a transcript under the transcripts root, with its summary, as
+an EPUB (no actor needed);
 ``library.push`` uploads ``content_base64`` (an EPUB) to xteink and queues it for
 ``device_id``.
 Standard-library only.
@@ -56,10 +58,14 @@ class ActionKind:
     name: str
     params: dict[str, ParamSpec] = field(default_factory=dict)
     summary: str = ""
+    #: groups of params of which at least one must be set (e.g. content or content_path)
+    any_of: tuple[tuple[str, ...], ...] = ()
 
 
-def _k(name: str, summary: str, **params: ParamSpec) -> ActionKind:
-    return ActionKind(name, params, summary)
+def _k(
+    name: str, summary: str, /, *, any_of: tuple[tuple[str, ...], ...] = (), **params: ParamSpec
+) -> ActionKind:
+    return ActionKind(name, params, summary, any_of)
 
 
 _S = ParamSpec("str")
@@ -158,11 +164,16 @@ _KINDS = (
     _k(
         "llm.complete",
         "Complete a locked brief with an OpenAI-compatible model on an agent actor (no tools)",
+        any_of=(("content", "content_path"),),
         actor=_RS,
-        content=ParamSpec("any", True),
+        content=ParamSpec("any"),  # or content_path (d2): one of the two is required
+        content_path=_S,  # a schema-1 transcript file; needs content_root (checked at run time)
+        content_root=_S,
+        content_max_chars=_I,
         max_tokens=_I,
         temperature=ParamSpec("any"),
         not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
+        brief=_S,  # which locked brief: newspaper (default) or transcript
     ),
     _k(
         "audio.transcribe",
@@ -175,6 +186,16 @@ _KINDS = (
         model=_S,
     ),
     _k(
+        "transcript.render",
+        "Render one transcript and its summary as an EPUB (right to left for Hebrew)",
+        actor=_S,  # optional: its transcripts_root/output_root is a second boundary
+        result_path=_RS,
+        root=_RS,  # the transcripts root: result_path must resolve under it
+        recorded_at=_RS,  # ISO-8601 with a zone; dated in Asia/Jerusalem
+        language=_S,
+        summary=ParamSpec("any"),  # llm.complete's output: {text} or a string, or none
+    ),
+    _k(
         "library.push",
         "Upload an EPUB to the xteink library and queue it for a device",
         actor=_RS,
@@ -182,6 +203,7 @@ _KINDS = (
         title=_RS,
         author=_S,
         device_id=_S,
+        kind=_S,  # book, article (default) or transcript
     ),
 )
 

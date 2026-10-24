@@ -325,3 +325,10 @@ def test_audio_transcribe_valid_and_refuses_a_missing_audio_path() -> None:
     assert ("action.params.audio_path", "action_param_required") in _errs(
         "audio.transcribe", missing
     )
+
+
+def test_llm_complete_takes_content_or_content_path() -> None:
+    base = {"actor": "cortex"}
+    assert ("action.params.content", "action_param_required") in _errs(LLM_COMPLETE, base)
+    for one in ({"content": "text"}, {"content_path": "/t/x.json", "content_root": "/t"}):
+        assert not [e for e in _errs(LLM_COMPLETE, {**base, **one}) if e[0].endswith("content")]

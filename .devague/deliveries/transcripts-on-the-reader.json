@@ -1,0 +1,460 @@
+{
+  "plan_slug": "transcripts-on-the-reader",
+  "schema_version": 2,
+  "created": "2026-10-23T21:30:08Z",
+  "updated": "2026-10-24T05:55:45Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "the firmware ask (place non-book kinds under /xteink/<kind>s/) is a comment on agentculture/xteink#8, not its own issue on agentculture/xteink-firmware",
+      "task_ref": "t6",
+      "reason": "agentculture/xteink-firmware is a fork of crosspoint-reader with GitHub issues disabled (gh: hasIssuesEnabled false); tracking both halves on xteink#8 keeps them in one thread without changing that repo's settings",
+      "affects": [
+        "c9",
+        "h9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "llm.complete gains content_path + content_root + max_chars (it reads the transcript excerpt from the file under the root itself), so the transcript text never enters run state; the 1-2 line summary reply stays a step output (llm.complete's text), and h12's 'step outputs hold no summary text' is relaxed to 'no transcript text'",
+      "task_ref": "t4",
+      "reason": "steps pass data through persisted step outputs (run documents in local Mongo, shown in the editor's Debug view); chaining the excerpt and the reply that way would store up to 48000 transcript characters per run. Operator 2026-10-24 chose: keep the transcript out, allow the short summary",
+      "affects": [
+        "t2",
+        "c12",
+        "h12"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "one rule pocket-to-reader with an OR condition (zipformer finished, or whisper finished on an en recording); the editor's fold (culture_rules/model/paragraph.py and its TS twin web/src/fold/model.ts) learns to read predecessors through OR, so the rule shows as continuing from transcribe-file-he or transcribe-file",
+      "task_ref": "t4",
+      "reason": "the fold found a continuation's predecessor only through AND, so the OR rule read as continuing from every workflow (the newspaper and pr-fix paragraphs gained 'Then it continues into transcript-to-reader'); operator 2026-10-24 chose one rule with OR over splitting it",
+      "affects": [
+        "c2"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "transcript.render caches the finished book beside its transcript: the first render writes book.<transcript sha256 prefix>.epub (+ a small .json of its title, date, word, summary_used, segment_count) into the recording's subfolder under the root; a later run for the same transcript file returns those stored bytes and fields unchanged, so a re-run uploads identical bytes and xteink deduplicates them (c11). Also: llm.complete refuses an empty content_path excerpt (invalid_request); the catalog notes content_path needs content_root; the editor's Then column words an either continuation; the render caps' relationship is documented",
+      "task_ref": "t4",
+      "reason": "colleague review finding A: the summary is asked again on every run and the model may answer differently, so new bytes would make a second book (c11's test used a fixed fake reply and could not show it). Decider (general, 2026-10-24) on four options: cache_book_file 0.93, delivered_record 0.03, library_title_check 0.02, accept_and_document 0.02; cache safe P=0.88; harm unfixed negligible 0.50 / minor 0.47. Findings B-E are small fixes from the same review",
+      "affects": [
+        "t1",
+        "c4",
+        "c11",
+        "h11"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "t7 (rollout, enable pocket-to-reader, the 33-recording backfill, the device check) waits for the operator to approve a rollout; before the PR a local live check runs one real recording through the real summary (cortex-spark2) and transcript.render, with the library push stubbed so nothing reaches the device",
+      "task_ref": "t7",
+      "reason": "rollouts of the shared engine and pushes to the operator's device need the operator; the operator asked for live tests before the PR. Decider (general, 2026-10-24): local_now_engine_after_merge 0.59, ask_then_rollout 0.37, rollout_branch_now 0.04; backfill must wait P=0.31",
+      "affects": [
+        "c10",
+        "c19",
+        "c21"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t7's backfill runs before the PR merges, from a local node on the branch's code with the live actors (stt-he, cortex-spark2, newspaper-library) and the real ports: 33 recordings oldest first, pushed to the operator's library on device newspaper_device (3), then a second pass to show no new items; enabling pocket-to-reader on the engine still waits for a rollout",
+      "task_ref": "t7",
+      "reason": "the operator asked for the backfill ('Yes, all of them') and for live tests before the PR; the books go only to the operator's own library and can be deleted. Decider (general, 2026-10-24): backfill must wait for the operator P=0.31; rollout_branch_now 0.04, so no engine rollout",
+      "affects": [
+        "c10",
+        "c21"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 17
+    },
+    {
+      "id": "d7",
+      "what": "Review fixes on #84: transcript.render stores and returns only a book whose summary was used; the title becomes <YYYY-MM-DD> <HHMM> <word> (the spec said <YYYY-MM-DD> <word>); one 32 MiB transcript file cap; the editor picker gains llm.complete's excerpt params and brief, transcript.render and library.push kind; the Simple view's either sentence matches the API paragraph; the chain view draws each either edge",
+      "task_ref": "t1",
+      "reason": "the operator ran /code-review medium on #84 and asked to fix all its findings ('Please fix all 8'); the book cache would keep a summaryless book for good, two recordings of one day with one word shared a title, the two transcript caps differed, and the editor did not know #84's params or draw an either continuation",
+      "affects": [
+        "t2",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 23
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_a_hebrew_recording_gets_one_book_from_the_zipformer_run; tests/node/test_transcript_reader_flow.py::test_a_failed_zipformer_run_starts_no_book",
+      "behavior_text": "one reader run per success; none for a failed run",
+      "contract_text": "a transcription success starts exactly one reader run; a failure starts none",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "flow test on a real Node, test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_an_unlabelled_recording_gets_one_book_and_the_whisper_success_starts_nothing; tests/node/test_transcript_reader_flow.py::test_an_english_recording_gets_its_book_from_whisper; tests/node/test_transcript_reader_flow.py::test_an_english_recording_with_empty_whisper_is_transcribed_again_on_stt_he",
+      "behavior_text": "the lane per language and the stt-he fallback",
+      "contract_text": "he/unlabelled zipformer, en whisper, all-empty en again on stt-he",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "flow test, test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_transcript_render.py::test_render_is_byte_identical; tests/node/test_transcript_render.py::test_he_is_rtl_and_en_is_ltr; tests/node/test_transcript_render.py::test_title_uses_jerusalem_date_and_lowercased_word; tests/node/test_transcript_render.py::test_path_outside_root_refused_before_reading; tests/node/test_transcript_render.py::test_symlink_escape_refused",
+      "behavior_text": "determinism, direction, title, path checks",
+      "contract_text": "deterministic RTL/LTR EPUB titled with date and word, read only under the root",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/node/test_llm_complete.py::test_the_transcript_brief_is_the_system_message; tests/node/test_llm_complete.py::test_an_unknown_brief_is_invalid_without_a_request; tests/node/test_llm_complete.py::test_content_path_sends_the_transcript_text_as_the_user_message; tests/node/test_llm_complete.py::test_content_path_outside_content_root_is_refused_before_any_request; tests/node/test_llm_complete.py::test_an_empty_transcript_is_refused_before_any_request",
+      "behavior_text": "the locked brief and content_path reads",
+      "contract_text": "brief transcript and content_path behave as the spec says",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_a_summary_failure_still_ships_the_book_as_a_recording; tests/node/test_transcript_render.py::test_unusable_summary_falls_back",
+      "behavior_text": "the book ships as date recording with Summary unavailable.",
+      "contract_text": "a failed summary still ships the book",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_transcript_render.py::test_title_uses_jerusalem_date_and_lowercased_word; tests/node/test_transcript_render.py::test_bad_recorded_at_fails_invalid_request",
+      "behavior_text": "22:30Z on Oct 23 is titled 2026-10-24; a bad recorded_at fails",
+      "contract_text": "the Israel local date titles the book",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_library_push.py::test_upload_carries_file_title_author_and_kind; tests/node/test_library_push.py::test_kind_param_is_sent_as_given; tests/node/test_library_push.py::test_an_unknown_kind_is_refused_before_any_request",
+      "behavior_text": "default article, given kinds, refused others",
+      "contract_text": "library.push kind",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "the kind tests were run against the old library.py and 9 failed, then all 97 passed on the new one (l1)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "agentculture/xteink#8 (+ firmware comment), agentculture/pocketsync#12 comment 6375111397",
+      "behavior_text": "the issues exist, quote the code they ask to change, signed",
+      "contract_text": "the cross-repo asks exist and are self-contained",
+      "evidence_type": "manual",
+      "strength": "coverage",
+      "strength_basis": "read on GitHub when posted",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_a_rerun_whose_summary_answers_differently_still_adds_no_second_book; tests/node/test_transcript_render.py::test_a_later_run_returns_the_first_book_even_if_the_summary_changed",
+      "behavior_text": "a different summary on a re-run still pushes identical bytes",
+      "contract_text": "no second book on a re-run",
+      "evidence_type": "integration",
+      "strength": "sensitivity",
+      "strength_basis": "the flow test fails with the pre-d4 transcript_render.py and passes with the cache",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/node/test_transcript_reader_flow.py::test_no_transcript_text_enters_the_run_and_no_summary_text_its_outputs; tests/node/test_transcript_render.py::test_port_outputs_hold_no_text",
+      "behavior_text": "sentinels never appear in the run or events",
+      "contract_text": "no transcript text in the run; no summary text in outputs",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/model/test_rule_paragraph.py + tests/fixtures/fold_docs_rules.json (pocket-to-reader placement spark)",
+      "behavior_text": "the committed rule has placement machine spark",
+      "contract_text": "pocket-to-reader is placed on spark",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "the committed rule file read by the bundle tests at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T00:44:21",
+        "commit": "e1f4a31"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "scratchpad backfill_reader.py pass 1 (local node, branch code, live actors, real ports)",
+      "behavior_text": "33 of 33 runs succeeded oldest first; 33 distinct library items (32 created + 1 from the smoke push); 31 with a summary, 2 empty clips titled recording; 4 fallbacks on stt-he",
+      "contract_text": "33 recordings each get their book, oldest first",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed live on the operator's xteink library from a local node; the engine-level rule waits for a rollout (d6)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T02:00:31",
+        "commit": "43ae495"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o14",
+      "test_ref": "backfill_reader.py pass 2 + GET /api/devices/3/queue",
+      "behavior_text": "pass 2: 33 of 33 succeeded, 0 created, the same 33 item ids and titles; device 3's queue holds exactly those 33 entries",
+      "contract_text": "33 items for 33 recordings, 0 new after a re-run, a new book queued within 10 minutes",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the counts hold live; the 10-minutes-after-a-new-transcription part needs the engine rule (a rollout) and is not yet observed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T02:00:31",
+        "commit": "43ae495"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "deployed engine 0.26.0, pocket-to-reader enabled: transcribe-file-he run run-1ac3947609254ae19e941f1a71d44256 (recording a41fdac7bee2, result already on disk) -> pocket-to-reader run run-75def4e5483f342bc068c65b612f978f",
+      "behavior_text": "the transcription run finished 04:47:02Z; rules.run.succeeded started exactly one transcript-to-reader run at 04:47:05Z (3.5 s), which succeeded at 04:47:17Z: title 2026-10-15 summer, summary used, item 29, created false; device 3 queue still holds the 33 transcript entries plus the day's newspaper",
+      "contract_text": "c21: 33 items for 33 recordings, 0 new after a re-run, a new book queued within 10 minutes",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "the engine chain from a transcription success to the queued book takes 15 s, far inside 10 minutes; a recording that pocketsync has not yet seen is not shown, because the STT rules stay disabled until pocketsync#12 ships the landed event",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T04:47:17Z",
+        "commit": "35ed23d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o11",
+      "test_ref": "deployed engine run run-75def4e5483f342bc068c65b612f978f (rule pocket-to-reader)",
+      "behavior_text": "every executed step (keep, pick, summary, render, push) ran on host spark; fallback skipped",
+      "contract_text": "c22: pocket-to-reader is placed on machine spark",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed on the live engine after the rollout",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T04:47:17Z",
+        "commit": "35ed23d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o13",
+      "test_ref": "operator device check: synced device 3 and opened the transcript books",
+      "behavior_text": "the operator reported 'Hebrew unreadable': the books arrive, but their Hebrew text cannot be read; the flat /xteink/ list also takes many presses to navigate",
+      "contract_text": "c19: after a sync the reader shows one dated book per recording, Hebrew right to left",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "the operator's own reading on the device; cause found in the firmware docs: the built-in reader fonts lack Hebrew and no pre-built SD font covers it (agentculture/xteink#9). The EPUB declares lang he and dir rtl",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-24T05:30:00Z",
+        "commit": "35ed23d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "the summary step asks for up to 2000 tokens (400 left cortex-spark2 no answer after its reasoning)",
+      "caused_by": [
+        "c5"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "transcript.render keeps the first book beside its transcript (book.<sha16>.epub + .json) and returns it on later runs (d4, proposed)",
+      "caused_by": [
+        "c11"
+      ],
+      "evidence_refs": [
+        "e9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "the push queues on the device in the newspaper_device variable (workflow input device_id, mapped by pocket-to-reader); without it every push would have failed on the live library actor, which carries no device_id",
+      "caused_by": [
+        "c8"
+      ],
+      "evidence_refs": [
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-10-24
+
+### Added
+
+- Transcripts on the reader: every finished Pocket transcription becomes one EPUB on the Xteink reader, titled `<YYYY-MM-DD> <HHMM> <word>`, a 1-2 line summary in the recording language then the transcript, right to left for Hebrew (workflow transcript-to-reader, rule pocket-to-reader, ships disabled; docs/operations/transcripts-on-the-reader.md)
+- Action kind transcript.render: one deterministic EPUB from a schema-1 transcript under a given root
+- llm.complete: brief transcript (a second locked brief) and content_path + content_root + content_max_chars (reads the transcript itself; its text never enters run state)
+- library.push: optional kind (book, article, transcript)
+- The action catalog: any_of param groups (llm.complete needs content or content_path)
+
+### Changed
+
+- The editor fold (Python and TS) reads an OR of one predecessor per branch as a continuation from either workflow
+- transcribe-file and transcribe-file-he take an optional recorded_at and pass audio_path, output_dir and recorded_at through; both pocket-transcribe rules map recording_at
+
+### Fixed
+
+- transcript.render keeps only a book whose summary was used; a summaryless book (summary step failed or skipped) is not stored and a stored one is ignored, so a later run makes the summarised book
+- The book title carries the local time: `<YYYY-MM-DD> <HHMM> <word>`, so two recordings of one day with one word no longer share a title
+- One transcript file cap (32 MiB) for llm.complete's excerpt and transcript.render
+- Editor: the action picker knows llm.complete's content_path, content_root, content_max_chars, brief and not_after (content or content_path), transcript.render and library.push kind
+- Editor: an either continuation's onward sentence says no condition when every branch is its predecessor alone, as the API paragraph does; the chain view draws an edge from each of its predecessors
+
 ## [0.24.2] - 2026-10-23
 
 ### Changed

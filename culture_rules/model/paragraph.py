@@ -943,6 +943,21 @@ def _predecessor_terms(condition: Any) -> list[Any]:
     return [condition] if _predecessor_id(condition) is not None else []
 
 
+def _either_sources(condition: Any) -> list[str]:
+    """``eitherSources``: an ``or`` whose every branch names exactly one predecessor (through
+    ``and``) continues from any of them (d3); the distinct ids in order, else none."""
+    if not isinstance(condition, Mapping) or condition.get("op") != "or":
+        return []
+    ids = []
+    for branch in _list(condition.get("args")):
+        terms = _predecessor_terms(branch)
+        if len(terms) != 1:
+            return []
+        ids.append(_predecessor_id(terms[0]))
+    distinct = _distinct([i for i in ids if i is not None])
+    return distinct if len(distinct) > 1 else []
+
+
 def _entry(rule: dict[str, Any], workflow_id: str) -> dict[str, Any]:
     """``entryFor``: a rule on a ``rules.run.*`` event continues from its predecessor."""
     base = {"rule": rule, "workflow_id": workflow_id, "enabled": rule.get("enabled") is not False}
@@ -956,8 +971,11 @@ def _entry(rule: dict[str, Any], workflow_id: str) -> dict[str, Any]:
     ):
         return {**base, "kind": "entry"}
     sources = [_predecessor_id(t) for t in _predecessor_terms(rule.get("condition"))]
-    if not sources:
-        predecessor: dict[str, Any] = {"kind": "any"}
+    either = [] if sources else _either_sources(rule.get("condition"))
+    if either:
+        predecessor: dict[str, Any] = {"kind": "either", "workflow_ids": either}
+    elif not sources:
+        predecessor = {"kind": "any"}
     elif len(sources) == 1:
         predecessor = {"kind": "linked", "workflow_id": sources[0]}
     else:
@@ -971,7 +989,9 @@ def fold_rules(rules: Any) -> list[dict[str, Any]]:
     rule that runs a workflow, ``{"rule", "workflow_id", "enabled", "kind"}``, where ``kind``
     is ``entry`` (it starts the workflow from outside) or ``continuation`` (it fires on a
     ``rules.run.*`` event; it also carries ``predecessor`` - ``any``, ``linked`` with its
-    ``workflow_id`` or ``ambiguous`` with ``workflow_ids`` - and ``from_workflow_id``). Both
+    ``workflow_id``, ``ambiguous`` with ``workflow_ids`` (an ``and`` naming several) or
+    ``either`` with ``workflow_ids`` (an ``or`` of one per branch, d3) - and
+    ``from_workflow_id``). Both
     kinds belong to the workflow they start. A rule with no workflow is left out (D7)."""
     out = []
     for raw in _list(rules):
@@ -984,7 +1004,8 @@ def fold_rules(rules: Any) -> list[dict[str, Any]]:
 
 def onward_of(fold: list[dict[str, Any]], workflow_id: str) -> list[dict[str, Any]]:
     """The continuations that start after ``workflow_id`` in another workflow: linked to it,
-    after any workflow, or naming it among several (SimpleView.tsx ``onwardOf``)."""
+    after any workflow, or naming it among several or as one of its ``or`` branches
+    (SimpleView.tsx ``onwardOf``)."""
     out = []
     for e in fold:
         if e["kind"] != "continuation" or e["workflow_id"] == workflow_id:
@@ -993,7 +1014,7 @@ def onward_of(fold: list[dict[str, Any]], workflow_id: str) -> list[dict[str, An
         if (
             e["from_workflow_id"] == workflow_id
             or pred["kind"] == "any"
-            or (pred["kind"] == "ambiguous" and workflow_id in pred["workflow_ids"])
+            or (pred["kind"] in ("ambiguous", "either") and workflow_id in pred["workflow_ids"])
         ):
             out.append(e)
     return out
@@ -1026,6 +1047,20 @@ def _trigger_part(rule: dict[str, Any], entry: dict[str, Any]) -> tuple[Part, An
         outcome = str(_plain(trigger.get("params")).get("type"))[len(_RUN_EVENT) :]
         rest = _without_terms(condition, _predecessor_terms(condition))
         source = entry["from_workflow_id"]
+        key = _RUN_OUTCOMES.get(outcome)
+        if key:
+            return (key, {"workflow": source}), rest
+        return ("starts_ended", {"workflow": source, "outcome": outcome}), rest
+    if entry["kind"] == "continuation" and entry["predecessor"]["kind"] == "either":
+        outcome = str(_plain(trigger.get("params")).get("type"))[len(_RUN_EVENT) :]
+        source = _either(entry["predecessor"]["workflow_ids"])
+        # each branch's other terms belong to that branch only: say the whole condition
+        # unless every branch is its predecessor term alone (d3)
+        alone = all(
+            _without_terms(b, _predecessor_terms(b)) is None
+            for b in _list(_plain(condition).get("args"))
+        )
+        rest = None if alone else condition
         key = _RUN_OUTCOMES.get(outcome)
         if key:
             return (key, {"workflow": source}), rest

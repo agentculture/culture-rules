@@ -140,6 +140,21 @@ plan. What exists today:
   - STT actors count as endpoint actors (`ENDPOINT_KINDS`);
   - the bundle `docs/rules/pocket-transcribe` (workflow `transcribe-file`,
     fired by `pocketsync.recording.landed`) ships disabled.
+- **Transcripts on the reader** (spec
+  `docs/specs/2026-10-23-transcripts-on-the-reader.md`, setup
+  `docs/operations/transcripts-on-the-reader.md`):
+  - the action kind `transcript.render` builds one deterministic EPUB from a
+    transcript file under a given root: titled `<YYYY-MM-DD> <HHMM> <word>`
+    (the Asia/Jerusalem date and time of `recorded_at`), a 1-2 line summary, then the
+    transcript, right to left unless the language is `en`;
+  - `llm.complete` takes `brief: transcript` (a second locked brief) and
+    `content_path` + `content_root`, reading the transcript itself so its
+    text never enters run state (d2); `library.push` takes `kind`;
+  - the workflow `transcript-to-reader` and the rule `pocket-to-reader`
+    (`rules.run.succeeded` of `transcribe-file-he`, or of `transcribe-file`
+    for an `en` recording; disabled) put each finished transcript on the
+    Xteink reader; the editor's fold reads an OR of one predecessor per
+    branch as continuing from either (d3).
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

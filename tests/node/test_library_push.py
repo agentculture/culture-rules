@@ -161,6 +161,14 @@ def test_upload_carries_file_title_author_and_kind():
     assert parts["kind"][1] == b"article"
 
 
+@pytest.mark.parametrize("kind", ["book", "article", "transcript"])
+def test_kind_param_is_sent_as_given(kind):
+    transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
+    port, _ = _port(_store(), transport)
+    assert _invoke(port, kind=kind).outcome == COMPLETED
+    assert _parts(transport.calls[0])["kind"][1] == kind.encode()
+
+
 def test_author_param_overrides_the_default():
     transport = FakeTransport(UPLOAD_OK, QUEUE_OK)
     port, _ = _port(_store(), transport)
@@ -388,6 +396,13 @@ def test_oversized_encoded_text_is_refused_before_decoding(monkeypatch):
 @pytest.mark.parametrize("title", ["", None, 5, "   "])
 def test_a_missing_title_is_refused(title):
     result = _refused(title=title)
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+@pytest.mark.parametrize("kind", ["magazine", "", "Book", " article", 5, ["book"], True])
+def test_an_unknown_kind_is_refused_before_any_request(kind):
+    result = _refused(kind=kind)
+    assert result.retryable is False
     assert result.error.startswith(INVALID_REQUEST)
 
 

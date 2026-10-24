@@ -401,7 +401,7 @@ def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
     lenient = is_lenient(obj.kind)
     for name, p in spec.params.items():
         value = obj.params.get(name)
-        if value is None or (isinstance(value, str) and not value.strip()):
+        if _unset(value):
             if p.required and not lenient:
                 _err(
                     errors,
@@ -416,7 +416,28 @@ def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
                 "action_param_type",
                 f"params.{name} must be {p.type} (or a reference/template)",
             )
+    if not lenient:
+        _check_any_of(obj, spec.any_of, pp, errors)
     _check_comment_status(obj, pp, errors)
+
+
+def _check_any_of(
+    obj: Action, groups: tuple[tuple[str, ...], ...], pp: str, errors: Errors
+) -> None:
+    """Each ``any_of`` group needs at least one of its params set (e.g. content or
+    content_path for llm.complete)."""
+    for group in groups:
+        if all(_unset(obj.params.get(name)) for name in group):
+            _err(
+                errors,
+                _join(pp, group[0]),
+                "action_param_required",
+                f"{obj.kind} requires params.{' or params.'.join(group)}",
+            )
+
+
+def _unset(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _check_comment_status(obj: Action, pp: str, errors: Errors) -> None:

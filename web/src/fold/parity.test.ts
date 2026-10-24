@@ -46,6 +46,7 @@ function snapshot() {
       predecessor: e.kind === "continuation"
         ? (e.predecessor.kind === "linked" ? { kind: "linked", workflow_id: e.predecessor.workflowId }
           : e.predecessor.kind === "ambiguous" ? { kind: "ambiguous", workflow_ids: e.predecessor.workflowIds }
+          : e.predecessor.kind === "either" ? { kind: "either", workflow_ids: e.predecessor.workflowIds }
             : { kind: "any" })
         : null,
       from: e.kind === "continuation" ? e.fromWorkflowId : null,

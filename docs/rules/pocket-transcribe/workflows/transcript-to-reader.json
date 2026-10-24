@@ -1,0 +1,716 @@
+{
+  "description": "",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "audio_path",
+      "target": "fallback",
+      "target_port": "audio_path"
+    },
+    {
+      "source": "inputs",
+      "source_port": "audio_sha256",
+      "target": "fallback",
+      "target_port": "audio_sha256"
+    },
+    {
+      "source": "inputs",
+      "source_port": "output_dir",
+      "target": "fallback",
+      "target_port": "output_dir"
+    },
+    {
+      "source": "inputs",
+      "source_port": "language",
+      "target": "fallback",
+      "target_port": "language"
+    },
+    {
+      "source": "inputs",
+      "source_port": "window_count",
+      "target": "fallback",
+      "target_port": "window_count"
+    },
+    {
+      "source": "inputs",
+      "source_port": "empty_window_count",
+      "target": "fallback",
+      "target_port": "empty_window_count"
+    },
+    {
+      "source": "inputs",
+      "source_port": "result_path",
+      "target": "keep",
+      "target_port": "given_result_path"
+    },
+    {
+      "source": "inputs",
+      "source_port": "language",
+      "target": "keep",
+      "target_port": "language"
+    },
+    {
+      "source": "inputs",
+      "source_port": "window_count",
+      "target": "keep",
+      "target_port": "window_count"
+    },
+    {
+      "source": "inputs",
+      "source_port": "empty_window_count",
+      "target": "keep",
+      "target_port": "empty_window_count"
+    },
+    {
+      "source": "fallback",
+      "source_port": "result_path",
+      "target": "pick",
+      "target_port": "fallback_result_path"
+    },
+    {
+      "source": "keep",
+      "source_port": "result_path",
+      "target": "pick",
+      "target_port": "given_result_path"
+    },
+    {
+      "source": "pick",
+      "source_port": "result_path",
+      "target": "summary",
+      "target_port": "result_path"
+    },
+    {
+      "source": "inputs",
+      "source_port": "output_dir",
+      "target": "summary",
+      "target_port": "output_dir"
+    },
+    {
+      "source": "pick",
+      "source_port": "result_path",
+      "target": "render",
+      "target_port": "result_path"
+    },
+    {
+      "source": "inputs",
+      "source_port": "output_dir",
+      "target": "render",
+      "target_port": "output_dir"
+    },
+    {
+      "source": "inputs",
+      "source_port": "recorded_at",
+      "target": "render",
+      "target_port": "recorded_at"
+    },
+    {
+      "source": "inputs",
+      "source_port": "language",
+      "target": "render",
+      "target_port": "language"
+    },
+    {
+      "source": "summary",
+      "source_port": "text",
+      "target": "render",
+      "target_port": "summary"
+    },
+    {
+      "source": "render",
+      "source_port": "content_base64",
+      "target": "push",
+      "target_port": "content_base64"
+    },
+    {
+      "source": "render",
+      "source_port": "title",
+      "target": "push",
+      "target_port": "title"
+    },
+    {
+      "source": "inputs",
+      "source_port": "device_id",
+      "target": "push",
+      "target_port": "device_id"
+    }
+  ],
+  "enabled": true,
+  "id": "transcript-to-reader",
+  "inputs": [
+    {
+      "description": "the finished transcript's absolute path",
+      "name": "result_path",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "the recording's audio file, for the fallback",
+      "name": "audio_path",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "the recording's sha256",
+      "name": "audio_sha256",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "the transcripts root the transcript is under",
+      "name": "output_dir",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "when Pocket recorded it, ISO-8601 UTC",
+      "name": "recorded_at",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "the recording's language code, if any",
+      "name": "language",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the finished run's window count",
+      "name": "window_count",
+      "required": true,
+      "type": "integer"
+    },
+    {
+      "description": "how many of those windows came back empty",
+      "name": "empty_window_count",
+      "required": true,
+      "type": "integer"
+    },
+    {
+      "description": "the Xteink device to queue on (newspaper_device); unset: the actor's device_id",
+      "name": "device_id",
+      "required": false,
+      "type": "any"
+    }
+  ],
+  "name": "Put a transcript on the reader",
+  "notes": "One book per recording, after its transcription finishes (fired by the transcription run's rules.run.succeeded, rule pocket-to-reader). An en recording whose whisper windows were all empty is first transcribed again on stt-he (fallback; keep and pick choose the transcript). Then a 1-2 line summary on cortex-spark2 that reads the transcript itself (d2), the EPUB, and the push to the reader. Outputs carry no transcript or summary text.",
+  "outputs": [
+    {
+      "name": "title",
+      "source": "steps.render.outputs.title",
+      "type": "string"
+    },
+    {
+      "name": "date",
+      "source": "steps.render.outputs.date",
+      "type": "string"
+    },
+    {
+      "name": "word",
+      "source": "steps.render.outputs.word",
+      "type": "string"
+    },
+    {
+      "name": "summary_used",
+      "source": "steps.render.outputs.summary_used",
+      "type": "boolean"
+    },
+    {
+      "name": "source",
+      "source": "steps.pick.outputs.source",
+      "type": "string"
+    },
+    {
+      "name": "item_id",
+      "source": "steps.push.outputs.item_id",
+      "type": "integer"
+    },
+    {
+      "name": "created",
+      "source": "steps.push.outputs.created",
+      "type": "boolean"
+    },
+    {
+      "name": "audio_sha256",
+      "source": "inputs.audio_sha256",
+      "type": "string"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "audio.transcribe",
+          "params": {
+            "actor": "stt-he",
+            "audio_path": "inputs.audio_path",
+            "audio_sha256": "inputs.audio_sha256",
+            "language": "inputs.language",
+            "output_dir": "inputs.output_dir"
+          }
+        },
+        "builtin": "action",
+        "idempotent": true,
+        "when": {
+          "args": [
+            {
+              "cmp": "==",
+              "left": {
+                "field": "language"
+              },
+              "op": "compare",
+              "right": {
+                "literal": "en"
+              }
+            },
+            {
+              "cmp": "==",
+              "left": {
+                "field": "empty_window_count"
+              },
+              "op": "compare",
+              "right": {
+                "field": "window_count"
+              }
+            }
+          ],
+          "op": "and"
+        }
+      },
+      "description": "",
+      "enabled": true,
+      "id": "fallback",
+      "inputs": [
+        {
+          "description": "",
+          "name": "audio_path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "audio_sha256",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "output_dir",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "language",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "window_count",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "empty_window_count",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Transcribe again in Hebrew",
+      "notes": "q1: only for an en recording whose whisper windows all came back empty (empty_window_count == window_count): audio.transcribe through stt-he writes the zipformer transcript beside whisper's, and the book uses it. Otherwise skipped.",
+      "outputs": [
+        {
+          "description": "the zipformer transcript's absolute path",
+          "name": "result_path",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": {
+        "backoff_multiplier": 2.0,
+        "backoff_s": 60.0,
+        "max_attempts": 3
+      },
+      "timeout_s": 14400.0
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "select",
+        "ports": [
+          "result_path"
+        ],
+        "sources": {
+          "given": "given"
+        },
+        "when": {
+          "arg": {
+            "args": [
+              {
+                "cmp": "==",
+                "left": {
+                  "field": "language"
+                },
+                "op": "compare",
+                "right": {
+                  "literal": "en"
+                }
+              },
+              {
+                "cmp": "==",
+                "left": {
+                  "field": "empty_window_count"
+                },
+                "op": "compare",
+                "right": {
+                  "field": "window_count"
+                }
+              }
+            ],
+            "op": "and"
+          },
+          "op": "not"
+        }
+      },
+      "description": "",
+      "enabled": true,
+      "id": "keep",
+      "inputs": [
+        {
+          "description": "",
+          "name": "given_result_path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "language",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "window_count",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "empty_window_count",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Keep the finished transcript",
+      "notes": "select over the one given path: passes the finished run's transcript through, skipped exactly when fallback runs, so pick sees one path.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "result_path",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "select",
+        "ports": [
+          "result_path"
+        ],
+        "sources": {
+          "fallback": "stt-he",
+          "given": "given"
+        }
+      },
+      "description": "",
+      "enabled": true,
+      "id": "pick",
+      "inputs": [
+        {
+          "description": "",
+          "name": "fallback_result_path",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "given_result_path",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Pick the transcript",
+      "notes": "select: the transcript the book is made from, from whichever of fallback or keep ran.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "result_path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "source",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "llm.complete",
+          "params": {
+            "actor": "cortex-spark2",
+            "brief": "transcript",
+            "content_max_chars": 48000,
+            "content_path": "inputs.result_path",
+            "content_root": "inputs.output_dir",
+            "max_tokens": 2000
+          }
+        },
+        "builtin": "action",
+        "idempotent": true,
+        "on_error": "skip"
+      },
+      "description": "",
+      "enabled": true,
+      "id": "summary",
+      "inputs": [
+        {
+          "description": "",
+          "name": "result_path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "output_dir",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Summarise the recording",
+      "notes": "llm.complete on cortex-spark2 with the locked transcript brief: it reads the first 48000 characters of the transcript itself (content_path, d2), so the transcript text never enters the run; the reply is JSON {summary, word}. on_error skip: the book still ships, titled <date> <HHMM> recording, with \"Summary unavailable.\" (that book is not kept, so a later run with a summary replaces it).",
+      "outputs": [
+        {
+          "description": "",
+          "name": "text",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "model",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "usage",
+          "required": false,
+          "type": "object"
+        }
+      ],
+      "placement": null,
+      "retry": {
+        "backoff_multiplier": 1.0,
+        "backoff_s": 30.0,
+        "max_attempts": 2
+      },
+      "timeout_s": 600.0
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "transcript.render",
+          "params": {
+            "language": "inputs.language",
+            "recorded_at": "inputs.recorded_at",
+            "result_path": "inputs.result_path",
+            "root": "inputs.output_dir",
+            "summary": "inputs.summary"
+          }
+        },
+        "builtin": "action",
+        "idempotent": true
+      },
+      "description": "",
+      "enabled": true,
+      "id": "render",
+      "inputs": [
+        {
+          "description": "",
+          "name": "result_path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "output_dir",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "recorded_at",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "language",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "summary",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Make the book",
+      "notes": "transcript.render: one EPUB, titled <YYYY-MM-DD> <HHMM> <word> (the Asia/Jerusalem date and time of recorded_at), the summary then the transcript; right to left unless the language is en. The same inputs give the same bytes, so a repeat is deduplicated by xteink.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "content_base64",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "date",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "word",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "summary_used",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "segment_count",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "library.push",
+          "params": {
+            "actor": "newspaper-library",
+            "content_base64": "inputs.content_base64",
+            "device_id": "inputs.device_id",
+            "kind": "article",
+            "title": "inputs.title"
+          }
+        },
+        "builtin": "action",
+        "idempotent": true
+      },
+      "description": "",
+      "enabled": true,
+      "id": "push",
+      "inputs": [
+        {
+          "description": "",
+          "name": "content_base64",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "device_id",
+          "required": false,
+          "type": "any"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Queue the book on the reader",
+      "notes": "library.push through the xteink service actor: kind article until xteink accepts transcript (agentculture/xteink#8), so the book lands in /xteink/ named after its title. Uploading the same bytes again returns the existing item (created false).",
+      "outputs": [
+        {
+          "description": "",
+          "name": "item_id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "created",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "queue_id",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": {
+        "backoff_multiplier": 2.0,
+        "backoff_s": 30.0,
+        "max_attempts": 3
+      },
+      "timeout_s": null
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

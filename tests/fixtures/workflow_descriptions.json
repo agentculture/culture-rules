@@ -97,5 +97,16 @@
     "steps": {
       "transcribe": "Sends the audio to the speech-to-text actor and writes the transcript."
     }
+  },
+  "transcript-to-reader": {
+    "description": "Turns one finished transcript into a book on the e-reader: a short summary first, then the transcript. Running it again on the same transcript adds no second copy.",
+    "steps": {
+      "fallback": "Transcribes the audio again with the Hebrew model when the English transcript came back empty.",
+      "keep": "Keeps the finished transcript when no second transcription is needed.",
+      "pick": "Picks the transcript the book is made from.",
+      "summary": "Asks the language model for a one- or two-line summary and a one-word topic.",
+      "render": "Makes the book, titled with the recording's date and topic, right to left for Hebrew.",
+      "push": "Uploads the book to the e-reader library and queues it for the device."
+    }
   }
 }

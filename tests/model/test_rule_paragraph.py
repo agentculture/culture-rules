@@ -624,3 +624,61 @@ def test_workflow_paragraph_does_not_mutate_its_inputs():
     workflow_paragraph(wf, rules)
     actual = (rules, wf)
     assert actual == before
+
+
+# ---- an OR of one predecessor per branch (d3) -----------------------------------------------
+
+
+def _either_rule(rid="e", target="w3", extra=None):
+    second = _cmp("data.workflow_id", "w2")
+    if extra is not None:
+        second = {"op": "and", "args": [second, extra]}
+    return _rule(
+        rid,
+        trigger={"kind": "event", "params": {"type": "rules.run.succeeded"}},
+        condition={"op": "or", "args": [_cmp("data.workflow_id", "w1"), second]},
+        workflow={"id": target},
+    )
+
+
+def test_an_or_of_one_predecessor_per_branch_continues_from_either():
+    (entry,) = fold_rules([_either_rule(extra=_cmp("data.outputs.language", "en"))])
+    assert entry["kind"] == "continuation"
+    assert entry["predecessor"] == {"kind": "either", "workflow_ids": ["w1", "w2"]}
+    assert entry["from_workflow_id"] is None
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        {"op": "or", "args": [_cmp("data.workflow_id", "w1")]},
+        {"op": "or", "args": [_cmp("data.workflow_id", "w1"), _cmp("data.workflow_id", "w1")]},
+        {"op": "or", "args": [_cmp("data.workflow_id", "w1"), _cmp("x", 1)]},
+    ],
+)
+def test_an_or_without_one_predecessor_in_each_of_two_branches_is_any(condition):
+    rule = _rule(
+        "o",
+        trigger={"kind": "event", "params": {"type": "rules.run.succeeded"}},
+        condition=condition,
+    )
+    (entry,) = fold_rules([rule])
+    assert entry["predecessor"] == {"kind": "any"}
+
+
+def test_onward_of_either_lists_it_under_both_predecessors_only():
+    fold = fold_rules([_either_rule()])
+    assert [e["rule"]["id"] for e in onward_of(fold, "w1")] == ["e"]
+    assert [e["rule"]["id"] for e in onward_of(fold, "w2")] == ["e"]
+    assert onward_of(fold, "w9") == []
+
+
+def test_the_either_sentence_names_both_and_keeps_a_branch_only_condition():
+    plain = rule_sentence({**_either_rule(), "enabled": True})
+    assert plain["text"].startswith("It starts when w1 or w2 succeeds")
+    assert "data.workflow_id" not in plain["text"]
+    narrowed = rule_sentence(
+        {**_either_rule(extra=_cmp("data.outputs.language", "en")), "enabled": True}
+    )
+    assert narrowed["text"].startswith("It starts when w1 or w2 succeeds")
+    assert "language" in narrowed["text"]

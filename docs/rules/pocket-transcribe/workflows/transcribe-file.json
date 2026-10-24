@@ -64,6 +64,12 @@
       "name": "output_dir",
       "required": true,
       "type": "string"
+    },
+    {
+      "description": "when the recording was made, ISO-8601 UTC; passed through",
+      "name": "recorded_at",
+      "required": false,
+      "type": "string"
     }
   ],
   "name": "Transcribe an audio file",
@@ -108,6 +114,21 @@
       "name": "empty_window_count",
       "source": "steps.transcribe.outputs.empty_window_count",
       "type": "integer"
+    },
+    {
+      "name": "audio_path",
+      "source": "inputs.audio_path",
+      "type": "string"
+    },
+    {
+      "name": "output_dir",
+      "source": "inputs.output_dir",
+      "type": "string"
+    },
+    {
+      "name": "recorded_at",
+      "source": "inputs.recorded_at",
+      "type": "string"
     }
   ],
   "schema_version": "1.0",

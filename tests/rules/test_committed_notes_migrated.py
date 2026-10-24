@@ -28,7 +28,7 @@ def _load(path: Path) -> dict[str, Any]:
 
 
 def test_the_committed_workflow_files_are_found():
-    assert len(FILES) == 11
+    assert len(FILES) == 12
 
 
 @pytest.mark.parametrize("path", FILES, ids=lambda p: str(p.relative_to(ROOT)))

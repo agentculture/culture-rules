@@ -74,14 +74,15 @@ function overrideCount(n: number) {
   return ` · ${n} ${n === 1 ? "override" : "overrides"}`;
 }
 
-/** The continuations that start after this workflow: linked to it, after any, or naming it among several. */
+/** The continuations that start after this workflow: linked to it, after any, naming it among several, or as an OR branch. */
 function onwardOf(continuations: readonly Continuation[], workflowId: string): Continuation[] {
   return continuations.filter(
     (c) =>
       c.workflowId !== workflowId &&
       (c.fromWorkflowId === workflowId ||
         c.predecessor.kind === "any" ||
-        (c.predecessor.kind === "ambiguous" && c.predecessor.workflowIds.includes(workflowId))),
+        ((c.predecessor.kind === "ambiguous" || c.predecessor.kind === "either") &&
+          c.predecessor.workflowIds.includes(workflowId))),
   );
 }
 
