@@ -22,8 +22,8 @@ secret):
    (``invalid_request``);
 2. the audio path is resolved (symlinks followed) and must lie under ``audio_root``; a file
    that does not exist is ``audio_missing`` (final), and without ``audio_sha256`` the file
-   is hashed here, in 1 MiB reads, to form the result path; ``output_dir`` (and its ``<audio_sha256>`` directory, when it
-   exists) must lie under ``output_root`` (``path_refused``);
+   is hashed here, in 1 MiB reads, to form the result path; ``output_dir`` (and its
+   ``<audio_sha256>`` directory, when it exists) must lie under ``output_root`` (``path_refused``);
 3. ``ffmpeg`` and ``ffprobe`` must be on PATH (``ffmpeg_missing``);
 4. a given ``audio_sha256`` must match the file, hashed in 1 MiB reads (``audio_mismatch``);
 5. an existing ``<output_dir>/<audio_sha256>/transcript.<model-slug>.json`` whose
