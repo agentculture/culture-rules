@@ -1,0 +1,25 @@
+{
+  "plan_slug": "decider-step-in-workflows",
+  "schema_version": 2,
+  "created": "2026-10-24T00:37:47Z",
+  "updated": "2026-10-24T00:37:47Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t5's pre-PR live check ran the real decider.assess port, the committed decider actor and the flow workflow on a local MemoryStore node against the real lobes gateway (2 runs: succeeded in 0.88 s and 0.94 s, answered by orin, every option with a probability, go ran and hold/careful skipped, the same picks); the same check on the deployed engine waits for the operator to approve a rollout",
+      "task_ref": "t5",
+      "reason": "the operator asked for live tests before the PR, and rollouts of the shared engine need the operator's approval (standing rule). Decider (general, 2026-10-24): local_now_engine_after_merge 0.59, ask_then_rollout 0.37, rollout_branch_now 0.04",
+      "affects": [
+        "c18",
+        "h17"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
