@@ -15,6 +15,8 @@ interface ParamSpec {
   required?: boolean;
   /** A closed set of values, picked from a select whose empty option reads `choose`. */
   options?: readonly Choice[];
+  /** Like `options`, but the values are the list in the chosen actor's `params[optionsFrom]`. */
+  optionsFrom?: string;
   choose?: string;
 }
 
@@ -35,12 +37,6 @@ const METHODS: readonly Choice[] = ["GET", "POST", "PUT", "PATCH", "DELETE"].map
 /** llm.complete's locked briefs. */
 const BRIEFS: readonly Choice[] = [
   { value: "newspaper", label: "Newspaper" },
-  { value: "transcript", label: "Transcript" },
-];
-/** library.push kinds. */
-const LIBRARY_KINDS: readonly Choice[] = [
-  { value: "book", label: "Book" },
-  { value: "article", label: "Article" },
   { value: "transcript", label: "Transcript" },
 ];
 const FRESHNESS: readonly Choice[] = [
@@ -148,14 +144,15 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     params: { actor: RS, state: RS, questions: { type: "any", required: true }, not_after: S },
   },
   "library.push": {
-    label: "Send a book to the e-reader library",
+    label: "Send a book to a library",
     params: {
       actor: RS,
       content_base64: RS,
       title: RS,
+      kind: { ...RS, optionsFrom: "kinds", choose: "Choose a kind…" },
+      visibility: { ...S, optionsFrom: "visibilities", choose: "The library's default" },
       author: S,
       device_id: S,
-      kind: { ...S, options: LIBRARY_KINDS, choose: "Article (default)" },
     },
   },
 };
@@ -754,6 +751,7 @@ function ParamFields(props: Readonly<ParamFieldsProps>) {
       ) : null}
       {Object.entries(props.spec.params)
         .filter(([name]) => name !== "actor" && !(discord && (name === "guild" || name === "channel")))
+        .filter(([name]) => !hiddenForActor(props.kind, name, props.actor))
         .map(([name, p]) => (
           <ParamField key={name} name={name} p={p} {...props} />
         ))}
@@ -767,6 +765,44 @@ interface ChoiceFieldProps {
   p: ParamSpec;
   value: unknown;
   onPick: (value: string | undefined) => void;
+}
+
+/**
+ * library.push params the chosen actor makes moot: `device_id` without a `queue_path` (the
+ * library has no device queue), `visibility` when the actor lists no visibilities.
+ */
+function hiddenForActor(kind: string, name: string, actor: Actor | undefined): boolean {
+  if (kind !== "library.push" || !actor) return false;
+  if (name === "device_id") return actor.params?.queue_path == null;
+  if (name === "visibility") return actorChoices(actor, "visibilities").length === 0;
+  return false;
+}
+
+/**
+ * On an actor change, the library.push values the new actor makes moot or refuses: a
+ * `device_id` it has no `queue_path` for, a `kind` or `visibility` it does not list (#91 review).
+ * Hidden values would otherwise stay saved where the step can no longer show or fix them.
+ */
+function libraryCarryOver(
+  kind: string,
+  params: Record<string, unknown>,
+  actor: Actor | undefined,
+): Record<string, unknown> {
+  if (kind !== "library.push") return {};
+  const listed = (key: string, value: unknown) =>
+    actorChoices(actor, key).some((c) => c.value === value) ? value : undefined;
+  return {
+    device_id: actor?.params?.queue_path == null ? undefined : params.device_id,
+    kind: listed("kinds", params.kind),
+    visibility: listed("visibilities", params.visibility),
+  };
+}
+
+/** The string list an actor's `params[key]` holds (library.push `kinds`), as choices. */
+function actorChoices(actor: Actor | undefined, key: string): Choice[] {
+  const list = actor?.params?.[key];
+  if (!Array.isArray(list)) return [];
+  return list.filter((v): v is string => typeof v === "string").map((v) => ({ value: v, label: cap(v) }));
 }
 
 /** A param with a closed set of values (http.call `method`, search.web `freshness`) as a select. */
@@ -841,8 +877,12 @@ function ParamField({
       />
     ));
   }
+  if (p.optionsFrom) {
+    const fromActor = { ...p, options: actorChoices(actor, p.optionsFrom) };
+    return <ChoiceField id={`${id}-param-${name}`} name={name} p={fromActor} value={params[name]} onPick={(v) => setParam(name, v)} />;
+  }
   if (p.options) {
-    return <ChoiceField id={`${id}-${name}`} name={name} p={p} value={params[name]} onPick={(v) => setParam(name, v)} />;
+    return <ChoiceField id={`${id}-param-${name}`} name={name} p={p} value={params[name]} onPick={(v) => setParam(name, v)} />;
   }
   if (p.type === "bool") {
     return (
@@ -953,6 +993,7 @@ export default function ActionPicker({
                 args: undefined,
                 guild: undefined,
                 channel: kind === "discord.message" ? undefined : params.channel,
+                ...libraryCarryOver(kind, params, actors.find((a) => a.id === e.target.value)),
               })
             }
           >

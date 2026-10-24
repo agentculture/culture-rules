@@ -371,6 +371,13 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
         ),
         (
             {
+                "kind": "library.push",
+                "params": {"actor": "library", "kind": "newspaper", "visibility": "public"},
+            },
+            "library.push as library kind newspaper (public)",
+        ),
+        (
+            {
                 "kind": "audio.transcribe",
                 "params": {"actor": "whisper", "audio_path": "/data/a.wav"},
             },

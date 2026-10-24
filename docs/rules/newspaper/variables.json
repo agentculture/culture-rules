@@ -1,6 +1,6 @@
 {
   "newspaper_device": {
-    "description": "The Xteink device id the issue is queued for (GET /api/devices); null: the newspaper-library actor's device_id, if the operator set one there",
+    "description": "The reader's device id, used only when the library actor has a queue_path (culture-library has none); null: the newspaper-library actor's device_id, if the operator set one there",
     "value": null
   },
   "newspaper_sections": {

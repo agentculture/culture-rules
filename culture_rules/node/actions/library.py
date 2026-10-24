@@ -1,48 +1,64 @@
-"""``library.push`` action port: upload an EPUB to the xteink library and queue it (#53).
+"""``library.push`` action port: upload an EPUB to a library, and queue it when the library has
+a device queue (#53, culture-rules#86).
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (falls back to ``context.actor``),
-``content_base64`` (the EPUB bytes, base64), ``title``, optional ``author`` (default
-``culture-rules``), optional ``device_id`` (overrides the actor's) and optional ``kind``
-(``book``, ``article`` or ``transcript``; default ``article``; anything else fails
-``invalid_request``).
+``content_base64`` (the EPUB bytes, base64), ``title``, ``kind`` (one of the actor's
+``kinds``), optional ``visibility`` (one of the actor's ``visibilities``), optional
+``author`` (default ``culture-rules``) and optional ``device_id`` (overrides the actor's;
+used, and checked, only when the actor has a ``queue_path``: a library without a device
+queue ignores it, so a leftover value never blocks a push). A kind or visibility the actor
+does not list fails ``invalid_request``.
 
-The bound actor is a ``service`` actor (not an ``app`` actor: xteink has no app surface)
-whose params carry the connection::
+What stays fixed is the wire contract both known libraries share (xteink's and
+culture-library's): the multipart field names, the ``{"item": {"id"}, "created"}`` upload
+reply and the ``{"item_id"}`` queue body and ``{"id"}`` reply. A library with another
+contract needs code, not configuration.
 
-    {"base_url": "http://<xteink host>:8780",
-     "api_key": "grant:XTEINK_NEWSPAPER",
-     "device_id": 3}
+The bound actor is a ``service`` actor whose params describe the library; nothing about it
+is built into this module::
+
+    {"base_url": "http://127.0.0.1:8796",
+     "upload_path": "/api/library",
+     "kinds": ["newspaper", "transcript"],
+     "visibilities": ["private", "public"],
+     "api_key": "grant:LIBRARY_PUSH_API_KEY"}
+
+and, for a library with a device queue (xteink's), also
+``"queue_path": "/api/devices/{device_id}/queue"`` and an optional ``device_id``.
 
 ``base_url`` is http or https with a host and no credentials, query or fragment (a path
-prefix is kept). ``api_key`` must be a ``grant:<NAME>`` reference to a dedicated, revocable
-``xtk_`` key; a literal key is refused and never echoed. The reference is resolved at call
-time on the executing host (:mod:`culture_rules.actors.secrets`). ``device_id`` (optional
-here when every action names one) is a positive integer, or its decimal string. Everything
-is checked before any request is made.
+prefix is kept). ``upload_path`` (required) and ``queue_path`` (optional) are absolute
+paths of plain segments; ``queue_path`` holds ``{device_id}`` as exactly one whole segment.
+``kinds`` (required) and ``visibilities`` (optional; without it no visibility may be sent)
+are non-empty lists of lowercase words. ``api_key`` must be a ``grant:<NAME>`` reference to
+a dedicated, revocable key; a literal key is refused and never echoed. The reference is
+resolved at call time on the executing host (:mod:`culture_rules.actors.secrets`).
+``device_id`` is a positive integer, or its decimal string. Everything is checked before
+any request is made.
 
-The push is two calls, each with ``Authorization: Bearer <key>``:
+The push is one or two calls, each with ``Authorization: Bearer <key>``:
 
-1. ``POST <base_url>/api/library``, ``multipart/form-data`` built here with a random
+1. ``POST <base_url><upload_path>``, ``multipart/form-data`` built here with a random
    boundary: ``file`` (named after the title, e.g. ``daily-newspaper-2026-10-11.epub``,
-   ``application/epub+zip``), ``title``, ``author`` and ``kind``
-   (``article`` unless ``params.kind`` says otherwise). xteink answers 201
-   ``{"item": {"id"}, "created": true}`` or 200 with ``created: false`` when
-   the same bytes are already stored.
-2. Only after a 2xx upload: ``POST <base_url>/api/devices/<device_id>/queue`` with
-   ``{"item_id": <id>}``, answered 201 with the queue entry.
+   ``application/epub+zip``), ``title``, ``author``, ``kind`` and, when given,
+   ``visibility``. The library answers 201 ``{"item": {"id"}, "created": true}`` or 200
+   with ``created: false`` when the same bytes are already stored.
+2. Only with a ``queue_path`` and only after a 2xx upload: ``POST <base_url><queue_path>``
+   (``{device_id}`` filled in) with ``{"item_id": <id>}``, answered 201 with the queue
+   entry.
 
-Outputs ``{item_id, created, queue_id}``.
+Outputs ``{item_id, created, queue_id}``; ``queue_id`` is ``None`` without a queue step.
 
 Failures: content that is not valid base64, empty, or over 50 MiB decoded (``too_large``),
-a missing title, a bad device id or actor config fail before any request, never retryable.
-A non-2xx upload queues nothing: it fails ``upload_failed`` naming the status and xteink's
-error ``code`` (never its ``detail`` text); 5xx, 408, 425 and 429 are retryable, any other
-status is not, and a redirect is never followed. Network errors and timeouts are
-``network_error``, retryable. A failed queue call (``queue_failed``, 404 for an unknown
-device or item) names the uploaded item id and follows the same retry rules.
+a missing title or kind, a bad device id or actor config fail before any request, never
+retryable. A non-2xx upload queues nothing: it fails ``upload_failed`` naming the status
+and the library's error ``code`` (never its ``detail`` text); 5xx, 408, 425 and 429 are
+retryable, any other status is not, and a redirect is never followed. Network errors and
+timeouts are ``network_error``, retryable. A failed queue call (``queue_failed``, 404 for an
+unknown device or item) names the uploaded item id and follows the same retry rules.
 
-``supports_idempotency_key`` is True: a retry with the same key repeats the same two calls
-with the same bytes, and xteink makes both idempotent - the upload deduplicates by sha256
+``supports_idempotency_key`` is True: a retry with the same key repeats the same calls with
+the same bytes, and the library makes them idempotent - the upload deduplicates by sha256
 (the existing item comes back with ``created: false``) and queueing an item that is still
 queued returns the existing entry. The one repeat that is not a no-op: if the device has
 already synced the item between the lost acknowledgement and the retry, xteink queues it
@@ -53,8 +69,9 @@ Each call's timeout is what remains of the attempt deadline when it starts (capp
 :data:`MAX_TIMEOUT`): the queue call recomputes it after the upload, so a slow upload cannot
 carry the queue call past the deadline. With no time left before either call the attempt
 fails ``deadline_passed``, retryable. That is safe after an upload: the retry uploads the
-same bytes again, which xteink deduplicates by sha256 (``created: false``, the same item),
-and then queues it. Environment proxies are ignored. Nothing is logged. Standard-library only.
+same bytes again, which the library deduplicates by sha256 (``created: false``, the same
+item), and then queues it. Environment proxies are ignored. Nothing is logged.
+Standard-library only.
 """
 
 from __future__ import annotations
@@ -79,7 +96,6 @@ from culture_rules.node.actions.machine import load_bound_actor
 
 __all__ = [
     "DEFAULT_AUTHOR",
-    "KINDS",
     "LibraryPushPort",
     "MAX_BYTES",
     "Transport",
@@ -89,19 +105,21 @@ __all__ = [
 ]
 
 MAX_BYTES = 50 * 1024 * 1024
-"""xteink's upload limit; larger content is refused before any request."""
+"""The upload limit (xteink's and culture-library's); larger content is refused before any
+request."""
 MAX_TIMEOUT = 120.0
 MAX_REPLY = 1024 * 1024
 LEDGER_SIZE = DEFAULT_LEDGER_SIZE
 """How many completed pushes the port keeps for replay (the last ones)."""
 DEFAULT_AUTHOR = "culture-rules"
-KIND = "article"
-KINDS = ("book", "article", "transcript")
 EPUB_TYPE = "application/epub+zip"
 ACTOR_KIND = "service"
 _RETRYABLE_4XX = frozenset({408, 425, 429})
 _CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _DEVICE_RE = re.compile(r"^[1-9]\d{0,17}$")
+_WORD_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$")
+_DEVICE_SLOT = "{device_id}"
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _UNSAFE_HEADER_TEXT = re.compile(r'["\r\n]')
 _INVALID_REQUEST = "invalid_request"
@@ -275,17 +293,50 @@ def _text(input: Mapping[str, Any], name: str, default: str | None = None) -> st
     return value
 
 
-def _kind(input: Mapping[str, Any]) -> str:
-    value = input.get("kind")
-    if value is None:
-        return KIND
-    if not isinstance(value, str) or value not in KINDS:
-        raise _Refused(_INVALID_REQUEST, f"kind must be one of {', '.join(KINDS)}")
+def _path(value: Any, name: str, *, slot: bool = False) -> str:
+    """An absolute path of plain segments (no ``.``/``..``, query or fragment); with
+    ``slot``, exactly one segment is ``{device_id}``."""
+    if not isinstance(value, str) or not value.startswith("/"):
+        raise _Refused(_INVALID_ACTOR, f"{name} must be an absolute path")
+    segments = value[1:].split("/")
+    slots = sum(segment == _DEVICE_SLOT for segment in segments)
+    plain = all(
+        segment == _DEVICE_SLOT or (_SEGMENT_RE.match(segment) and segment not in (".", ".."))
+        for segment in segments
+    )
+    if not plain or slots != (1 if slot else 0):
+        hint = f" with {_DEVICE_SLOT} as one segment" if slot else ""
+        raise _Refused(_INVALID_ACTOR, f"{name} must be plain path segments{hint}")
+    return value
+
+
+def _words(value: Any, name: str) -> tuple[str, ...]:
+    """A non-empty list of lowercase words (the actor's ``kinds`` or ``visibilities``)."""
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(v, str) and _WORD_RE.match(v) for v in value)
+    ):
+        raise _Refused(_INVALID_ACTOR, f"{name} must be a non-empty list of lowercase words")
+    return tuple(value)
+
+
+def _choice(
+    input: Mapping[str, Any], name: str, allowed: tuple[str, ...] | None, *, required: bool
+) -> str | None:
+    """``input[name]`` if the actor allows it; ``None`` when unset and not ``required``."""
+    value = input.get(name)
+    if value is None and not required:
+        return None
+    if allowed is None:
+        raise _Refused(_INVALID_REQUEST, f"the library actor lists no {name} values")
+    if not isinstance(value, str) or value not in allowed:
+        raise _Refused(_INVALID_REQUEST, f"{name} must be one of {', '.join(allowed)}")
     return value
 
 
 def _status_failure(stage: str, status: int, raw: bytes, extra: str = "") -> _Refused:
-    """A non-2xx answer: xteink's error ``code`` is named when it looks like one."""
+    """A non-2xx answer: the library's error ``code`` is named when it looks like one."""
     detail = f"http {status}"
     code = _error_code(raw)
     if code:
@@ -322,7 +373,7 @@ def _int_id(value: Any, what: str) -> int:
 class LibraryPushPort:
     """ActorPort for ``library.push`` (see the module docstring)."""
 
-    supports_idempotency_key = True  # xteink dedupes the upload and the queue (module doc)
+    supports_idempotency_key = True  # the library dedupes the upload and the queue (module doc)
 
     def __init__(
         self,
@@ -386,38 +437,66 @@ class LibraryPushPort:
         self, input: Mapping[str, Any], params: Mapping[str, Any], deadline: datetime
     ) -> InvocationResult:
         base = _base_url(params.get("base_url"))
-        device = _device(input.get("device_id")) or _device(params.get("device_id"))
-        if device is None:
-            raise _Refused("device_missing", "no device_id on the action or the actor")
+        upload_path = _path(params.get("upload_path"), "upload_path")
+        queue_path = params.get("queue_path")
+        device = None
+        if queue_path is not None:
+            queue_path = _path(queue_path, "queue_path", slot=True)
+            device = _device(input.get("device_id")) or _device(params.get("device_id"))
+            if device is None:
+                raise _Refused("device_missing", "no device_id on the action or the actor")
+        kinds = _words(params.get("kinds"), "kinds")
+        raw_visibilities = params.get("visibilities")
+        visibilities = (
+            None if raw_visibilities is None else _words(raw_visibilities, "visibilities")
+        )
         data = _content(input.get("content_base64"))
         title = _text(input, "title")
         author = _text(input, "author", DEFAULT_AUTHOR)
-        kind = _kind(input)
+        fields = [
+            ("title", title),
+            ("author", author),
+            ("kind", _choice(input, "kind", kinds, required=True)),
+        ]
+        visibility = _choice(input, "visibility", visibilities, required=False)
+        if visibility is not None:
+            fields.append(("visibility", visibility))
         timeout = self._remaining(deadline, "before the upload")
         auth = {"Authorization": "Bearer " + self._key(params.get("api_key"))}
         content_type, body = encode_multipart(
-            [("title", title), ("author", author), ("kind", kind)],
-            [("file", epub_filename(title), EPUB_TYPE, data)],
+            fields, [("file", epub_filename(title), EPUB_TYPE, data)]
         )
         status, raw = self._send(
-            base + "/api/library", {**auth, "Content-Type": content_type}, body, timeout
+            base + upload_path, {**auth, "Content-Type": content_type}, body, timeout
         )
         if not 200 <= status < 300:
             raise _status_failure("upload_failed", status, raw)
         reply = _json_reply(raw, "upload")
         item = reply.get("item")
         item_id = _int_id(item.get("id") if isinstance(item, dict) else None, "upload")
-        queue_url = f"{base}/api/devices/{quote(device, safe='')}/queue"
+        queue_id = None
+        if queue_path is not None and device is not None:
+            queue_id = self._queue(base + queue_path, device, item_id, auth, deadline)
+        return InvocationResult.completed(
+            {"item_id": item_id, "created": bool(reply.get("created")), "queue_id": queue_id}
+        )
+
+    def _queue(
+        self,
+        template: str,
+        device: str,
+        item_id: int,
+        auth: Mapping[str, str],
+        deadline: datetime,
+    ) -> int:
+        queue_url = template.replace(_DEVICE_SLOT, quote(device, safe=""))
         queue_body = json.dumps({"item_id": item_id}).encode("utf-8")
         headers = {**auth, "Content-Type": "application/json"}
         timeout = self._remaining(deadline, f"after the upload (item {item_id} uploaded)")
         status, raw = self._send(queue_url, headers, queue_body, timeout)
         if not 200 <= status < 300:
             raise _status_failure("queue_failed", status, raw, f" (item {item_id} uploaded)")
-        queue_id = _int_id(_json_reply(raw, "queue").get("id"), "queue")
-        return InvocationResult.completed(
-            {"item_id": item_id, "created": bool(reply.get("created")), "queue_id": queue_id}
-        )
+        return _int_id(_json_reply(raw, "queue").get("id"), "queue")
 
     def _send(
         self, url: str, headers: Mapping[str, str], body: bytes, timeout: float

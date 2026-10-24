@@ -1,17 +1,26 @@
 {
   "capabilities": [],
   "config_source": "db",
-  "description": "#53: uploads the issue's EPUB to the xteink library and queues it for the reader. base_url is spark's loopback (xteink runs on spark): the action runs where the actor lives (machine spark); on another machine set xteink's LAN address. The device id is not shipped: it is the newspaper_device variable (GET /api/devices). The xtk_ key is the operator's, stored in grant as XTEINK_PUSH_API_KEY.",
+  "description": "culture-rules#86: library.push's library is culture-library (library.culture.dev), reached on spark's loopback (the action runs where the actor lives, machine spark; on another machine set its LAN address). Everything about the library is this actor's params: upload_path, the kinds and visibilities it accepts, and no queue_path (culture-library has no device queue; a library that has one, like xteink's, sets queue_path /api/devices/{device_id}/queue and a device_id). The key is minted with culture-library keys mint --name culture-rules --scope write --kind newspaper --kind transcript --private (so a re-push of an item another key uploaded returns that item, not 409) and stored in grant as LIBRARY_PUSH_API_KEY.",
   "enabled": true,
   "harness": null,
   "id": "newspaper-library",
   "kind": "service",
   "machine": "spark",
   "model": null,
-  "name": "Daily newspaper: Xteink library",
+  "name": "Culture library",
   "params": {
-    "api_key": "grant:XTEINK_PUSH_API_KEY",
-    "base_url": "http://127.0.0.1:8780"
+    "api_key": "grant:LIBRARY_PUSH_API_KEY",
+    "base_url": "http://127.0.0.1:8796",
+    "kinds": [
+      "newspaper",
+      "transcript"
+    ],
+    "upload_path": "/api/library",
+    "visibilities": [
+      "private",
+      "public"
+    ]
   },
   "repo": null,
   "schema_version": "1.0"

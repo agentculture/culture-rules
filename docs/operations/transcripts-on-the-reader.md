@@ -51,12 +51,13 @@ recording, the book waits for a re-run of `transcribe-file-he`.
    run for the same transcript file sends that stored book again. Only a book with its
    summary is kept. A transcript that is
    transcribed again has a new sha256 and gets a new book.
-5. `push` (`library.push` through `newspaper-library`) uploads the book and queues it on
-   the device:
-   - it uses `kind: article` for now, so the book lands in `/xteink/` named after its
-     title;
+5. `push` (`library.push` through `newspaper-library`) uploads the book to
+   culture-library:
+   - as kind `transcript`, visibility `private` (culture-rules#86); a reader pulls it from
+     the library;
    - uploading the same bytes again returns the existing item, so a repeat never adds a
-     second copy.
+     second copy. That includes the 33 books the xteink migration moved in, because the
+     culture-rules key is minted `--private` ([the library actor guide](../actors/library.md)).
 
 The run's outputs are `title`, `date`, `word`, `summary_used`, `source` (`given` or
 `stt-he`), `item_id`, `created` and `audio_sha256`. They hold no transcript or summary
@@ -115,16 +116,13 @@ culture-rules workflows run transcript-to-reader --inputs-json @inputs.json --ap
 
 ## Reading and removing
 
-The device downloads queued books on its next sync, at home or through its tunnel. To
-remove a bad book, delete its library item on xteink (`DELETE /api/library/{id}`, the
-`item_id` in the run's outputs). Whether that also removes it from the device depends on
-whether the device is a mirror device. That hasn't been checked for this device.
+The books are in culture-library (library.culture.dev), as private `transcript` items.
+To remove a bad book, delete its library item there (the `item_id` in the run's outputs).
+The 33 books of the first backfill went to xteink as `article` and were moved to
+culture-library as `document`; retagging them is culture-library's side.
 
 ## Planned
 
-- **Its own folder** *(planned)*: a `transcript` library kind and the firmware placing
-  it under `/xteink/transcripts/`, asked for in agentculture/xteink#8. Until both ship,
-  books are pushed as `article` and land flat in `/xteink/`.
 - **The recording date in the landed event** *(planned)*: pocketsync adding
   `recording_at` to `pocketsync.recording.landed`, asked for on agentculture/pocketsync#12.
   The transcription rules already pass it through.

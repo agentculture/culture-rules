@@ -68,7 +68,7 @@ The **daily newspaper** (#53, spec
 `docs/operations/newspaper.md`, actor guides in `docs/actors/`) adds `email`
 and `search` app surfaces and four action kinds: `email.send` (Resend),
 `search.web` (Brave), `llm.complete` (an OpenAI-compatible endpoint, a
-locked brief, no tools) and `library.push` (an EPUB to xteink). It also adds
+locked brief, no tools) and `library.push` (an EPUB to the library its actor describes). It also adds
 the step option `config.on_error: "skip"` and the disabled bundle
 `docs/rules/newspaper`.
 
@@ -123,8 +123,8 @@ left unless the language is `en`. `llm.complete` takes `brief: transcript` and
 `content_path` + `content_root` (the transcript text never enters run state),
 and `library.push` takes `kind`. The workflow `transcript-to-reader` and the
 disabled rule `pocket-to-reader` (after `transcribe-file-he`, or after
-`transcribe-file` for an `en` recording) put each finished transcript on the
-Xteink reader; the editor's fold reads an OR of one predecessor per branch as
+`transcribe-file` for an `en` recording) put each finished transcript in the
+library; the editor's fold reads an OR of one predecessor per branch as
 continuing from either.
 
 **The decider step** (spec `docs/specs/2026-10-24-decider-step-in-workflows.md`,
@@ -134,6 +134,13 @@ decider (`/v1/systemone` on the lobes gateway) for probabilities over a step's
 per question), `host`, `domain` and `usage` for a later step's `when`. The domain is
 the actor's; the bundle `docs/rules/decider` holds the `decider` actor. The model rule
 holds a decider by model and domain (`clef@general`), so there is one actor per domain.
+
+**The library is configuration** (culture-rules#86, guide `docs/actors/library.md`).
+`library.push`'s actor describes its library: `upload_path`, the `kinds` and
+`visibilities` it accepts, and an optional `queue_path` (unset, the push only uploads).
+Each push step names its `kind`. The bundles push to culture-library
+(library.culture.dev): the newspaper as `newspaper`, `public`; transcripts as
+`transcript`, `private`.
 
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's

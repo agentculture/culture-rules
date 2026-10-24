@@ -229,21 +229,26 @@ NEWSPAPER_KINDS = {
     EMAIL_SEND: {"actor": "mail", "to": [READER], "subject": "Daily", "html": "<p/>"},
     SEARCH_WEB: {"actor": "brave", "query": "jetson news", "count": 10, "freshness": "pd"},
     LLM_COMPLETE: {"actor": "cortex", "content": "results", "max_tokens": 800},
-    LIBRARY_PUSH: {"actor": "xteink", "content_base64": "UEsDBA==", "title": "Daily"},
+    LIBRARY_PUSH: {
+        "actor": "library",
+        "content_base64": "UEsDBA==",
+        "title": "Daily",
+        "kind": "newspaper",
+    },
 }
 
 REQUIRED = {
     EMAIL_SEND: ("actor", "to", "subject"),
     SEARCH_WEB: ("actor", "query"),
     LLM_COMPLETE: ("actor", "content"),
-    LIBRARY_PUSH: ("actor", "content_base64", "title"),
+    LIBRARY_PUSH: ("actor", "content_base64", "title", "kind"),
 }
 
 OPTIONAL = {
     EMAIL_SEND: ("html", "text"),
     SEARCH_WEB: ("count", "freshness", "country", "lang"),
     LLM_COMPLETE: ("max_tokens", "temperature"),
-    LIBRARY_PUSH: ("author", "device_id"),
+    LIBRARY_PUSH: ("author", "device_id", "visibility"),
 }
 
 

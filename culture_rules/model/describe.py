@@ -105,7 +105,7 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "audio.transcribe": (("audio_path", "of {}"),),
     "transcript.render": (("result_path", "of {}"),),
     "decider.assess": (),
-    "library.push": (("device_id", "to device {}"),),
+    "library.push": (("kind", "kind {}"), ("visibility", "({})"), ("device_id", "to device {}")),
     "noop": (),
 }
 

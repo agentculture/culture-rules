@@ -15,7 +15,7 @@ format, and it ships **disabled**:
 | `actors/newspaper-email.json` | app actor, surface `email`: Resend, sender `newsletter-no-reply` on `culture.dev`, **empty** recipient allowlist |
 | `actors/newspaper-search.json` | app actor, surface `search`: Brave web search |
 | `actors/cortex-spark2.json` | agent actor: the OpenAI-compatible lobes gateway, model `cortex-spark2`, pool `qwen-spark2`, `max_concurrency: 1` |
-| `actors/newspaper-library.json` | service actor: the xteink library API |
+| `actors/newspaper-library.json` | service actor: culture-library (library.culture.dev), upload only |
 | `workflows/daily-newspaper.json` | the workflow (below) |
 | `rules/daily-newspaper.json` | schedule `0 5 * * *`, tz `Asia/Jerusalem`, placed on spark, disabled |
 | `variables.json` | the three variables with example values and descriptions |
@@ -72,8 +72,9 @@ step is a built-in or an action:
    attempt's 23 hours, the email is recorded uncertain. With no message id
    inside them, nothing is recorded and it answers `email_sent: false`. It
    answers `push: false` when the date's issue is already in the library.
-9. `push` (`library.push`) uploads the EPUB to xteink (kind `article`, title
-   `Daily newspaper <date>`) and queues it on the device. It is skipped when
+9. `push` (`library.push`) uploads the EPUB to culture-library (kind
+   `newspaper`, visibility `public`, title `Daily newspaper <date>`). The
+   library has no device queue; a reader pulls from it. It is skipped when
    `push_gate` answers `push: false`.
 10. `record` (`newspaper.issue`, phase `record`) stores the item and queue
     ids. Once the email is sent or uncertain, it marks the date delivered
@@ -182,12 +183,12 @@ from an injected `CULTURE_RULES_SECRET_<NAME>` variable and otherwise with
 | `RESEND_API_KEY` | `newspaper-email` | the Resend API key (both sender domains are verified on it) |
 | `BRAVE_API_KEY` | `newspaper-search` | the Brave Search API subscription token |
 | `LOBES_GATEWAY_API_KEY` | `cortex-spark2` | the lobes gateway's bearer key |
-| `XTEINK_PUSH_API_KEY` | `newspaper-library` | an xteink `xtk_` key |
+| `LIBRARY_PUSH_API_KEY` | `newspaper-library` | a culture-library write key |
 
 Store each one hidden, with the value read from stdin:
 
 ```bash
-grant set XTEINK_PUSH_API_KEY - --hidden
+grant set LIBRARY_PUSH_API_KEY - --hidden
 ```
 
 **Inject the keys into spark's node.** `RESEND_API_KEY` and `BRAVE_API_KEY`
@@ -200,17 +201,18 @@ uniformity). Spark's node unit is hand-edited: open the user unit
 --inject CULTURE_RULES_SECRET_RESEND_API_KEY=RESEND_API_KEY
 --inject CULTURE_RULES_SECRET_BRAVE_API_KEY=BRAVE_API_KEY
 --inject CULTURE_RULES_SECRET_LOBES_GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY
---inject CULTURE_RULES_SECRET_XTEINK_PUSH_API_KEY=XTEINK_PUSH_API_KEY
+--inject CULTURE_RULES_SECRET_LIBRARY_PUSH_API_KEY=LIBRARY_PUSH_API_KEY
 ```
 
 Then run `systemctl --user daemon-reload` and restart `culture-rules-node`
 (pause the engine first if a run is active). Without the injection, a send
 fails `secret_unavailable`.
 
-**The `xtk_` key.** Any xteink key is a full operator key. A key used only
-for the newspaper can be revoked on its own. To use one, mint it on the
-xteink host with `create-key newspaper` and store it under the same grant
-name.
+**The library key.** Mint a key for culture-rules alone, so it can be
+revoked on its own: on the culture-library host,
+`culture-library keys mint --name culture-rules --scope write --kind newspaper --kind transcript --private`.
+Store it under the grant name above. `--private` keeps a re-push of an item
+another key uploaded idempotent ([the library actor guide](../actors/library.md)).
 
 ## 2. Actor addresses and placement
 
@@ -223,7 +225,10 @@ Both base URLs are spark-local services:
   (`actors enrol-models --gateway spark --match 'cortex-spark*'`); an install
   that still has the earlier actor `newspaper-llm` needs the one-time move in
   [`model-actors.md`](model-actors.md).
-- `newspaper-library`: `params.base_url` is `http://127.0.0.1:8780`, xteink.
+- `newspaper-library`: `params.base_url` is `http://127.0.0.1:8796`,
+  culture-library. Its other params describe that library: `upload_path`,
+  the `kinds` and `visibilities` it accepts, and no `queue_path`
+  ([the library actor guide](../actors/library.md)).
 
 An action step runs where its actor lives (`machine: spark`), so these
 loopback addresses are right as shipped. If you move an actor to another
@@ -237,7 +242,7 @@ committed JSON: `scripts/scan-secrets.py` rejects a non-localhost URL there.
 |---|---|---|
 | `newspaper_sections` | one JSON **string**: the list of sections | a generic two-section example |
 | `newspaper_to` | a list of recipient addresses | `[]`: no email; the issue still goes to the reader, and the run reports `no_recipients: true` (d6) |
-| `newspaper_device` | the Xteink device id (`GET /api/devices` on xteink) | `null`: the library actor's `device_id`, if you set one there |
+| `newspaper_device` | the reader's device id, used only when the library actor has a `queue_path` (culture-library has none) | `null`: the library actor's `device_id`, if you set one there |
 
 Each section is an object. Its keys:
 

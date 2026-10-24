@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T05:55:45Z",
+  "updated": "2026-10-24T20:29:42Z",
   "deviations": [
     {
       "id": "d1",
@@ -104,6 +104,34 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 23
+    },
+    {
+      "id": "d8",
+      "what": "library.push no longer hard-codes its library: the actor params name upload_path (required), an optional queue_path template (unset = upload only, no device_id needed), the accepted kinds and visibilities; each push step names its kind (no KINDS list, no default article) and an optional visibility; the editor reads both choices from the actor. Configuration then points the library actor at culture-library (127.0.0.1:8796, grant LIBRARY_PUSH_API_KEY, no queue) with the newspaper pushed as kind newspaper, visibility public, and transcripts as kind transcript, visibility private.",
+      "task_ref": "t3",
+      "reason": "Operator 2026-10-24: the library is now culture-library at library.culture.dev (\"that is our destination\"); \"1 should be configurable, so code change to make it configurable, then configuration. We never hardcode urls.\" \"2. kinds also should be configurable, like 1.\" \"newspaper is public.\" Process approved: straight to a PR with this record (culture-rules#86 items 1 and 3).",
+      "affects": [
+        "t4",
+        "t7"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 24
+    },
+    {
+      "id": "d9",
+      "what": "Review fixes on #91: (1) the culture-rules library key is re-minted with --private so re-pushing bytes another key uploaded (the 33 migrated transcripts) returns the existing item instead of 409, and the docs say so; (2,8) the editor drops device_id, kind and visibility values the newly chosen actor does not use or list; (3) library.push ignores device_id again when the actor has no queue_path (reverting the colleague suggestion that made a hidden value fatal); (4) the describe phrase names the kind and visibility instead of a device; (6) _choice takes required= instead of special-casing the name kind; (7) strings that still named xteink as the target are reworded; (5) no change: the migration kept xteink item ids, so the newspaper push fence is right, answered on the PR.",
+      "task_ref": "t3",
+      "reason": "Operator 2026-10-24 on the /code-review medium of PR #91 (8 findings): \"fix all\".",
+      "affects": [
+        "t4",
+        "t7"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 28
     }
   ],
   "evidence": [
@@ -410,6 +438,120 @@
       "status": "proposed",
       "superseded": false,
       "seq": 22
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_library_push.py (138 tests)",
+      "behavior_text": "the upload path, queue path, kinds and visibilities come from the actor; without queue_path only the upload is made and queue_id is null; a kind or visibility the actor does not list fails invalid_request before any request; bad paths/kinds/visibilities fail invalid_actor",
+      "contract_text": "d8: library.push reads its library from the actor; each push names its kind; no built-in kinds or default",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "40 of the 138 tests fail against origin/main's library.py and all pass with the change (swapped the module and re-ran)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T19:18:17Z",
+        "commit": "ecd0cb4"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o7",
+      "test_ref": "tests/rules/test_newspaper_flow.py; tests/node/test_transcript_reader_flow.py; tests/rules/test_newspaper_bundle.py",
+      "behavior_text": "the shipped newspaper, on a culture-library double, uploads one item as kind newspaper, visibility public, with no queue call; the reader flow pushes kind transcript, visibility private; the shipped actor holds upload_path, kinds, visibilities, no queue_path and grant LIBRARY_PUSH_API_KEY",
+      "contract_text": "d8: the bundles point at culture-library; newspaper public, transcripts private (operator 2026-10-24)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "end-to-end flows on the real ports and the shipped bundle files; full suite 7256 passed at this commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T19:18:17Z",
+        "commit": "ecd0cb4"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o7",
+      "test_ref": "web/src/rules/ActionPicker.newspaper.test.tsx; ActionPicker.transcript.test.tsx",
+      "behavior_text": "the action picker offers exactly the kinds and visibilities the chosen library actor lists and saves them; kind is required (no built-in options)",
+      "contract_text": "d8: the editor reads both choices from the actor",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest 827/827, tsc clean, e2e workflows-described 19/19 with the regenerated fixture",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T19:18:17Z",
+        "commit": "ecd0cb4"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o7",
+      "test_ref": "web/src/rules/ActionPicker.newspaper.test.tsx: drops a device id, kind or visibility the newly chosen actor does not use or list; keeps a kind the newly chosen actor also lists",
+      "behavior_text": "switching the library.push actor drops a device_id the new actor has no queue_path for and a kind or visibility it does not list, and keeps one it lists",
+      "contract_text": "d9: the editor drops values the newly chosen actor does not use or list (#91 review 2, 8)",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "the drop test fails with the libraryCarryOver call removed and passes with it; vitest 830/830",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T20:28:37Z",
+        "commit": "31bf4d1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_library_push.py (142); tests/model/test_describe.py; tests/model/test_describe_paragraphs_fixture.py",
+      "behavior_text": "without a queue_path a malformed action or actor device_id is ignored and the upload completes; describe reads 'library.push as library kind newspaper (public)'",
+      "contract_text": "d9: device_id ignored without a queue; describe names kind and visibility (#91 review 3, 4)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite 7261 passed at this commit; e2e workflows-described 19/19 with the regenerated fixture",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T20:28:37Z",
+        "commit": "31bf4d1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o7",
+      "test_ref": "live key rotation on spark (culture-library container + grant + culture-rules-node)",
+      "behavior_text": "culture-library key 3 (write, newspaper+transcript, private) is the only live culture-rules key (1 and 2 revoked); the restarted spark node's injected key answers 200; rollout verify passes",
+      "contract_text": "d9: the culture-rules library key is minted --private (#91 review 1)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "keys list and the node's own injected key checked against GET /api/library; a re-push of a migrated item itself not exercised (it would write to the live library)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T20:28:37Z",
+        "commit": "31bf4d1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 31
     }
   ],
   "deltas": [
@@ -451,6 +593,44 @@
       "evidence_refs": [
         "e7"
       ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "library.push: kind is required and checked against the actor's kinds (was: optional, book|article|transcript, default article); visibility added; the device queue happens only when the actor has a queue_path",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "the transcript push goes to culture-library as kind transcript, visibility private, with no device queue (b3's queue on newspaper_device applies only to a library actor with a queue_path)",
+      "caused_by": [
+        "d8",
+        "b3"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "library.push ignores device_id entirely when the actor has no queue_path (b4's checked-either-way is reverted); the editor drops a device_id, kind or visibility the newly chosen actor does not use or list",
+      "caused_by": [
+        "d9",
+        "b4"
+      ],
+      "evidence_refs": [],
       "origin": "llm",
       "status": "approved",
       "superseded": false

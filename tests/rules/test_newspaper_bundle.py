@@ -151,11 +151,21 @@ def test_the_llm_actor_is_cortex_in_the_qwen_pool_without_a_bridge():  # c3, h15
     assert "bridge_url" not in llm.params
 
 
-def test_the_library_actor_uses_a_dedicated_xteink_key_and_no_device():
+def test_the_library_actor_describes_culture_library_with_a_dedicated_key():  # #86
     library = actors()[LIBRARY]
     assert library.kind == "service"
-    assert library.params[API_KEY] == "grant:XTEINK_PUSH_API_KEY"
+    assert library.params[API_KEY] == "grant:LIBRARY_PUSH_API_KEY"
+    assert library.params["upload_path"] == "/api/library"
+    assert library.params["kinds"] == ["newspaper", "transcript"]
+    assert library.params["visibilities"] == ["private", "public"]
+    assert "queue_path" not in library.params
     assert "device_id" not in library.params
+
+
+def test_the_newspaper_is_pushed_public_as_a_newspaper():  # #86, operator 2026-10-24
+    (push,) = [s for s in workflow().steps if s.id == "push"]
+    params = push.config["action"]["params"]
+    assert (params["kind"], params["visibility"]) == ("newspaper", "public")
 
 
 @pytest.mark.parametrize("actor_id", [EMAIL, SEARCH, LLM, LIBRARY])

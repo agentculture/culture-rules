@@ -29,8 +29,9 @@ addresses on its recipient allowlist; ``search.web`` queries through a ``search`
 kind of endpoint for a transcript written under ``output_dir``;
 ``transcript.render`` renders a transcript under the transcripts root, with its summary, as
 an EPUB (no actor needed);
-``library.push`` uploads ``content_base64`` (an EPUB) to xteink and queues it for
-``device_id``.
+``library.push`` uploads ``content_base64`` (an EPUB) as ``kind`` (and ``visibility``) to the
+library its actor describes, queueing it for ``device_id`` when that library has a device
+queue (culture-rules#86).
 Standard-library only.
 """
 
@@ -208,13 +209,14 @@ _KINDS = (
     ),
     _k(
         "library.push",
-        "Upload an EPUB to the xteink library and queue it for a device",
+        "Upload an EPUB to a library (and queue it when the library has a device queue)",
         actor=_RS,
         content_base64=_RS,
         title=_RS,
+        kind=_RS,  # one of the actor's params.kinds
+        visibility=_S,  # one of the actor's params.visibilities
         author=_S,
-        device_id=_S,
-        kind=_S,  # book, article (default) or transcript
+        device_id=_S,  # used only when the actor has a queue_path
     ),
 )
 

@@ -186,7 +186,7 @@
       "type": "integer"
     },
     {
-      "description": "the Xteink device to queue on (newspaper_device); unset: the actor's device_id",
+      "description": "the device to queue on (newspaper_device), used only when the library actor has a queue_path; unset: the actor's device_id",
       "name": "device_id",
       "required": false,
       "type": "any"
@@ -596,7 +596,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Make the book",
-      "notes": "transcript.render: one EPUB, titled <YYYY-MM-DD> <HHMM> <word> (the Asia/Jerusalem date and time of recorded_at), the summary then the transcript; right to left unless the language is en. The same inputs give the same bytes, so a repeat is deduplicated by xteink.",
+      "notes": "transcript.render: one EPUB, titled <YYYY-MM-DD> <HHMM> <word> (the Asia/Jerusalem date and time of recorded_at), the summary then the transcript; right to left unless the language is en. The same inputs give the same bytes, so a repeat is deduplicated by the library.",
       "outputs": [
         {
           "description": "",
@@ -648,8 +648,9 @@
             "actor": "newspaper-library",
             "content_base64": "inputs.content_base64",
             "device_id": "inputs.device_id",
-            "kind": "article",
-            "title": "inputs.title"
+            "kind": "transcript",
+            "title": "inputs.title",
+            "visibility": "private"
           }
         },
         "builtin": "action",
@@ -680,8 +681,8 @@
       ],
       "kind": "code",
       "max_iterations": null,
-      "name": "Queue the book on the reader",
-      "notes": "library.push through the xteink service actor: kind article until xteink accepts transcript (agentculture/xteink#8), so the book lands in /xteink/ named after its title. Uploading the same bytes again returns the existing item (created false).",
+      "name": "Put the book in the library",
+      "notes": "library.push through newspaper-library: upload the book as kind transcript, visibility private (recordings are personal). The library and what it accepts are the actor's params (culture-rules#86); the device_id input is used only when the actor has a queue_path. Uploading the same bytes again returns the existing item (created false).",
       "outputs": [
         {
           "description": "",

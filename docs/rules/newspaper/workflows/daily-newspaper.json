@@ -301,7 +301,7 @@
     }
   ],
   "name": "Daily newspaper",
-  "notes": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex until the summary window closes (a failed or late summary leaves the results-only rendering), render the HTML and the EPUB, then deliver behind lease fences: the email (once per date, with a durable per-date key and the first rendered payload), the queue on the Xteink reader, the delivery record. Non-agentic: no bridge actor, no agent step.",
+  "notes": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex until the summary window closes (a failed or late summary leaves the results-only rendering), render the HTML and the EPUB, then deliver behind lease fences: the email (once per date, with a durable per-date key and the first rendered payload), the push to the library, the delivery record. Non-agentic: no bridge actor, no agent step.",
   "outputs": [
     {
       "name": "message_id",
@@ -1159,7 +1159,9 @@
             "actor": "newspaper-library",
             "content_base64": "inputs.epub",
             "device_id": "inputs.device_id",
-            "title": "inputs.subject"
+            "kind": "newspaper",
+            "title": "inputs.subject",
+            "visibility": "public"
           }
         },
         "builtin": "action",
@@ -1232,8 +1234,8 @@
       ],
       "kind": "code",
       "max_iterations": null,
-      "name": "Queue the EPUB on the reader",
-      "notes": "library.push through newspaper-library: upload the EPUB (kind article, the dated title) and queue it for the device (the input, else the actor's device_id). Skipped when the push fence answers push false: the library already has the date's issue.",
+      "name": "Put the EPUB in the library",
+      "notes": "library.push through newspaper-library: upload the EPUB as kind newspaper, visibility public, under the dated title. The library and what it accepts are the actor's params (culture-rules#86); the device_id input is used only when the actor has a queue_path. Skipped when the push fence answers push false: the library already has the date's issue.",
       "outputs": [
         {
           "description": "",

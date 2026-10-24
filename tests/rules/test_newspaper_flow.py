@@ -4,9 +4,9 @@ One node (spark) runs the shipped bundle (docs/rules/newspaper) with its rule en
 operator's seeding applied (the recipient on the email actor's allowlist and in
 ``newspaper_to``, the device id in ``newspaper_device``) and the real ports - email.send,
 search.web, llm.complete, library.push and the newspaper builtins - on transport doubles of
-Resend, Brave, the cortex gateway and xteink. The scheduler fires the 05:00 Asia/Jerusalem
-slot; the run searches each section, summarises it, renders the issue, sends one email and
-queues one item, and records the date.
+Resend, Brave, the cortex gateway and culture-library. The scheduler fires the 05:00
+Asia/Jerusalem slot; the run searches each section, summarises it, renders the issue, sends
+one email and puts one item in the library, and records the date.
 """
 
 from __future__ import annotations
@@ -158,12 +158,13 @@ class Resend:
         return 200, json.dumps({"id": live[0]}).encode()
 
 
-class Xteink:
-    """xteink's library upload and device queue."""
+class Library:
+    """culture-library's upload (culture-rules#86): no device queue, so any other call is a
+    stray."""
 
     def __init__(self) -> None:
         self.uploads: list[bytes] = []
-        self.queued: list[tuple[str, dict]] = []
+        self.strays: list[str] = []
         self.down = False
 
     def __call__(self, method, url, headers, body, timeout):
@@ -173,8 +174,8 @@ class Xteink:
         if path == "/api/library":
             self.uploads.append(body)
             return 201, json.dumps({"item": {"id": ITEM}, "created": True}).encode()
-        self.queued.append((path, json.loads(body)))
-        return 201, json.dumps({"id": 11, "device_id": DEVICE, ITEM_ID: ITEM}).encode()
+        self.strays.append(path)
+        return 404, b'{"code": "not_found"}'
 
 
 # --------------------------------------------------------------------------- the world
@@ -216,7 +217,7 @@ class World:
         for name, value in values.items():
             self.base.put_variable(name, value, updated_by="test")
         self.brave, self.cortex = Brave(), Cortex()
-        self.resend, self.xteink = Resend(self.clock), Xteink()
+        self.resend, self.library = Resend(self.clock), Library()
         self.node = Node(
             self.base.peer(),
             "spark",
@@ -242,7 +243,7 @@ class World:
                 base, transport=self.resend, secrets=fake_secret, clock=clock
             ),
             "action:library.push": LibraryPushPort(
-                base, transport=self.xteink, secret_runner=fake_secret, clock=clock
+                base, transport=self.library, secret_runner=fake_secret, clock=clock
             ),
             "code": BuiltinCodePort(
                 {
@@ -277,14 +278,14 @@ def finished(world: World) -> dict:
 # --------------------------------------------------------------------------- the morning
 
 
-def test_the_0500_slot_sends_one_email_and_queues_one_item():  # h13
+def test_the_0500_slot_sends_one_email_and_uploads_one_item():  # h13
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
     run = finished(world)
     assert run[TRIGGER]["data"]["slot"] == "2026-10-11T02:00:00+00:00"
     assert len(world.resend.sent) == 1
-    assert len(world.xteink.uploads) == 1
-    assert world.xteink.queued == [(f"/api/devices/{DEVICE}/queue", {ITEM_ID: ITEM})]
+    assert len(world.library.uploads) == 1
+    assert world.library.strays == []
 
 
 def test_the_email_goes_from_newsletter_no_reply_to_the_seeded_reader():
@@ -342,11 +343,12 @@ def test_every_summarised_link_is_a_result_and_the_summary_is_shown():  # h5
     assert SUMMARY_UNAVAILABLE not in html
 
 
-def test_the_epub_is_the_dated_article_upload():
+def test_the_epub_is_the_dated_public_newspaper_upload():
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
-    (upload,) = world.xteink.uploads
-    assert b'name="kind"\r\n\r\narticle' in upload
+    (upload,) = world.library.uploads
+    assert b'name="kind"\r\n\r\nnewspaper' in upload
+    assert b'name="visibility"\r\n\r\npublic' in upload
     assert SUBJECT.encode() in upload
     assert b"application/epub+zip" in upload
 
@@ -361,7 +363,7 @@ def test_a_second_run_for_the_same_date_sends_nothing():  # h8
     assert second[STATUS] == "succeeded"
     assert step_state(second, "claim")[OUTPUTS]["reason"] == "already_delivered"
     assert len(world.resend.sent) == 1
-    assert len(world.xteink.uploads) == 1
+    assert len(world.library.uploads) == 1
 
 
 def test_the_repeat_run_spends_no_search_and_no_summary():
@@ -383,7 +385,7 @@ def test_cortex_down_still_sends_the_results_only_issue():  # q1, c25
     world.run_until(TODAY + timedelta(minutes=30))
     run = finished(world)
     assert len(world.resend.sent) == 1
-    assert len(world.xteink.queued) == 1
+    assert len(world.library.uploads) == 1
     html = world.html()
     assert html.count(SUMMARY_UNAVAILABLE) == 2
     assert '<a href="https://news.example/humanoid-robot/0">' in html
@@ -452,12 +454,12 @@ SECOND_SLOT = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
 
 
 def partial_then_retry() -> World:
-    """Codex r1 #1: the 05:00 run emails, xteink is down so its push fails, and the 07:00
+    """Codex r1 #1: the 05:00 run emails, the library is down so its push fails, and the 07:00
     run takes the date over once the first run's lease has run out."""
     world = World(cron=TWICE)
-    world.xteink.down = True
+    world.library.down = True
     world.run_until(SECOND_SLOT - timedelta(minutes=10))
-    world.xteink.down = False
+    world.library.down = False
     world.run_until(SECOND_SLOT + timedelta(minutes=20))
     return world
 
@@ -472,7 +474,7 @@ def test_a_takeover_after_a_failed_push_retries_only_the_push():
     first, second = world.runs()
     assert (first[STATUS], second[STATUS]) == ("failed", "succeeded")
     assert step_state(second, "email")[STATUS] == "skipped"
-    assert len(world.xteink.queued) == 1
+    assert len(world.library.uploads) == 1
 
 
 def test_a_takeover_after_a_failed_push_records_the_first_message():
@@ -589,11 +591,11 @@ def test_a_rerun_25_hours_after_a_lost_ack_reports_the_email_uncertain():
     assert (run[STATUS], run[OUTPUTS]["email_uncertain"]) == ("succeeded", True)
 
 
-def test_a_rerun_25_hours_after_a_lost_ack_still_queues_the_issue():
+def test_a_rerun_25_hours_after_a_lost_ack_still_uploads_the_issue():
     world = World(cron=ONCE)
     lost_ack(world)
     rerun(world, timedelta(hours=25))
-    assert len(world.xteink.queued) == 1
+    assert len(world.library.uploads) == 1
 
 
 def test_a_rerun_within_the_window_recovers_the_first_message():
@@ -685,10 +687,10 @@ def test_a_retry_resumed_25_hours_on_reports_the_email_uncertain():
     assert run[OUTPUTS]["email_uncertain"] is True
 
 
-def test_a_retry_resumed_25_hours_on_still_queues_the_issue():
+def test_a_retry_resumed_25_hours_on_still_uploads_the_issue():
     world = World(cron=ONCE)
     ack_lost_then_outage(world)
-    assert len(world.xteink.queued) == 1
+    assert len(world.library.uploads) == 1
 
 
 def test_a_retry_resumed_25_hours_on_records_the_email_uncertain():
@@ -745,10 +747,10 @@ def resend_down(world: World) -> None:
     world.run_until(TODAY + timedelta(minutes=30))
 
 
-def test_resend_down_still_queues_the_issue_on_the_reader():
+def test_resend_down_still_puts_the_issue_in_the_library():
     world = World(cron=ONCE)
     resend_down(world)
-    assert (world.resend.calls, len(world.xteink.queued)) == (3, 1)
+    assert (world.resend.calls, len(world.library.uploads)) == (3, 1)
 
 
 def test_resend_down_ends_the_run_succeeded_with_the_email_not_sent():
@@ -785,7 +787,7 @@ def test_a_rerun_an_hour_after_resend_was_down_pushes_nothing():
     world = World(cron=ONCE)
     resend_down(world)
     run = rerun(world, timedelta(hours=1))
-    assert (len(world.xteink.uploads), step_state(run, "push")[STATUS]) == (1, "skipped")
+    assert (len(world.library.uploads), step_state(run, "push")[STATUS]) == (1, "skipped")
 
 
 def test_a_rerun_an_hour_after_resend_was_down_delivers_the_date():
@@ -802,7 +804,7 @@ def test_a_rerun_25_hours_after_resend_was_down_sends_nothing():
     world = World(cron=ONCE)
     resend_down(world)
     rerun(world, timedelta(hours=25))
-    assert (len(world.resend.sent), len(world.xteink.uploads)) == (0, 1)
+    assert (len(world.resend.sent), len(world.library.uploads)) == (0, 1)
 
 
 def test_a_rerun_25_hours_after_resend_was_down_marks_the_email_uncertain():
@@ -831,9 +833,9 @@ def test_no_recipients_skips_the_email_and_succeeds():  # d6
     assert (run[STATUS], email[STATUS]) == ("succeeded", "skipped")
 
 
-def test_no_recipients_still_queues_the_issue_on_the_reader():  # d6
+def test_no_recipients_still_puts_the_issue_in_the_library():  # d6
     world = no_recipients()
-    assert (world.resend.calls, len(world.xteink.queued)) == (0, 1)
+    assert (world.resend.calls, len(world.library.uploads)) == (0, 1)
 
 
 def test_no_recipients_reports_it_in_the_run_outputs():  # d6

@@ -62,6 +62,16 @@ Quoted verbatim from the `devague summary` skeleton:
   - the Simple view's `either` sentence matches the API paragraph, and the chain view draws each `either` edge.
 
   Each new test fails against the earlier code. The 33 books already made keep their titles, because their cache is returned as before.
+- `d8` (approved, the operator's) — the library moves to culture-library (library.culture.dev, culture-rules#86), and nothing about a library may be built in: "1 should be configurable, so code change to make it configurable, then configuration. We never hardcode urls." "2. kinds also should be configurable, like 1." "newspaper is public." The change (0.27.0, branch `rules/library-config`):
+  - `library.push`'s actor holds `upload_path`, the `kinds` and `visibilities` it accepts, and an optional `queue_path` (unset: upload only, no device id);
+  - each push names its `kind` (no built-in list, no default `article`) and may name a `visibility`; the editor offers what the chosen actor lists;
+  - configuration: the library actor points at culture-library (`127.0.0.1:8796`, `grant:LIBRARY_PUSH_API_KEY`, no queue); transcripts go as `transcript`, `private`, and the newspaper as `newspaper`, `public`.
+- `d9` (approved, the operator's) — the operator's `/code-review medium` of #91 found 8 issues; the operator: "fix all". The fixes:
+  - the culture-rules library key is re-minted `--private` (key 3; 1 and 2 revoked), so re-pushing an item another key uploaded returns that item instead of 409;
+  - the editor drops a `device_id`, `kind` or `visibility` the newly chosen actor does not use or list;
+  - `library.push` ignores `device_id` again without a `queue_path` (the colleague review's "check it either way" made a hidden value fatal);
+  - `workflows describe` names the kind and visibility; `_choice` takes `required=`; strings that still named xteink as the target are reworded;
+  - no change for the newspaper's push fence: the migration kept xteink's item ids, so a recorded `item_id` is the same issue in culture-library.
 
 ## Drift From Plan
 
@@ -76,6 +86,8 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t2` | `max_tokens` 400 → 2000 after the live check | acceptable |
 | `t1` (`d7`, approved) | the review fixes: the summary-only cache, the title's local time, one file cap | acceptable |
 | `t4` (`d7`, approved) | the review fixes in the editor: the picker's params and kinds, the `either` sentence and chain edges | acceptable |
+| `t3` (`d9`, approved) | the #91 review fixes: moot params dropped in the editor, `device_id` ignored without a queue, the key minted `--private` (b6) | acceptable |
+| `t3` (`d8`, approved) | the library is configuration on the actor, and the push goes to culture-library with no device queue (b4, b5); b3's device queue now applies only to a library actor with a `queue_path` | acceptable |
 
 ## Evidence
 
@@ -94,7 +106,11 @@ Quoted verbatim from the `devague summary` skeleton:
   - Both succeeded, the summary was used, and the title has the `<date> <word>` shape.
   - The book is RTL, and both runs pushed the same bytes. Each run took 39–46 s.
 - live (deployed engine 0.26.0, after the rollout): `rollout verify` passed (4 nodes on 0.26.0, API 0.26.0, engine running, the 2 snapshot rules enabled). Then `transcribe-file-he` was run directly for recording `a41fdac7bee2`, whose result was already on disk (run `run-1ac3947609254ae19e941f1a71d44256`). `pocket-to-reader` started exactly one reader run (`run-75def4e5483f342bc068c65b612f978f`), with every step on spark. It gave the same book (item 29, the same title), `created: false`. Device 3's queue holds the 33 transcript entries plus the day's newspaper.
-- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. e16 (proposed) records the operator's failed device check for o13.
+- d8 (`ecd0cb4` on `rules/library-config`, 0.27.0):
+  - the full suite passed with 7256 passed and 9 skipped; vitest 827 of 827, tsc clean, e2e `workflows-described` 19 of 19; all lint gates clean;
+  - sensitivity: 40 of the 138 `test_library_push.py` tests fail against `origin/main`'s `library.py` (e17);
+  - live: 0.27.0 rolled out with the operator's approval (`rollout verify` passed: 4 nodes and the API on 0.27.0, the 3 snapshot rules enabled). The live actor points at culture-library, `daily-newspaper` (rev 5) has its push enabled again as `newspaper`/`public`, and `transcript-to-reader` (rev 2) pushes `transcript`/`private`. No live push has run yet: the first is the next 05:00 newspaper.
+- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. e16 (proposed) records the operator's failed device check for o13. d8, e17–e19, b4 and b5 are approved; d9, e20–e22 and b6 are approved.
 - commits: `062c9c8..1883d88` on `rules/transcript-reader`.
 - issues: culture-rules#83 (the decisions log), #82 (lighter test runs), agentculture/xteink#8, agentculture/pocketsync#12.
 
@@ -108,6 +124,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | A failed summary still ships the book | high | e5 |
 | A re-run never makes a second book, even with a different summary | high | e9 (sensitivity) |
 | `library.push` takes `kind` | medium | e7: capped by l1 (not test-first; the control was run afterwards) |
+| `library.push`'s library, kinds and visibilities are the actor's configuration; transcripts go to culture-library as private `transcript` items | high | e17 (sensitivity), e18, e19; live push not yet observed |
 | The cross-repo asks exist | high | e8 |
 | A real recording's summary and book work against the live model | high | e12 (backfill, real ports) and e14 (the deployed engine) |
 | All 33 past recordings are in the reader's library and queue, with 0 duplicates after a re-run | high | e12, e13, e14: observed live (33 items, the device 3 queue holds them, pass 2 and the engine re-run created 0) |
@@ -116,8 +133,8 @@ Quoted verbatim from the `devague summary` skeleton:
 
 ## Remaining Work / Follow-up
 
-- agentculture/xteink#9: a Hebrew-capable reader font, so Hebrew books render right to left (o13 fails until then), and an uploader-named nested `folder`. Once it ships, send `folder: transcripts/<YYYY-MM>` from `library.push`, and `newspapers/<YYYY-MM>` for the newspaper, then re-check o13 on the device. Owner: xteink, then culture-rules.
-- agentculture/xteink#8: once the `transcript` kind and the firmware folder ship, switch the push to `kind: transcript`.
+- agentculture/xteink#9: a Hebrew-capable reader font, so Hebrew books render right to left (o13 fails until then). With d8 the books reach the reader through culture-library (the reader pulls); the send-to-device rule is culture-rules#86 item 2. Owner: xteink, then culture-rules.
+- Observe the first live push (the next 05:00 newspaper) and the first new transcript. The 33 migrated transcript items are `document` in culture-library; retagging them is culture-library's side.
 - agentculture/pocketsync#12: the landed event with `recording_at`; then enable the STT rules (item 6 of the earlier plan).
 - culture-rules#82: lighter local test runs, and cleanup of orphaned test rigs.
 - Whether the device is a mirror device (v1, parked).

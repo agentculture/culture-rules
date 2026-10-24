@@ -28,7 +28,26 @@ const NEWSPAPER_ACTORS: Actor[] = [
   { id: "brave", name: "Brave", kind: "app", enabled: true, params: { surface: "search", connection: {} } },
   { id: "cortex", name: "Cortex", kind: "agent", enabled: true, params: { base_url: "http://localhost:8000", model: "qwen" } },
   { id: "plain-agent", name: "Plain agent", kind: "agent", enabled: true },
-  { id: "xteink", name: "xteink", kind: "service", enabled: true, params: { base_url: "http://localhost:8080" } },
+  {
+    id: "xteink",
+    name: "xteink",
+    kind: "service",
+    enabled: true,
+    params: {
+      base_url: "http://localhost:8080",
+      upload_path: "/api/library",
+      queue_path: "/api/devices/{device_id}/queue",
+      kinds: ["newspaper", "transcript"],
+      visibilities: ["private", "public"],
+    },
+  },
+  {
+    id: "library",
+    name: "Culture library",
+    kind: "service",
+    enabled: true,
+    params: { base_url: "http://localhost:8796", upload_path: "/api/library", kinds: ["newspaper"] },
+  },
 ];
 
 function Harness({ start }: Readonly<{ start?: Action }>) {
@@ -67,7 +86,7 @@ describe("newspaper kinds offered", () => {
     expect(ids("email.send")).toEqual(["mailer"]);
     expect(ids("search.web")).toEqual(["brave"]);
     expect(ids("llm.complete")).toEqual(["cortex"]);
-    expect(ids("library.push")).toEqual(["xteink"]);
+    expect(ids("library.push")).toEqual(["xteink", "library"]);
   });
 });
 
@@ -151,12 +170,14 @@ describe("llm.complete", () => {
 });
 
 describe("library.push", () => {
-  it("saves the EPUB reference, title, author and device", async () => {
+  it("saves the EPUB reference, title, kind, visibility and device", async () => {
     render(<Harness />);
     const user = await pick("library.push", "xteink");
     await user.selectOptions(screen.getByLabelText("Map Content base64"), "__custom__");
     await user.type(screen.getByLabelText("Path for Content base64"), "workflow.outputs.epub");
     await user.type(screen.getByLabelText("Title"), "Daily newspaper");
+    await user.selectOptions(screen.getByLabelText("Kind"), "newspaper");
+    await user.selectOptions(screen.getByLabelText("Visibility"), "public");
     await user.type(screen.getByLabelText("Device id"), "reader-1");
     expect(saved()).toEqual({
       kind: "library.push",
@@ -164,14 +185,56 @@ describe("library.push", () => {
         actor: "xteink",
         content_base64: "workflow.outputs.epub",
         title: "Daily newspaper",
+        kind: "newspaper",
+        visibility: "public",
         device_id: "reader-1",
       },
     });
     expect(actionProblem(saved())).toBeNull();
   });
 
-  it("needs the content and a title", () => {
-    expect(actionProblem({ kind: "library.push", params: { actor: "xteink", title: "t" } })).toBe("empty");
-    expect(actionProblem({ kind: "library.push", params: { actor: "xteink", content_base64: "x" } })).toBe("empty");
+  it("offers the kinds and visibilities the library actor lists", async () => {
+    render(<Harness />);
+    await pick("library.push", "xteink");
+    const values = (label: string) =>
+      within(screen.getByLabelText(label))
+        .getAllByRole("option")
+        .map((o) => (o as HTMLOptionElement).value);
+    expect(values("Kind")).toEqual(["", "newspaper", "transcript"]);
+    expect(values("Visibility")).toEqual(["", "private", "public"]);
+  });
+
+  it("hides the device id without a queue_path and the visibility without visibilities", async () => {
+    render(<Harness />);
+    await pick("library.push", "library");
+    expect(screen.queryByLabelText("Device id")).toBeNull();
+    expect(screen.queryByLabelText("Visibility")).toBeNull();
+    expect(optionValues("Kind")).toEqual(["", "newspaper"]);
+  });
+
+  it("drops a device id, kind or visibility the newly chosen actor does not use or list", async () => {
+    render(<Harness />);
+    const user = await pick("library.push", "xteink");
+    await user.selectOptions(screen.getByLabelText("Kind"), "transcript");
+    await user.selectOptions(screen.getByLabelText("Visibility"), "public");
+    await user.type(screen.getByLabelText("Device id"), "reader-1");
+    await user.selectOptions(screen.getByLabelText("Actor"), "library");
+    expect(saved().params).toEqual({ actor: "library" });
+  });
+
+  it("keeps a kind the newly chosen actor also lists", async () => {
+    render(<Harness />);
+    const user = await pick("library.push", "xteink");
+    await user.selectOptions(screen.getByLabelText("Kind"), "newspaper");
+    await user.selectOptions(screen.getByLabelText("Actor"), "library");
+    expect(saved().params).toEqual({ actor: "library", kind: "newspaper" });
+  });
+
+  it("needs the content, a title and a kind", () => {
+    const full = { actor: "xteink", content_base64: "x", title: "t", kind: "newspaper" };
+    expect(actionProblem({ kind: "library.push", params: { ...full, content_base64: undefined } })).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: { ...full, title: undefined } })).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: { ...full, kind: undefined } })).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: full })).toBeNull();
   });
 });
