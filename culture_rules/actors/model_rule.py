@@ -5,6 +5,10 @@ the rule has one definition. An *endpoint actor* is an ``agent`` actor with a no
 ``params.base_url`` (it talks to an OpenAI-compatible endpoint). Mesh-reached agents
 (no ``base_url``) may share a model name freely and are never part of the rule. An
 actor's model is the one its requests use: ``params.model``, else its own ``model``.
+
+What one holder holds is the model *key*: the model, plus ``@<params.domain>`` when the actor
+sets a domain. A decider actor serves one domain of one model (``clef@general``,
+``clef@code``), so one decider actor per domain is allowed, and two for one domain are not.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from typing import Any
 
 #: Action kinds that call an actor's OpenAI-compatible endpoint, so the actor must be an
 #: endpoint actor and is held to the one-holder-per-model rule.
-ENDPOINT_KINDS = ("llm.complete", "audio.transcribe")
+ENDPOINT_KINDS = ("llm.complete", "audio.transcribe", "decider.assess")
 
 
 def _params(doc: dict[str, Any]) -> dict[str, Any]:
@@ -38,11 +42,22 @@ def effective_model(doc: dict[str, Any]) -> str | None:
     return None
 
 
+def model_key(doc: dict[str, Any]) -> str | None:
+    """What the actor holds: its model, plus ``@<domain>`` when ``params.domain`` is set."""
+    model = effective_model(doc)
+    if model is None:
+        return None
+    domain = _params(doc).get("domain")
+    if isinstance(domain, str) and domain.strip():
+        return f"{model}@{domain.strip()}"
+    return model
+
+
 def _holders(actors: Iterable[dict[str, Any]], candidate: dict[str, Any]) -> list[str]:
-    """Ids of the other enabled, non-deleted endpoint actors with the candidate's model."""
+    """Ids of the other enabled, non-deleted endpoint actors with the candidate's model key."""
     if not is_endpoint_actor(candidate):
         return []
-    model = effective_model(candidate)
+    model = model_key(candidate)
     if model is None:
         return []
     cand_id = candidate.get("id")
@@ -53,7 +68,7 @@ def _holders(actors: Iterable[dict[str, Any]], candidate: dict[str, Any]) -> lis
         and doc.get("enabled")
         and not doc.get("deleted_at")
         and is_endpoint_actor(doc)
-        and effective_model(doc) == model
+        and model_key(doc) == model
     ]
 
 

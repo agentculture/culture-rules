@@ -4,6 +4,7 @@ from culture_rules.actors.model_rule import (
     effective_model,
     is_endpoint_actor,
     model_holder,
+    model_key,
     senior_holder,
 )
 
@@ -40,6 +41,25 @@ def _endpoint(id_, model, **extra):
         "enabled": True,
         **extra,
     }
+
+
+def _decider(id_, domain):
+    doc = _endpoint(id_, "clef")
+    doc["params"]["domain"] = domain
+    return doc
+
+
+def test_the_model_key_names_a_decider_domain():
+    assert model_key(_decider("d", "general")) == "clef@general"
+    assert model_key(_endpoint("e", "cortex-spark2")) == "cortex-spark2"
+    assert model_key({"kind": "agent", "params": {"domain": "general"}}) is None
+
+
+def test_one_decider_per_domain():
+    general, code = _decider("decider", "general"), _decider("decider-code", "code")
+    assert model_holder([general], code) is None
+    assert model_holder([general], _decider("decider-2", "general")) == "decider"
+    assert model_holder([_endpoint("plain", "clef")], general) is None
 
 
 def test_is_endpoint_actor():

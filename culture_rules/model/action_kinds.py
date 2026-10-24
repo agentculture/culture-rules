@@ -6,7 +6,8 @@ this module says which params exist, their types and which are required.
 
 Actor policy: ``discord.message``, ``github.comment``, ``github.push``, ``github.review_reply``,
 ``jira.comment``, ``http.call``, ``machine.command``, ``email.send``, ``search.web``,
-``llm.complete``, ``audio.transcribe`` and ``library.push`` always need ``params.actor`` (the
+``llm.complete``, ``audio.transcribe``, ``decider.assess`` and ``library.push`` always need
+``params.actor`` (the
 credentialed or executing party).
 ``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
 a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
@@ -174,6 +175,16 @@ _KINDS = (
         temperature=ParamSpec("any"),
         not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
         brief=_S,  # which locked brief: newspaper (default) or transcript
+    ),
+    _k(
+        "decider.assess",
+        "Ask the mesh's decider for probabilities over the options a step defines (no text)",
+        actor=_RS,
+        state=_RS,
+        questions=ParamSpec(
+            "dict", True
+        ),  # {key: {type: choice|noul|score, instructions, criteria}}
+        not_after=_S,  # ISO-8601: past it the work fails decider_deadline instead of queueing
     ),
     _k(
         "audio.transcribe",
