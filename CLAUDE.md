@@ -166,7 +166,8 @@ plan. What exists today:
     branches on e.g. `picks.action`;
   - the domain belongs to the actor (`params.domain`), and a step picks a decider
     by its actor; the bundle `docs/rules/decider` holds the `decider` actor
-    (domain `general`, model `clef`); it is an endpoint kind.
+    (domain `general`, model `clef`); it is an endpoint kind, and the model rule
+    holds a decider by model and domain (`clef@general`), one actor per domain.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

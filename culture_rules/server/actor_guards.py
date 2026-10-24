@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from culture_rules.actors.model_rule import effective_model, is_endpoint_actor, model_holder
+from culture_rules.actors.model_rule import is_endpoint_actor, model_holder, model_key
 from culture_rules.io import exchange
 from culture_rules.model.references import find_references
 from culture_rules.server.service import Conflict
@@ -42,7 +42,7 @@ def _live(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _taken_entry(candidate: dict[str, Any], holder: str, path: str) -> dict[str, Any]:
-    model = effective_model(candidate)
+    model = model_key(candidate)
     message = (
         f"model_taken: {model} is held by {holder}; disable {holder} first "
         "(or save this actor disabled)"

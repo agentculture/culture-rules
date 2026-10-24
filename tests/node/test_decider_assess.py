@@ -276,6 +276,23 @@ def test_a_noul_needs_no_criteria():
     assert result.error.startswith("decider_bad_response")
 
 
+NESTED = b"[" * 50_000 + b"]" * 50_000  # under the 1 MiB reply cap, deeper than json can parse
+
+
+def test_a_deeply_nested_reply_fails_bad_response():
+    port, _ = _port(transport=FakeTransport(body=NESTED))
+    result = _invoke(port)
+    assert result.outcome == FAILED
+    assert result.error.startswith("decider_bad_response")
+
+
+def test_a_deeply_nested_error_reply_still_maps_its_status():
+    port, _ = _port(transport=FakeTransport(status=404, body=NESTED))  # 4xx reads the code
+    result = _invoke(port)
+    assert result.outcome == FAILED
+    assert result.error == "decider_rejected: status 404"
+
+
 # ---- outputs ------------------------------------------------------------------------------
 
 
@@ -573,6 +590,20 @@ def test_fails_model_taken_when_a_senior_endpoint_actor_holds_clef():
     res = _invoke(port)
     assert res.error == "model_taken: a-holder"
     assert res.retryable is False
+    assert transport.calls == []
+
+
+def test_a_decider_for_another_domain_is_not_taken():
+    other = _actor("a-code", base_url="http://127.0.0.1:8002", domain="code")
+    port, transport = _port(_store(_actor("decider", domain="general"), other))
+    assert _invoke(port).outcome == COMPLETED
+    assert len(transport.calls) == 1
+
+
+def test_a_second_decider_for_the_same_domain_is_taken():
+    other = _actor("a-holder", base_url="http://127.0.0.1:8002", domain="general")
+    port, transport = _port(_store(_actor("decider", domain="general"), other))
+    assert _invoke(port).error == "model_taken: a-holder"
     assert transport.calls == []
 
 

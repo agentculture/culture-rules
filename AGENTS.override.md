@@ -116,7 +116,8 @@ guide `docs/actors/decider.md`): the action kind `decider.assess` asks the mesh'
 decider (`/v1/systemone` on the lobes gateway) for probabilities over a step's
 `choice`, `noul` and `score` questions and outputs `answers`, `picks` (the top pick
 per question), `host`, `domain` and `usage` for a later step's `when`. The domain is
-the actor's; the bundle `docs/rules/decider` holds the `decider` actor.
+the actor's; the bundle `docs/rules/decider` holds the `decider` actor. The model rule
+holds a decider by model and domain (`clef@general`), so there is one actor per domain.
 
 Two GitHub issues carried the design:
 
