@@ -21,6 +21,14 @@ The summary text must be a JSON object ``{"summary", "word"}`` (a ``json`` fence
 short Latin word. Anything else, or no summary, gives the title ``<date> <HHMM> recording``
 and the line :data:`SUMMARY_UNAVAILABLE`.
 
+``format`` (``epub``, the default, or ``md``): ``md`` returns the transcript as UTF-8
+Markdown in ``content_base64`` with the output ``format: "md"``: the dated title as H1, the
+summary, a ``Key facts`` list (the answer's optional ``facts``; omitted when there are none),
+then ``Transcript`` with one paragraph per non-empty segment; a right-to-left document is
+wrapped in a ``<div dir="rtl">`` block. The answer may also be a mapping that already is
+``{summary, word, facts}``; ``action_items`` is ignored here. The Markdown is kept like the
+book, as ``book.<sha16>.md`` (+ ``.md.json``), so a re-run sends the same bytes.
+
 Output
 ======
 
@@ -79,6 +87,7 @@ __all__ = [
     "TRANSCRIPT_RENDER",
     "RenderError",
     "TranscriptRenderPort",
+    "parse_answer",
     "parse_summary",
     "render_transcript",
 ]
@@ -98,6 +107,8 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _FENCE_RE = re.compile(r"^```[A-Za-z]*\s*\n?(.*?)\n?```$", re.DOTALL)
 _INVALID_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff￾￿]")
 _SUMMARY_MAX_CHARS = 2000
+_FACT_MAX_CHARS = 300
+_FACTS_MAX = 12
 
 _EPOCH = (1980, 1, 1, 0, 0, 0)
 _OEBPS = "OEBPS/"
@@ -140,18 +151,18 @@ def _local_moment(recorded_at: Any) -> datetime:
     return moment.astimezone(ZoneInfo(TIMEZONE))
 
 
-def _summary_text(value: Any) -> str | None:
+def _answer_data(value: Any) -> Mapping[str, Any] | None:
+    """The answer object: a mapping that already is ``{summary, word, ...}`` (or holds it as
+    ``answer``), or the JSON in llm.complete's ``text`` (or a plain string)."""
     if isinstance(value, Mapping):
+        if isinstance(value.get("answer"), Mapping):
+            return value["answer"]
+        if "text" not in value and "summary" in value:
+            return value
         value = value.get("text")
-    return value if isinstance(value, str) else None
-
-
-def parse_summary(value: Any) -> tuple[list[str], str] | None:
-    """``(summary lines, word)`` from a summary reply, or None when it does not qualify."""
-    text = _summary_text(value)
-    if text is None:
+    if not isinstance(value, str):
         return None
-    text = _THINK_RE.sub("", text).strip()
+    text = _THINK_RE.sub("", value).strip()
     fenced = _FENCE_RE.match(text)
     if fenced:
         text = fenced.group(1).strip()
@@ -159,7 +170,28 @@ def parse_summary(value: Any) -> tuple[list[str], str] | None:
         data = json.loads(text)
     except (ValueError, RecursionError):
         return None
-    if not isinstance(data, dict):
+    return data if isinstance(data, dict) else None
+
+
+def _facts(value: Any) -> list[str]:
+    """The optional ``facts``: short non-blank strings; anything else is dropped."""
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        fact = " ".join(_INVALID_XML.sub("", item).split())
+        if fact and len(fact) <= _FACT_MAX_CHARS:
+            out.append(fact)
+    return out[:_FACTS_MAX]
+
+
+def parse_answer(value: Any) -> tuple[list[str], str, list[str]] | None:
+    """``(summary lines, word, facts)`` from a recording answer, or None when it does not
+    qualify. ``action_items`` is ignored here."""
+    data = _answer_data(value)
+    if data is None:
         return None
     summary, word = data.get("summary"), data.get("word")
     if not isinstance(summary, str) or not isinstance(word, str):
@@ -170,7 +202,13 @@ def parse_summary(value: Any) -> tuple[list[str], str] | None:
     lines = [ln.strip() for ln in _INVALID_XML.sub("", summary).splitlines() if ln.strip()]
     if not 1 <= len(lines) <= 2 or sum(len(ln) for ln in lines) > _SUMMARY_MAX_CHARS:
         return None
-    return lines, word.lower()
+    return lines, word.lower(), _facts(data.get("facts"))
+
+
+def parse_summary(value: Any) -> tuple[list[str], str] | None:
+    """``(summary lines, word)`` from a summary reply, or None when it does not qualify."""
+    parsed = parse_answer(value)
+    return (parsed[0], parsed[1]) if parsed else None
 
 
 def _rtl(language: Any, doc: Mapping[str, Any]) -> bool:
@@ -296,14 +334,37 @@ def _epub(
     return buffer.getvalue()
 
 
+def _markdown(
+    title: str, lines: list[str], facts: list[str], paragraphs: list[str], rtl: bool
+) -> str:
+    """The transcript as Markdown: H1 title, summary, Key facts, Transcript. A right-to-left
+    document is wrapped in a ``dir="rtl"`` block (blank lines around it keep the Markdown
+    inside rendering)."""
+    clean = _INVALID_XML.sub("", title)
+    parts = [f"# {clean}", "\n\n".join(lines)]
+    if facts:
+        parts.append("## Key facts\n\n" + "\n".join(f"- {fact}" for fact in facts))
+    body = "\n\n".join(parts)
+    body += "\n\n## Transcript\n\n" + "\n\n".join(paragraphs)
+    if rtl:
+        body = f'<div dir="rtl">\n\n{body}\n\n</div>'
+    return body + "\n"
+
+
 def render_transcript(
     doc: Mapping[str, Any],
     *,
     recorded_at: Any,
     language: Any = None,
     summary: Any = None,
+    format: str | None = None,  # noqa: A002
 ) -> dict[str, Any]:
-    """Render the schema-1 transcript ``doc``; raises :class:`RenderError` (``invalid_request``)."""
+    """Render the schema-1 transcript ``doc`` (an EPUB, or Markdown for ``format="md"``);
+    raises :class:`RenderError` (``invalid_request``)."""
+    if format in (None, ""):
+        format = "epub"  # noqa: A001
+    if format not in ("epub", "md"):
+        raise _fail(INVALID, "format must be epub or md")
     if not isinstance(doc, Mapping) or doc.get("schema") != 1:
         raise _fail(INVALID, "transcript is not a schema-1 document")
     sha = doc.get("audio_sha256")
@@ -312,16 +373,19 @@ def render_transcript(
     local = _local_moment(recorded_at)
     day = local.date().isoformat()
     paragraphs = _paragraphs(doc)
-    parsed = parse_summary(summary)
-    lines, word = parsed if parsed else ([SUMMARY_UNAVAILABLE], DEFAULT_WORD)
+    parsed = parse_answer(summary)
+    lines, word, facts = parsed if parsed else ([SUMMARY_UNAVAILABLE], DEFAULT_WORD, [])
     rtl = _rtl(language, doc)
     lang, direction = ("he", "rtl") if rtl else ("en", "ltr")
     title = f"{day} {local:%H%M} {word}"
-    uid = f"urn:culture-rules:transcript:{sha}"
-    data = _epub(uid, title, day, lines, paragraphs, lang, direction)
+    if format == "md":
+        data = _markdown(title, lines, facts, paragraphs, rtl).encode("utf-8")
+    else:
+        uid = f"urn:culture-rules:transcript:{sha}"
+        data = _epub(uid, title, day, lines, paragraphs, lang, direction)
     if len(data) > EPUB_CAP:
         raise _fail("epub_too_large", f"the book is over {EPUB_CAP} bytes")
-    return {
+    out = {
         "content_base64": base64.b64encode(data).decode("ascii"),
         "title": title,
         "date": day,
@@ -329,6 +393,9 @@ def render_transcript(
         "summary_used": parsed is not None,
         "segment_count": len(paragraphs),
     }
+    if format == "md":
+        out["format"] = "md"
+    return out
 
 
 # ------------------------------------------------------------------ the port
@@ -380,16 +447,18 @@ def _parse(raw: bytes) -> Any:
 _CACHED_FIELDS = ("title", "date", "word", "summary_used", "segment_count")
 
 
-def _book_paths(path: Path, raw: bytes) -> tuple[Path, Path, str]:
+def _book_paths(path: Path, raw: bytes, fmt: str = "epub") -> tuple[Path, Path, str]:
     digest = hashlib.sha256(raw).hexdigest()
     stem = f"book.{digest[:16]}"
+    if fmt == "md":  # book.<sha16>.md with its record beside it; the EPUB names are unchanged
+        return path.parent / f"{stem}.md", path.parent / f"{stem}.md.json", digest
     return path.parent / f"{stem}.epub", path.parent / f"{stem}.json", digest
 
 
-def _cached_book(path: Path, raw: bytes) -> dict[str, Any] | None:
+def _cached_book(path: Path, raw: bytes, fmt: str = "epub") -> dict[str, Any] | None:
     """The book stored for exactly this transcript file, or None when there is none or it
     does not check out (a damaged cache is rendered again)."""
-    epub_path, meta_path, digest = _book_paths(path, raw)
+    epub_path, meta_path, digest = _book_paths(path, raw, fmt)
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         book = epub_path.read_bytes()
@@ -405,6 +474,8 @@ def _cached_book(path: Path, raw: bytes) -> dict[str, Any] | None:
         return None
     out = {name: meta[name] for name in _CACHED_FIELDS}
     out["content_base64"] = base64.b64encode(book).decode("ascii")
+    if fmt == "md":
+        out["format"] = "md"
     return out
 
 
@@ -420,13 +491,13 @@ def _write_atomic(target: Path, data: bytes) -> None:
         raise
 
 
-def _store_book(path: Path, raw: bytes, out: Mapping[str, Any]) -> None:
+def _store_book(path: Path, raw: bytes, out: Mapping[str, Any], fmt: str = "epub") -> None:
     """Keep the rendered book beside its transcript (best effort: a folder that cannot be
     written to still gets its book, it is only rendered again next time). A book without
     its summary is not kept, so a later run with a working summary replaces it."""
     if out.get("summary_used") is not True:
         return
-    epub_path, meta_path, digest = _book_paths(path, raw)
+    epub_path, meta_path, digest = _book_paths(path, raw, fmt)
     book = base64.b64decode(out["content_base64"])
     meta = {name: out[name] for name in _CACHED_FIELDS}
     meta.update(transcript_sha256=digest, book_sha256=hashlib.sha256(book).hexdigest())
@@ -479,8 +550,11 @@ class TranscriptRenderPort:
             if actor_root is not None:
                 roots.append(actor_root)
             path = _resolve_under(input.get("result_path"), roots)  # before anything is read
+            fmt = input.get("format") or "epub"
+            if fmt not in ("epub", "md"):
+                raise _fail(INVALID, "format must be epub or md")
             raw = _read_bytes(path)
-            cached = _cached_book(path, raw)
+            cached = _cached_book(path, raw, fmt)
             if cached is not None:
                 return InvocationResult.completed(cached)
             out = render_transcript(
@@ -488,8 +562,9 @@ class TranscriptRenderPort:
                 recorded_at=input.get("recorded_at"),
                 language=input.get("language"),
                 summary=input.get("summary"),
+                format=fmt,
             )
         except RenderError as exc:
             return InvocationResult.failed(str(exc), retryable=False)
-        _store_book(path, raw, out)
+        _store_book(path, raw, out, fmt)
         return InvocationResult.completed(out)

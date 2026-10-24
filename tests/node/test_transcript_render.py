@@ -328,3 +328,102 @@ def test_an_unwritable_folder_still_returns_the_book(root):
         path.parent.chmod(0o700)
     assert result.outcome == "completed"
     assert result.output["title"].endswith(" topic")
+
+
+# ------------------------------------------------------------------ Markdown (format md)
+
+
+def _md(out: dict[str, Any]) -> str:
+    return base64.b64decode(out["content_base64"]).decode("utf-8")
+
+
+def _answer(**extra: Any) -> dict[str, str]:
+    body = {"summary": "Line one.\nLine two.", "word": "Plans", "facts": ["Fact A", "Fact B"]}
+    return {"text": json.dumps({**body, **extra})}
+
+
+def test_md_has_title_summary_key_facts_and_transcript() -> None:
+    out = tr.render_transcript(
+        _doc("en", ("first", "", "  ", "second")), recorded_at=AT, summary=_answer(), format="md"
+    )
+    assert out["format"] == "md"
+    assert out["segment_count"] == 2
+    assert _md(out) == (
+        "# 2026-10-24 0130 plans\n\nLine one.\n\nLine two.\n\n"
+        "## Key facts\n\n- Fact A\n- Fact B\n\n## Transcript\n\nfirst\n\nsecond\n"
+    )
+
+
+def test_md_he_and_unlabelled_are_wrapped_rtl_and_en_is_not() -> None:
+    for language in ("he", None, ""):
+        text = _md(tr.render_transcript(_doc(language), recorded_at=AT, format="md"))
+        assert text.startswith('<div dir="rtl">\n\n# ')
+        assert text.endswith("\n\n</div>\n")
+    assert "dir=" not in _md(tr.render_transcript(_doc("en"), recorded_at=AT, format="md"))
+
+
+def test_md_missing_answer_says_unavailable_and_has_no_facts() -> None:
+    for bad in (None, {"text": "not json"}, {"text": json.dumps({"summary": "x"})}):
+        out = tr.render_transcript(_doc("en"), recorded_at=AT, summary=bad, format="md")
+        text = _md(out)
+        assert "Summary unavailable." in text
+        assert "Key facts" not in text
+        assert out["summary_used"] is False
+        assert out["word"] == "recording"
+
+
+def test_md_accepts_old_shape_a_direct_mapping_and_ignores_action_items() -> None:
+    old = tr.render_transcript(_doc("en"), recorded_at=AT, summary=_reply(), format="md")
+    assert "Key facts" not in _md(old) and old["summary_used"] is True
+    direct = {"summary": "Direct.", "word": "Plans", "facts": ["F"], "action_items": ["DO-IT"]}
+    text = _md(tr.render_transcript(_doc("en"), recorded_at=AT, summary=direct, format="md"))
+    assert "Direct." in text and "- F" in text and "DO-IT" not in text
+
+
+def test_facts_are_optional_short_strings() -> None:
+    facts = ["ok", "", 5, "x" * 400, "  spaced   out "]
+    parsed = tr.parse_answer(_answer(facts=facts))
+    assert parsed is not None and parsed[2] == ["ok", "spaced out"]
+    assert tr.parse_answer(_answer(facts="nope"))[2] == []  # type: ignore[index]
+    assert parse_summary(_answer()) == (["Line one.", "Line two."], "plans")
+
+
+def test_the_epub_path_is_unchanged_by_facts_and_format() -> None:
+    a = tr.render_transcript(_doc(), recorded_at=AT, summary=_reply())
+    b = tr.render_transcript(_doc(), recorded_at=AT, summary=_reply(), format="epub")
+    c = tr.render_transcript(_doc(), recorded_at=AT, summary=_answer(facts=[]))
+    assert a == b and "format" not in a
+    assert (
+        a["content_base64"]
+        != tr.render_transcript(_doc(), recorded_at=AT, format="md")["content_base64"]
+    )
+    assert c["summary_used"] is True
+
+
+def test_bad_format_fails_invalid_request(root: Path) -> None:
+    result = _invoke(root, _write(root, _doc()), format="pdf")
+    assert result.outcome != COMPLETED and "invalid_request" in str(result.error)
+
+
+def test_port_md_returns_markdown_and_keeps_it_byte_stable(root: Path) -> None:
+    path = _write(root, _doc("en"))
+    first = _invoke(root, path, format="md", summary=_answer())
+    assert first.outcome == COMPLETED
+    assert first.output["format"] == "md"
+    assert PRIVATE_TEXT not in json.dumps(
+        {k: v for k, v in first.output.items() if k != "content_base64"}
+    )
+    assert len(list(path.parent.glob("book.*.md"))) == 1
+    again = _invoke(root, path, format="md", summary=_answer(facts=["changed"]))
+    assert again.output == first.output
+    # the EPUB is its own book beside it, not the Markdown
+    epub = _invoke(root, path, summary=_answer())
+    assert "format" not in epub.output
+    assert epub.output["content_base64"] != first.output["content_base64"]
+    assert len(list(path.parent.glob("book.*.epub"))) == 1
+
+
+def test_port_md_without_summary_is_not_kept(root: Path) -> None:
+    path = _write(root, _doc("en"))
+    assert _invoke(root, path, format="md").outcome == COMPLETED
+    assert list(path.parent.glob("book.*")) == []
