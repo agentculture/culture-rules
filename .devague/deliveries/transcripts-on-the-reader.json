@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T00:25:41Z",
+  "updated": "2026-10-24T00:37:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -61,6 +61,21 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "t7 (rollout, enable pocket-to-reader, the 33-recording backfill, the device check) waits for the operator to approve a rollout; before the PR a local live check runs one real recording through the real summary (cortex-spark2) and transcript.render, with the library push stubbed so nothing reaches the device",
+      "task_ref": "t7",
+      "reason": "rollouts of the shared engine and pushes to the operator's device need the operator; the operator asked for live tests before the PR. Decider (general, 2026-10-24): local_now_engine_after_merge 0.59, ask_then_rollout 0.37, rollout_branch_now 0.04; backfill must wait P=0.31",
+      "affects": [
+        "c10",
+        "c19",
+        "c21"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up",
+      "seq": 5
     }
   ],
   "evidence": [],

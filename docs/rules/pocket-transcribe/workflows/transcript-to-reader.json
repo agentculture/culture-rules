@@ -474,7 +474,7 @@
             "content_max_chars": 48000,
             "content_path": "inputs.result_path",
             "content_root": "inputs.output_dir",
-            "max_tokens": 400
+            "max_tokens": 2000
           }
         },
         "builtin": "action",
