@@ -30,8 +30,9 @@ its actor in `params.actor`. For another domain, add another actor, one per doma
 `decider.assess` is an endpoint kind. One enabled actor per model applies
 (`model_taken`), and `workflows repoint-actor` needs an endpoint actor as its target.
 
-Import the bundle with `culture-rules rules import docs/rules/decider --apply`. It
-holds no rules.
+Import the actor with `culture-rules actors import docs/rules/decider --apply` (a dry run
+without `--apply`). The bundle holds only the actor, so `rules import` and `workflows import`
+find nothing to import.
 
 ## The step
 
