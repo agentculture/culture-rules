@@ -41,6 +41,17 @@
 - library.push replaces an item when given `item_id`: it sends the bytes to the actor's `replace_path` (with `{item_id}` as one segment) with the actor's `replace_method`, and refuses `item_id` when the actor has no `replace_path`; the exact route is culture-library's to define
   - instruction: tests/node/`test_library_push.py`: `item_id` fills `replace_path` and uses `replace_method`; no `replace_path` refuses before any request
   - honesty: library.push with `item_id` calls the actor's `replace_path` with the item id filled in, and refuses `item_id` when the actor has no `replace_path`, before any request
+- no todo event is ever coalesced away: a concurrency key shared by a recording's flips drops all but the newest pending event (`culture_rules`/node/firing.py), so every flip is recorded in the stored list by its own run, and the library item is always rendered from the stored list, never from the event alone
+  - honesty: a test applies two flips of different lines of one list in either order and both survive in the stored list and the rendered Markdown
+- a stale replace can't win: checklist.render returns the stored list's revision, and recording the pushed item (`checklist.bind`) stores the pushed revision only if newer and reports when the stored list has moved on, so a workflow can render and push again until the library holds the latest revision
+  - honesty: a test binds revision 3 after revision 4 was bound: the stored pushed revision stays 4, and bind reports stale when the list is at 5
+- re-running a recording's extraction gives the same items: the recording brief's parsed answer is kept beside its transcript file (keyed by the transcript sha256, as the reader book is, d4), so matching by text only matters when the transcript itself changed
+  - honesty: a test runs the recording brief path twice on one transcript with different model answers and gets the first answer's items both times
+- a recording with no audio is skipped, not retried: audio.transcribe fails a missing audio file with a final, non-retryable code
+  - honesty: a test calls audio.transcribe with a missing file and gets a non-retryable failure code naming the missing audio
+- a generic `json.read` builtin returns named fields (dotted paths, scalars only) from a JSON file that resolves under a configured root, symlinks included; a missing field is null, a file outside the root or not JSON fails before reading further
+  - instruction: tests/node/`test_json_read.py`; reuse `transcript_file`'s root check
+  - honesty: tests read language and `recording_at` from a meta.json fixture, return null for a missing field, and refuse a path outside the root and a symlink out of it
 
 ## Honesty conditions
 
@@ -67,6 +78,8 @@
 ## Assumptions
 
 - the todo flip is configured on embodiment.bus.todo, whose data carries id, done, at (epoch s), by, `recording_id`; ordering uses at, since seq restarts per process
+- Gwen's todo event carries the id from the checklist line's comment (e.g. pocket.r1.0) once Gwen reads to-dos from the library; ids in today's memory scheme (pocket.rec.`action_item`.n) are unknown to the stored lists and are ignored
+- trust in a todo event is broker access: any publisher on the local broker can send embodiment.bus.todo, so the flip rule's condition checks source app://embodiment and the stored list records by
 
 ## Scope exploration
 
@@ -96,9 +109,28 @@
   - seeds: `c13`
 - `s13` — `culture_rules/node/actions/newspaper_render.py + live daily-newspaper rev 5`: `_anchor` renders http(s) links per result; the push step sends kind newspaper, visibility public since 0.27.0
   - seeds: `c14`
+- `s14` — `challenge pass / concurrency lens: culture_rules/node/firing.py concurrency keys`: a newer deduplicated event from any rule sharing the key replaces the pending one; two flips of different lines on one per-recording key while a run holds it lose the first flip
+  - seeds: `c27`
+- `s15` — `challenge pass / concurrency lens: two replace runs of one item`: two runs for one list can finish out of order; the later-finishing older snapshot would overwrite the newer one in the library
+  - seeds: `c28`
+- `s16` — `challenge pass / unstated-assumption lens: llm.py briefs + transcript_render.py book cache`: model output varies run to run; without a cache a rerun rewords items, which then get new ids and leave near-duplicates beside the kept originals
+  - seeds: `c29`
+- `s17` — `challenge pass / failure-mode lens: pocketsync meta.json (probe of 43 recordings)`: 1 of 43 recordings is `audio_absent` with no audio file; 33 have language null and 10 en; meta.json has language and `recording_at`, the enriched event has neither
+  - seeds: `c30`
+- `s18` — `challenge pass / adjacent-systems lens: embodiment daemon/todos.py + app.py _set_todo`: Gwen's To-dos page reads memory records and publishes their ids; the library-sourced ids differ, so the switch on Gwen's side decides which id the event carries
+  - seeds: `c31`
+- `s19` — `challenge pass / security lens: events-cli broker + embodiment bus.py`: the envelope source is app://embodiment and the broker is local to spark; no per-event signature exists
+  - seeds: `c32`
+- `s20` — `challenge pass / reversibility lens: culture-library replace (#10)`: what happens to an item's old bytes is culture-library's decision (#10); every done mark also lives in culture-rules' stored list, so the item can always be re-rendered
+- `s21` — `challenge pass / observability lens: run records + library feed`: each flip is one run with its event id; latency is run start minus event time; the library feed shows an updated event per replace; clean pass, no new measure proposed
+
+## Decisions
+
+- transcription's language and `recording_at` come from pocketsync's meta.json through a generic JSON-read builtin (named fields from a file under a configured root, refused outside it); pocketsync's event is unchanged (operator 2026-10-25)
 
 ## Open parks
 
 - [unknown_nonblocking] when culture-library ships the replace route and the todo kind, and its exact method and path: our replace mode is configurable, so the PR does not wait, but the live todo flip does
+- [unknown_nonblocking] residual, not examined by this pass: how Gwen parses the checklist comment ids and renders Markdown transcripts (embodiment's code for that does not exist yet), and whether pocketsync can re-create a recording (a second change created) for the same audio
 - [out_of_scope] embodiment's own changes: its library client still maps xteink's item JSON, its To-dos page reads memory records, and retiring the ingest mailbox is embodiment's step
 - [follow_up] re-pushing the 33 existing transcripts (now EPUB document items) as Markdown transcript items, and archiving the old ones, is a live configuration run after the PR, not code

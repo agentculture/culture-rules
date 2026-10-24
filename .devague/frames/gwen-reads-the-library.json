@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-24T21:25:38Z",
-  "updated": "2026-10-24T21:35:06Z",
+  "updated": "2026-10-24T21:54:48Z",
   "claims": [
     {
       "id": "c1",
@@ -435,6 +435,137 @@
       "links": [],
       "instruction": "tests/node/test_library_push.py: item_id fills replace_path and uses replace_method; no replace_path refuses before any request",
       "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "no todo event is ever coalesced away: a concurrency key shared by a recording's flips drops all but the newest pending event (culture_rules/node/firing.py), so every flip is recorded in the stored list by its own run, and the library item is always rendered from the stored list, never from the event alone",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "a test applies two flips of different lines of one list in either order and both survive in the stored list and the rendered Markdown",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "a stale replace can't win: checklist.render returns the stored list's revision, and recording the pushed item (`checklist.bind`) stores the pushed revision only if newer and reports when the stored list has moved on, so a workflow can render and push again until the library holds the latest revision",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "a test binds revision 3 after revision 4 was bound: the stored pushed revision stays 4, and bind reports stale when the list is at 5",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "re-running a recording's extraction gives the same items: the recording brief's parsed answer is kept beside its transcript file (keyed by the transcript sha256, as the reader book is, d4), so matching by text only matters when the transcript itself changed",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "a test runs the recording brief path twice on one transcript with different model answers and gets the first answer's items both times",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "a recording with no audio is skipped, not retried: audio.transcribe fails a missing audio file with a final, non-retryable code",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "a test calls audio.transcribe with a missing file and gets a non-retryable failure code naming the missing audio",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "assumption",
+      "text": "Gwen's todo event carries the id from the checklist line's comment (e.g. pocket.r1.0) once Gwen reads to-dos from the library; ids in today's memory scheme (pocket.rec.action_item.n) are unknown to the stored lists and are ignored",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "assumption",
+      "text": "trust in a todo event is broker access: any publisher on the local broker can send embodiment.bus.todo, so the flip rule's condition checks source app://embodiment and the stored list records by",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "decision",
+      "text": "transcription's language and recording_at come from pocketsync's meta.json through a generic JSON-read builtin (named fields from a file under a configured root, refused outside it); pocketsync's event is unchanged (operator 2026-10-25)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "a generic `json.read` builtin returns named fields (dotted paths, scalars only) from a JSON file that resolves under a configured root, symlinks included; a missing field is null, a file outside the root or not JSON fails before reading further",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "tests read language and recording_at from a meta.json fixture, return null for a missing field, and refuse a path outside the root and a symlink out of it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/node/test_json_read.py; reuse transcript_file's root check",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -460,6 +591,15 @@
       "id": "v3",
       "text": "embodiment's own changes: its library client still maps xteink's item JSON, its To-dos page reads memory records, and retiring the ingest mailbox is embodiment's step",
       "kind": "out_of_scope",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "residual, not examined by this pass: how Gwen parses the checklist comment ids and renders Markdown transcripts (embodiment's code for that does not exist yet), and whether pocketsync can re-create a recording (a second change created) for the same audio",
+      "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
       "resolution": "",
@@ -570,6 +710,66 @@
       "seeds": [
         "c14"
       ]
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / concurrency lens: culture_rules/node/firing.py concurrency keys",
+      "finding": "a newer deduplicated event from any rule sharing the key replaces the pending one; two flips of different lines on one per-recording key while a run holds it lose the first flip",
+      "seeds": [
+        "c27"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / concurrency lens: two replace runs of one item",
+      "finding": "two runs for one list can finish out of order; the later-finishing older snapshot would overwrite the newer one in the library",
+      "seeds": [
+        "c28"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / unstated-assumption lens: llm.py briefs + transcript_render.py book cache",
+      "finding": "model output varies run to run; without a cache a rerun rewords items, which then get new ids and leave near-duplicates beside the kept originals",
+      "seeds": [
+        "c29"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / failure-mode lens: pocketsync meta.json (probe of 43 recordings)",
+      "finding": "1 of 43 recordings is audio_absent with no audio file; 33 have language null and 10 en; meta.json has language and recording_at, the enriched event has neither",
+      "seeds": [
+        "c30"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / adjacent-systems lens: embodiment daemon/todos.py + app.py _set_todo",
+      "finding": "Gwen's To-dos page reads memory records and publishes their ids; the library-sourced ids differ, so the switch on Gwen's side decides which id the event carries",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / security lens: events-cli broker + embodiment bus.py",
+      "finding": "the envelope source is app://embodiment and the broker is local to spark; no per-event signature exists",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / reversibility lens: culture-library replace (#10)",
+      "finding": "what happens to an item's old bytes is culture-library's decision (#10); every done mark also lives in culture-rules' stored list, so the item can always be re-rendered",
+      "seeds": []
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / observability lens: run records + library feed",
+      "finding": "each flip is one run with its event id; latency is run start minus event time; the library feed shows an updated event per replace; clean pass, no new measure proposed",
+      "seeds": []
     }
   ],
   "lapses": [],
