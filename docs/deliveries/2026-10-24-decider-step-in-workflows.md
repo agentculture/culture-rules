@@ -40,7 +40,7 @@ Quoted verbatim from the `devague summary` skeleton:
 - t1 made reply checking stricter than c19 states (delta b1, approved). A reply choice outside the asked criteria, or a legend whose size differs from the criteria, is `decider_bad_response`.
 - The engine check found that `docs/actors/decider.md` gave the import as `rules import docs/rules/decider`, which fails "nothing to import" because the bundle holds only the actor. The guide now says `actors import`, which is what the rollout used.
 - The scope probe of the live gateway confirmed the score shape: `legend` and `probabilities` keyed by string index. The scope survey had only inferred it.
-- `d2` (proposed) — the operator's `/code-review medium` of #85 found two defects, and the operator asked for them fixed ("Please fix all 8"):
+- `d2` (approved) — the operator's `/code-review medium` of #85 found two defects, and the operator asked for them fixed ("Please fix all 8"):
   - the model rule now holds a decider by model and domain (`clef@general`), so the guide's one actor per domain works; a second actor for the same domain is still refused `model_taken`;
   - a reply nested deeper than `json` can parse fails `decider_bad_response` instead of raising.
 
@@ -51,7 +51,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | Plan item | Reason for divergence | Classification |
 |-----------|-----------------------|----------------|
 | `t5` (`d1`, approved) | rollouts of the shared engine need the operator; the live check ran on a local node first, then on the engine after the approved rollout | acceptable |
-| `t1`, `t2` (`d2`, proposed) | the review fixes: the model key with the domain, and the nested-reply guard | acceptable |
+| `t1`, `t2` (`d2`, approved) | the review fixes: the model key with the domain, and the nested-reply guard | acceptable |
 | `t1` | stricter reply checks than c19 states (b1) | acceptable |
 
 ## Evidence

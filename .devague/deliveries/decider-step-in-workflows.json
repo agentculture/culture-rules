@@ -2,7 +2,7 @@
   "plan_slug": "decider-step-in-workflows",
   "schema_version": 2,
   "created": "2026-10-24T00:37:47Z",
-  "updated": "2026-10-24T05:30:47Z",
+  "updated": "2026-10-24T05:55:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -27,7 +27,7 @@
         "t1"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 16
     }
