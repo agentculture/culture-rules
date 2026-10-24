@@ -66,6 +66,12 @@ Quoted verbatim from the `devague summary` skeleton:
   - `library.push`'s actor holds `upload_path`, the `kinds` and `visibilities` it accepts, and an optional `queue_path` (unset: upload only, no device id);
   - each push names its `kind` (no built-in list, no default `article`) and may name a `visibility`; the editor offers what the chosen actor lists;
   - configuration: the library actor points at culture-library (`127.0.0.1:8796`, `grant:LIBRARY_PUSH_API_KEY`, no queue); transcripts go as `transcript`, `private`, and the newspaper as `newspaper`, `public`.
+- `d9` (approved, the operator's) — the operator's `/code-review medium` of #91 found 8 issues; the operator: "fix all". The fixes:
+  - the culture-rules library key is re-minted `--private` (key 3; 1 and 2 revoked), so re-pushing an item another key uploaded returns that item instead of 409;
+  - the editor drops a `device_id`, `kind` or `visibility` the newly chosen actor does not use or list;
+  - `library.push` ignores `device_id` again without a `queue_path` (the colleague review's "check it either way" made a hidden value fatal);
+  - `workflows describe` names the kind and visibility; `_choice` takes `required=`; strings that still named xteink as the target are reworded;
+  - no change for the newspaper's push fence: the migration kept xteink's item ids, so a recorded `item_id` is the same issue in culture-library.
 
 ## Drift From Plan
 
@@ -80,6 +86,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t2` | `max_tokens` 400 → 2000 after the live check | acceptable |
 | `t1` (`d7`, approved) | the review fixes: the summary-only cache, the title's local time, one file cap | acceptable |
 | `t4` (`d7`, approved) | the review fixes in the editor: the picker's params and kinds, the `either` sentence and chain edges | acceptable |
+| `t3` (`d9`, approved) | the #91 review fixes: moot params dropped in the editor, `device_id` ignored without a queue, the key minted `--private` (b6) | acceptable |
 | `t3` (`d8`, approved) | the library is configuration on the actor, and the push goes to culture-library with no device queue (b4, b5); b3's device queue now applies only to a library actor with a `queue_path` | acceptable |
 
 ## Evidence
@@ -103,7 +110,7 @@ Quoted verbatim from the `devague summary` skeleton:
   - the full suite passed with 7256 passed and 9 skipped; vitest 827 of 827, tsc clean, e2e `workflows-described` 19 of 19; all lint gates clean;
   - sensitivity: 40 of the 138 `test_library_push.py` tests fail against `origin/main`'s `library.py` (e17);
   - live: 0.27.0 rolled out with the operator's approval (`rollout verify` passed: 4 nodes and the API on 0.27.0, the 3 snapshot rules enabled). The live actor points at culture-library, `daily-newspaper` (rev 5) has its push enabled again as `newspaper`/`public`, and `transcript-to-reader` (rev 2) pushes `transcript`/`private`. No live push has run yet: the first is the next 05:00 newspaper.
-- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. e16 (proposed) records the operator's failed device check for o13. d8, e17–e19, b4 and b5 are approved.
+- devague: obligations o1–o14 and evidence e1–e15 are filed and approved by the operator, with d4–d6 and b1–b3. e16 (proposed) records the operator's failed device check for o13. d8, e17–e19, b4 and b5 are approved; d9 is approved, and e20–e22 and b6 are proposed.
 - commits: `062c9c8..1883d88` on `rules/transcript-reader`.
 - issues: culture-rules#83 (the decisions log), #82 (lighter test runs), agentculture/xteink#8, agentculture/pocketsync#12.
 

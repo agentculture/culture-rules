@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T20:23:19Z",
+  "updated": "2026-10-24T20:28:38Z",
   "deviations": [
     {
       "id": "d1",
@@ -495,6 +495,63 @@
       "status": "approved",
       "superseded": false,
       "seq": 27
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o7",
+      "test_ref": "web/src/rules/ActionPicker.newspaper.test.tsx: drops a device id, kind or visibility the newly chosen actor does not use or list; keeps a kind the newly chosen actor also lists",
+      "behavior_text": "switching the library.push actor drops a device_id the new actor has no queue_path for and a kind or visibility it does not list, and keeps one it lists",
+      "contract_text": "d9: the editor drops values the newly chosen actor does not use or list (#91 review 2, 8)",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "the drop test fails with the libraryCarryOver call removed and passes with it; vitest 830/830",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T20:28:37Z",
+        "commit": "31bf4d1"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_library_push.py (142); tests/model/test_describe.py; tests/model/test_describe_paragraphs_fixture.py",
+      "behavior_text": "without a queue_path a malformed action or actor device_id is ignored and the upload completes; describe reads 'library.push as library kind newspaper (public)'",
+      "contract_text": "d9: device_id ignored without a queue; describe names kind and visibility (#91 review 3, 4)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite 7261 passed at this commit; e2e workflows-described 19/19 with the regenerated fixture",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T20:28:37Z",
+        "commit": "31bf4d1"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o7",
+      "test_ref": "live key rotation on spark (culture-library container + grant + culture-rules-node)",
+      "behavior_text": "culture-library key 3 (write, newspaper+transcript, private) is the only live culture-rules key (1 and 2 revoked); the restarted spark node's injected key answers 200; rollout verify passes",
+      "contract_text": "d9: the culture-rules library key is minted --private (#91 review 1)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "keys list and the node's own injected key checked against GET /api/library; a re-push of a migrated item itself not exercised (it would write to the live library)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T20:28:37Z",
+        "commit": "31bf4d1"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
     }
   ],
   "deltas": [
@@ -563,6 +620,19 @@
       "evidence_refs": [],
       "origin": "llm",
       "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "library.push ignores device_id entirely when the actor has no queue_path (b4's checked-either-way is reverted); the editor drops a device_id, kind or visibility the newly chosen actor does not use or list",
+      "caused_by": [
+        "d9",
+        "b4"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
       "superseded": false
     }
   ],
