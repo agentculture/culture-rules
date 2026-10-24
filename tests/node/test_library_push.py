@@ -698,6 +698,12 @@ def test_without_a_queue_path_the_push_only_uploads():
     assert [call.url for call in transport.calls] == [UPLOAD_URL]
 
 
+@pytest.mark.parametrize("device", ["reader-1", "-1", 0])
+def test_without_a_queue_path_a_bad_device_id_is_still_refused(device):
+    result = _refused(_store(_params(**UPLOAD_ONLY)), device_id=device)
+    assert result.error.startswith(INVALID_REQUEST)
+
+
 def test_without_a_queue_path_a_device_id_is_not_needed_or_used():
     transport = FakeTransport(UPLOAD_OK)
     port, _ = _port(_store(_params(**UPLOAD_ONLY)), transport)

@@ -751,6 +751,7 @@ function ParamFields(props: Readonly<ParamFieldsProps>) {
       ) : null}
       {Object.entries(props.spec.params)
         .filter(([name]) => name !== "actor" && !(discord && (name === "guild" || name === "channel")))
+        .filter(([name]) => !hiddenForActor(props.kind, name, props.actor))
         .map(([name, p]) => (
           <ParamField key={name} name={name} p={p} {...props} />
         ))}
@@ -764,6 +765,17 @@ interface ChoiceFieldProps {
   p: ParamSpec;
   value: unknown;
   onPick: (value: string | undefined) => void;
+}
+
+/**
+ * library.push params the chosen actor makes moot: `device_id` without a `queue_path` (the
+ * library has no device queue), `visibility` when the actor lists no visibilities.
+ */
+function hiddenForActor(kind: string, name: string, actor: Actor | undefined): boolean {
+  if (kind !== "library.push" || !actor) return false;
+  if (name === "device_id") return actor.params?.queue_path == null;
+  if (name === "visibility") return actorChoices(actor, "visibilities").length === 0;
+  return false;
 }
 
 /** The string list an actor's `params[key]` holds (library.push `kinds`), as choices. */

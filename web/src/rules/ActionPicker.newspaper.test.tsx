@@ -33,7 +33,20 @@ const NEWSPAPER_ACTORS: Actor[] = [
     name: "xteink",
     kind: "service",
     enabled: true,
-    params: { base_url: "http://localhost:8080", kinds: ["newspaper", "transcript"], visibilities: ["private", "public"] },
+    params: {
+      base_url: "http://localhost:8080",
+      upload_path: "/api/library",
+      queue_path: "/api/devices/{device_id}/queue",
+      kinds: ["newspaper", "transcript"],
+      visibilities: ["private", "public"],
+    },
+  },
+  {
+    id: "library",
+    name: "Culture library",
+    kind: "service",
+    enabled: true,
+    params: { base_url: "http://localhost:8796", upload_path: "/api/library", kinds: ["newspaper"] },
   },
 ];
 
@@ -73,7 +86,7 @@ describe("newspaper kinds offered", () => {
     expect(ids("email.send")).toEqual(["mailer"]);
     expect(ids("search.web")).toEqual(["brave"]);
     expect(ids("llm.complete")).toEqual(["cortex"]);
-    expect(ids("library.push")).toEqual(["xteink"]);
+    expect(ids("library.push")).toEqual(["xteink", "library"]);
   });
 });
 
@@ -189,6 +202,14 @@ describe("library.push", () => {
         .map((o) => (o as HTMLOptionElement).value);
     expect(values("Kind")).toEqual(["", "newspaper", "transcript"]);
     expect(values("Visibility")).toEqual(["", "private", "public"]);
+  });
+
+  it("hides the device id without a queue_path and the visibility without visibilities", async () => {
+    render(<Harness />);
+    await pick("library.push", "library");
+    expect(screen.queryByLabelText("Device id")).toBeNull();
+    expect(screen.queryByLabelText("Visibility")).toBeNull();
+    expect(optionValues("Kind")).toEqual(["", "newspaper"]);
   });
 
   it("needs the content, a title and a kind", () => {

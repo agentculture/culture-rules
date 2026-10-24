@@ -5,8 +5,13 @@ Params (``culture_rules.model.action_kinds``): ``actor`` (falls back to ``contex
 ``content_base64`` (the EPUB bytes, base64), ``title``, ``kind`` (one of the actor's
 ``kinds``), optional ``visibility`` (one of the actor's ``visibilities``), optional
 ``author`` (default ``culture-rules``) and optional ``device_id`` (overrides the actor's;
-used only when the actor has a ``queue_path``). A kind or visibility the actor does not
-list fails ``invalid_request``.
+used only when the actor has a ``queue_path``, but checked either way). A kind or
+visibility the actor does not list fails ``invalid_request``.
+
+What stays fixed is the wire contract both known libraries share (xteink's and
+culture-library's): the multipart field names, the ``{"item": {"id"}, "created"}`` upload
+reply and the ``{"item_id"}`` queue body and ``{"id"}`` reply. A library with another
+contract needs code, not configuration.
 
 The bound actor is a ``service`` actor whose params describe the library; nothing about it
 is built into this module::
@@ -431,10 +436,9 @@ class LibraryPushPort:
         base = _base_url(params.get("base_url"))
         upload_path = _path(params.get("upload_path"), "upload_path")
         queue_path = params.get("queue_path")
-        device = None
+        device = _device(input.get("device_id")) or _device(params.get("device_id"))
         if queue_path is not None:
             queue_path = _path(queue_path, "queue_path", slot=True)
-            device = _device(input.get("device_id")) or _device(params.get("device_id"))
             if device is None:
                 raise _Refused("device_missing", "no device_id on the action or the actor")
         kinds = _words(params.get("kinds"), "kinds")

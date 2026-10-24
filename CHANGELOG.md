@@ -15,6 +15,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Migration: 0.27.0 refuses the old shapes before any request. An existing library actor
+  needs `upload_path` and `kinds` added (plus `queue_path`, e.g.
+  `/api/devices/{device_id}/queue`, to keep queueing on a device), and every stored
+  `library.push` step needs a `kind` from that list (`docs/actors/library.md`)
 - library.push's `kind` is required and must be one of the actor's `kinds`: there is no built-in kind list and no default `article`
 - The newspaper and transcripts bundles point the library actor at culture-library (127.0.0.1:8796, grant LIBRARY_PUSH_API_KEY, no device queue): the newspaper is pushed as kind `newspaper`, visibility `public`; transcripts as kind `transcript`, visibility `private`
 - docs/actors/library.md, the newspaper and transcripts-on-the-reader operations docs and the harness prompt files describe the library as configuration

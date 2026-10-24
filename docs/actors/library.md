@@ -7,6 +7,11 @@ that library. If the library has a device queue, the action also queues the
 item for a reader. Nothing about any library is built into culture-rules
 (culture-rules#86).
 
+**Upgrading from 0.26 or earlier:** the push refuses the old shapes before any
+request. Add `upload_path` and `kinds` to an existing library actor (and
+`queue_path` to keep queueing on a device), and give every stored
+`library.push` step a `kind` from that list.
+
 Today's library is **culture-library** (library.culture.dev). It has no
 device queue: a reader pulls from it. xteink's own library (with a queue) is
 shown below as the second shape.
@@ -107,10 +112,12 @@ The `library.push` action takes:
 | `kind` | yes | one of the actor's `kinds` |
 | `visibility` | no | one of the actor's `visibilities`; unset, the library decides |
 | `author` | no | default `culture-rules` |
-| `device_id` | no | overrides the actor's `device_id`; used only with a `queue_path`, and then one of the two is needed |
+| `device_id` | no | overrides the actor's `device_id`; used only with a `queue_path` (then one of the two is needed), and refused when malformed either way |
 
 The editor's action picker offers the kinds and visibilities the chosen
-actor lists.
+actor lists. It shows the visibility field only when the actor lists
+visibilities, and the device id field only when the actor has a
+`queue_path`.
 
 The push is one or two calls, each with `Authorization: Bearer <key>`:
 
