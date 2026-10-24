@@ -79,6 +79,9 @@
     "inputs": {
       "audio_path": "trigger.data.outputs.audio_path",
       "audio_sha256": "trigger.data.outputs.audio_sha256",
+      "device_id": {
+        "$var": "newspaper_device"
+      },
       "empty_window_count": "trigger.data.outputs.empty_window_count",
       "language": "trigger.data.outputs.language",
       "output_dir": "trigger.data.outputs.output_dir",

@@ -153,6 +153,7 @@ class World:
         for r in bundle.bundle.rules:
             self.base.put("rules", {**r.to_dict(), "enabled": True})
         self.base.put_variable(DIR_VAR, self.out_dir, updated_by="test")
+        self.base.put_variable("newspaper_device", 3, updated_by="test")  # the operator's setup
         self.stt = StubTranscribe()
         self.library = StubLibrary()
         self.llm = FakeLlm()
@@ -322,3 +323,9 @@ def test_a_rerun_whose_summary_answers_differently_still_adds_no_second_book(wor
     assert {p["title"] for p in pushes} == {f"{DAY} meeting"}
     assert len({p["content_base64"] for p in pushes}) == 1
     assert len(world.library.items) == 1
+
+
+def test_the_book_is_queued_on_the_newspaper_device(world):
+    world.land(language="he")
+    (push,) = world.library.pushes
+    assert push["device_id"] == 3

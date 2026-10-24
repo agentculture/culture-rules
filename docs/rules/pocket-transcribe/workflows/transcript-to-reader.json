@@ -126,6 +126,12 @@
       "source_port": "title",
       "target": "push",
       "target_port": "title"
+    },
+    {
+      "source": "inputs",
+      "source_port": "device_id",
+      "target": "push",
+      "target_port": "device_id"
     }
   ],
   "enabled": true,
@@ -178,6 +184,12 @@
       "name": "empty_window_count",
       "required": true,
       "type": "integer"
+    },
+    {
+      "description": "the Xteink device to queue on (newspaper_device); unset: the actor's device_id",
+      "name": "device_id",
+      "required": false,
+      "type": "any"
     }
   ],
   "name": "Put a transcript on the reader",
@@ -635,6 +647,7 @@
           "params": {
             "actor": "newspaper-library",
             "content_base64": "inputs.content_base64",
+            "device_id": "inputs.device_id",
             "kind": "article",
             "title": "inputs.title"
           }
@@ -657,6 +670,12 @@
           "name": "title",
           "required": true,
           "type": "string"
+        },
+        {
+          "description": "",
+          "name": "device_id",
+          "required": false,
+          "type": "any"
         }
       ],
       "kind": "code",

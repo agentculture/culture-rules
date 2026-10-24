@@ -73,8 +73,9 @@ The actors already exist from the other bundles: `stt-he` from
    culture-rules rules import docs/rules/pocket-transcribe --apply
    ```
 
-2. Check that the reader has a device (`newspaper-library`'s `device_id`), as for the
-   newspaper.
+2. Check that the variable `newspaper_device` holds the reader's device id, as for the
+   [newspaper](newspaper.md). The rule passes it to the push. Until it is set, the rule
+   does not fire.
 3. Enable the rule:
 
    ```bash
@@ -97,7 +98,8 @@ cat > inputs.json <<JSON
  "output_dir": "$HOME/.local/share/culture-rules/transcripts",
  "recorded_at": "<meta.json recording_at>",
  "language": "<meta.json language, or omit>",
- "window_count": 1, "empty_window_count": 0}
+ "window_count": 1, "empty_window_count": 0,
+ "device_id": <newspaper_device>}
 JSON
 culture-rules workflows run transcript-to-reader --inputs-json @inputs.json --apply
 ```
