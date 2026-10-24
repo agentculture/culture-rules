@@ -2,7 +2,7 @@
   "plan_slug": "transcripts-on-the-reader",
   "schema_version": 2,
   "created": "2026-10-23T21:30:08Z",
-  "updated": "2026-10-24T19:06:03Z",
+  "updated": "2026-10-24T19:39:30Z",
   "deviations": [
     {
       "id": "d1",
@@ -424,6 +424,63 @@
       "status": "proposed",
       "superseded": false,
       "seq": 22
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_library_push.py (138 tests)",
+      "behavior_text": "the upload path, queue path, kinds and visibilities come from the actor; without queue_path only the upload is made and queue_id is null; a kind or visibility the actor does not list fails invalid_request before any request; bad paths/kinds/visibilities fail invalid_actor",
+      "contract_text": "d8: library.push reads its library from the actor; each push names its kind; no built-in kinds or default",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "40 of the 138 tests fail against origin/main's library.py and all pass with the change (swapped the module and re-ran)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T19:18:17Z",
+        "commit": "ecd0cb4"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o7",
+      "test_ref": "tests/rules/test_newspaper_flow.py; tests/node/test_transcript_reader_flow.py; tests/rules/test_newspaper_bundle.py",
+      "behavior_text": "the shipped newspaper, on a culture-library double, uploads one item as kind newspaper, visibility public, with no queue call; the reader flow pushes kind transcript, visibility private; the shipped actor holds upload_path, kinds, visibilities, no queue_path and grant LIBRARY_PUSH_API_KEY",
+      "contract_text": "d8: the bundles point at culture-library; newspaper public, transcripts private (operator 2026-10-24)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "end-to-end flows on the real ports and the shipped bundle files; full suite 7256 passed at this commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T19:18:17Z",
+        "commit": "ecd0cb4"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o7",
+      "test_ref": "web/src/rules/ActionPicker.newspaper.test.tsx; ActionPicker.transcript.test.tsx",
+      "behavior_text": "the action picker offers exactly the kinds and visibilities the chosen library actor lists and saves them; kind is required (no built-in options)",
+      "contract_text": "d8: the editor reads both choices from the actor",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest 827/827, tsc clean, e2e workflows-described 19/19 with the regenerated fixture",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T19:18:17Z",
+        "commit": "ecd0cb4"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 27
     }
   ],
   "deltas": [
@@ -465,6 +522,31 @@
       "evidence_refs": [
         "e7"
       ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "library.push: kind is required and checked against the actor's kinds (was: optional, book|article|transcript, default article); visibility added; the device queue happens only when the actor has a queue_path",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "the transcript push goes to culture-library as kind transcript, visibility private, with no device queue (b3's queue on newspaper_device applies only to a library actor with a queue_path)",
+      "caused_by": [
+        "d8",
+        "b3"
+      ],
+      "evidence_refs": [],
       "origin": "llm",
       "status": "approved",
       "superseded": false
