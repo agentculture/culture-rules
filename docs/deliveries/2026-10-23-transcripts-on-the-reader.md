@@ -83,7 +83,7 @@ Quoted verbatim from the `devague summary` skeleton:
 - live (local node, push stubbed): one real Hebrew recording, 2 runs.
   - Both succeeded, the summary was used, and the title has the `<date> <word>` shape.
   - The book is RTL, and both runs pushed the same bytes. Each run took 39–46 s.
-- live (deployed engine 0.26.0, after the rollout): `rollout verify` passed (4 nodes on 0.26.0, API 0.26.0, engine running, the 2 snapshot rules enabled). Then `transcribe-file-he` was run directly for recording `a41fdac7bee2`, whose result was already on disk (run `run-1ac3947609254ae19e941f1a71d44256`). `pocket-to-reader` started exactly one reader run (`run-75def4e5483f342bc068c65b612f978f`), with every step on spark. It gave the same book, item 29 "2026-10-15 summer", `created: false`. Device 3's queue holds the 33 transcript entries plus the day's newspaper.
+- live (deployed engine 0.26.0, after the rollout): `rollout verify` passed (4 nodes on 0.26.0, API 0.26.0, engine running, the 2 snapshot rules enabled). Then `transcribe-file-he` was run directly for recording `a41fdac7bee2`, whose result was already on disk (run `run-1ac3947609254ae19e941f1a71d44256`). `pocket-to-reader` started exactly one reader run (`run-75def4e5483f342bc068c65b612f978f`), with every step on spark. It gave the same book (item 29, the same title), `created: false`. Device 3's queue holds the 33 transcript entries plus the day's newspaper.
 - devague: obligations o1–o14 and evidence e1–e15 are filed, all proposed. o13 (the device) has no evidence yet.
 - commits: `062c9c8..1883d88` on `rules/transcript-reader`.
 - issues: culture-rules#83 (the decisions log), #82 (lighter test runs), agentculture/xteink#8, agentculture/pocketsync#12.
