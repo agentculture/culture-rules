@@ -93,7 +93,7 @@ function termWorkflow(term: PredecessorTerm): string {
 
 /** An OR of branches that each name exactly one predecessor (through AND): their distinct ids, in order. */
 export function eitherSources(condition: Condition | null | undefined): string[] {
-  if (!condition || condition.op !== "or") return [];
+  if (condition?.op !== "or") return [];
   const ids: string[] = [];
   for (const branch of condition.args) {
     const terms = predecessorTerms(branch);
@@ -135,7 +135,7 @@ function fromLabelOf(predecessor: Predecessor): string {
 
 /** `a` / `a or b` / `a, b or c`. */
 export function eitherText(ids: readonly string[]): string {
-  return ids.length === 1 ? ids[0] : `${ids.slice(0, -1).join(", ")} or ${ids[ids.length - 1]}`;
+  return ids.length === 1 ? ids[0] : `${ids.slice(0, -1).join(", ")} or ${ids.at(-1)}`;
 }
 
 /** JSON structural equality: object key order is irrelevant, array order is not. */
@@ -188,16 +188,19 @@ export function sharedValues(rules: readonly Rule[]): Record<string, SharedValue
   }));
 }
 
+/** The workflows a continuation links back to: each of an `either`, else its one linked source. */
+function linkSources(entry: Continuation): readonly string[] {
+  if (entry.predecessor.kind === "either") return entry.predecessor.workflowIds;
+  if (entry.fromWorkflowId === null) return [];
+  return [entry.fromWorkflowId];
+}
+
 /** Undirected connected components of explicit continuation links, including cycles. */
 function chainsFor(workflows: FoldWorkflow[], entries: EntryPoint[], continuations: Continuation[]): Chain[] {
   const neighbours = new Map(workflows.map((workflow) => [workflow.id, new Set<string>()]));
   for (const entry of continuations) {
-    const sources = entry.predecessor.kind === "either"
-      ? entry.predecessor.workflowIds
-      : entry.fromWorkflowId === null ? [] : [entry.fromWorkflowId];
-    for (const from of sources) {
-      // A dangling source remains on its continuation but is not a stored workflow.
-      if (!neighbours.has(from)) continue;
+    // A dangling source remains on its continuation but is not a stored workflow.
+    for (const from of linkSources(entry).filter((id) => neighbours.has(id))) {
       neighbours.get(from)!.add(entry.workflowId);
       neighbours.get(entry.workflowId)!.add(from);
     }

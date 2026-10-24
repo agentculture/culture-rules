@@ -101,6 +101,13 @@ function Overrides({ items }: Readonly<{ items: { rule: Rule; text: string }[] }
   );
 }
 
+/** How an onward continuation's sentence starts: after any run, after one of an `either`, or after this run. */
+function onwardLead(entry: Continuation): string {
+  if (entry.predecessor.kind === "any") return "after any workflow's run ";
+  if (entry.predecessor.kind === "either") return `when a run of ${eitherText(entry.predecessor.workflowIds)} `;
+  return "when this run ";
+}
+
 /** A continuation that starts after this workflow, as a read-only link to the workflow it starts (D2). */
 function Onward({ entry, nameOf, hrefFor }: Readonly<{ entry: Continuation; nameOf: (id: string) => string; hrefFor: (id: string) => string }>) {
   const rest = conditionRows(entry.rule.condition, predecessorTerms(entry.rule.condition)).map(rowText);
@@ -111,11 +118,7 @@ function Onward({ entry, nameOf, hrefFor }: Readonly<{ entry: Continuation; name
         <span aria-hidden="true"> ›</span>
       </Link>
       <span className="fold-then__words">
-        {entry.predecessor.kind === "any"
-          ? "after any workflow's run "
-          : entry.predecessor.kind === "either"
-            ? `when a run of ${eitherText(entry.predecessor.workflowIds)} `
-            : "when this run "}
+        {onwardLead(entry)}
         {runEventWords(entry.rule.trigger)}
         {rest.length ? " and " : ""}
         {rest.map((text, i) => (

@@ -79,7 +79,9 @@ def test_he_is_rtl_and_en_is_ltr() -> None:
         assert 'page-progression-direction="rtl"' in opf
         assert "<dc:language>he</dc:language>" in opf
         page = z.read("OEBPS/c2.xhtml").decode()
-        assert 'lang="he"' in page and 'xml:lang="he"' in page and 'dir="rtl"' in page
+        assert 'lang="he"' in page
+        assert 'xml:lang="he"' in page
+        assert 'dir="rtl"' in page
     z = _zip(tr.render_transcript(_doc("en"), recorded_at=AT))
     assert 'page-progression-direction="ltr"' in z.read("OEBPS/content.opf").decode()
     assert 'dir="ltr"' in z.read("OEBPS/c2.xhtml").decode()
@@ -158,7 +160,8 @@ def test_port_outputs_hold_no_text(root: Path) -> None:
         "segment_count",
     }
     flat = json.dumps({k: v for k, v in out.items() if k != "content_base64"})
-    assert PRIVATE_TEXT not in flat and PRIVATE_SUMMARY not in flat
+    assert PRIVATE_TEXT not in flat
+    assert PRIVATE_SUMMARY not in flat
     assert PRIVATE_SUMMARY in _zip(out).read("OEBPS/c1.xhtml").decode()
 
 
@@ -166,7 +169,8 @@ def test_path_outside_root_refused_before_reading(root: Path, tmp_path: Path) ->
     outside = tmp_path / "other.json"
     outside.write_text("not json at all")
     result = _invoke(root, outside)
-    assert result.outcome != COMPLETED and "path_refused" in str(result.error)
+    assert result.outcome != COMPLETED
+    assert "path_refused" in str(result.error)
 
 
 def test_symlink_escape_refused(root: Path, tmp_path: Path) -> None:
@@ -175,7 +179,8 @@ def test_symlink_escape_refused(root: Path, tmp_path: Path) -> None:
     link = root / "link.json"
     link.symlink_to(outside)
     result = _invoke(root, link)
-    assert result.outcome != COMPLETED and "path_refused" in str(result.error)
+    assert result.outcome != COMPLETED
+    assert "path_refused" in str(result.error)
 
 
 def test_missing_root_or_relative_path_refused(root: Path) -> None:
