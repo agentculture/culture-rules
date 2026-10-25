@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T06:35:23Z",
+  "updated": "2026-10-25T06:45:02Z",
   "deviations": [
     {
       "id": "d1",
@@ -474,6 +474,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 26
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o16",
+      "test_ref": "live, no manual step: pocketsync created event 2026-10-25T06:31:11Z (recording 4b859cbe) -> rule pocket-recording-created run-7cf58778 -> pocket-transcribe-he run-4a3c662f -> pocket-to-reader run-89a99d73; library item 58",
+      "behavior_text": "a new recording went from its created event to a Markdown transcript item (58, '2026-10-25 0830 stickers', kind transcript) in about 70 s with no manual step; its answer had 0 action items, so no to-do item was due",
+      "contract_text": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "rule-fired live runs succeeded; run outputs read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:32:30",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
     }
   ],
   "deltas": [
