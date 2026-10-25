@@ -1,4 +1,6 @@
 import { useId, useState } from "react";
+import { getDiscordTargets } from "../api/actors";
+import { useDiscordTargets, type LoadTargets } from "./useDiscordTargets";
 import type { Actor, AppActorParams, RunnerActorParams } from "../api/actors";
 import type {
   ProbeMode,
@@ -186,8 +188,123 @@ export const QUEUE_SURFACE: Surface = {
   events: QUEUE_EVENTS,
 };
 
+const idList = (text: string) =>
+  text
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+/** A comma-separated list field; the text is kept as typed and the parsed list is what is saved. */
+function ListField({ label, hint, value, onList }: Readonly<{ label: string; hint?: string; value: string[]; onList: (l: string[]) => void }>) {
+  const [text, setText] = useState(value.join(", "));
+  const hintId = useId();
+  return (
+    <div className="trigger-picker__field">
+      <label>
+        <span>{label}</span>
+        <input
+          value={text}
+          aria-describedby={hint ? hintId : undefined}
+          spellCheck={false}
+          onChange={(e) => {
+            setText(e.target.value);
+            onList(idList(e.target.value));
+          }}
+        />
+      </label>
+      {hint ? (
+        <small id={hintId} className="trigger-picker__hint">
+          {hint}
+        </small>
+      ) : null}
+    </div>
+  );
+}
+
+interface DiscordFiltersProps {
+  name: string;
+  actorId: string;
+  t: EventTrigger;
+  load: LoadTargets;
+  onChange: (trigger: Trigger) => void;
+}
+
+/**
+ * Filters for a discord.* event trigger (culture_rules/model/discord_filters.py): channels
+ * (all, or picked from what the bot sees), users, roles and bots. An empty filter is dropped, so
+ * a rule with none keeps its stored shape.
+ */
+function DiscordFilters({ name, actorId, t, load, onChange }: Readonly<DiscordFiltersProps>) {
+  const { targets, failed } = useDiscordTargets(actorId, load);
+  const params = t.params;
+  const channels = params.channels;
+  const [only, setOnly] = useState(Array.isArray(channels) && channels.length > 0);
+  const set = (patch: Partial<EventTrigger["params"]>) => {
+    const next: Record<string, unknown> = { ...params, ...patch };
+    for (const k of Object.keys(patch)) {
+      const v = next[k];
+      if (v === undefined || v === false || (Array.isArray(v) && v.length === 0)) delete next[k];
+    }
+    onChange({ kind: "event", params: next as unknown as EventTrigger["params"] });
+  };
+  const picked = channels ?? [];
+  const listed = new Set((targets?.guilds ?? []).flatMap((g) => g.channels.map((c) => c.id)));
+  const toggle = (id: string) => set({ channels: picked.includes(id) ? picked.filter((c) => c !== id) : [...picked, id] });
+  return (
+    <>
+      <fieldset className="trigger-picker__filter">
+        <legend>Channels</legend>
+        <label className="trigger-kind">
+          <input type="radio" name={`${name}-channels`} checked={!only} onChange={() => { setOnly(false); set({ channels: undefined }); }} />
+          <span>All channels</span>
+        </label>
+        <label className="trigger-kind">
+          <input type="radio" name={`${name}-channels`} checked={only} onChange={() => setOnly(true)} />
+          <span>Only these channels</span>
+        </label>
+        {only && failed ? (
+          <>
+            <Empty>Could not load the bot&apos;s channels; type the channel ids instead.</Empty>
+            <ListField label="Channel ids" value={picked} onList={(l) => set({ channels: l })} />
+          </>
+        ) : null}
+        {only && !failed && !targets ? <output className="trigger-picker__words">Loading the bot&apos;s channels…</output> : null}
+        {only && targets
+          ? targets.guilds.map((g) => (
+              <fieldset key={g.id} className="trigger-picker__filter">
+                <legend>{g.name}</legend>
+                {g.channels.map((c) => (
+                  <label key={c.id} className="trigger-kind">
+                    <input type="checkbox" checked={picked.includes(c.id)} onChange={() => toggle(c.id)} />
+                    <span>{c.visible ? `#${c.name}` : `#${c.name} (the bot was not added)`}</span>
+                  </label>
+                ))}
+              </fieldset>
+            ))
+          : null}
+        {only && targets
+          ? picked
+              .filter((id) => !listed.has(id))
+              .map((id) => (
+                <label key={id} className="trigger-kind">
+                  <input type="checkbox" checked onChange={() => toggle(id)} />
+                  <span>{id}</span>
+                </label>
+              ))
+          : null}
+      </fieldset>
+      <ListField label="Users" hint="Ids or usernames, separated by commas. Empty means anyone." value={params.users ?? []} onList={(l) => set({ users: l })} />
+      <ListField label="Roles" hint="Role ids. Roles apply from Release 2 on reactions and commands." value={params.roles ?? []} onList={(l) => set({ roles: l })} />
+      <label className="trigger-kind">
+        <input type="checkbox" checked={params.include_bots === true} onChange={(e) => set({ include_bots: e.target.checked })} />
+        <span>Include messages from bots</span>
+      </label>
+    </>
+  );
+}
+
 /** Event trigger: the app (surface) that declares the event, then the event itself. */
-function EventFields({ name, t, actors: apps, onChange }: Readonly<FieldsProps<EventTrigger> & { actors: Actor[] }>) {
+function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsProps<EventTrigger> & { actors: Actor[]; load: LoadTargets }>) {
   const eventType = t.params?.type ?? "";
   const surfaces: Surface[] = [
     ...apps.map((a) => ({ id: a.id, name: a.name, events: eventsOf(a) })),
@@ -250,6 +367,9 @@ function EventFields({ name, t, actors: apps, onChange }: Readonly<FieldsProps<E
           ))}
         </select>
       </label>
+      {eventType.startsWith("discord.") && apps.some((a) => a.id === surface) ? (
+        <DiscordFilters key={surface} name={name} actorId={surface} t={t} load={load} onChange={onChange} />
+      ) : null}
       {surface === ENGINE_SURFACE.id ? (
         <p className="trigger-picker__words" data-testid="run-event-hint">
           Fires when any rule's run ends. Add a condition on the run's workflow
@@ -381,6 +501,8 @@ interface Props {
   value: Trigger;
   actors: Actor[];
   onChange: (trigger: Trigger) => void;
+  /** Where a Discord trigger's channels come from (default: the API). */
+  loadDiscordTargets?: LoadTargets;
 }
 
 /**
@@ -393,6 +515,7 @@ export default function TriggerPicker({
   value,
   actors,
   onChange,
+  loadDiscordTargets = getDiscordTargets,
 }: Readonly<Props>) {
   const name = useId();
   const apps = actors.filter((a) => isApp(a) && eventsOf(a).length > 0);
@@ -431,7 +554,7 @@ export default function TriggerPicker({
         </p>
       )}
 
-      {t.kind === "event" ? <EventFields name={name} t={t} actors={apps} onChange={onChange} /> : null}
+      {t.kind === "event" ? <EventFields name={name} t={t} actors={apps} load={loadDiscordTargets} onChange={onChange} /> : null}
 
       {t.kind === "schedule" ? <ScheduleFields name={name} t={t} onChange={onChange} /> : null}
 

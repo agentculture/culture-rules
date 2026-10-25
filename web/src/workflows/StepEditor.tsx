@@ -312,6 +312,16 @@ function ConfigEditor({
   return <ConfigPairs config={config} onConfig={onConfig} onError={onError} />;
 }
 
+/** Built-ins a code step can run, with the typed ports they take and give (builtin: config key). */
+const PORT = (name: string, required: boolean): Port => ({ name, type: "string", required });
+export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: Port[] }> = {
+  "markdown.render": {
+    label: "markdown.render: fields as one Markdown page",
+    inputs: [PORT("title", true), PORT("text", true), PORT("author", false), PORT("source", false), PORT("url", false), PORT("id", false)],
+    outputs: [PORT("markdown", true), PORT("content_base64", true)],
+  },
+};
+
 /**
  * Edit one step: name, kind, typed ports, and — the keyboard path to wiring
  * — where each input comes from, offering only type-compatible sources.
@@ -475,6 +485,35 @@ export function StepEditor({
             </select>
           </label>
         </div>
+        {step.kind === "code" ? (
+          <label className="wf-field">
+            <span>Built-in</span>
+            <select
+              value={typeof config.builtin === "string" ? config.builtin : ""}
+              onChange={(e) => {
+                const { builtin: _drop, ...rest } = config;
+                const b = BUILTINS[e.target.value];
+                onChange(
+                  updateStep(workflow, stepId, {
+                    config: e.target.value ? { ...rest, builtin: e.target.value } : rest,
+                    ...(b && inputs.length === 0 ? { inputs: b.inputs } : {}),
+                    ...(b && outputs.length === 0 ? { outputs: b.outputs } : {}),
+                  }),
+                );
+              }}
+            >
+              <option value="">None</option>
+              {typeof config.builtin === "string" && !(config.builtin in BUILTINS) ? (
+                <option value={config.builtin}>{config.builtin}</option>
+              ) : null}
+              {Object.entries(BUILTINS).map(([k, b]) => (
+                <option key={k} value={k}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="wf-field">
           <span>One-line description</span>
           <textarea
@@ -535,6 +574,7 @@ export function StepEditor({
         </Disclosure>
         <Disclosure title="Configuration" startOpen={Object.keys(config).length > 0}>
           <ConfigEditor
+            key={String(config.builtin ?? "")}
             config={config}
             commands={commands}
             rawConfig={rawConfig}
