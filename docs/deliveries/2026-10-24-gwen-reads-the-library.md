@@ -55,7 +55,7 @@ Quoted verbatim from the `devague summary` skeleton:
   `{item: {id}}`. t1 had assumed the wrapped shape, so every live replace would have failed
   `bad_response`. library.push now accepts either shape for a replace (commit `d0d51d7`, tests
   on culture-library's real shape); an upload still needs `{item: {id}}`.
-- `d3` (proposed, pending the operator) — `/code-review medium` on #93 found that
+- `d3` (approved by the operator) — `/code-review medium` on #93 found that
   `transcript.render` could not read `llm.complete`'s recording answer (its `summary` is a list
   of lines), so every live transcript item would have lost its summary. It also found that a
   string `bind` broke the next push, that an out-of-range `at` made a list unrenderable, that
@@ -85,7 +85,7 @@ Quoted verbatim from the `devague summary` skeleton:
 |-----------|-----------------------|----------------|
 | `t4` / `t7` (`d1`) | Wiring needed render to return the bound `item_id` and bind to accept library.push's int id; t7 changed t4's file. Delta `b6` | needs-follow-up |
 | `t1` (`d2`) | The replace reply shape was guessed before culture-library defined it; fixed to accept the item itself. Evidence `e16`, delta `b7` | acceptable |
-| `t2` / `t3` / `t4` (`d3`, proposed) | Review fixes: render reads the list summary; cache usage, chunked hash; checklist `at` range, string `item_id`, `StoreError` | acceptable |
+| `t2` / `t3` / `t4` (`d3`) | Review fixes: render reads the list summary; cache usage, chunked hash; checklist `at` range, string `item_id`, `StoreError` | acceptable |
 | `t9` | Not run: needs the merge, an approved rollout, and culture-library#10 for the to-do and flip parts | needs-follow-up |
 
 No other task drifted: t1–t3, t5, t6 and t8 delivered against their acceptance criteria (Actual
@@ -149,7 +149,7 @@ is clean, and the full-tree bandit gate passes.
   replace route and `todo` kind: mint a key that can write `todo`, give the library actor
   `formats` [md], `replace_path` and `replace_method`, configure the merge/render/push/bind and
   flip rules, then validate.
-- Records awaiting the operator: deviation `d3` (the review fixes). The operator approved
+- Records: none await the operator. The operator approved deviations `d1`–`d3`,
   obligations `o1`–`o18`, evidence `e1`–`e16`, deltas `b1`–`b3` and `b5`–`b7`, and lapse `l1`,
   and rejected `b4` (a duplicate of `b5`).
 - Embodiment (risk r2): Gwen reads to-dos from the library and sends the checklist comment id in

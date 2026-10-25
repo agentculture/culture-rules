@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T05:36:00Z",
+  "updated": "2026-10-25T05:36:56Z",
   "deviations": [
     {
       "id": "d1",
@@ -42,7 +42,7 @@
         "t4"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 19
     }
