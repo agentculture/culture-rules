@@ -70,6 +70,33 @@
 - The new kinds and events are first-class everywhere a kind lives: model/`action_kinds.py`, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green
   - instruction: uv run pytest -n auto; uv run teken cli doctor . --strict
   - honesty: openapi contract test, CLI/MCP parity test and teken doctor --strict pass, and each new kind has a describe phrase
+- Discord message content stored in the events collection expires: today every gateway message is sunk as a plaintext event with no TTL (only handoffs and quarantine carry TTL indexes), and jetson-bot would add every message of a ~120-channel community server; Discord events get a retention (TTL on a date field, e.g. 30 days) and channels outside every flow's selection are not sunk at all
+  - instruction: ensure() a TTL index on Discord events; test that an unselected channel produces no event
+  - honesty: A Discord event older than the retention is gone from the events collection, and a message in a channel no enabled flow selects is never written
+- The per-actor event id changes only Discord's ids: github.py:363 checks redelivery with `event_id_for`(SURFACE, delivery), so the gateway passes an actor-scoped delivery id (e.g. `<actor>:<message id>`) instead of changing `event_id_for`; old Discord events keep their ids, and at most a message redelivered across the upgrade lands twice
+  - instruction: grep `event_id_for` callers unchanged; github redelivery test still green
+  - honesty: GitHub and Jira event ids are byte-identical before and after; only new Discord events carry the actor in their id
+- Reactions are received with discord.py's raw reaction event (`on_raw_reaction_add`), not `on_reaction_add`, which fires only for messages in the client cache; a reaction on an old message still saves it
+  - instruction: fake-gateway test with a raw reaction payload for an uncached message id
+  - honesty: Reacting to a message posted before the node connected still raises discord.reaction.added
+- Commands are synced by the lease holder only when their definition changes (per guild, so they appear at once, not after global propagation), and an interaction is acknowledged (ephemeral deferral) before the event is written; during a lease handover gap Discord shows the interaction failed, and the user retries
+  - instruction: test: sync called once for an unchanged definition across reconnects; the ack happens before sink
+  - honesty: Reconnecting does not re-register unchanged commands, and every handled interaction is acknowledged within 3 s
+- The live library actor and key accept what Discord flows push: newspaper-library's kinds are newspaper, transcript, todo and formats epub, md, so the kind for Discord items (document or article) and the format pdf are added to the actor and to the culture-library key's kind list (config, at rollout)
+  - instruction: culture-rules actors get newspaper-library shows the added kind and pdf; a pdf push returns 201
+  - honesty: A Discord text item and a pdf attachment push succeed against library.culture.dev with the live actor and key
+- The attachment fetch reuses http.call's vetted connection (exact-host allowlist of Discord's CDN hosts, every resolved address vetted, pinned connect, redirects refused, no proxies) rather than a new HTTP path
+  - instruction: fetch step tests: redirect refused, private-range resolution refused, non-CDN host refused
+  - honesty: The fetch step refuses a redirect, a non-allow-listed host and a CDN name resolving to a private address
+- REST reads (message fetch, history sweep, targets) honour Discord 429 `retry_after` and are bounded per run (pages and channels), and the saved text comes from the REST message, so a message longer than the event's 2000-character cut (Nitro allows 4000) is saved whole
+  - instruction: fake REST test: a 429 then success; a 3000-char message saved whole
+  - honesty: A sweep over many channels survives a 429 without losing its cursor, and a 3000-character message is saved untruncated
+- A save flow carries a who filter: unset means anyone; users lists Discord user ids or usernames; roles lists role ids, and a role the server lets members self-assign is the opt-in; reaction and command events carry the acting user's id, username and role ids so the condition can check them. Discord does not expose members' emails to bots, so users are matched by id or username, not email
+  - instruction: condition tests: unset passes everyone; a users list and a roles list each admit only their members; events carry `user_roles`
+  - honesty: A member outside the configured users and roles cannot trigger a save, and with no filter every member can
+- Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)
+  - instruction: action tests against a fake REST client; describe phrases for both
+  - honesty: A flow can ack with ✅ for one emoji and stay silent for another, and a command user sees an ephemeral saved/skipped reply only they can see
 
 ## Honesty conditions
 
@@ -81,6 +108,7 @@
 - The Markdown render and attachment fetch steps take no Discord-specific input beyond a message mapping, so another surface can reuse them
 - All four gestures save a test message on the live mesh, from both bots
 - The live validation measures each number in the success signal and records it as evidence
+- Deleting a saved Discord message leaves its library item in place, and the doc says how to archive it
 
 ## Success signals
 
@@ -93,17 +121,21 @@
   - instruction: git -C ../culture-library log over the delivery window shows no commit for this frame
 - discord-bot-cli and jetson-ai-lab-cli stay unchanged and do not conflict: both use the jetson-bot token over REST with Intents.none() and a login-act-close run, so culture-rules holding jetson-bot's gateway session duplicates nothing
   - instruction: run discord-bot-cli's live test once after jetson-bot's actor is enabled
+- A saved item is not removed when its Discord message is edited or deleted (c10 excludes those events); removal is a manual archive in culture-library
+  - instruction: docs/actors/discord.md states it
 
 ## Non-goals
 
 - aws-agentcore-chat-bot (Mike Science Bot, its own gateway session on EC2) is not one of the two bots and is not integrated
-- Out of scope for this work: message edit/delete events, threads, embeds, and file upload from discord.message; the inbound gestures the operator chose (reactions, slash commands, schedule, channel messages) and attachments are in scope (operator 2026-10-25)
+- Out of scope for this work: message edit/delete events, threads, embeds, and file upload from discord.message; in scope (operator 2026-10-25): reactions, slash and message commands, the schedule, channel messages, attachments, and the acknowledgement actions discord.react and the ephemeral command reply
 - No rule posts into the Jetson AI Lab Research Group server in this work; culture-rules supports posting there (multi-guild targets and discord.message per actor), and what, when and how is decided later (operator 2026-10-25)
 
 ## Assumptions
 
 - The two bots are Culture.dev (app 1556270251979571320, already the discord-bot actor on spark) and jetson-bot (the Jetson AI Lab Research Group app whose token discord-bot-cli and jetson-ai-lab-cli read as `DISCORD_BOT_TOKEN`); the two servers are 1413999242648748195 (JetsonBot experiments) and 1326246312072581160 (Jetson AI Lab Research Group)
 - Slash commands ride the gateway connection the node already holds (discord.py app commands / `INTERACTION_CREATE`), not an HTTP interactions endpoint, so there is still no public path and no Cloudflare change (docs/actors/discord.md: 'There is no webhook, so no public path')
+- During a rolling upgrade an older node or API reading a list `guild_id` compares str(list) and drops every message or lists no targets; the actor's `guild_id` is switched to a list only after every node and the API run the new release (rollout order)
+  - instruction: rollout doc step: upgrade all nodes, then edit the jetson-bot actor
 
 ## Scope exploration
 
@@ -141,11 +173,31 @@
   - seeds: `c18`
 - `s17` — `culture_rules/apps/discord_gateway.py _on_message, server/app.py:1007, apps/discord_rest.py list_targets, web/src/actors/app-config.ts:86`: `guild_id` is a single string compared with str(); unset means every guild the bot is in; sessions are per actor, so a second actor on the same token is a second gateway session
   - seeds: `c19`
+- `s18` — `challenge pass / security/privacy lens: culture_rules/store/mongo.py ensure(ttl_seconds), events/ingest.py, apps/discord_gateway.py _on_message`: only handoffs (actors/handoff.py:323) and quarantine (events/ingest.py:337) have TTLs; gateway sinks every message of the guild; jetson-ai-lab-cli encrypts its cache, culture-rules events are plaintext
+  - seeds: `c31`
+- `s19` — `challenge pass / adjacent-systems lens: culture_rules/events/hook_sink.py:99,184-237, server/hooks/github.py:363`: `event_id_for` is shared with the GitHub redelivery check; changing its signature would change GitHub ids
+  - seeds: `c32`
+- `s20` — `challenge pass / cheap probe: discord.py 2.7.1 in the uv env`: `app_commands`.CommandTree and `context_menu` exist; Intents has reactions/`guild_reactions`; `on_reaction_add` depends on the message cache (discord.py behaviour)
+  - seeds: `c33`
+- `s21` — `challenge pass / failure-modes lens: apps/discord_gateway.py fencing + GatewayOptions ttl 30s`: the listener is fenced at two thirds of the TTL; another node takes over only after expiry, so up to ~30 s of no listener during handover
+  - seeds: `c34`
+- `s22` — `challenge pass / migration/reversibility lens: discord_gateway._on_message, server/app.py:1007, discord_rest.list_targets`: each compares against str(guild); a list in an old reader silently matches nothing; reversible by setting the string back
+- `s23` — `challenge pass / overlooked-actors lens: jetson-ai-lab-cli CLAUDE.md (public channels, ~120), library.push`: every community member can react/run commands; nothing in the spec limits who triggers a save
+- `s24` — `challenge pass / adjacent-systems lens: live actor newspaper-library (read 2026-10-25), docs/actors/library.md`: kinds \[newspaper, transcript, todo\], formats \[epub, md\]; library key minted with a kind allow-list
+  - seeds: `c36`
+- `s25` — `challenge pass / security lens: culture_rules/node/actions/http.py docstring 1-40`: http.call already pins the vetted address, refuses redirects (RedirectRefused) and ignores proxies
+  - seeds: `c37`
+- `s26` — `challenge pass / operations lens: apps/discord_rest.py (_retry_after used only by post_message), discord_gateway.MAX_CONTENT 2000`: only `post_message` parses 429; `list_targets` raises on 429; event content is cut at 2000
+  - seeds: `c38`
+- `s27` — `challenge pass / observability lens: ops/health.py gateways(), hook_stats per actor, run outputs`: per-actor gateway state and hook stats exist; skipped attachments land as run reasons (h14); nothing further found - residual: no alert when a gateway stays disconnected
+- `s28` — `challenge pass / concurrency lens: engine/named_lease.py, discord_gateway leases, the schedule cursor (c16)`: one lease per actor fences listeners; the sweep cursor is per flow+channel and advances after a successful push (h12); residual: two overlapping sweep runs of the same flow if a run outlasts its period
 
 ## Decisions
 
 - Delivered in three releases, each shippable alone: (1) two bots - per-actor event id, bot-loop guard, `guild_id` list, jetson-bot actor, and the channel-message -> Markdown item flow; (2) reactions and attachments - discord.reaction.added, message read, pdf/epub fetch; (3) commands and schedule - slash and message commands over the gateway, the history sweep with its cursor
   - instruction: the plan's tasks carry a release tag 1/2/3 and each release passes CI and the live check on its own
+- Who may save is set by the flow: anyone on the server by default; a flow may restrict it to specific users, or to users holding a tag (role) they opt into
+- Acknowledging a save in Discord is configurable per flow (e.g. only for opt-in users and specific reactions)
 
 ## Hard questions
 
@@ -153,6 +205,13 @@
 - Guild model for jetson-bot: one actor spanning both servers (`guild_id` unset or made a list), or one actor per server? `guild_id` is a single string in the gateway filter, server/app.py:1007, `list_targets` and web app-config.ts:86, and two actors on one token would open two gateway sessions that each receive every message. (resolved: Operator 2026-10-25: confirmed: one actor per bot (jetson-bot spans both servers), `guild_id` becomes a list)
 - What gesture saves a message to the library: every message in a dedicated channel (works with today's discord.message.created), a reaction such as 📚 on any message (needs a new discord.reaction.added event and the reactions intent), or a slash command (needs an interactions receiver)? (resolved: Operator 2026-10-25: support all of them: a reaction (incl. a custom emoji added later), time-based (on a schedule), every message in chosen channels (channels opt-in or 'all'), and slash commands)
 - What gets saved: the message text only, the links in it, or its attachments (pdf/epub)? Attachments need attachment URLs on the event and a download step; the library refuses images. (resolved: Operator 2026-10-25: text and links as Markdown, and also pdf/epub attachments)
+- Who may save to the library from the public Jetson AI Lab server: anyone who reacts or runs /save, or only listed roles/users (an allow-list on the flow)? Otherwise any member can push content into the library. (resolved: Operator 2026-10-25: the setup is the approval: anyone on the server may save unless the flow is configured with specific users; also an option for users with tags (roles), as opt-in approval rather than only an allow-list)
+- Should the bot acknowledge a save in Discord (a reaction such as ✅ or an ephemeral reply)? A reaction acknowledgement needs a small discord.react action, which c10 does not list. (resolved: Operator 2026-10-25: the bot should be able to acknowledge, and culture-rules configures when (e.g. only for opt-in users and specific reactions))
+
+## Open parks
+
+- [unknown_nonblocking] Two runs of one schedule flow could overlap if a sweep outlasts its period; the cursor update must be compare-and-set or runs serialised
+- [follow_up] No alert when a Discord gateway stays disconnected (ops/health shows it but nothing pages the operator)
 
 ## Resolved vagueness
 

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-25T09:18:24Z",
+  "updated": "2026-10-25T09:25:28Z",
   "claims": [
     {
       "id": "c1",
@@ -197,7 +197,7 @@
     {
       "id": "c10",
       "kind": "non_goal",
-      "text": "Out of scope for this work: message edit/delete events, threads, embeds, and file upload from discord.message; the inbound gestures the operator chose (reactions, slash commands, schedule, channel messages) and attachments are in scope (operator 2026-10-25)",
+      "text": "Out of scope for this work: message edit/delete events, threads, embeds, and file upload from discord.message; in scope (operator 2026-10-25): reactions, slash and message commands, the schedule, channel messages, attachments, and the acknowledgement actions discord.react and the ephemeral command reply",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [],
@@ -209,6 +209,11 @@
           "text": "No new inbound or outbound Discord capabilities in the first slice beyond what the library flow needs: no slash commands (no interactions receiver in server/hooks), no edits/deletes, no threads, no embeds, no file upload in discord.message",
           "kind": "non_goal",
           "reason": ""
+        },
+        {
+          "text": "Out of scope for this work: message edit/delete events, threads, embeds, and file upload from discord.message; the inbound gestures the operator chose (reactions, slash commands, schedule, channel messages) and attachments are in scope (operator 2026-10-25)",
+          "kind": "non_goal",
+          "reason": "q6 adds acknowledgement actions"
         }
       ]
     },
@@ -264,7 +269,22 @@
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "Who may save to the library from the public Jetson AI Lab server: anyone who reacts or runs /save, or only listed roles/users (an allow-list on the flow)? Otherwise any member can push content into the library.",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Operator 2026-10-25: the setup is the approval: anyone on the server may save unless the flow is configured with specific users; also an option for users with tags (roles), as opt-in approval rather than only an allow-list"
+        },
+        {
+          "id": "q6",
+          "text": "Should the bot acknowledge a save in Discord (a reaction such as \u2705 or an ephemeral reply)? A reaction acknowledgement needs a small discord.react action, which c10 does not list.",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Operator 2026-10-25: the bot should be able to acknowledge, and culture-rules configures when (e.g. only for opt-in users and specific reactions)"
+        }
+      ],
       "links": [],
       "instruction": "gateway fake test for the reaction event; live: react on a test message, an item appears",
       "revisions": []
@@ -576,6 +596,238 @@
       "links": [],
       "instruction": "the plan's tasks carry a release tag 1/2/3 and each release passes CI and the live check on its own",
       "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "Discord message content stored in the events collection expires: today every gateway message is sunk as a plaintext event with no TTL (only handoffs and quarantine carry TTL indexes), and jetson-bot would add every message of a ~120-channel community server; Discord events get a retention (TTL on a date field, e.g. 30 days) and channels outside every flow's selection are not sunk at all",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "A Discord event older than the retention is gone from the events collection, and a message in a channel no enabled flow selects is never written",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "ensure() a TTL index on Discord events; test that an unselected channel produces no event",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "The per-actor event id changes only Discord's ids: github.py:363 checks redelivery with event_id_for(SURFACE, delivery), so the gateway passes an actor-scoped delivery id (e.g. `<actor>:<message id>`) instead of changing event_id_for; old Discord events keep their ids, and at most a message redelivered across the upgrade lands twice",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "GitHub and Jira event ids are byte-identical before and after; only new Discord events carry the actor in their id",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "grep event_id_for callers unchanged; github redelivery test still green",
+      "revisions": [
+        {
+          "text": "The per-actor event id changes only Discord's ids: github.py:363 checks redelivery with event_id_for(SURFACE, delivery), so the gateway passes an actor-scoped delivery id (e.g. <actor>:<message id>) instead of changing event_id_for; old Discord events keep their ids, and at most a message redelivered across the upgrade lands twice",
+          "kind": "requirement",
+          "reason": "backtick placeholder for lint"
+        }
+      ]
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Reactions are received with discord.py's raw reaction event (on_raw_reaction_add), not on_reaction_add, which fires only for messages in the client cache; a reaction on an old message still saves it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "Reacting to a message posted before the node connected still raises discord.reaction.added",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "fake-gateway test with a raw reaction payload for an uncached message id",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Commands are synced by the lease holder only when their definition changes (per guild, so they appear at once, not after global propagation), and an interaction is acknowledged (ephemeral deferral) before the event is written; during a lease handover gap Discord shows the interaction failed, and the user retries",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "Reconnecting does not re-register unchanged commands, and every handled interaction is acknowledged within 3 s",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "test: sync called once for an unchanged definition across reconnects; the ack happens before sink",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "assumption",
+      "text": "During a rolling upgrade an older node or API reading a list guild_id compares str(list) and drops every message or lists no targets; the actor's guild_id is switched to a list only after every node and the API run the new release (rollout order)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "rollout doc step: upgrade all nodes, then edit the jetson-bot actor",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "The live library actor and key accept what Discord flows push: newspaper-library's kinds are newspaper, transcript, todo and formats epub, md, so the kind for Discord items (document or article) and the format pdf are added to the actor and to the culture-library key's kind list (config, at rollout)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "A Discord text item and a pdf attachment push succeed against library.culture.dev with the live actor and key",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "culture-rules actors get newspaper-library shows the added kind and pdf; a pdf push returns 201",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "The attachment fetch reuses http.call's vetted connection (exact-host allowlist of Discord's CDN hosts, every resolved address vetted, pinned connect, redirects refused, no proxies) rather than a new HTTP path",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "The fetch step refuses a redirect, a non-allow-listed host and a CDN name resolving to a private address",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "fetch step tests: redirect refused, private-range resolution refused, non-CDN host refused",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "REST reads (message fetch, history sweep, targets) honour Discord 429 retry_after and are bounded per run (pages and channels), and the saved text comes from the REST message, so a message longer than the event's 2000-character cut (Nitro allows 4000) is saved whole",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "A sweep over many channels survives a 429 without losing its cursor, and a 3000-character message is saved untruncated",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "fake REST test: a 429 then success; a 3000-char message saved whole",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "boundary",
+      "text": "A saved item is not removed when its Discord message is edited or deleted (c10 excludes those events); removal is a manual archive in culture-library",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "Deleting a saved Discord message leaves its library item in place, and the doc says how to archive it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "docs/actors/discord.md states it",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "decision",
+      "text": "Who may save is set by the flow: anyone on the server by default; a flow may restrict it to specific users, or to users holding a tag (role) they opt into",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "decision",
+      "text": "Acknowledging a save in Discord is configurable per flow (e.g. only for opt-in users and specific reactions)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "A save flow carries a who filter: unset means anyone; users lists Discord user ids or usernames; roles lists role ids, and a role the server lets members self-assign is the opt-in; reaction and command events carry the acting user's id, username and role ids so the condition can check them. Discord does not expose members' emails to bots, so users are matched by id or username, not email",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "A member outside the configured users and roles cannot trigger a save, and with no filter every member can",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "condition tests: unset passes everyone; a users list and a roles list each admit only their members; events carry user_roles",
+      "revisions": []
+    },
+    {
+      "id": "c43",
+      "kind": "requirement",
+      "text": "Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h34",
+          "text": "A flow can ack with \u2705 for one emoji and stay silent for another, and a command user sees an ephemeral saved/skipped reply only they can see",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "action tests against a fake REST client; describe phrases for both",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -595,6 +847,24 @@
       "claim_id": null,
       "resolved": true,
       "resolution": "Operator 2026-10-25: no host uses the jetson-bot token today; the operator seals the bot secrets with grant",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "No alert when a Discord gateway stays disconnected (ops/health shows it but nothing pages the operator)",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Two runs of one schedule flow could overlap if a sweep outlasts its period; the cursor update must be compare-and-set or runs serialised",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
       "resolution_claim_id": null
     }
   ],
@@ -736,6 +1006,86 @@
       "seeds": [
         "c19"
       ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / security/privacy lens: culture_rules/store/mongo.py ensure(ttl_seconds), events/ingest.py, apps/discord_gateway.py _on_message",
+      "finding": "only handoffs (actors/handoff.py:323) and quarantine (events/ingest.py:337) have TTLs; gateway sinks every message of the guild; jetson-ai-lab-cli encrypts its cache, culture-rules events are plaintext",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / adjacent-systems lens: culture_rules/events/hook_sink.py:99,184-237, server/hooks/github.py:363",
+      "finding": "event_id_for is shared with the GitHub redelivery check; changing its signature would change GitHub ids",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / cheap probe: discord.py 2.7.1 in the uv env",
+      "finding": "app_commands.CommandTree and context_menu exist; Intents has reactions/guild_reactions; on_reaction_add depends on the message cache (discord.py behaviour)",
+      "seeds": [
+        "c33"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / failure-modes lens: apps/discord_gateway.py fencing + GatewayOptions ttl 30s",
+      "finding": "the listener is fenced at two thirds of the TTL; another node takes over only after expiry, so up to ~30 s of no listener during handover",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / migration/reversibility lens: discord_gateway._on_message, server/app.py:1007, discord_rest.list_targets",
+      "finding": "each compares against str(guild); a list in an old reader silently matches nothing; reversible by setting the string back",
+      "seeds": []
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / overlooked-actors lens: jetson-ai-lab-cli CLAUDE.md (public channels, ~120), library.push",
+      "finding": "every community member can react/run commands; nothing in the spec limits who triggers a save",
+      "seeds": []
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / adjacent-systems lens: live actor newspaper-library (read 2026-10-25), docs/actors/library.md",
+      "finding": "kinds [newspaper, transcript, todo], formats [epub, md]; library key minted with a kind allow-list",
+      "seeds": [
+        "c36"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / security lens: culture_rules/node/actions/http.py docstring 1-40",
+      "finding": "http.call already pins the vetted address, refuses redirects (RedirectRefused) and ignores proxies",
+      "seeds": [
+        "c37"
+      ]
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / operations lens: apps/discord_rest.py (_retry_after used only by post_message), discord_gateway.MAX_CONTENT 2000",
+      "finding": "only post_message parses 429; list_targets raises on 429; event content is cut at 2000",
+      "seeds": [
+        "c38"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / observability lens: ops/health.py gateways(), hook_stats per actor, run outputs",
+      "finding": "per-actor gateway state and hook stats exist; skipped attachments land as run reasons (h14); nothing further found - residual: no alert when a gateway stays disconnected",
+      "seeds": []
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / concurrency lens: engine/named_lease.py, discord_gateway leases, the schedule cursor (c16)",
+      "finding": "one lease per actor fences listeners; the sweep cursor is per flow+channel and advances after a successful push (h12); residual: two overlapping sweep runs of the same flow if a run outlasts its period",
+      "seeds": []
     }
   ],
   "lapses": [],
