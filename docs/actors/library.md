@@ -161,15 +161,14 @@ A flow that files Discord messages in a library
 ([`docs/rules/discord-library`](../rules/discord-library/README.md)) needs the
 library actor to list:
 
-- a **kind** for them that culture-library already has: `document` (or
-  `article`). culture-library has no Discord kind and is unchanged by this
-  work, so a made-up kind is refused at push. Add a `visibilities` entry such
-  as `private` if the step sends one;
+- the **kind** `discord-message` (culture-library 0.17.0 and later;
+  culture-library#19), and a `visibilities` entry such as `private` if the step
+  sends one. `discord-react` is reserved for reactions (planned, Release 2);
 - the **format** `md` for a rendered message, and `pdf` for the attachments the
   flow will file later (planned, Release 2). `pdf` is in the allowed set but is
   not in `formats` unless you add it.
 
-Mint the key with `--kind document` as well, e.g. add it to the
+Mint the key with `--kind discord-message` as well, e.g. add it to the
 `culture-library keys mint` command above.
 
 ## Failures

@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from culture_rules.model.rule import Action, Rule, Trigger
 from culture_rules.model.validate import validate, validate_data
 from culture_rules.model.workflow import Workflow
 from tests.engine.run_helpers import port, step, workflow
@@ -29,6 +30,8 @@ def action_wf(kind: Any, params: Any, *, inputs=(), in_loop: bool = False) -> Wo
 def codes(wf: Workflow, *, stored: bool = False) -> set[tuple[str, str]]:
     return {(e.path, e.code) for e in validate(wf, stored=stored)}
 
+
+ITEM = port("item", "object")
 
 REPLY = {
     "actor": "gh-app",
@@ -171,3 +174,81 @@ def test_run_id_is_not_readable_from_an_action_step(value):
     params = {**REPLY, "body": value}
     found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
     assert ("steps[0].config.action.params.body", "action_step_ref") in found
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [
+        "inputs.item",
+        "inputs.item.actor",
+        "{{ inputs.item }}",
+        {"$ref": "inputs.item"},
+        {"$literal": "gh-app"},
+    ],
+)
+def test_an_action_steps_actor_must_be_a_literal_id(actor):
+    """The node dispatches through ``params.actor`` as given, so a reference there never
+    resolves: it is refused on save, not left to fail ``actor_unavailable`` at run time."""
+    params = {**REPLY, "actor": actor}
+    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    assert ("steps[0].config.action.params.actor", "action_actor_not_literal") in found
+
+
+def test_a_literal_actor_id_passes():
+    params = {**REPLY, "actor": "discord-bot"}
+    wf = action_wf("github.review_reply", params, inputs=(port("item", "object"),))
+    assert codes(wf) == set()
+
+
+@pytest.mark.parametrize("actor", [123, ["gh-app"], "", "  "])
+def test_an_action_steps_actor_must_be_a_non_empty_id(actor):
+    params = {**REPLY, "actor": actor}
+    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    assert ("steps[0].config.action.params.actor", "action_actor_not_literal") in found
+
+
+def test_a_dotted_actor_id_is_a_literal():
+    params = {**REPLY, "actor": "lab.spark2"}
+    wf = action_wf("github.review_reply", params, inputs=(port("item", "object"),))
+    assert codes(wf) == set()
+
+
+def test_an_input_reference_actor_is_reported_once():
+    """Not also as ``action_step_ref`` ("declare the port"), which would not fix it."""
+    found = [
+        (e.path, e.code)
+        for e in validate(action_wf("github.review_reply", {**REPLY, "actor": "inputs.actor"}))
+        if e.path.endswith("params.actor")
+    ]
+    assert found == [("steps[0].config.action.params.actor", "action_actor_not_literal")]
+
+
+def test_a_stored_step_with_a_reference_actor_stays_loadable():
+    wf = action_wf("github.review_reply", {**REPLY, "actor": "inputs.item"}, inputs=(ITEM,))
+    assert ("steps[0].config.action.params.actor", "action_actor_not_literal") not in codes(
+        wf, stored=True
+    )
+
+
+def rule_with(action: Action, on_failure: Action | None = None) -> Rule:
+    return Rule(
+        id="r",
+        name="r",
+        trigger=Trigger(kind="event", params={"type": "demo.ping"}),
+        action=action,
+        on_failure=on_failure,
+    )
+
+
+DISCORD_POST = {"channel": "42", "text": "hi"}
+
+
+@pytest.mark.parametrize("field", ["action", "on_failure"])
+def test_a_rules_action_names_its_actor_by_id_too(field):
+    """A rule's action and its on_failure dispatch through params.actor unresolved as well."""
+    bad = Action(kind="discord.message", params={**DISCORD_POST, "actor": "trigger.data.actor"})
+    ok = Action(kind="discord.message", params={**DISCORD_POST, "actor": "discord-bot"})
+    rule = rule_with(bad) if field == "action" else rule_with(ok, on_failure=bad)
+    found = {(e.path, e.code) for e in validate(rule)}
+    assert (f"{field}.params.actor", "action_actor_not_literal") in found
+    assert {(e.path, e.code) for e in validate(rule_with(ok, on_failure=ok))} == set()

@@ -6,15 +6,22 @@ placeholder, and no step sends `visibility: public`.
 
 | File | What it is |
 |---|---|
-| `rules/discord-to-library.json` | trigger `discord.message.created`, disabled |
-| `workflows/discord-message-to-library.json` | `discord.read` (the whole message, with the bot that saw it), `markdown.render`, then `library.push` (kind `document`, format `md`) |
+| `rules/discord-to-library.json` | trigger `discord.message.created`, condition `data.actor == "discord-bot"`, disabled |
+| `workflows/discord-message-to-library.json` | `discord.read` (the whole message, as `discord-bot`), `markdown.render`, then `library.push` (kind `discord-message`, format `md`, visibility `private`) |
 
 It ships no actors. It uses the Discord actor (`discord-bot`, grant
 `RULES_DISCORD_BOT_TOKEN`, or `jetson-bot`, grant
 `DISCORD_BOT_TOKEN_JETSON_BOT`; see
 [the Discord guide](../../actors/discord.md)) and a library actor, here
 `newspaper-library` from the newspaper bundle. That actor must list kind
-`discord` and format `md` ([the library guide](../../actors/library.md)).
+`discord-message` and format `md` ([the library guide](../../actors/library.md)).
+
+The read step names its bot by id (`discord-bot`). An action step's
+`params.actor` is an actor id, never a reference: `inputs.actor` would name an
+actor called `inputs.actor`, so it is refused on save. For a channel only
+jetson-bot can see, change it to `jetson-bot`. The rule's condition names
+the same bot (`data.actor`, the actor that recorded the event), so change both
+together.
 
 ## Before enabling
 
@@ -22,8 +29,10 @@ It ships no actors. It uses the Discord actor (`discord-bot`, grant
    `channels` with the real channel id (or a list of ids). The placeholder is a
    valid id that no channel has, so the rule never fires until you do; a
    channel name is refused on save, because only numeric ids (or `all`) match.
-2. Add kind `document` and format `md` to the library actor.
-3. Check the rule is placed on the machine that holds the Discord actor.
+2. Add kind `discord-message` and format `md` to the library actor, and mint
+   its library key with `--kind discord-message`.
+3. Check the rule is placed on the machine that holds the Discord actor, and
+   that the read step names a bot that is in the channel.
 4. Import and enable it with the CLI, dry run first.
 
 ## How it behaves
@@ -35,8 +44,9 @@ It ships no actors. It uses the Discord actor (`discord-bot`, grant
   2000 characters is filed whole. A message with only an attachment is filed
   with no text; filing the attachment itself is planned (Release 2), as are
   reactions, commands and the scheduled sweep (Release 3).
-- If both bots are in the channel, each records its own event and the rule
-  runs twice; both runs render the same page, so the library keeps one item
-  (the second push reports `created: false`).
+- If both bots are in the channel, each records its own event; the condition
+  lets only the named bot's event run the rule, so the message is read and
+  filed once. Without it the rule would run twice (the library would still
+  keep one item, the second push reporting `created: false`).
 
 Deleting the Discord message later leaves the library item; archive it by hand.

@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T15:02:35Z",
+  "updated": "2026-10-25T23:25:19Z",
   "deviations": [
     {
       "id": "d1",
@@ -68,9 +68,76 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "Discord items take the library kind discord-message (discord-react reserved for reactions), not document; culture-library must add the kind (culture-library#19), so the spec's 'culture-library unchanged' boundary no longer holds for kinds. Until it ships the live #spark-tests rule is disabled; the committed bundle and docs move from document to discord-message, and the bundle names its bot literally (an action step's actor is never a reference)",
+      "task_ref": "t11",
+      "reason": "operator 2026-10-25: 'It shouldn't be a document. It's a message, or discord (or discord-message, so we can add later discord-react)'; first live test also showed actor: inputs.actor cannot resolve",
+      "affects": [
+        "t10",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 6
     }
   ],
   "evidence": [],
-  "deltas": [],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "Each delivered daily newspaper is posted to the Jetson AI Lab Discord as Jetson Bot through a live continuation rule (rules.run.succeeded of daily-newspaper with an item_id) and generic steps run.read -> markdown.from_html -> discord.message for_each; live on 0.30.0 to #bot-experimentations 1407337283794767873 (workflow rev 2; #bot-news denies the bot Send Messages). Validated live 2026-10-25: run run-2c77aee79f2c472da6493d372d69876d posted the 2026-10-25 issue as 4 ordered messages (1741/1630/1862/1559 chars, no embeds; ids 1563940592843624479..1563940599151853709), read back from the channel; the operator confirmed it works",
+      "caused_by": [
+        "d4",
+        "d5",
+        "c20"
+      ],
+      "evidence_refs": [],
+      "origin": "user",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "The live Discord -> library flow files #spark-tests messages as kind discord-message: culture-library 0.17.0 (#18 links kept, #19 the kind) live; key 10 (newspaper, transcript, todo, discord-message, private) sealed with grant set - and hash-verified against grant, the spark node env and api_keys row 10; newspaper-library kinds discord-message,newspaper,todo,transcript; workflow discord-message-to-library rev 4 (read as discord-bot, push kind discord-message); rule spark-tests-to-library re-enabled; key 6 revoked. Validated live 2026-10-26: the operator's message 1564044927053340744 ran run-3f447a9aac568caa6b12ee3ba1235a60 -> library item 72 (kind discord-message, private, md, created true); a hand re-run run-095cdaa3be5c4d4aa04ec1060c21028e of the same message returned item 72 created false",
+      "caused_by": [
+        "d6",
+        "c6"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "Validation refuses a reference in an action step's params.actor (action_actor_not_literal): the node routes on the value as written, so the committed bundle's inputs.actor failed actor_unavailable live; the discord-library bundle now reads as discord-bot by id and pushes kind discord-message, and tests/rules/test_discord_library_bundle.py runs it end to end on doubles (10 tests, red on the old bundle, green on the new)",
+      "caused_by": [
+        "c6",
+        "b2"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "After /code-review of PR #100, b3 widens: the literal-actor check (action_model actor_problem, one reference scanner) covers a rule's action and on_failure as well as action steps, refuses non-string and empty ids and {\"$literal\": ...}, reports an input-reference actor once (not also action_step_ref), and is save-time only (dropped in stored mode like the catalog codes, so documents stored earlier still load and run); the editor guides action_actor_not_literal with Pick an actor; the discord-library bundle rule runs only on discord-bot's events (condition data.actor == discord-bot), and the bundle test tells the two bots apart by grant",
+      "caused_by": [
+        "b3"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }

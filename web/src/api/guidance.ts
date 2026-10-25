@@ -105,6 +105,11 @@ const TABLE: Record<string, Guidance> = {
   action_kind_unknown: g("That kind of action is not one the editor knows.", EDIT),
   action_param_required: g("The action is missing a required setting.", EDIT, { kind: "pick-actor" }),
   action_param_type: g("One of the action's settings has the wrong type.", EDIT),
+  action_actor_not_literal: g(
+    "An action names its actor directly. Pick one instead of connecting a value to it.",
+    { kind: "pick-actor" },
+    EDIT,
+  ),
   not_implemented: g("The server does not support this yet.", RELOAD),
   replay_invalid: g("This run cannot be replayed because its rule or workflow changed.", EDIT, RELOAD),
   // variables (a rule that reads `{"var": name}`)

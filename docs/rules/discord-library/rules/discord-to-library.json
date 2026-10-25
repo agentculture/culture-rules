@@ -9,9 +9,18 @@
     "timeout_s": null
   },
   "concurrency_key": "discord:{trigger.data.message_id}",
-  "condition": null,
+  "condition": {
+    "cmp": "==",
+    "left": {
+      "field": "data.actor"
+    },
+    "op": "compare",
+    "right": {
+      "literal": "discord-bot"
+    }
+  },
   "counts_toward_budget": true,
-  "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: reads it in full with the bot that saw it, renders it as Markdown and pushes it to the library as kind document. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
+  "description": "When discord-bot records a message in the chosen channel (discord.message.created), runs discord-message-to-library: reads it in full as discord-bot, renders it as Markdown and pushes it to the library as kind discord-message. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
   "enabled": false,
   "exclusive_group": null,
   "id": "discord-to-library",
@@ -41,7 +50,6 @@
   "workflow": {
     "id": "discord-message-to-library",
     "inputs": {
-      "actor": "trigger.data.actor",
       "channel": "trigger.data.channel_id",
       "guild": "trigger.data.guild_id",
       "id": "trigger.data.message_id",

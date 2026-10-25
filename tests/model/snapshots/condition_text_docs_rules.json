@@ -1,4 +1,5 @@
 {
+ "docs/rules/discord-library/rules/discord-to-library.json/condition": "actor = discord-bot",
  "docs/rules/newspaper/workflows/daily-newspaper.json/steps[2]/body[0]/config/when": "deliver = true",
  "docs/rules/newspaper/workflows/daily-newspaper.json/steps[2]/body[1]/config/when": "deliver = true",
  "docs/rules/newspaper/workflows/daily-newspaper.json/steps[3]/body[0]/config/when": "deliver = true and results ≠ {}",

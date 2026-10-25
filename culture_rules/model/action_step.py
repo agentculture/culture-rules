@@ -23,9 +23,12 @@ implicit ``item`` / ``index`` ports are inputs like any other, so a ``for_each``
 At save time the kind must be catalogued and the params pass the same kind-param checks as a
 rule action (``action_kind_unknown`` / ``action_param_required`` / ``action_param_type``,
 skipped in stored mode like every catalog check); every ``inputs.<port>`` reference must name
-one of the step's declared input ports (``action_step_ref``); the spec's own fields are typed
-(``type``) and closed (``not_allowed`` / ``unknown_field``) in every mode. Standard-library
-only.
+one of the step's declared input ports (``action_step_ref``). ``params.actor`` is the one
+param never resolved, here and on a rule's action: the node picks the actor from it as
+written, so anything but a plain id is refused (:func:`actor_problem`,
+``action_actor_not_literal``, a save-time check like the catalog's). The spec's own
+fields are typed (``type``) and closed (``not_allowed`` / ``unknown_field``) in every mode.
+Standard-library only.
 """
 
 from __future__ import annotations
@@ -46,6 +49,7 @@ __all__ = [
     "ACTION_BUILTIN",
     "ACTION_SPEC_FIELDS",
     "action_spec",
+    "actor_problem",
     "is_action_step",
     "ref_problems",
     "spec_idempotent",
@@ -54,6 +58,9 @@ __all__ = [
 
 ACTION_BUILTIN = "action"
 """``config.builtin`` of a code step that runs an action kind."""
+
+ACTOR_PARAM = "actor"
+"""The param an action is dispatched through, by id (:func:`actor_problem`)."""
 
 ACTION_SPEC_FIELDS: Mapping[str, type] = {"name": str, "idempotent": bool}
 """The optional typed fields of ``config.action`` (beside ``kind`` / ``params``), typed as
@@ -115,10 +122,28 @@ def _refs(value: Any, path: str) -> Iterator[tuple[str, str]]:
             yield from _refs(v, f"{path}[{i}]")
 
 
+def actor_problem(value: Any) -> str | None:
+    """Why ``params.actor`` names no actor, or None for a plain id (or no actor at all).
+
+    The node routes an action - a rule's, its ``on_failure`` or an action step's - through
+    ``params.actor`` as written, before any reference resolves: ``inputs.actor`` would name an
+    actor called ``inputs.actor``, and a ``{"$ref"|"$literal": ...}`` object, a number or an
+    empty string names none."""
+    if value is None:
+        return None
+    if structured_form(value) is not None or next(_refs(value, ACTOR_PARAM), None) is not None:
+        return "an action names its actor by id; a reference or template here is never resolved"
+    if not isinstance(value, str) or not value.strip():
+        return "params.actor must be an actor id"
+    return None
+
+
 def ref_problems(params: Mapping[str, Any], ports: Collection[str]) -> list[tuple[str, str]]:
-    """(param path, reason) for every reference that is not ``inputs.<declared port>``."""
+    """(param path, reason) for every reference that is not ``inputs.<declared port>``;
+    ``actor`` is left to :func:`actor_problem` (never resolved, so never a port reference)."""
     problems: list[tuple[str, str]] = []
-    for where, ref in (hit for k, v in params.items() for hit in _refs(v, str(k))):
+    hits = (hit for k, v in params.items() if k != ACTOR_PARAM for hit in _refs(v, str(k)))
+    for where, ref in hits:
         head, _, rest = ref.partition(".")
         port = rest.split(".", 1)[0]
         if head != INPUTS_NAMESPACE:

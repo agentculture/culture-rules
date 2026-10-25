@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-25T12:23:00Z",
+  "updated": "2026-10-25T22:52:07Z",
   "claims": [
     {
       "id": "c1",
@@ -1098,7 +1098,7 @@
         "assign-to-workforce wave 1 / t5"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l2",
@@ -1109,7 +1109,7 @@
         "assign-to-workforce wave 1 / t2"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1120,7 +1120,18 @@
         "assign-to-workforce wave 3 / t10 merge"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
+    },
+    {
+      "id": "l4",
+      "code": "grader-unverified",
+      "what": "main agent ran 'grant set LIBRARY_PUSH_API_KEY --hidden < file' without the '-' value, which grant treats as a metadata-only update, so key 6 stayed sealed and key 7's only copy was shredded; the follow-up check fetched a public item, which any valid key passes, so it could not tell key 6 from key 7. Found only when the push failed forbidden_kind and the sealed token's hash matched key 6 in /data/library.db",
+      "skipped_check": "verify the sealed value is the new key (hash lookup) before relying on it",
+      "refs": [
+        "closeout step a / library key 7"
+      ],
+      "origin": "llm",
+      "status": "approved"
     }
   ],
   "obligations": []
