@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T15:42:52Z",
+  "updated": "2026-10-25T16:06:30Z",
   "deviations": [
     {
       "id": "d1",
@@ -68,6 +68,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "Discord items take the library kind discord-message (discord-react reserved for reactions), not document; culture-library must add the kind (culture-library#19), so the spec's 'culture-library unchanged' boundary no longer holds for kinds. Until it ships the live #spark-tests rule is disabled; the committed bundle and docs move from document to discord-message, and the bundle names its bot literally (an action step's actor is never a reference)",
+      "task_ref": "t11",
+      "reason": "operator 2026-10-25: 'It shouldn't be a document. It's a message, or discord (or discord-message, so we can add later discord-react)'; first live test also showed actor: inputs.actor cannot resolve",
+      "affects": [
+        "t10",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 6
     }
   ],
   "evidence": [],
