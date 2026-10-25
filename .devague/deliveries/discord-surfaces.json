@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T22:51:56Z",
+  "updated": "2026-10-25T23:22:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -124,6 +124,18 @@
       "evidence_refs": [],
       "origin": "llm",
       "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "After /code-review of PR #100, b3 widens: the literal-actor check (action_model actor_problem, one reference scanner) covers a rule's action and on_failure as well as action steps, refuses non-string and empty ids and {\"$literal\": ...}, reports an input-reference actor once (not also action_step_ref), and is save-time only (dropped in stored mode like the catalog codes, so documents stored earlier still load and run); the editor guides action_actor_not_literal with Pick an actor; the discord-library bundle rule runs only on discord-bot's events (condition data.actor == discord-bot), and the bundle test tells the two bots apart by grant",
+      "caused_by": [
+        "b3"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
       "superseded": false
     }
   ],

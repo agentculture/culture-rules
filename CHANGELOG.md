@@ -9,12 +9,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Validation refuses a reference in an action step's `params.actor` (`action_actor_not_literal`): the node picks the actor from the value as written, so `inputs.actor` could never resolve and failed `actor_unavailable` at run time.
+- Validation refuses anything but a plain actor id in `params.actor` (`action_actor_not_literal`) on an action step, a rule's action and its `on_failure`: the node picks the actor from the value as written, so `inputs.actor` or `trigger.data.actor` could never resolve and failed `actor_unavailable` at run time. It is a save-time check: a document stored earlier still loads and runs; the editor shows it with a Pick an actor fix.
 - tests/rules/test_discord_library_bundle.py: the discord-library bundle as data and end to end on doubles of Discord's REST API and culture-library (a message becomes one private `discord-message` item; the same message again reports `created: false`).
 
 ### Changed
 
-- The discord-library bundle reads as `discord-bot` by id and pushes kind `discord-message` (culture-library 0.17.0, culture-library#19); its unused `actor` input is gone.
+- The discord-library bundle reads as `discord-bot` by id, runs only on discord-bot's events (condition `data.actor`) and pushes kind `discord-message` (culture-library 0.17.0, culture-library#19); its unused `actor` input is gone.
 - docs/actors/library.md, docs/actors/discord.md and the bundle README name kind `discord-message` and the literal actor; the discord-surfaces plan records carry delta b1, deviation d6 and lapses l1-l4.
 
 ## [0.30.0] - 2026-10-25

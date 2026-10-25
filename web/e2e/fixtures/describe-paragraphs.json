@@ -435,13 +435,14 @@
             "enabled": false,
             "keys": [
               "starts_event",
+              "rule_if",
               "rule_where"
             ],
             "kind": "entry",
             "part": "start",
             "rule": "discord-to-library",
             "sentence": 0,
-            "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, on spark."
+            "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, if actor is discord-bot, on spark."
           },
           {
             "depth": 0,
@@ -534,7 +535,7 @@
             "text": "It runs one at a time per discord:{message_id}."
           }
         ],
-        "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, on spark.\nFirst reads the whole message with the bot that saw it; then writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
+        "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, if actor is discord-bot, on spark.\nFirst reads the whole message with the bot that saw it; then writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
       }
     },
     "pr-fix": {
@@ -2534,9 +2535,18 @@
         "timeout_s": null
       },
       "concurrency_key": "discord:{trigger.data.message_id}",
-      "condition": null,
+      "condition": {
+        "cmp": "==",
+        "left": {
+          "field": "data.actor"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "discord-bot"
+        }
+      },
       "counts_toward_budget": true,
-      "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: reads it in full as discord-bot, renders it as Markdown and pushes it to the library as kind discord-message. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
+      "description": "When discord-bot records a message in the chosen channel (discord.message.created), runs discord-message-to-library: reads it in full as discord-bot, renders it as Markdown and pushes it to the library as kind discord-message. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
       "enabled": false,
       "exclusive_group": null,
       "id": "discord-to-library",

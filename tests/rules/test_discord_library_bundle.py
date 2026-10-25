@@ -34,7 +34,8 @@ from tests.rules.test_newspaper_bundle import LIBRARY, ROOT
 
 BUNDLE = ROOT / "docs" / "rules" / "discord-library"
 RULE, WORKFLOW = "discord-to-library", "discord-message-to-library"
-BOT = "discord-bot"
+BOT, OTHER_BOT = "discord-bot", "jetson-bot"
+BOT_GRANT, OTHER_GRANT = "grant:RULES_DISCORD_BOT_TOKEN", "grant:DISCORD_BOT_TOKEN_JETSON_BOT"
 KIND = "discord-message"
 PLACEHOLDER = "000000000000000000"
 GUILD, CHANNEL, MESSAGE = "11", "42", "900"
@@ -170,7 +171,9 @@ class World:
         self.clock = Clock(START)
         self.base = MemoryStore(clock=self.clock)
         enrol_online(self.base, self.clock, machine("spark"))
-        self.base.put("actors", discord_actor(BOT, guild=GUILD, events=()))
+        # two bots in the same server, each with its own token
+        self.base.put("actors", discord_actor(BOT, guild=GUILD, token=BOT_GRANT, events=()))
+        self.base.put("actors", discord_actor(OTHER_BOT, guild=GUILD, token=OTHER_GRANT, events=()))
         self.base.put("actors", library_actor())
         self.base.put("workflows", workflow().to_dict())
         doc = rule().to_dict()
@@ -179,7 +182,7 @@ class World:
         self.base.put("rules", doc)
         self.discord, self.library = Discord(), Library()
         self.source = FakeEventSource(name="sub@spark")
-        secret = lambda _ref: "fake-secret"  # noqa: E731
+        secret = lambda ref: f"secret-for-{ref}"  # noqa: E731 - tells the grants apart
         ports = {
             "action:noop": NoopAction(),
             "action:discord.read": DiscordReadAction(
@@ -255,7 +258,8 @@ def test_the_read_goes_through_the_named_bot():
     world.post()
     urls = [url for url, _headers in world.discord.calls]
     assert any(url.endswith(f"/channels/{CHANNEL}/messages/{MESSAGE}") for url in urls)
-    assert {h.get("Authorization") for _url, h in world.discord.calls} == {"Bot fake-secret"}
+    tokens = {h.get("Authorization") for _url, h in world.discord.calls}
+    assert tokens == {f"Bot secret-for-{BOT_GRANT}"}
 
 
 def test_the_same_message_again_files_no_second_item():
@@ -268,9 +272,12 @@ def test_the_same_message_again_files_no_second_item():
     assert push_outputs(second)["created"] is False
 
 
-def test_other_channels_and_bots_start_nothing():
+def test_other_channels_bot_posts_and_the_other_bots_events_start_nothing():
+    """The rule's condition: only discord-bot's events run it, so a message both bots see
+    runs once, and a channel only jetson-bot sees starts no failing read as discord-bot."""
     world = World()
     world.post(channel="43")
     world.post(bot=True)
+    world.post(actor=OTHER_BOT)
     assert world.runs() == []
     assert world.library.uploads == []

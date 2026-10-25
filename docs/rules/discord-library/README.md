@@ -6,7 +6,7 @@ placeholder, and no step sends `visibility: public`.
 
 | File | What it is |
 |---|---|
-| `rules/discord-to-library.json` | trigger `discord.message.created`, disabled |
+| `rules/discord-to-library.json` | trigger `discord.message.created`, condition `data.actor == "discord-bot"`, disabled |
 | `workflows/discord-message-to-library.json` | `discord.read` (the whole message, as `discord-bot`), `markdown.render`, then `library.push` (kind `discord-message`, format `md`, visibility `private`) |
 
 It ships no actors. It uses the Discord actor (`discord-bot`, grant
@@ -19,7 +19,9 @@ It ships no actors. It uses the Discord actor (`discord-bot`, grant
 The read step names its bot by id (`discord-bot`). An action step's
 `params.actor` is an actor id, never a reference: `inputs.actor` would name an
 actor called `inputs.actor`, so it is refused on save. For a channel only
-jetson-bot can see, change it to `jetson-bot`.
+jetson-bot can see, change it to `jetson-bot`. The rule's condition names
+the same bot (`data.actor`, the actor that recorded the event), so change both
+together.
 
 ## Before enabling
 
@@ -42,8 +44,9 @@ jetson-bot can see, change it to `jetson-bot`.
   2000 characters is filed whole. A message with only an attachment is filed
   with no text; filing the attachment itself is planned (Release 2), as are
   reactions, commands and the scheduled sweep (Release 3).
-- If both bots are in the channel, each records its own event and the rule
-  runs twice; both runs read as the named bot and render the same page, so the
-  library keeps one item (the second push reports `created: false`).
+- If both bots are in the channel, each records its own event; the condition
+  lets only the named bot's event run the rule, so the message is read and
+  filed once. Without it the rule would run twice (the library would still
+  keep one item, the second push reporting `created: false`).
 
 Deleting the Discord message later leaves the library item; archive it by hand.

@@ -29,6 +29,7 @@ from culture_rules.model.action import Action
 from culture_rules.model.action_kinds import ACTION_KINDS, is_lenient, param_type_ok, resolve_kind
 from culture_rules.model.action_step import (
     ACTION_SPEC_FIELDS,
+    actor_problem,
     is_action_step,
     ref_problems,
     validation_params,
@@ -43,8 +44,6 @@ from culture_rules.model.refs import (
     LITERAL_KEY,
     REF_KEY,
     TRIGGER_FIELDS,
-    is_input_reference,
-    is_reference,
     ref_errors,
     run_error_refs,
     structured_form,
@@ -102,6 +101,11 @@ def _err(errors: Errors, path: str, code: str, message: str) -> None:
 #: Save-time catalog checks (action kinds/params, trigger kinds/params). A document stored
 #: before they existed must stay loadable, runnable and visible as a neighbour, so
 #: ``validate(obj, stored=True)`` drops exactly these codes; every structural check stays.
+ACTOR_NOT_LITERAL = "action_actor_not_literal"
+#: Save-time only, like :data:`CATALOG_CODES`: a document stored before the check stays
+#: loadable, runnable (failing ``actor_unavailable`` as before) and visible as a neighbour.
+_SAVE_ONLY_CODES = frozenset({ACTOR_NOT_LITERAL})
+
 CATALOG_CODES = frozenset(
     {
         "action_kind_unknown",
@@ -120,8 +124,8 @@ def validate(obj: Any, *, stored: bool = False) -> list[ValidationError]:
     """Validate a model object; returns ``[]`` when valid.
 
     ``stored=True`` is for content read back from the store (running it, or using it as a
-    neighbour of a save): the save-time :data:`CATALOG_CODES` checks are skipped. Saves stay
-    strict (the default).
+    neighbour of a save): the save-time :data:`CATALOG_CODES` checks and the literal-actor
+    check are skipped. Saves stay strict (the default).
     """
     errors: Errors = []
     if not (dataclasses.is_dataclass(obj) and type(obj) in _SEMANTIC):
@@ -129,7 +133,7 @@ def validate(obj: Any, *, stored: bool = False) -> list[ValidationError]:
         return errors
     _validate(obj, "", errors)
     if stored:
-        return [e for e in errors if e.code not in CATALOG_CODES]
+        return [e for e in errors if e.code not in CATALOG_CODES | _SAVE_ONLY_CODES]
     return errors
 
 
@@ -383,8 +387,17 @@ def _check_placement(obj: Placement, path: str, errors: Errors) -> None:
 def _check_action(obj: Action, path: str, errors: Errors) -> None:
     _nonempty(obj, ("kind",), path, errors)
     _positive_number(obj.timeout_s, _join(path, "timeout_s"), errors)
+    if isinstance(obj.params, dict):
+        _check_action_actor(obj.params, _join(path, "params"), errors)
     if isinstance(obj.kind, str) and obj.kind.strip():
         _check_action_kind(obj, path, errors)
+
+
+def _check_action_actor(params: dict, pp: str, errors: Errors) -> None:
+    """``params.actor`` is a plain actor id (or absent): see :func:`actor_problem`."""
+    problem = actor_problem(params.get("actor"))
+    if problem is not None:
+        _err(errors, _join(pp, "actor"), ACTOR_NOT_LITERAL, problem)
 
 
 def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
@@ -840,24 +853,7 @@ def _check_action_step(obj: Step, path: str, errors: Errors) -> None:
     ports = {p.name for _i, p in _items(obj.inputs, Port)}
     for where, reason in ref_problems(params, ports):
         _err(errors, _join(_join(path, "params"), where), "action_step_ref", reason)
-    if _is_actor_ref(params.get("actor")):
-        _err(
-            errors,
-            _join(_join(path, "params"), "actor"),
-            "action_actor_not_literal",
-            "an action step names its actor by id; a reference here is never resolved",
-        )
-
-
-def _is_actor_ref(value: Any) -> bool:
-    """Whether ``params.actor`` is written as anything but a plain id: the node dispatches
-    through the value as given, so ``inputs.actor`` would name an actor called
-    ``inputs.actor``, and a ``{"$ref"|"$literal": ...}`` object names no actor at all."""
-    if structured_form(value) is not None:
-        return True
-    if not isinstance(value, str):
-        return False
-    return "{{" in value or is_input_reference(value) or is_reference(value)
+    _check_action_actor(params, _join(path, "params"), errors)
 
 
 def _check_action_spec_fields(spec: dict, path: str, errors: Errors) -> None:
