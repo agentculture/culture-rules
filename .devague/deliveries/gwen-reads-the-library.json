@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-24T23:11:12Z",
+  "updated": "2026-10-25T05:07:08Z",
   "deviations": [
     {
       "id": "d1",
@@ -15,7 +15,7 @@
         "c28"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "needs-follow-up",
       "seq": 1
     },
@@ -28,7 +28,7 @@
         "c26"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 17
     }
@@ -318,6 +318,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 16
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_library_push.py -k 'replace or item_id'",
+      "behavior_text": "a replace whose reply is the item itself ({id}) completes with that id; a flat or wrapped reply naming another id, or no id, fails bad_response; an upload still needs {item: {id}}",
+      "contract_text": "library.push replaces an item by id through the actor's replace route, answering culture-library's real reply",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at the named commit against culture-library#12's reply shape",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T05:07:04",
+        "commit": "3d90380"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
     }
   ],
   "deltas": [
@@ -386,6 +405,35 @@
       ],
       "evidence_refs": [
         "e7"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "checklist.render also returns the bound library item_id (null before the first push), and checklist.bind accepts a positive int item_id as well as a string",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e10",
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "amended",
+      "behavior_text": "a library.push replace accepts a reply that is the item itself ({id, ...}) as well as {item: {id}}; the id must still match",
+      "caused_by": [
+        "d2"
+      ],
+      "evidence_refs": [
+        "e16"
       ],
       "origin": "llm",
       "status": "proposed",

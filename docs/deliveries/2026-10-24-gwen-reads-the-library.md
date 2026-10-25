@@ -36,7 +36,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t1` | delivered | `culture_rules/node/actions/library.py`: the actor's `formats` (md, txt, json, epub, pdf) and a step `format`; replace by `item_id` through `replace_path` + `replace_method`. Commit `d60c303`, merged in `0a6dd4a` |
 | `t2` | delivered | `RECORDING_BRIEF`, `recording_answer.py` (`parse_recording_answer`), and `cache: true` storing `answer.recording.<sha16>.json`. Commit `2a52718`, merged in `5324f27` |
 | `t3` | delivered | `transcript.render` `format: md` with the title, summary, key facts and transcript; rtl div; HTML-escaped text; md cache. Commits `ba77377` and `d371de8`, merged in `05293d2` |
-| `t4` | delivered | `checklist.py`: `checklist.merge`, `set`, `render` and `bind` over the `checklists` collection, with CAS retries. Commit `771b1e2`, merged in `9a6ffa0`; changed further in t7 (`d1`, proposed) |
+| `t4` | delivered | `checklist.py`: `checklist.merge`, `set`, `render` and `bind` over the `checklists` collection, with CAS retries. Commit `771b1e2`, merged in `9a6ffa0`; changed further in t7 (`d1`, approved) |
 | `t5` | delivered | `json_read.py`, the `json.read` builtin. Commit `15c323d`, merged in `b2e76ea` |
 | `t6` | delivered | `stt.py`: `audio_sha256` is optional (the file is hashed in chunks), and a missing file gives `audio_missing` (final). Commits `68ffeb7` and `1e00649`, merged in `883e649` |
 | `t7` | delivered | Wiring in commit `d4a48ea`: runner registration, catalog params, describe glosses, the editor, and `tests/node/test_library_items_flow.py`. Then `f8a6821` and `86ab3b0`: bind takes an int `item_id`, render returns `item_id` |
@@ -45,12 +45,12 @@ Quoted verbatim from the `devague summary` skeleton:
 
 ## Mid-work Decisions
 
-- `d1` (proposed, pending the operator) — t7 changed t4's module: `checklist.render` also
+- `d1` (approved by the operator) — t7 changed t4's module: `checklist.render` also
   returns `item_id`, and `checklist.bind` accepts a positive int `item_id`. The reason is that
   wiring render → library.push (replace the bound item) → bind needs the bound id before the
   push, and library.push uses an int. The decider was consulted: record_deviation_keep 0.88,
   needs_follow_up 0.55 vs acceptable 0.38.
-- `d2` (proposed, pending the operator) — after the PR opened, culture-library#12 settled the
+- `d2` (approved by the operator) — after the PR opened, culture-library#12 settled the
   replace route as `PUT /api/library/{id}/file`, answering with the item itself rather than
   `{item: {id}}`. t1 had assumed the wrapped shape, so every live replace would have failed
   `bad_response`. library.push now accepts either shape for a replace (commit `d0d51d7`, tests
@@ -76,8 +76,8 @@ Quoted verbatim from the `devague summary` skeleton:
 
 | Plan item | Reason for divergence | Classification |
 |-----------|-----------------------|----------------|
-| `t4` / `t7` (`d1`, proposed) | Wiring needed render to return the bound `item_id` and bind to accept library.push's int id; t7 changed t4's file. Not yet an approved record | needs-follow-up |
-| `t1` (`d2`, proposed) | The replace reply shape was guessed before culture-library defined it; fixed to accept the item itself | acceptable |
+| `t4` / `t7` (`d1`) | Wiring needed render to return the bound `item_id` and bind to accept library.push's int id; t7 changed t4's file. Delta `b6` | needs-follow-up |
+| `t1` (`d2`) | The replace reply shape was guessed before culture-library defined it; fixed to accept the item itself. Evidence `e16`, delta `b7` | acceptable |
 | `t9` | Not run: needs the merge, an approved rollout, and culture-library#10 for the to-do and flip parts | needs-follow-up |
 
 No other task drifted: t1–t3, t5, t6 and t8 delivered against their acceptance criteria (Actual
@@ -136,10 +136,8 @@ is not yet evidence. Bandit was run again on `stt.py` at the t6 merge and is cle
   `formats` [md], `replace_path` and `replace_method`, configure the merge/render/push/bind and
   flip rules, then validate.
 - Records awaiting the operator:
-  - `d1` and `d2`;
-  - deltas `b1`–`b5` (`b4` duplicates `b5`; reject `b4`);
-  - evidence `e1`–`e15`, obligations `o1`–`o18`, lapse `l1`;
-  - the d1 delta, filed once `d1` is approved.
+  - deltas `b1`–`b7` (`b4` duplicates `b5`; reject `b4`; `b6` and `b7` record `d1` and `d2`);
+  - evidence `e1`–`e16`, obligations `o1`–`o18`, lapse `l1`.
 - Embodiment (risk r2): Gwen reads to-dos from the library and sends the checklist comment id in
   `embodiment.bus.todo`.
 - Re-pushing the 33 old transcripts as Markdown items (v2) — live, after t9.
