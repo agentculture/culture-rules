@@ -40,6 +40,7 @@ _MIN_CHARS, _MAX_CHARS = 200, 4000
 _HEADINGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 _HIDDEN = ("script", "style", "head")
 _STRONG, _EM = ("strong", "b"), ("em", "i")
+_VOID = ("br", "img", "hr", "meta", "link")  # no end tag: never opens a dropped span
 _MD = re.compile(r"([\\*_~`|>\[\]#])")
 _LINK = re.compile(r"\[(?:\\.|[^\]\\])*\]\(<[^>]*>\)")
 
@@ -88,16 +89,23 @@ class _Doc(HTMLParser):
 
     # -- parser hooks
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        classes = set((dict(attrs).get("class") or "").split())
+        attributes = dict(attrs)
+        classes = set((attributes.get("class") or "").split())
         if self._dropping or tag in _HIDDEN or classes & self._drop:
-            if tag not in ("br", "img", "hr", "meta", "link"):
-                self._dropping += 1
-            return
-        if tag in _HEADINGS or tag in ("p", "li"):
+            self._drop_open(tag)
+        elif tag in _HEADINGS or tag in ("p", "li"):
             self._open(tag, classes)
-        elif tag == "a" and self._href is None:
-            self._href, self._label = dict(attrs).get("href") or "", []
-        elif (tag in _STRONG or tag in _EM) and self._mark is None and self._href is None:
+        else:
+            self._inline(tag, attributes)
+
+    def _drop_open(self, tag: str) -> None:
+        if tag not in _VOID:
+            self._dropping += 1
+
+    def _inline(self, tag: str, attributes: Mapping[str, str | None]) -> None:
+        if tag == "a" and self._href is None:
+            self._href, self._label = attributes.get("href") or "", []
+        elif tag in _STRONG + _EM and self._mark is None and self._href is None:
             self._mark = ("**" if tag in _STRONG else "_", len(self._text))
         elif tag == "br" and self._where is not None:
             self._text.append(" ")
@@ -117,7 +125,7 @@ class _Doc(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if self._dropping:
-            if tag not in ("br", "img", "hr", "meta", "link"):
+            if tag not in _VOID:
                 self._dropping -= 1
         elif tag == "a" and self._href is not None:
             self._end_link()
@@ -189,7 +197,7 @@ def _pieces(block: str, limit: int) -> list[str]:
         return [block]
     head, *lines = block.split("\n")
     width = max(limit - len(head) - 1, 1)  # the heading and a first line always fit together
-    segments = [s for s in _wrap(head, limit)]
+    segments = list(_wrap(head, limit))
     segments += [s for line in lines for s in _wrap(line, width)]
     out, current = [], ""
     for segment in segments:
