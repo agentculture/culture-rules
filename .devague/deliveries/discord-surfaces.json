@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T16:06:30Z",
+  "updated": "2026-10-25T22:48:05Z",
   "deviations": [
     {
       "id": "d1",
@@ -98,6 +98,32 @@
       "evidence_refs": [],
       "origin": "user",
       "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "The live Discord -> library flow files #spark-tests messages as kind discord-message: culture-library 0.17.0 (#18 links kept, #19 the kind) live; key 10 (newspaper, transcript, todo, discord-message, private) sealed with grant set - and hash-verified against grant, the spark node env and api_keys row 10; newspaper-library kinds discord-message,newspaper,todo,transcript; workflow discord-message-to-library rev 4 (read as discord-bot, push kind discord-message); rule spark-tests-to-library re-enabled; key 6 revoked. Validated live 2026-10-26: the operator's message 1564044927053340744 ran run-3f447a9aac568caa6b12ee3ba1235a60 -> library item 72 (kind discord-message, private, md, created true); a hand re-run run-095cdaa3be5c4d4aa04ec1060c21028e of the same message returned item 72 created false",
+      "caused_by": [
+        "d6",
+        "c6"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "Validation refuses a reference in an action step's params.actor (action_actor_not_literal): the node routes on the value as written, so the committed bundle's inputs.actor failed actor_unavailable live; the discord-library bundle now reads as discord-bot by id and pushes kind discord-message, and tests/rules/test_discord_library_bundle.py runs it end to end on doubles (10 tests, red on the old bundle, green on the new)",
+      "caused_by": [
+        "c6",
+        "b2"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
       "superseded": false
     }
   ],

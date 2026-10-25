@@ -23,9 +23,11 @@ implicit ``item`` / ``index`` ports are inputs like any other, so a ``for_each``
 At save time the kind must be catalogued and the params pass the same kind-param checks as a
 rule action (``action_kind_unknown`` / ``action_param_required`` / ``action_param_type``,
 skipped in stored mode like every catalog check); every ``inputs.<port>`` reference must name
-one of the step's declared input ports (``action_step_ref``); the spec's own fields are typed
-(``type``) and closed (``not_allowed`` / ``unknown_field``) in every mode. Standard-library
-only.
+one of the step's declared input ports (``action_step_ref``). ``params.actor`` is the one
+param never resolved: the node picks the actor from it as written, before any reference
+resolves, so a reference there is refused (``action_actor_not_literal``). The spec's own
+fields are typed (``type``) and closed (``not_allowed`` / ``unknown_field``) in every mode.
+Standard-library only.
 """
 
 from __future__ import annotations

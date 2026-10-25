@@ -3,12 +3,6 @@
   "edges": [
     {
       "source": "inputs",
-      "source_port": "actor",
-      "target": "read",
-      "target_port": "actor"
-    },
-    {
-      "source": "inputs",
       "source_port": "channel",
       "target": "read",
       "target_port": "channel"
@@ -79,12 +73,6 @@
     },
     {
       "description": "",
-      "name": "actor",
-      "required": true,
-      "type": "string"
-    },
-    {
-      "description": "",
       "name": "channel",
       "required": true,
       "type": "string"
@@ -119,7 +107,7 @@
         "action": {
           "kind": "discord.read",
           "params": {
-            "actor": "inputs.actor",
+            "actor": "discord-bot",
             "channel": "inputs.channel",
             "guild": "inputs.guild",
             "message": "inputs.id"
@@ -132,12 +120,6 @@
       "enabled": true,
       "id": "read",
       "inputs": [
-        {
-          "description": "",
-          "name": "actor",
-          "required": true,
-          "type": "string"
-        },
         {
           "description": "",
           "name": "channel",
@@ -160,7 +142,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Read the whole message",
-      "notes": "discord.read with the bot that saw it: the text untruncated (the event's content stops at 2000 characters), the author and the url.",
+      "notes": "discord.read as discord-bot (Culture.dev): an action step names its actor by id, so use the bot that is in the channel (jetson-bot for its server). The text untruncated (the event's content stops at 2000 characters), the author and the url.",
       "outputs": [
         {
           "description": "",
@@ -256,7 +238,7 @@
             "actor": "newspaper-library",
             "content_base64": "inputs.content_base64",
             "format": "md",
-            "kind": "document",
+            "kind": "discord-message",
             "title": "inputs.title",
             "visibility": "private"
           }
@@ -284,7 +266,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Put it in the library",
-      "notes": "library.push through newspaper-library: kind document, format md, visibility private. The actor must list both.",
+      "notes": "library.push through newspaper-library: kind discord-message, format md, visibility private. The actor must list both.",
       "outputs": [
         {
           "description": "",

@@ -406,7 +406,7 @@
           "depth": 0,
           "label": "1",
           "step": "read",
-          "text": "discord.read"
+          "text": "discord.read as discord-bot"
         },
         {
           "depth": 0,
@@ -418,15 +418,15 @@
           "depth": 0,
           "label": "3",
           "step": "push",
-          "text": "library.push as newspaper-library kind document (private) as .md (≤3 attempts)"
+          "text": "library.push as newspaper-library kind discord-message (private) as .md (≤3 attempts)"
         }
       ],
       "id": "discord-message-to-library",
       "kind": "workflow",
       "lines": [
-        "1 read — discord.read",
+        "1 read — discord.read as discord-bot",
         "2 render — markdown.render: fields as one Markdown page, the same bytes each time",
-        "3 push — library.push as newspaper-library kind document (private) as .md (≤3 attempts)"
+        "3 push — library.push as newspaper-library kind discord-message (private) as .md (≤3 attempts)"
       ],
       "paragraph": {
         "segments": [
@@ -2536,7 +2536,7 @@
       "concurrency_key": "discord:{trigger.data.message_id}",
       "condition": null,
       "counts_toward_budget": true,
-      "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: reads it in full with the bot that saw it, renders it as Markdown and pushes it to the library as kind document. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
+      "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: reads it in full as discord-bot, renders it as Markdown and pushes it to the library as kind discord-message. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
       "enabled": false,
       "exclusive_group": null,
       "id": "discord-to-library",
@@ -2566,7 +2566,6 @@
       "workflow": {
         "id": "discord-message-to-library",
         "inputs": {
-          "actor": "trigger.data.actor",
           "channel": "trigger.data.channel_id",
           "guild": "trigger.data.guild_id",
           "id": "trigger.data.message_id",
@@ -6757,12 +6756,6 @@
       "edges": [
         {
           "source": "inputs",
-          "source_port": "actor",
-          "target": "read",
-          "target_port": "actor"
-        },
-        {
-          "source": "inputs",
           "source_port": "channel",
           "target": "read",
           "target_port": "channel"
@@ -6833,12 +6826,6 @@
         },
         {
           "description": "",
-          "name": "actor",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "description": "",
           "name": "channel",
           "required": true,
           "type": "string"
@@ -6873,7 +6860,7 @@
             "action": {
               "kind": "discord.read",
               "params": {
-                "actor": "inputs.actor",
+                "actor": "discord-bot",
                 "channel": "inputs.channel",
                 "guild": "inputs.guild",
                 "message": "inputs.id"
@@ -6886,12 +6873,6 @@
           "enabled": true,
           "id": "read",
           "inputs": [
-            {
-              "description": "",
-              "name": "actor",
-              "required": true,
-              "type": "string"
-            },
             {
               "description": "",
               "name": "channel",
@@ -6914,7 +6895,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Read the whole message",
-          "notes": "discord.read with the bot that saw it: the text untruncated (the event's content stops at 2000 characters), the author and the url.",
+          "notes": "discord.read as discord-bot (Culture.dev): an action step names its actor by id, so use the bot that is in the channel (jetson-bot for its server). The text untruncated (the event's content stops at 2000 characters), the author and the url.",
           "outputs": [
             {
               "description": "",
@@ -7010,7 +6991,7 @@
                 "actor": "newspaper-library",
                 "content_base64": "inputs.content_base64",
                 "format": "md",
-                "kind": "document",
+                "kind": "discord-message",
                 "title": "inputs.title",
                 "visibility": "private"
               }
@@ -7038,7 +7019,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Put it in the library",
-          "notes": "library.push through newspaper-library: kind document, format md, visibility private. The actor must list both.",
+          "notes": "library.push through newspaper-library: kind discord-message, format md, visibility private. The actor must list both.",
           "outputs": [
             {
               "description": "",

@@ -285,6 +285,11 @@ the actor's `connection.channels` and `connection.guild_id`) and the
 [`docs/rules/discord-library`](../rules/discord-library/README.md) shows the
 flow: read, render, push.
 
+A `discord.read` or `discord.message` step names its bot in `params.actor` by
+id (`discord-bot`, `jetson-bot`). The node dispatches through that value as
+given, so a reference such as `inputs.actor` is refused on save
+(`action_actor_not_literal`). Pick the bot that is in the channel.
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -293,6 +298,7 @@ flow: read, render, push.
 | `Missing Access` on a channel | The channel is private; add the bot to its permissions |
 | Messages arrive with empty `content` | MESSAGE CONTENT INTENT is off |
 | No node is listening | The actor's machine's node lacks the token injection, or the `discord` extra |
+| A step fails `actor_unavailable` | Its `params.actor` is not an enabled actor's id; a stored step written before 0.30.1 may still hold a reference such as `inputs.actor` |
 | A message produces no event | No enabled rule with a `discord.*` trigger selects its channel |
 | Posting fails "not in actor allow-list" | `connection.channels` is set and excludes the channel |
 | `401` from Discord | The token was reset after it was sealed; seal the new one and restart the node |

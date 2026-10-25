@@ -43,6 +43,8 @@ from culture_rules.model.refs import (
     LITERAL_KEY,
     REF_KEY,
     TRIGGER_FIELDS,
+    is_input_reference,
+    is_reference,
     ref_errors,
     run_error_refs,
     structured_form,
@@ -838,6 +840,23 @@ def _check_action_step(obj: Step, path: str, errors: Errors) -> None:
     ports = {p.name for _i, p in _items(obj.inputs, Port)}
     for where, reason in ref_problems(params, ports):
         _err(errors, _join(_join(path, "params"), where), "action_step_ref", reason)
+    if _is_actor_ref(params.get("actor")):
+        _err(
+            errors,
+            _join(_join(path, "params"), "actor"),
+            "action_actor_not_literal",
+            "an action step names its actor by id; a reference here is never resolved",
+        )
+
+
+def _is_actor_ref(value: Any) -> bool:
+    """Whether ``params.actor`` is written as a reference: the node dispatches through the
+    value as given, so ``inputs.actor`` would name an actor called ``inputs.actor``."""
+    if structured_form(value) == REF_KEY:
+        return True
+    if not isinstance(value, str):
+        return False
+    return "{{" in value or is_input_reference(value) or is_reference(value)
 
 
 def _check_action_spec_fields(spec: dict, path: str, errors: Errors) -> None:

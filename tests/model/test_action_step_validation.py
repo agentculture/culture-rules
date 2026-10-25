@@ -171,3 +171,20 @@ def test_run_id_is_not_readable_from_an_action_step(value):
     params = {**REPLY, "body": value}
     found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
     assert ("steps[0].config.action.params.body", "action_step_ref") in found
+
+
+@pytest.mark.parametrize(
+    "actor", ["inputs.item", "inputs.item.actor", "{{ inputs.item }}", {"$ref": "inputs.item"}]
+)
+def test_an_action_steps_actor_must_be_a_literal_id(actor):
+    """The node dispatches through ``params.actor`` as given, so a reference there never
+    resolves: it is refused on save, not left to fail ``actor_unavailable`` at run time."""
+    params = {**REPLY, "actor": actor}
+    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    assert ("steps[0].config.action.params.actor", "action_actor_not_literal") in found
+
+
+def test_a_literal_actor_id_passes():
+    params = {**REPLY, "actor": "discord-bot"}
+    wf = action_wf("github.review_reply", params, inputs=(port("item", "object"),))
+    assert codes(wf) == set()
