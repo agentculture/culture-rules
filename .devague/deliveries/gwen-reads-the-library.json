@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T06:45:57Z",
+  "updated": "2026-10-25T06:52:54Z",
   "deviations": [
     {
       "id": "d1",
@@ -493,6 +493,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 27
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o16",
+      "test_ref": "live, no manual step: pocketsync created 2026-10-25T06:50:06Z (recording 70b523d5, en) -> pocket-recording-created run-24e9fd39 -> pocket-transcribe run-d4d55900 -> pocket-to-reader run-949427e5 -> recording-todos run-40fe5247; library items 60 and 61",
+      "behavior_text": "a new recording with an action item became a Markdown transcript item (60, kind transcript) and a rule-fired to-do item (61, kind todo, one open line with id pocket.70b523d5....1) about 2 minutes 15 seconds after its created event, with no manual step; the en lane (stt-en) ran and the he lane did not",
+      "contract_text": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "rule-fired live runs succeeded; library rows and the to-do file were read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:52:20",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
     }
   ],
   "deltas": [
