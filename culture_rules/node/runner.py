@@ -326,6 +326,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         NewspaperRenderPort,
         NewspaperSectionsPort,
     )
+    from culture_rules.node.actions.newspaper_digest import (  # noqa: PLC0415
+        DIGEST_BUILTIN,
+        NewspaperDigestPort,
+    )
     from culture_rules.node.actions.queue import (  # noqa: PLC0415
         QUEUE_ADD_BUILTIN,
         QUEUE_PROGRESS_BUILTIN,
@@ -389,6 +393,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 FILTER_BUILTIN: NewspaperFilterPort(),
                 RENDER_BUILTIN: NewspaperRenderPort(),
                 ISSUE_BUILTIN: NewspaperIssuePort(store),  # one issue per local date
+                DIGEST_BUILTIN: NewspaperDigestPort(store),  # an issue as Discord-sized Markdown
                 EXPORT_BUILTIN: HandoffExportPort.from_env(store),  # #39: Codex commits out
                 IMPORT_BUILTIN: HandoffImportPort.from_env(store),  # #39: ... into spark2
                 FIXER_COOLDOWN_BUILTIN: FixerCooldownPort(store),  # #39: capacity_exhausted

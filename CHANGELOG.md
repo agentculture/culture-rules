@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-10-25
+
+### Added
+
+- builtin newspaper.digest: a delivered issue (the one newspaper.issue stored for a date) as Discord-sized Markdown chunks: the title, each section with its summary bullets (bold kept), headlines as unembedded links where a section has no summary; config max_chars (default 1900)
+- docs/operations/newspaper.md step 7: posting each issue to Discord through a live continuation rule (rules.run.succeeded of daily-newspaper) and a discord.message for_each
+
 ## [0.29.0] - 2026-10-25
 
 ### Added

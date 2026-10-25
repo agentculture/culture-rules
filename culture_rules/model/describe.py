@@ -85,6 +85,7 @@ BUILTIN_WORDS: dict[str, str] = {
     "checklist.render": "checklist.render: the list as Markdown, with its revision",
     "checklist.bind": "checklist.bind: record the pushed library item and revision",
     "markdown.render": "markdown.render: fields as one Markdown page, the same bytes each time",
+    "newspaper.digest": "newspaper.digest: a day's issue as Discord-sized Markdown chunks",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)

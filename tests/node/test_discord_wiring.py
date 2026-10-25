@@ -31,3 +31,11 @@ def test_the_node_registers_discord_read_and_markdown_render():
     ports = default_ports(MemoryStore(), "spark")
     assert isinstance(ports["action:discord.read"], DiscordReadAction)
     assert isinstance(ports["code"]._builtins[MARKDOWN_RENDER_BUILTIN], MarkdownRenderPort)
+
+
+def test_the_node_registers_newspaper_digest():
+    from culture_rules.node.actions.newspaper_digest import DIGEST_BUILTIN, NewspaperDigestPort
+
+    ports = default_ports(MemoryStore(), "spark")
+    assert isinstance(ports["code"]._builtins[DIGEST_BUILTIN], NewspaperDigestPort)
+    assert DIGEST_BUILTIN in BUILTIN_WORDS

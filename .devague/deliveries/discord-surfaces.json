@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T13:01:56Z",
+  "updated": "2026-10-25T14:35:35Z",
   "deviations": [
     {
       "id": "d1",
@@ -42,6 +42,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Posting in Jetson AI Lab is decided: jetson-bot posts each daily newspaper's headlines and section summaries (Discord-sized Markdown chunks) to channel 1405689195862818979 of the public server, through a live continuation rule on rules.run.succeeded of daily-newspaper; a new builtin newspaper.digest builds the chunks from the stored issue; ships with Release 1 as 0.30.0",
+      "task_ref": "t11",
+      "reason": "operator request 2026-10-25: send the daily newsletter to that channel, as a rule/extension, test once with today's issue; library.culture.dev is behind Cloudflare Access so a link alone would not open for public members",
+      "affects": [
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],

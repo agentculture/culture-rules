@@ -356,6 +356,32 @@ summary window has closed and it sends the results only. A re-run more than
 23 hours after an unacknowledged email sends no email and reports
 `email_uncertain: true` (see the email delivery guarantees above).
 
+## 7. Post each issue to Discord (optional)
+
+The builtin `newspaper.digest` turns a delivered issue into Discord-sized
+Markdown: the title and date in bold, then each section's name in bold and its
+summary bullets (a section shown without a summary lists its headlines as links,
+an empty one says so). It reads the issue `newspaper.issue` stored for a date, so
+it needs only the date, and the same issue always gives the same chunks. Links
+are written `[label](<url>)`, so Discord shows no preview per link.
+
+The posting flow is configured live in the store, not committed, as a rule that
+continues from the newspaper:
+
+- a rule on `rules.run.succeeded` with the condition `data.workflow_id ==
+  "daily-newspaper"`, passing `date` from `trigger.data.outputs.date` to the
+  workflow;
+- a workflow with a `newspaper.digest` code step (input `date`; config
+  `max_chars`, default 1900) and a `for_each` over its `chunks`, whose body is a
+  `discord.message` action through a Discord app actor (`params.actor`,
+  `guild`, `channel`, `text` from `inputs.item`).
+
+The library at library.culture.dev is behind Cloudflare Access, so a post that
+only links to the issue would not open for readers outside it; the digest
+carries the headlines and summaries themselves. To try it once for a day that
+already went out, run the workflow by hand with that day's date (`workflows
+run`); the newspaper itself is not re-run.
+
 ## Known limits
 
 - **The summary replay ledger is per process.** `llm.complete` replays a
