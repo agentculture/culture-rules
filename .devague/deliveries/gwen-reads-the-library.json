@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T06:45:02Z",
+  "updated": "2026-10-25T06:45:57Z",
   "deviations": [
     {
       "id": "d1",
@@ -395,7 +395,7 @@
         "commit": "48e58ee"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 22
     },
@@ -414,7 +414,7 @@
         "commit": "48e58ee"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 23
     },
@@ -433,7 +433,7 @@
         "commit": "48e58ee"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 24
     },
@@ -452,7 +452,7 @@
         "commit": "48e58ee"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 25
     },
@@ -471,7 +471,7 @@
         "commit": "48e58ee"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 26
     },
@@ -490,7 +490,7 @@
         "commit": "48e58ee"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 27
     }
