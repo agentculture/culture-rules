@@ -11,6 +11,7 @@ from culture_rules.apps.discord_rest import (
     MAX_CONTENT,
     DiscordClient,
     DiscordError,
+    guild_ids,
 )
 
 TOKEN = "tok-SECRET-123"
@@ -162,6 +163,36 @@ def test_list_targets_can_be_limited_to_one_guild():
     out = DiscordClient(TOKEN, transport=t).list_targets(guild_id="20")
     assert [g["id"] for g in out] == ["20"]
     assert not any(path == "/guilds/10/channels" for _, path, _ in t.calls)
+
+
+def test_list_targets_accepts_a_list_of_guild_ids():
+    t = guild_routes()
+    out = DiscordClient(TOKEN, transport=t).list_targets(guild_id=["20", "10"])
+    assert [g["id"] for g in out] == ["10", "20"]
+    only = DiscordClient(TOKEN, transport=guild_routes()).list_targets(guild_id=frozenset({"20"}))
+    assert [g["id"] for g in only] == ["20"]
+
+
+@pytest.mark.parametrize("unset", [None, "", [], ()])
+def test_list_targets_unset_or_empty_means_every_guild(unset):
+    out = DiscordClient(TOKEN, transport=guild_routes()).list_targets(guild_id=unset)
+    assert [g["id"] for g in out] == ["10", "20"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("", None),
+        ([], None),
+        ("20", frozenset({"20"})),
+        (20, frozenset({"20"})),
+        (["10", 20, ""], frozenset({"10", "20"})),
+        (("10",), frozenset({"10"})),
+    ],
+)
+def test_guild_ids_normalises_a_string_or_a_list(value, expected):
+    assert guild_ids(value) == expected
 
 
 def test_list_targets_failure_never_carries_the_token():

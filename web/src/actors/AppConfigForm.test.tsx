@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { AppConfigForm } from "./AppConfigForm";
-import { appParamsFrom, emptyAppDraft, validateApp, validateHttp, type AppDraft, type FormErrors } from "./app-config";
+import { appDraftFrom, appParamsFrom, emptyAppDraft, validateApp, validateHttp, type AppDraft, type FormErrors } from "./app-config";
 
 let latest: AppDraft = emptyAppDraft();
 
@@ -190,6 +190,31 @@ describe("app-config model", () => {
       events: ["github.pr.opened"],
       actions: ["github.comment"],
     });
+  });
+
+  it("writes one Discord guild id as a string and several as a list", () => {
+    const draft: AppDraft = {
+      ...emptyAppDraft(),
+      surface: "discord",
+      connection: { bot_token: "grant:bot", guild_id: " 10 " },
+      events: ["discord.message.created"],
+    };
+    expect(appParamsFrom(draft, undefined).connection).toEqual({ bot_token: "grant:bot", guild_id: "10" });
+    const several = appParamsFrom({ ...draft, connection: { bot_token: "grant:bot", guild_id: "10, 20, 10" } }, undefined);
+    expect(several.connection).toEqual({ bot_token: "grant:bot", guild_id: ["10", "20"] });
+    const unset = appParamsFrom({ ...draft, connection: { bot_token: "grant:bot", guild_id: " , " } }, undefined);
+    expect(unset.connection).toEqual({ bot_token: "grant:bot" });
+  });
+
+  it("reads a Discord guild id stored as a string or a list", () => {
+    const base = { surface: "discord" as const, events: [], actions: [] };
+    expect(appDraftFrom({ ...base, connection: { guild_id: "10" } }).connection.guild_id).toBe("10");
+    expect(appDraftFrom({ ...base, connection: { guild_id: ["10", "20"] } }).connection.guild_id).toBe("10, 20");
+  });
+
+  it("hints that the Discord guild field takes several ids", () => {
+    render(<Harness initial={{ ...emptyAppDraft(), surface: "discord" }} />);
+    expect(screen.getByRole("textbox", { name: "Guild ids" })).toHaveAccessibleDescription(/separate with commas/i);
   });
 
   it("refuses a literal credential header in the http policy", () => {

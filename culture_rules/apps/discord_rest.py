@@ -22,12 +22,28 @@ __all__ = [
     "TEXT_CHANNEL_TYPES",
     "DiscordClient",
     "DiscordError",
+    "guild_ids",
 ]
 
 DEFAULT_BASE_URL = "https://discord.com/api/v10"
 MAX_CONTENT = 2000
 _TIMEOUT_S = 15.0
 _CHANNEL_RE = re.compile(r"^\d{1,25}$")
+
+
+def guild_ids(value: Any) -> frozenset[str] | None:
+    """A Discord connection's ``guild_id`` as a set of guild ids, or ``None`` for every guild.
+
+    ``value`` is one id (a string or a number, as before) or a list/tuple/set of ids. Unset
+    (``None``), an empty string and an empty list all mean *every guild the bot is in* and give
+    ``None``; blank entries inside a list are dropped, so a list of only blanks is unset too.
+    """
+    if value is None:
+        return None
+    items = value if isinstance(value, (list, tuple, set, frozenset)) else [value]
+    ids = frozenset(text for text in (str(v).strip() for v in items if v is not None) if text)
+    return ids or None
+
 
 #: ``transport(url, data, headers, timeout) -> (status, json_body, response_headers)``;
 #: ``data`` is ``None`` for a GET.
@@ -111,15 +127,17 @@ class DiscordClient:
             f"discord returned HTTP {status}", retryable=status >= 500 or status == 429
         )
 
-    def list_targets(self, guild_id: str | None = None) -> list[dict[str, Any]]:
-        """The servers the bot is in (only ``guild_id`` when given), each with its text and
-        announcement channels in Discord order; ``visible`` is whether the bot can open the
-        channel (a private channel it was not added to is not)."""
+    def list_targets(self, guild_id: Any = None) -> list[dict[str, Any]]:
+        """The servers the bot is in (only those ``guild_id`` names when given: one id or a
+        collection of ids, see :func:`guild_ids`), each with its text and announcement channels
+        in Discord order; ``visible`` is whether the bot can open the channel (a private channel
+        it was not added to is not)."""
+        wanted = guild_ids(guild_id)
         guilds = self._get_ok("/users/@me/guilds") or []
         out = []
         for guild in guilds:
             gid = str(guild.get("id", ""))
-            if guild_id and gid != str(guild_id):
+            if wanted is not None and gid not in wanted:
                 continue
             channels = [
                 c

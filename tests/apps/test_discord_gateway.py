@@ -30,7 +30,7 @@ SECRET_TEXT = "the-secret-plan-" + uuid.uuid4().hex
 
 
 def discord_actor(
-    id="bot", *, enabled=True, token="grant:DISCORD_BOT", channels=(), events=(EVENT,)
+    id="bot", *, enabled=True, token="grant:DISCORD_BOT", channels=(), events=(EVENT,), guild="1"
 ):
     return Actor(
         id=id,
@@ -40,7 +40,7 @@ def discord_actor(
         params={
             "surface": "discord",
             "events": list(events),
-            "connection": {"bot_token": token, "guild_id": "1", "channels": list(channels)},
+            "connection": {"bot_token": token, "guild_id": guild, "channels": list(channels)},
             "self_identity": "rulesbot",
         },
     ).to_dict()
@@ -204,6 +204,40 @@ def test_channel_allow_list_ignores_other_channels(rig):
     r.hub.post(message(2, channel="100"))
     assert eventually(lambda: len(r.events()) == 1)
     assert r.events()[0]["envelope"]["data"]["channel_id"] == "100"
+
+
+def test_a_guild_id_string_ignores_other_guilds(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(guild="1"))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, guild="2"))
+    r.hub.post(message(2, guild="1"))
+    assert eventually(lambda: len(r.events()) == 1)
+    assert r.events()[0]["envelope"]["data"]["guild_id"] == "1"
+
+
+def test_a_guild_id_list_takes_messages_from_each_listed_guild(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(guild=["1", "3"]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, guild="2"))
+    r.hub.post(message(2, guild="1"))
+    r.hub.post(message(3, guild="3"))
+    assert eventually(lambda: len(r.events()) == 2)
+    assert sorted(e["envelope"]["data"]["guild_id"] for e in r.events()) == ["1", "3"]
+
+
+@pytest.mark.parametrize("unset", [None, "", []])
+def test_an_unset_or_empty_guild_id_takes_every_guild(rig, unset):
+    r = rig()
+    r.store.put("actors", discord_actor(guild=unset))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, guild="2"))
+    r.hub.post(message(2, guild="1"))
+    assert eventually(lambda: len(r.events()) == 2)
 
 
 def test_the_token_comes_only_from_grant(rig, monkeypatch):
