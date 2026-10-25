@@ -1,0 +1,935 @@
+{
+  "slug": "discord-surfaces",
+  "title": "discord surfaces",
+  "frame_slug": "discord-surfaces",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-25T09:25:44Z",
+  "updated": "2026-10-25T10:55:26Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-rules listens and acts on Discord through two bots across two servers, and a Discord message can land in the library as an item \u2014 the first of the Discord automations",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Both actors hold a gateway lease on the live mesh at once and a message in each server saves to the library",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "A second Discord app actor (jetson-bot) works with no engine change: GatewaySupervisor keys sessions by actor id with lease `discord-gateway:<actor id>`, each actor resolves its own `grant:<NAME>` bot token, discord.message resolves params.actor, and /actors/{id}/discord/targets and ops/health gateways() are per actor; the work is a new grant secret, its injection on the listening node and API, the actor, and docs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "jetson-bot listens and posts after only a grant secret, its injection and an actor document; the gateway, message action and targets code carry no actor-specific branch",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Each bot records its own event for the same message: event_id_for(surface, delivery_id) in events/hook_sink.py:99 hashes only the message id, so when both bots sit in one server the second sink is a duplicate and the event is owned by whichever bot wrote first (source, data.actor and self_authored become order-dependent); the event id must include the actor id",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "Two Discord actors receiving the same message id record two events, each with its own source `app://<actor id>`, data.actor and self_authored; one actor's redelivery still dedupes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Bot-to-bot loops are prevented: the gateway records data.bot but never filters it, and self_authored only matches the actor's own self_identity, so Culture.dev's posts fire jetson-bot rules and vice versa; another bot's messages are skipped by default unless a rule opts in (like include_self)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "With the guard on, a message authored by any bot (data.bot true) fires no rule unless the rule opts in; a human message fires as before",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "A Discord message can become a library item: library.push takes only content_base64 (action_kinds.py library.push) and no builtin turns trigger text into base64, so a step composes Markdown from the message (content, author_name, channel, url, message id) and outputs content_base64 for library.push with format md",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A trigger message's content, author, channel and url become a Markdown file whose content_base64 library.push accepts with format md, with no file on disk",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "culture-library is unchanged in the first slice: a .md upload with an existing kind (document or article), title and author from the message, and the message URL and id in the body (which also avoids sha256 dedupe of identical text) already works; there is no link/bookmark/note kind, no source or tag metadata, no server-side URL fetch, and images are refused (415)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "No file in ../culture-library changes in this work",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "discord-bot-cli and jetson-ai-lab-cli stay unchanged and do not conflict: both use the jetson-bot token over REST with Intents.none() and a login-act-close run, so culture-rules holding jetson-bot's gateway session duplicates nothing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "No file in ../discord-bot-cli or ../jetson-ai-lab-cli changes, and their live tests still pass while culture-rules holds jetson-bot's gateway",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Tests cover two Discord actors: two sessions and two leases, both bots seeing one message (two events), and one bot not firing on the other's posts; today every gateway test uses a single discord_actor()",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The suite has tests for two Discord actors: two leases, two events for one message, no cross-bot firing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The library automations themselves (which channel, which kind and visibility) are configured live in the store, not committed; only the generic step and, at most, a disabled example bundle are committed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "No committed file names a live channel id for a library flow other than the docs' 'On rules.culture.dev' table; any bundle ships disabled",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "A reaction saves a message: the gateway raises discord.reaction.added (guild, channel, message id, emoji name/id incl. custom emoji, reacting user, bot flag) with the reactions intent, and a rule filters on the emoji; the workflow fetches the reacted message (text, author, url, attachments) over REST since the reaction event carries no content",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Adding the chosen emoji (unicode or custom) to a message raises one discord.reaction.added event and the flow saves that message's text, url and attachments",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "A slash command (e.g. /save) is registered per bot and handled; the interaction is answered within Discord's 3-second window and becomes an event (discord.command.invoked: command, options, user, channel, guild, target message when it is a message command) that rules trigger on",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "A /save slash command and a 'Save to library' message command appear in both servers for each bot, the user gets an ephemeral acknowledgement within 3 s, and a discord.command.invoked event fires a rule",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "A time-based flow saves on a schedule: a schedule trigger runs a step that reads a channel's messages since the last run over REST (GET /channels/{id}/messages?after=), with a stored cursor per flow and channel so a rerun neither misses nor repeats a message",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "A schedule flow reads only messages newer than its stored cursor per channel; two consecutive runs with no new messages save nothing, and a run after a failure saves what the failed run missed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "A flow chooses its channels: opt-in channels or 'all' the bot can see, per flow (a trigger/step setting picked from /actors/{id}/discord/targets), independent of the actor-level connection.channels allow-list, which also limits posting",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A flow set to chosen channels ignores other channels; set to 'all' it takes every channel the bot can see; neither changes where the actor may post",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Attachments reach the library: the message events and the REST read carry attachments (id, filename, content_type, size, url); a step downloads pdf/epub only from Discord's CDN (urls expire about 24 h), at most 50 MiB, and hands content_base64 and format to library.push; other types are skipped with a reason",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "A pdf and an epub attached to a saved message become one library item each with the right format; an image or a file over 50 MiB is skipped with a reason in the run; only Discord CDN hosts are fetched",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "One actor per bot, not per server: jetson-bot is one actor spanning both servers, because two actors on one token would open two gateway sessions that each receive every message; connection.guild_id becomes a list (or stays unset for every server the bot is in) in the gateway filter, server/app.py:1007, discord_rest.list_targets and web app-config.ts:86",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "connection.guild_id accepts a list of ids (and a single string as before) in the gateway filter, the targets endpoint, list_targets and the web form; one jetson-bot actor serves both servers on one gateway session",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "audience",
+      "text": "The operator, who builds Discord automations in the culture-rules editor (Workflows tab, Actors tab) and the CLI/MCP, and the two bots' members in JetsonBot experiments and Jetson AI Lab Research Group whose saved messages land in culture-library",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Every flow in the spec is buildable from the editor and from the CLI/MCP",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "before_state",
+      "text": "Today one bot (Culture.dev, actor discord-bot on spark) listens in one server and can only react to new messages with a text post; nothing in Discord can reach the library, and jetson-bot is reached only by one-shot REST CLIs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "The before state matches the live mesh on 2026-10-25: one discord app actor (discord-bot, guild 1413999242648748195)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "why_it_matters",
+      "text": "Discord is where links, papers and notes are shared in both communities; saving them by hand loses them, and Discord is the first of several surfaces whose content should flow into the library (later other destinations) through generic, reusable steps",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The Markdown render and attachment fetch steps take no Discord-specific input beyond a message mapping, so another surface can reuse them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "after_state",
+      "text": "Two Discord app actors (discord-bot = Culture.dev, jetson-bot) listen across both servers; a message saves to the library by a reaction, by a slash or message command, by being posted in a chosen channel (or any channel), or by a scheduled sweep; its text and links land as a Markdown item and its pdf/epub attachments as their own items",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "All four gestures save a test message on the live mesh, from both bots",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "success_signal",
+      "text": "On the live mesh, each of the 4 gestures (reaction, command, channel message, schedule) saves a test message to the library within 60 s of the gesture (the schedule within one period), a pdf and an epub attachment each become 1 item, saving the same message twice yields 1 item (created: false), and 0 events fire from one bot's posts on the other's rules",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "The live validation measures each number in the success signal and records it as evidence",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Saving is idempotent: the rendered Markdown is deterministic from the message (message id and url in the body, no save time), so the same message saved by two gestures, two users or a rerun produces one item (library sha256 dedupe, created: false); attachments dedupe by their bytes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "Saving one message twice gives one library item",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "Discord content lands private by default: when a library.push step names no visibility none is sent and culture-library stores the item private (library.py sends visibility only when given; library core defaults private); no Discord flow, example bundle or editor default sets public, since the Jetson AI Lab server is community content",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "No Discord flow, bundle or editor default sends visibility public",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "Both bots are re-invited with the scopes the gestures need: bot plus applications.commands, and permissions View Channels, Send Messages, Read Message History, Add Reactions (for an acknowledgement reaction); intents message content (privileged), guild messages, guild message reactions; docs/actors/discord.md documents this for N bots",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "docs/actors/discord.md documents the scopes, permissions and intents for both bots and the live table names both actors",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "openapi contract test, CLI/MCP parity test and teken doctor --strict pass, and each new kind has a describe phrase",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "Discord message content stored in the events collection expires: today every gateway message is sunk as a plaintext event with no TTL (only handoffs and quarantine carry TTL indexes), and jetson-bot would add every message of a ~120-channel community server; Discord events get a retention (TTL on a date field, e.g. 30 days) and channels outside every flow's selection are not sunk at all",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "A Discord event older than the retention is gone from the events collection, and a message in a channel no enabled flow selects is never written",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "The per-actor event id changes only Discord's ids: github.py:363 checks redelivery with event_id_for(SURFACE, delivery), so the gateway passes an actor-scoped delivery id (e.g. `<actor>:<message id>`) instead of changing event_id_for; old Discord events keep their ids, and at most a message redelivered across the upgrade lands twice",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "GitHub and Jira event ids are byte-identical before and after; only new Discord events carry the actor in their id",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Reactions are received with discord.py's raw reaction event (on_raw_reaction_add), not on_reaction_add, which fires only for messages in the client cache; a reaction on an old message still saves it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "Reacting to a message posted before the node connected still raises discord.reaction.added",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Commands are synced by the lease holder only when their definition changes (per guild, so they appear at once, not after global propagation), and an interaction is acknowledged (ephemeral deferral) before the event is written; during a lease handover gap Discord shows the interaction failed, and the user retries",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "Reconnecting does not re-register unchanged commands, and every handled interaction is acknowledged within 3 s",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "The live library actor and key accept what Discord flows push: newspaper-library's kinds are newspaper, transcript, todo and formats epub, md, so the kind for Discord items (document or article) and the format pdf are added to the actor and to the culture-library key's kind list (config, at rollout)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "A Discord text item and a pdf attachment push succeed against library.culture.dev with the live actor and key",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "The attachment fetch reuses http.call's vetted connection (exact-host allowlist of Discord's CDN hosts, every resolved address vetted, pinned connect, redirects refused, no proxies) rather than a new HTTP path",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "The fetch step refuses a redirect, a non-allow-listed host and a CDN name resolving to a private address",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "REST reads (message fetch, history sweep, targets) honour Discord 429 retry_after and are bounded per run (pages and channels), and the saved text comes from the REST message, so a message longer than the event's 2000-character cut (Nitro allows 4000) is saved whole",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "A sweep over many channels survives a 429 without losing its cursor, and a 3000-character message is saved untruncated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "boundary",
+      "text": "A saved item is not removed when its Discord message is edited or deleted (c10 excludes those events); removal is a manual archive in culture-library",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "Deleting a saved Discord message leaves its library item in place, and the doc says how to archive it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "A save flow carries a who filter: unset means anyone; users lists Discord user ids or usernames; roles lists role ids, and a role the server lets members self-assign is the opt-in; reaction and command events carry the acting user's id, username and role ids so the condition can check them. Discord does not expose members' emails to bots, so users are matched by id or username, not email",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "A member outside the configured users and roles cannot trigger a save, and with no filter every member can",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c43",
+      "kind": "requirement",
+      "text": "Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "A flow can ack with \u2705 for one emoji and stay silent for another, and a command user sees an ephemeral saved/skipped reply only they can see",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "[R1] Actor-scoped Discord delivery id",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "two Discord actors sinking the same message id record two events, each with source `app://<actor>` and its own data.actor and self_authored (tests/apps/test_discord_gateway.py)",
+        "one actor's redelivery of a message still returns duplicate",
+        "event_id_for and server/hooks/github.py are unchanged; GitHub and Jira ids are byte-identical (existing hook tests green)"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "h3",
+        "c32",
+        "h26"
+      ],
+      "instruction": "Change only culture_rules/apps/discord_gateway.py _on_message: pass delivery_id=f\"{actor_id}:{message_id}\" to sink. Do not touch events/hook_sink.py event_id_for. Add a two-actor test with two fake gateways to tests/apps/test_discord_gateway.py."
+    },
+    {
+      "id": "t2",
+      "summary": "[R1] Discord trigger filters in matching: bots, channels, who",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an event with data.bot true matches no trigger unless params.include_bots is true; a human message matches as before",
+        "params.channels as a list of ids admits only those channels; absent or \"all\" admits every channel",
+        "params.users (ids or usernames, case-insensitive) and params.roles (role ids, matched against data.user_roles) each admit only their members; both absent admits everyone",
+        "the filters apply only to discord.* event types; GitHub/Jira triggers behave exactly as before"
+      ],
+      "deps": [],
+      "covers": [
+        "c5",
+        "h4",
+        "c17",
+        "h13",
+        "c42",
+        "h33"
+      ],
+      "instruction": "Work in culture_rules/engine/matching.py trigger_matches next to the include_self check, and document the params in culture_rules/model/rule.py trigger validation if params are validated there. Tests in tests/engine/. Do not touch connection.channels (the actor allow-list)."
+    },
+    {
+      "id": "t3",
+      "summary": "[R1] connection.guild_id accepts a list",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the gateway guild filter, GET /actors/{id}/discord/targets, DiscordClient.list_targets and the web Guild field each accept a string (as before) or a list of ids, with tests for both forms",
+        "unset still means every guild the bot is in"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c19",
+        "h15"
+      ],
+      "instruction": "Files: culture_rules/apps/discord_gateway.py (_on_message guild check), culture_rules/server/app.py (~1007), culture_rules/apps/discord_rest.py list_targets (accept a set of ids), web/src/actors/app-config.ts (guild_id becomes a list field). Normalise with one helper (e.g. in apps/discord_rest.py) returning a frozenset or None."
+    },
+    {
+      "id": "t4",
+      "summary": "[R1] Discord event retention and unselected-channel drop",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Discord events carry a date field with a TTL index (default 30 days, configurable) created by the store's ensure() path; non-Discord events never expire",
+        "the gateway does not sink a message from a channel that no enabled rule with a discord.* trigger selects (a rule with no channels or \"all\" selects every channel)",
+        "tests cover two Discord actors end to end: two leases, two events for one message, no cross-bot firing"
+      ],
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c31",
+        "h25",
+        "c11",
+        "h8"
+      ],
+      "instruction": "TTL: use the store's ensure(..., ttl_seconds=0) pattern from events/ingest.py:337 with an expires_at set only on Discord events in hook_sink (surface == discord); check MemoryStore ignores TTL safely. Selection: GatewaySupervisor computes the union of channels from enabled rules (reuse the store find), refreshed each tick."
+    },
+    {
+      "id": "t5",
+      "summary": "[R1] Generic markdown.render builtin",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "markdown.render takes title, text, author, source, url, id and returns markdown and content_base64; no Discord-specific input",
+        "the same inputs render byte-identical output (no timestamps of the render); the id and url appear in the body",
+        "a workflow test feeds discord.message.created data through markdown.render into library.push against a fake library: the body has the content and url, and a second push returns created false"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h5",
+        "c23",
+        "h18",
+        "c26",
+        "h21"
+      ],
+      "instruction": "New module culture_rules/node/actions/markdown_render.py with a *_BUILTIN constant and a Port like json_read.py; stdlib only. Tests in tests/node/. Registration in runner/describe is t8's job."
+    },
+    {
+      "id": "t6",
+      "summary": "[R1] Discord REST reads with 429 handling",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "DiscordClient.get_message(channel, message) returns content (untruncated, e.g. 3000 chars), author id/name, url and attachments (id, filename, content_type, size, url)",
+        "DiscordClient.history(channel, after, limit) pages oldest-first and is bounded by a page cap",
+        "every GET (targets included) retries a 429 after retry_after up to a bound, then raises a retryable DiscordError; tests with a fake transport"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c38",
+        "h31"
+      ],
+      "instruction": "Only culture_rules/apps/discord_rest.py and tests/apps/test_discord_rest.py. Keep the token out of errors and reprs."
+    },
+    {
+      "id": "t7",
+      "summary": "[R1] discord.read action",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "discord.read with params actor, channel, message returns the message fields and attachments from DiscordClient.get_message, resolving the actor's own grant token",
+        "a non-Discord actor or a channel outside connection.channels fails with a clear, non-retryable error"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c13",
+        "c38"
+      ],
+      "instruction": "New module culture_rules/node/actions/discord_read.py modelled on message.py _discord (actor load, surface check, secrets.resolve). Tests in tests/node/."
+    },
+    {
+      "id": "t8",
+      "summary": "[R1] Wire-up: kinds, phrases, runner, explain, OpenAPI",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "discord.read is in model/action_kinds.py, ACTION_WORDS and the paragraph phrases; markdown.render in BUILTIN_WORDS; both registered in node/runner.py",
+        "trigger params include_bots, channels, users, roles are accepted by validation and described in the paragraph",
+        "api/openapi.json matches the served schema (test_openapi_contract), the CLI/MCP parity test passes, and teken cli doctor . --strict is green"
+      ],
+      "deps": [
+        "t2",
+        "t5",
+        "t7"
+      ],
+      "covers": [
+        "c29",
+        "h24"
+      ],
+      "instruction": "Shared registry files only: model/action_kinds.py, model/describe.py, model/paragraph.py, node/runner.py, explain/catalog.py, api/openapi.json. Run the full suite once at the end."
+    },
+    {
+      "id": "t9",
+      "summary": "[R1] Editor: Discord trigger filters, guild list, new steps",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the trigger editor for a discord.* event offers channels (picked from discord/targets, or All), users, roles and an include-bots switch, and saves them in trigger params",
+        "the Actors form edits guild_id as a list; ActionPicker offers discord.read and markdown.render with their fields",
+        "vitest and a Playwright flow build a channel-message -> markdown.render -> library.push workflow; webglass gate green"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c21",
+        "h16"
+      ],
+      "instruction": "web/src/rules/TriggerPicker.tsx, ActionPicker.tsx, web/src/actors/app-config.ts, api types regenerated from api/openapi.json. Follow the design canvas."
+    },
+    {
+      "id": "t10",
+      "summary": "[R1] Docs and disabled example bundle",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/actors/discord.md covers N bots: invite with bot + applications.commands, permissions incl. Add Reactions, intents (message content, guild messages, reactions), a grant name per bot, guild_id as a list, the rollout order (upgrade every node and the API before switching guild_id to a list), and that deleting a message leaves its item (archive by hand)",
+        "docs/actors/library.md notes the kind and pdf format Discord flows need",
+        "docs/rules/discord-library ships disabled, with placeholder channel ids and no visibility public; markdownlint clean"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c28",
+        "h23",
+        "c39",
+        "h32",
+        "c12",
+        "h9",
+        "c27",
+        "h22"
+      ],
+      "instruction": "Docs describe what is on disk; mark R2/R3 gestures planned until they land. Keep CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md in step when the project description changes."
+    },
+    {
+      "id": "t11",
+      "summary": "[R1] Live rollout: second bot and the channel flow",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the operator has sealed jetson-bot's token with grant, turned on its intents, re-invited both bots, and the release runs on every node and the API (culture-rules rollout)",
+        "the jetson-bot actor exists with guild_id as a list of both servers; ops health shows two discord-gateway leases",
+        "the library actor lists the Discord kind and pdf and the library key's kind list matches; a test channel message saves as a private Markdown item",
+        "grep of the release diff for 'jetson' in culture_rules/ has no hits"
+      ],
+      "deps": [
+        "t4",
+        "t8",
+        "t9",
+        "t10"
+      ],
+      "covers": [
+        "c3",
+        "h2",
+        "c36",
+        "h29"
+      ],
+      "instruction": "Operator hand-turns through ! steps (deploys need the operator's shell); stop on the first failing step; configure the flow live in the store, never committed."
+    },
+    {
+      "id": "t12",
+      "summary": "[R2] Raw reaction event discord.reaction.added",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the gateway registers on_raw_reaction_add with the reactions intent and sinks discord.reaction.added (guild, channel, message id, emoji name and id for custom emoji, user id, username, user_roles, bot) with delivery id actor:message:user:emoji",
+        "a reaction on a message not in the client cache still raises the event (fake raw payload test)",
+        "message events also carry user_roles"
+      ],
+      "deps": [
+        "t11"
+      ],
+      "covers": [
+        "c33",
+        "h27",
+        "c13",
+        "h10"
+      ],
+      "instruction": "culture_rules/apps/discord_gateway.py only (intents, the Gateway protocol gains on_reaction, DiscordPyGateway handler, supervisor sink path) and its tests. The reaction event goes through the same channel selection as messages."
+    },
+    {
+      "id": "t13",
+      "summary": "[R2] Generic attachment.fetch through the vetted opener",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "attachment.fetch takes a list of {url, filename, content_type} and an allowed host list, and returns per item content_base64 and format for pdf and epub, or skipped with a reason",
+        "a redirect, a non-allow-listed host, a host resolving to a private address and a file over 50 MiB are refused (tests with fakes)",
+        "images and other types are skipped with reason unsupported_format"
+      ],
+      "deps": [
+        "t11"
+      ],
+      "covers": [
+        "c18",
+        "h14",
+        "c37",
+        "h30"
+      ],
+      "instruction": "New module culture_rules/node/actions/attachment_fetch.py reusing the vetted pinned opener from node/actions/http.py (import its helpers, do not copy). Default allowed hosts cdn.discordapp.com and media.discordapp.net."
+    },
+    {
+      "id": "t14",
+      "summary": "[R2] discord.react action",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "discord.react with actor, channel, message, emoji adds the bot's reaction via DiscordClient.add_reaction (unicode and custom name:id), with 429 handling",
+        "a workflow step with a when condition reacts for one emoji and stays silent for another"
+      ],
+      "deps": [
+        "t11"
+      ],
+      "covers": [
+        "c43"
+      ],
+      "instruction": "Add add_reaction to culture_rules/apps/discord_rest.py and a port in culture_rules/node/actions/discord_react.py; tests for both."
+    },
+    {
+      "id": "t15",
+      "summary": "[R2] Wire-up and editor for reactions and attachments",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "discord.reaction.added is offered by the trigger picker with an emoji field (unicode or custom); attachment.fetch and discord.react are catalogued, described, registered and offered in the editor",
+        "a reaction -> discord.read -> markdown.render + loop(attachment.fetch -> library.push) -> discord.react workflow builds in the editor and passes a workflow test; OpenAPI, parity, teken green"
+      ],
+      "deps": [
+        "t12",
+        "t13",
+        "t14"
+      ],
+      "covers": [
+        "c29"
+      ],
+      "instruction": "Shared registry and web files as in t8/t9; update docs/actors/discord.md (no longer planned)."
+    },
+    {
+      "id": "t16",
+      "summary": "[R3] Slash and message commands over the gateway",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the lease holder registers /save and a Save to library message command per guild, and re-syncs only when the definition hash changes (test: reconnects do not re-sync)",
+        "an interaction is acknowledged with an ephemeral deferral before the event is written, and discord.command.invoked carries command, options, target message id, user id, username, user_roles, channel, guild",
+        "the interaction token is never written to the event; it is kept in a short-TTL collection keyed by the event id for the reply action"
+      ],
+      "deps": [
+        "t15"
+      ],
+      "covers": [
+        "c14",
+        "h11",
+        "c34",
+        "h28"
+      ],
+      "instruction": "culture_rules/apps/discord_gateway.py (CommandTree on the client, interaction handler) plus a small module for the command definitions; app id from connection.application_id. Tests with fakes."
+    },
+    {
+      "id": "t17",
+      "summary": "[R3] Ephemeral command reply action",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "discord.reply with the triggering event id sends an ephemeral follow-up using the stored interaction token, visible only to the invoking user; an expired token fails non-retryably",
+        "a flow replies saved or skipped with a reason, only under its when condition"
+      ],
+      "deps": [
+        "t16"
+      ],
+      "covers": [
+        "c43",
+        "h34"
+      ],
+      "instruction": "New port culture_rules/node/actions/discord_reply.py and a follow-up call in apps/discord_rest.py; tests with a fake transport."
+    },
+    {
+      "id": "t18",
+      "summary": "[R3] Scheduled history sweep with a cursor",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "discord.sweep reads messages newer than the stored cursor per flow and channel, bounded per run, and returns them for a loop",
+        "the cursor advances only after the run's pushes succeed, with compare-and-set so an overlapping run cannot move it backwards or skip messages",
+        "two runs with no new messages save nothing; a run after a failed run saves what it missed"
+      ],
+      "deps": [
+        "t15"
+      ],
+      "covers": [
+        "c16",
+        "h12"
+      ],
+      "instruction": "New module culture_rules/node/actions/discord_sweep.py using DiscordClient.history; cursor documents in a new store collection with an atomic conditional update. Tests in tests/node/."
+    },
+    {
+      "id": "t19",
+      "summary": "[R3] Wire-up and editor for commands, reply and sweep",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "discord.command.invoked, discord.reply and discord.sweep are catalogued, described, registered and offered in the editor; OpenAPI, parity, teken green; docs/actors/discord.md no longer marks them planned"
+      ],
+      "deps": [
+        "t17",
+        "t18"
+      ],
+      "covers": [
+        "c29"
+      ],
+      "instruction": "Shared registry and web files as in t8/t9."
+    },
+    {
+      "id": "t20",
+      "summary": "[R*] Live validation of all gestures on both bots",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "in a private test channel on each bot: reaction, /save and the message command, a channel message and one schedule tick each save within 60 s (schedule within one period); item ids recorded as evidence",
+        "a pdf and an epub attachment each become one item; saving one message twice gives one item; zero rule runs fire from one bot's posts on the other's rules",
+        "no commit in ../culture-library, ../discord-bot-cli or ../jetson-ai-lab-cli for this work, and discord-bot-cli's live test passes while jetson-bot's gateway is held"
+      ],
+      "deps": [
+        "t19"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c24",
+        "h19",
+        "c25",
+        "h20",
+        "c22",
+        "h17",
+        "c7",
+        "h6",
+        "c8",
+        "h7"
+      ],
+      "instruction": "Run after each release for its gestures, and fully after R3; file results with validate-delivery."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Two runs of one schedule flow could overlap if a sweep outlasts its period (frame v4); t18's compare-and-set cursor must hold under overlap",
+      "kind": "unknown_nonblocking",
+      "task_id": "t18",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "Rolling upgrade: an older node or API reading a list guild_id matches nothing (c35); switch jetson-bot's guild_id to a list only after every node and the API run R1",
+      "kind": "unknown_nonblocking",
+      "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "Registry files (action_kinds, describe, paragraph, runner, openapi, web pickers) are shared: only the per-release wire-up tasks t8, t15, t19 touch them, so module tasks stay file-disjoint",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "No alert when a Discord gateway stays disconnected (frame v3)",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}
