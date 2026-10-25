@@ -62,6 +62,11 @@ Quoted verbatim from the `devague summary` skeleton:
   cache hits charged tokens twice, and that a `StoreError` escaped the checklist's retries.
   Each was fixed with a failing-first test (commit `b019be9`). The answer cache staying keyed by
   content, not model, is kept by design and documented.
+- `d4` (approved by the operator) — during t9, after 0.28.0 went live: `pocketsync.recording.enriched`
+  and `meta.json` name the audio only relative to pocketsync's files root, while
+  `audio.transcribe` required an absolute path, and no mapping or builtin joins the two. The
+  operator chose the generic fix: a relative `audio_path` resolves under the actor's
+  `audio_root` (0.28.1).
 - t9 keeps the plan's order (after merge + rollout). The decider leaned `partial_before_pr`
   (0.67: roll out the unmerged branch and validate the transcript flow before the PR). That
   needs a live rollout the operator has not approved, so no deviation was recorded, and t9's
@@ -86,6 +91,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t4` / `t7` (`d1`) | Wiring needed render to return the bound `item_id` and bind to accept library.push's int id; t7 changed t4's file. Delta `b6` | needs-follow-up |
 | `t1` (`d2`) | The replace reply shape was guessed before culture-library defined it; fixed to accept the item itself. Evidence `e16`, delta `b7` | acceptable |
 | `t2` / `t3` / `t4` (`d3`) | Review fixes: render reads the list summary; cache usage, chunked hash; checklist `at` range, string `item_id`, `StoreError` | acceptable |
+| `t6` / `t9` (`d4`) | The enriched event carries relative paths; `audio.transcribe` now resolves one under `audio_root` (0.28.1) | acceptable |
 | `t9` | Not run: needs the merge, an approved rollout, and culture-library#10 for the to-do and flip parts | needs-follow-up |
 
 No other task drifted: t1–t3, t5, t6 and t8 delivered against their acceptance criteria (Actual

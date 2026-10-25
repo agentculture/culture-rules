@@ -111,7 +111,7 @@ The `audio.transcribe` action takes:
 | Param | Required | Meaning |
 |---|---|---|
 | `actor` | yes | the STT actor's id |
-| `audio_path` | yes | the audio file's absolute path, under `audio_root`. Any format ffmpeg decodes (mp3, m4a, wav) |
+| `audio_path` | yes | the audio file: an absolute path under `audio_root`, or a path relative to `audio_root` (as an event that names files relative to their root carries them). Any format ffmpeg decodes (mp3, m4a, wav) |
 | `audio_sha256` | yes | the file's sha256, 64 lowercase hex characters |
 | `output_dir` | yes | an absolute directory under `output_root` |
 | `language` | no | a language code such as `he` or `en`, sent as the `language` field; unset, nothing is sent and the endpoint uses its default |

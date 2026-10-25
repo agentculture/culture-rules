@@ -52,7 +52,8 @@ are each deployment's own.
 1. **Transcribe.** A rule on the recorder's "recording created" event runs
    `json.read` on the recording's metadata file under its root, for its
    `language` and `recorded_at`. Then it runs `audio.transcribe` with no
-   `audio_sha256`.
+   `audio_sha256`. The event's audio path may be relative to the actor's
+   `audio_root`.
 2. **Extract once.** On the transcription run's `rules.run.succeeded`, a
    workflow runs `llm.complete` with `brief: recording`, `cache: true` and
    `content_path` set to the transcript file.

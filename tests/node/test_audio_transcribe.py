@@ -793,3 +793,44 @@ def test_a_wrong_given_audio_sha256_is_still_audio_mismatch(tmp_path, fake_audio
     env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
     _failed(env.invoke(audio_sha256="1" * 64), "audio_mismatch")
     assert not (env.output_root / "transcripts" / ("1" * 64)).exists()
+
+
+# ---- a relative audio_path is resolved under the actor's audio_root (gwen-reads-the-library d4)
+
+
+def test_a_relative_audio_path_is_read_under_audio_root(tmp_path, fake_audio):
+    env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
+    sub = env.audio_root / "2026" / "10"
+    sub.mkdir(parents=True)
+    shutil.copy(env.audio, sub / "audio.wav")
+    absolute = env.invoke(key="k1", audio_path=str(sub / "audio.wav"), audio_sha256=None)
+    assert absolute.outcome == COMPLETED, absolute
+    relative = env.invoke(
+        key="k2", port=env.new_port(), audio_path="2026/10/audio.wav", audio_sha256=None
+    )
+    assert relative.outcome == COMPLETED, relative
+    assert relative.output == absolute.output
+
+
+@pytest.mark.parametrize("path", ["../elsewhere.wav", "sub/../../elsewhere.wav", "."])
+def test_a_relative_audio_path_leaving_audio_root_is_refused(tmp_path, fake_audio, path):
+    env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
+    shutil.copy(env.audio, tmp_path / "elsewhere.wav")
+    (env.audio_root / "sub").mkdir()
+    _failed(env.invoke(audio_path=path, audio_sha256=None), "path_refused")
+    assert not (env.output_root / "transcripts").exists()
+
+
+def test_a_relative_symlink_out_of_audio_root_is_refused(tmp_path, fake_audio):
+    env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
+    outside = tmp_path / "secret.wav"
+    shutil.copy(env.audio, outside)
+    (env.audio_root / "link.wav").symlink_to(outside)
+    _failed(env.invoke(audio_path="link.wav", audio_sha256=None), "path_refused")
+
+
+def test_a_missing_relative_audio_path_is_a_final_audio_missing(tmp_path, fake_audio):
+    env = Env(tmp_path, fake_audio, transport=lambda *a: (200, b"{}"))
+    res = _failed(env.invoke(audio_path="2026/10/gone.wav", audio_sha256=None), "audio_missing")
+    assert "2026/10/gone.wav" in res.error
+    assert str(env.audio_root) not in res.error

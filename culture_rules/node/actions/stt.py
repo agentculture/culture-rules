@@ -1,7 +1,8 @@
 """``audio.transcribe`` action port: one audio file to an OpenAI-compatible STT endpoint.
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (required; falls back to
-``context.actor``), ``audio_path`` (an absolute path to the audio file), optional ``audio_sha256``
+``context.actor``), ``audio_path`` (the audio file: absolute, or relative to the actor's
+``audio_root``; either way it must resolve under that root), optional ``audio_sha256``
 (64 lowercase hex characters: the file's expected sha256; when absent the port hashes the
 file itself), ``output_dir`` (an absolute
 directory the result goes under), and optional ``language`` (sent as the ``language`` form
@@ -213,10 +214,8 @@ def _root(actor: Actor, name: str) -> Path:
 
 def _audio_file(actor: Actor, audio_path: str) -> Path:
     root = _root(actor, "audio_root")
-    if not os.path.isabs(audio_path):
-        raise _Refused(PATH_REFUSED, "audio_path must be absolute")
     try:
-        path = Path(audio_path).resolve(strict=False)
+        path = (root / audio_path).resolve(strict=False)  # a relative path is under audio_root
     except (OSError, RuntimeError) as exc:
         raise _Refused(PATH_REFUSED, "audio_path cannot be resolved") from exc
     if not path.is_relative_to(root):

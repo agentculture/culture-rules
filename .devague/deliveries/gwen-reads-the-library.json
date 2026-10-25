@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T05:36:56Z",
+  "updated": "2026-10-25T06:07:17Z",
   "deviations": [
     {
       "id": "d1",
@@ -45,6 +45,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 19
+    },
+    {
+      "id": "d4",
+      "what": "audio.transcribe resolves a relative audio_path under its actor's audio_root (same containment and symlink checks); patch PR 0.28.1, then rollout, then t9 continues",
+      "task_ref": "t9",
+      "reason": "pocketsync.recording.enriched and meta.json carry only paths relative to the files root, audio.transcribe required an absolute path, and no workflow mapping or builtin can join them, so no live configuration could transcribe from the event; the operator chose this generic fix",
+      "affects": [
+        "t6",
+        "c33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 20
     }
   ],
   "evidence": [

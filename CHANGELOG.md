@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] - 2026-10-25
+
+### Changed
+
+- `audio.transcribe` reads a relative `audio_path` under its actor's `audio_root` (same containment and symlink checks), so an event that names files relative to their root can be transcribed as it is (gwen-reads-the-library d4)
+
 ## [0.28.0] - 2026-10-25
 
 ### Added
