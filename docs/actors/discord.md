@@ -170,8 +170,8 @@ The target set is two bots:
 
 | Actor id | Bot | Token grant | Servers |
 |---|---|---|---|
-| `discord-bot` | Culture.dev | `RULES_DISCORD_BOT_TOKEN` | `1413999242648748195` (JetsonBot experiments) |
-| `jetson-bot` | jetson-bot | `DISCORD_BOT_TOKEN_JETSON_BOT` | `1326246312072581160` (Jetson AI Lab Research Group) |
+| `discord-bot` | Culture.dev | `RULES_DISCORD_BOT_TOKEN` | `1413999242648748195` (JetsonBot experiments) and `<private server id>` (the operator's private server): a list |
+| `jetson-bot` | jetson-bot | `DISCORD_BOT_TOKEN_JETSON_BOT` | `1326246312072581160` (Jetson AI Lab Research Group, public) only: a single id, never in experiments |
 
 For each bot, repeat sections 1 to 5 with its own application:
 
@@ -209,7 +209,7 @@ For each bot, repeat sections 1 to 5 with its own application:
     "self_identity": "<bot username>",
     "connection": {
       "bot_token": "grant:DISCORD_BOT_TOKEN_JETSON_BOT",
-      "guild_id": ["1326246312072581160"]
+      "guild_id": "1326246312072581160"
     }
   }
 }
@@ -224,8 +224,9 @@ list to those servers.
 **Rollout order matters.** A node or API older than this change reads a list
 as matching no server, so the listener and the editor's lists go quiet.
 Upgrade every node and the API first, and only then change a stored
-`guild_id` from a single id to a list. A single id keeps working on every
-version.
+`guild_id` from a single id to a list. This applies to Culture.dev's switch to
+its two servers; jetson-bot's single id has no ordering constraint and works on
+every version.
 
 ### Two bots, one message
 
@@ -288,5 +289,5 @@ Not on disk yet, and not to be relied on:
 |---|---|
 | Actor id, machine | `discord-bot`, `spark` |
 | Bot | `Culture.dev`, Application ID `1556270251979571320` |
-| Server | `1413999242648748195` (JetsonBot experiments), the whole server |
+| Servers | `["1413999242648748195", "<private server id>"]` (JetsonBot experiments and the operator's private server; a list, so upgrade every node and the API first) |
 | Default channel | `#culture`, `1537538645337182239` (private: the bot must be added) |
