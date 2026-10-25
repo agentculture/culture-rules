@@ -219,32 +219,37 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
 
 
 def _norm_list(value: Any) -> list[str]:
+    """A filter param as a list of strings: a list as is, a bare string or number as one item,
+    anything else (absent, empty) as no items."""
     if isinstance(value, (list, tuple, set, frozenset)):
-        return [str(v) for v in value]
+        return [str(v) for v in value if str(v) != ""]
+    if isinstance(value, bool) or value is None:
+        return []
+    if isinstance(value, (str, int)):
+        return [str(value)] if str(value) != "" else []
     return []
 
 
 def _discord_admits(params: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
-    """Discord filters: ``include_bots`` (default off), ``channels`` (ids; absent/"all"/empty is
-    every channel), ``users`` (ids or names, case-insensitive) and ``roles`` (role ids against
-    ``data.user_roles``). Each present filter must admit the event."""
+    """Discord filters: ``include_bots`` (default off), ``channels`` (ids; absent, empty or
+    ``"all"`` is every channel), and who: ``users`` (ids or names, case-insensitive) and
+    ``roles`` (role ids against ``data.user_roles``). A bare string is a one-item list. With
+    both ``users`` and ``roles`` set, either admits (a listed user, or anyone holding a listed
+    role); an event with no author id or name never passes a ``users`` filter."""
     if data.get("bot") is True and params.get("include_bots") is not True:
         return False
     channels = _norm_list(params.get("channels"))
-    if channels and str(data.get("channel_id")) not in channels:
-        return False
-    users = {u.casefold() for u in _norm_list(params.get("users"))}
-    if users:
-        who = {
-            str(data.get("author_id", "")).casefold(),
-            str(data.get("author_name", "")).casefold(),
-        }
-        if not users & who:
+    if channels and not any(c.casefold() == "all" for c in channels):
+        if str(data.get("channel_id")) not in channels:
             return False
+    users = {u.casefold() for u in _norm_list(params.get("users"))}
     roles = set(_norm_list(params.get("roles")))
-    if roles and not roles & set(_norm_list(data.get("user_roles"))):
-        return False
-    return True
+    if not users and not roles:
+        return True
+    who = {str(data.get(key) or "").casefold() for key in ("author_id", "author_name")} - {""}
+    if users & who:
+        return True
+    return bool(roles & set(_norm_list(data.get("user_roles"))))
 
 
 def exported_outputs(rule: Rule, workflows: Mapping[str, Workflow]) -> frozenset[str]:
