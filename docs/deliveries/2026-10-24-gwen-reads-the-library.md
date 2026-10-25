@@ -152,8 +152,8 @@ is clean, and the full-tree bandit gate passes.
 
 ## Remaining Work / Follow-up
 
-- `t9` — the first real `embodiment.bus.todo` flip, once the reader sends checklist ids (r2); file
-  its evidence. Owner: main agent, after the embodiment change.
+- `t9` — the first real `embodiment.bus.todo` flip, once the reader sends checklist ids (r2):
+  asked in agentculture/embodiment#105. Then file its evidence. Owner: main agent, after that change.
 - Records: none await the operator. Approved: deviations `d1`–`d5`
   (`d4` withdrawn by `d5`), obligations `o1`–`o18`, evidence `e1`–`e23`, deltas `b1`–`b3` and
   `b5`–`b7`, lapse `l1`; `b4` rejected (a duplicate of `b5`).
