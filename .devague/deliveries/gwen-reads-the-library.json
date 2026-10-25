@@ -1,0 +1,458 @@
+{
+  "plan_slug": "gwen-reads-the-library",
+  "schema_version": 2,
+  "created": "2026-10-24T22:17:12Z",
+  "updated": "2026-10-25T05:36:56Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t7 changed t4 module culture_rules/node/actions/checklist.py: checklist.render also returns item_id (the bound library item, or null) and checklist.bind accepts a positive int item_id as well as a string, kept as given; each change has a unit test (tests/node/test_checklist.py) and the flow test tests/node/test_library_items_flow.py runs merge -> render -> bind; no t4 criterion weakened (commits f8a6821, 86ab3b0)",
+      "task_ref": "t7",
+      "reason": "wiring render -> library.push (replace the bound item) -> bind needs the bound item id before the push, and library.push returns and takes item_id as an int while bind took only a string; decider consulted (assess, general/clef): record_deviation_keep 0.88, classification needs_follow_up 0.55 vs acceptable 0.38",
+      "affects": [
+        "t4",
+        "c24",
+        "c28"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "library.push's replace also accepts a reply that is the item itself ({id, ...}), as culture-library's PUT /api/library/{id}/file answers, besides {item: {id}}; the upload reply is unchanged",
+      "task_ref": "t1",
+      "reason": "culture-library#12 fixed the replace reply as the flat item JSON after t1 shipped against a guessed {item: {id}} shape; every live replace would have failed bad_response",
+      "affects": [
+        "c26"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 17
+    },
+    {
+      "id": "d3",
+      "what": "Review fixes on #93: transcript.render reads a list summary (llm.complete's recording answer, fresh or cached); a cache hit reports empty usage and the cache hashes in chunks; checklist.set refuses at outside 1970-9999; checklist.bind stores a decimal string item_id as an int; a store giving up under contention is retryable checklist_contended; the byte atomic write is shared",
+      "task_ref": "t3",
+      "reason": "/code-review medium on PR #93 found that render could not read llm.complete's recording output (every transcript item lost its summary), a string bind broke the next push, an out-of-range at made the list unrenderable, cache hits charged tokens twice, and StoreError escaped; each has a failing-first test",
+      "affects": [
+        "t2",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 19
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_library_push.py -k format (20)",
+      "behavior_text": "md uploads .md with text/markdown; an unlisted format and an actor without formats refuse md before any request; no format sends EPUB unchanged",
+      "contract_text": "c25: format and the actor's formats",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "43 new tests fail against main's library.py (t1 agent); 20 format tests pass at f2a3767",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 2
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_library_push.py -k 'replace or item_id' (30)",
+      "behavior_text": "item_id fills replace_path and uses replace_method; no replace_path or only one of the pair refuses before any request; the reply must name the same id",
+      "contract_text": "c26: replace by item_id",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "part of the 43 tests that fail against main's library.py; 30 pass at f2a3767",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 3
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "agentculture/culture-library#10 + tests/node/test_library_push.py replace tests",
+      "behavior_text": "the issue asks for the replace route and the todo kind; the replace mode reads only replace_path/replace_method from the actor",
+      "contract_text": "c15: ask culture-library; replace mode is configuration",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "issue #10 filed 2026-10-25 and being handled by the operator; replace tests pass",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/node/test_transcript_render.py -k 'md or markdown or escape' (9)",
+      "behavior_text": "md has H1 title, summary, Key facts, Transcript; rtl div for he/unlabelled, none for en; Summary unavailable without an answer; derived text HTML-escaped",
+      "contract_text": "c17: Markdown transcript item",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "8 of 10 new tests fail against main's module, plus the escape test failed before its change (t3 agent)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/node/test_llm_complete.py -k 'recording and not cache' (19)",
+      "behavior_text": "brief recording sends RECORDING_BRIEF, a step cannot replace it, other briefs unchanged; parse_recording_answer accepts the shape and refuses 14 bad inputs",
+      "contract_text": "c23: the recording brief",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "with a stub RECORDING_BRIEF on main's llm.py 9 new tests still fail (t2 agent)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_llm_complete.py -k cache (7)",
+      "behavior_text": "first valid answer cached as answer.recording.<sha16>.json; a second run with a different model answer replays it with no call; a changed file misses; damaged cache rewritten; invalid answer not cached",
+      "contract_text": "c29: re-extraction gives the same answer",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "7 cache tests pass at f2a3767",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_checklist.py (57)",
+      "behavior_text": "merge/set/render/bind as specified, line shapes exact, 1-based ids never reused",
+      "contract_text": "c24: checklist builtins",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "57 pass at f2a3767; new module, so no before/after control",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/node/test_checklist.py -k 'merge and (keep or match or norm or done)' (3) + tests/node/test_library_items_flow.py::test_a_flip_marks_the_item_done_in_the_next_render",
+      "behavior_text": "a re-merge with case-changed text keeps the id and the done mark",
+      "contract_text": "c16: re-extraction keeps ids and done marks",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests pass at f2a3767",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/node/test_checklist.py -k 'concurren or conflict or order or survive' (5)",
+      "behavior_text": "a store wrapper injects a real rev conflict mid update_if; both flips survive in either order; a set during a merge survives; an always-losing store gives retryable checklist_contended",
+      "contract_text": "c27: no flip lost",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "5 pass at f2a3767",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/node/test_checklist.py -k bind (17)",
+      "behavior_text": "bind keeps only a newer revision, reports stale when the list moved on, accepts int or string item_id; render returns the bound item_id",
+      "contract_text": "c28: a stale replace can't win",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "17 pass at f2a3767",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/node/test_json_read.py (10)",
+      "behavior_text": "dotted scalar fields, null for missing, not_scalar for list/object; outside root, symlink out, missing, too large, not JSON each refused final",
+      "contract_text": "c34: json.read",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "10 pass at f2a3767",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "tests/node/test_audio_transcribe.py -k 'hash or sha' (8)",
+      "behavior_text": "without audio_sha256 the port hashes the file (4 KiB chunks in test) and gives the same result path and outputs as with the hash",
+      "contract_text": "c18: transcription without a given hash",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "3 of 5 new tests fail against main's stt.py (t6 agent)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "tests/node/test_audio_transcribe.py -k missing (5)",
+      "behavior_text": "a missing file fails audio_missing non-retryable, with and without a hash; outside the root it stays path_refused",
+      "contract_text": "c30: no audio, no retry",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "the missing-file test is among the 3 that fail against main's stt.py",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "git diff main -- culture_rules tests web/src | grep added lines for gwen/embodiment/ori",
+      "behavior_text": "0 added lines name a person; two pre-existing lines on main in tests/model/test_describe.py are untouched",
+      "contract_text": "c19: the PR names no person",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "grep run at f2a3767",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o15",
+      "test_ref": "read-only scan of 16 live workflows, 30 rules, 21 actors (49 files) + repo grep",
+      "behavior_text": "0 hits for memory ingest / embodiment memory live and in culture_rules and docs/rules",
+      "contract_text": "c2: no embodiment ingest to stop",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "scan at 2026-10-24T22:18Z",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:35Z",
+        "commit": "f2a3767"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_library_push.py -k 'replace or item_id'",
+      "behavior_text": "a replace whose reply is the item itself ({id}) completes with that id; a flat or wrapped reply naming another id, or no id, fails bad_response; an upload still needs {item: {id}}",
+      "contract_text": "library.push replaces an item by id through the actor's replace route, answering culture-library's real reply",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green at the named commit against culture-library#12's reply shape",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T05:07:04",
+        "commit": "3d90380"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "transcript.render keeps the first Markdown with a used summary beside the transcript (book.<sha16>.md + .json), like the EPUB, so a re-run sends the same bytes",
+      "caused_by": [
+        "c17"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "llm.complete's cache is allowed only with brief recording and a content_path; cache true with another brief or plain content fails invalid_request before any request",
+      "caused_by": [
+        "c29"
+      ],
+      "evidence_refs": [
+        "e6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "an actor that lists no formats accepts only epub (a format md is refused), and one whose formats exclude epub refuses a push without a format",
+      "caused_by": [
+        "c25"
+      ],
+      "evidence_refs": [
+        "e1"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "checklist ids are 1-based (<prefix>.<list key>.1 first); the request's example showed .0",
+      "caused_by": [
+        "c24"
+      ],
+      "evidence_refs": [
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "rejected",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "added",
+      "behavior_text": "checklist ids are 1-based (`<prefix>.<list key>.1` first); the request example showed .0",
+      "caused_by": [
+        "c24"
+      ],
+      "evidence_refs": [
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "checklist.render also returns the bound library item_id (null before the first push), and checklist.bind accepts a positive int item_id as well as a string",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e10",
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "amended",
+      "behavior_text": "a library.push replace accepts a reply that is the item itself ({id, ...}) as well as {item: {id}}; the id must still match",
+      "caused_by": [
+        "d2"
+      ],
+      "evidence_refs": [
+        "e16"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

@@ -57,7 +57,7 @@ never transcript text. The rule reads three fields:
 | Field | Required | Meaning |
 |---|---|---|
 | `audio_path` | yes | the audio file's absolute path on spark, under the actor's `audio_root` (pocketsync's files root) |
-| `audio_sha256` | yes | the audio file's sha256, 64 lowercase hex characters |
+| `audio_sha256` | no | the audio file's sha256, 64 lowercase hex characters, checked against the file. Without it, `audio.transcribe` hashes the file itself ([library items](library-items.md)) |
 | `language` | no | Pocket's language code (`he`, `en`), or null |
 
 The other fields pocketsync sends (`recording_id`, `content_hash`,

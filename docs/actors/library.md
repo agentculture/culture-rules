@@ -35,6 +35,9 @@ The secret this guide creates:
 | `visibilities` | no | the visibilities it accepts. Without it, a push cannot send a visibility |
 | `queue_path` | no | the device-queue path with `{device_id}` as one whole segment, e.g. `/api/devices/{device_id}/queue`. Unset: the push only uploads |
 | `device_id` | no | the reader's device id, a positive integer, used only with `queue_path`. An action's own `device_id` wins over it |
+| `formats` | no | the file formats it accepts, from `md`, `txt`, `json`, `epub` and `pdf`. Without it, only `epub` |
+| `replace_path` | no | the path that replaces an item's file under its id, with `{item_id}` as one whole segment. Needs `replace_method` |
+| `replace_method` | no | `PUT`, `POST` or `PATCH` for `replace_path`; no default. Set both or neither |
 | `api_key` | yes | `grant:<NAME>` for the library's key. A literal is refused and never echoed |
 
 These are checked when the action runs, before any request.
@@ -111,8 +114,10 @@ The `library.push` action takes:
 | Param | Required | Meaning |
 |---|---|---|
 | `actor` | yes | the library actor's id |
-| `content_base64` | yes | the EPUB, base64; at most 50 MiB decoded |
-| `title` | yes | the book's title; the file is named after it |
+| `content_base64` | yes | the file, base64; at most 50 MiB decoded |
+| `title` | yes | the item's title; the file is named after it |
+| `format` | no | one of the actor's `formats`; unset, `epub`. It sets the file's extension and content type (`md` is `text/markdown`) |
+| `item_id` | no | replace this item's file instead of uploading a new item; needs the actor's `replace_path` |
 | `kind` | yes | one of the actor's `kinds` |
 | `visibility` | no | one of the actor's `visibilities`; unset, the library decides |
 | `author` | no | default `culture-rules` |
@@ -123,10 +128,19 @@ actor lists. It shows the visibility field only when the actor lists
 visibilities, and the device id field only when the actor has a
 `queue_path`.
 
-The push is one or two calls, each with `Authorization: Bearer <key>`:
+A push with `item_id` is one call, `<replace_method> <base_url><replace_path>`
+(`{item_id}` filled in), with the same multipart body. It queues nothing. The
+reply is either `{"item": {"id"}}` or the item itself (`{"id", …}`), and it
+must name the same item id. culture-library defines its route in
+agentculture/culture-library#10 (shipping in its 0.12.0): `replace_method`
+`PUT`, `replace_path` `/api/library/{item_id}/file`. It reads only the `file`
+part, keeps the item's title, kind and visibility, and answers the same bytes
+with the item unchanged.
 
-1. `POST <base_url><upload_path>`, multipart: the file
-   (`application/epub+zip`), `title`, `author`, `kind` and, when given,
+A new upload is one or two calls, each with `Authorization: Bearer <key>`:
+
+1. `POST <base_url><upload_path>`, multipart: the file (its `format`'s
+   content type), `title`, `author`, `kind` and, when given,
    `visibility`.
 2. Only with a `queue_path`, and only after a 2xx upload,
    `POST <base_url><queue_path>` (`{device_id}` filled in) with the item id
@@ -146,10 +160,11 @@ reply and the retry, it downloads the book once more.
 | Code | Meaning | Retried |
 |---|---|---|
 | `actor_kind_mismatch` | the actor is not a `service` | no |
-| `invalid_actor` | an actor param above is missing or malformed (`upload_path`, `queue_path`, `kinds`, `visibilities`, `base_url`, a literal `api_key`) | no |
-| `invalid_request` | a kind or visibility the actor does not list, or bad content, title or device id | no |
+| `invalid_actor` | an actor param above is missing or malformed (`upload_path`, `queue_path`, `kinds`, `visibilities`, `formats`, `replace_path` without `replace_method`, `base_url`, a literal `api_key`), or `item_id` with no `replace_path` | no |
+| `invalid_request` | a kind, visibility or format the actor does not list, or bad content, title, device id or item id | no |
 | `device_missing` | a `queue_path` but no `device_id` on the action or the actor | no |
-| `too_large` | the EPUB is over 50 MiB | no |
+| `too_large` | the file is over 50 MiB | no |
+| `bad_response` | a replace reply that does not name the same item id | no |
 | `secret_unresolved` | the key could not be resolved on the node | no |
 | `upload_failed` | the library refused the upload: it names the status and the library's error code. Nothing is queued. 5xx, 408, 425 and 429 are retried | depends |
 | `queue_failed` | the upload worked and the queue call failed (404 for an unknown device); it names the uploaded item id | depends |

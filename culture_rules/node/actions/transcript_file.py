@@ -13,6 +13,7 @@ is cut to a limit, so the transcript itself never passes through a run's step ou
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -197,3 +198,26 @@ def read_excerpt(path_value: Any, root_value: Any, limit: int) -> str:
     texts = (s.get("text") for s in segments if isinstance(s, Mapping))
     lines = [t.strip() for t in texts if isinstance(t, str) and t.strip()]
     return "\n".join(lines)[:limit]
+
+
+def write_bytes_atomic(target: Path, data: bytes) -> None:
+    """Write ``data`` to ``target`` through a temporary file beside it and a rename, so a reader
+    sees the old file or the new one, never a part."""
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def file_sha256(path: Path, chunk: int = 1024 * 1024) -> str:
+    """The hex sha256 of a file, read in chunks so its size never has to fit in memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        while block := f.read(chunk):
+            digest.update(block)
+    return digest.hexdigest()

@@ -92,6 +92,11 @@ On disk today:
   `library.push`'s actor holds `upload_path`, the `kinds` and `visibilities` it
   accepts and an optional `queue_path`; each push names its `kind`; the bundles push
   to culture-library, the newspaper `public` and transcripts `private`.
+- library items (guide `docs/operations/library-items.md`): `library.push`
+  `format` and replace by `item_id`; the `recording` brief with an answer
+  cache; `transcript.render` `format: md`; the builtins `json.read` and
+  `checklist.merge|set|render|bind`; `audio.transcribe` without a hash. The
+  flows that use them are configured live, never committed.
 - the workflow phrases (#69, spec
   `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language
   `description` plus an optional technical `notes` on workflows and steps,

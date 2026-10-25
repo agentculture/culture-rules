@@ -106,3 +106,15 @@ def test_machine_command_runs_end_to_end_through_the_registered_port() -> None:
     run = _run_rule(action, actor)
     assert run["status"] == "succeeded", run
     assert step_state(run, ACTION_STEP)["outputs"]["stdout"].strip() == "hello"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["json.read", "checklist.merge", "checklist.set", "checklist.render", "checklist.bind"],
+)
+def test_the_library_item_builtins_are_registered(name: str) -> None:
+    """library items t7: each new builtin reaches its port, never ``no_builtin``."""
+    code = runner.default_ports(MemoryStore(), "spark")["code"]
+    ctx = InvocationContext(run_id="r", step_id="s", kind="code", host="spark", config={})
+    result = code.invoke({}, "k", None, context=replace(ctx, config={"builtin": name}))
+    assert not (result.error or "").startswith("no_builtin"), result.error

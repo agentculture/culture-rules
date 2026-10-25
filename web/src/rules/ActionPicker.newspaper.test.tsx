@@ -39,6 +39,7 @@ const NEWSPAPER_ACTORS: Actor[] = [
       queue_path: "/api/devices/{device_id}/queue",
       kinds: ["newspaper", "transcript"],
       visibilities: ["private", "public"],
+      formats: ["epub", "md"],
     },
   },
   {
@@ -220,6 +221,16 @@ describe("library.push", () => {
     await user.type(screen.getByLabelText("Device id"), "reader-1");
     await user.selectOptions(screen.getByLabelText("Actor"), "library");
     expect(saved().params).toEqual({ actor: "library" });
+  });
+
+  it("offers the formats the library actor lists and drops one the next actor does not list", async () => {
+    render(<Harness />);
+    const user = await pick("library.push", "xteink");
+    expect(optionValues("Format")).toEqual(["", "epub", "md"]);
+    await user.selectOptions(screen.getByLabelText("Format"), "md");
+    expect(saved().params?.format).toBe("md");
+    await user.selectOptions(screen.getByLabelText("Actor"), "library");
+    expect(saved().params?.format).toBeUndefined();
   });
 
   it("keeps a kind the newly chosen actor also lists", async () => {

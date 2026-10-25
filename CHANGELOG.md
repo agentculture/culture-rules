@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-10-25
+
+### Added
+
+- Builtins `json.read` (named fields from a JSON file under a root) and `checklist.merge`, `checklist.set`, `checklist.render`, `checklist.bind` (a stored to-do list per key: ids kept across re-extraction and never reused, a flip applied only when its `at` is newer, unknown ids ignored, Markdown with a revision and the bound library item, stale-push detection)
+- `llm.complete` brief `recording` ({summary, word, facts, action_items}) and `cache: true`, which keeps the first valid answer beside the content file
+- `transcript.render` `format: md`: the title, summary, key facts and the transcript as Markdown, right to left for Hebrew, derived text HTML-escaped
+- `library.push` `format` (the actor lists its `formats`; md, txt, json, epub, pdf) and replace by `item_id` through the actor's `replace_path` and `replace_method`; the reply may wrap the item (`{item: {id}}`) or be the item itself, as culture-library's `PUT /api/library/{id}/file` answers (culture-library#10)
+- docs/operations/library-items.md: the pieces, the rules that keep a to-do list correct, and a worked configuration
+- The spec, plan and split for gwen-reads-the-library (docs/specs, docs/plans)
+
+### Changed
+
+- `audio.transcribe` hashes the audio itself when no `audio_sha256` is given, and a missing file fails `audio_missing` (final)
+- docs/actors/llm.md describes all three briefs, content_path and the cache; docs/actors/library.md describes formats and replace
+
+### Fixed
+
+- From the review of #93:
+  - `transcript.render` reads a recording answer whose `summary` is a list of lines, as `llm.complete` outputs it, fresh or cached;
+  - a cache hit reports empty `usage`, so it no longer counts toward the token budget;
+  - the cache hashes the content file in chunks;
+  - `checklist.set` refuses an `at` outside 1970–9999, which could not render;
+  - `checklist.bind` stores a decimal string `item_id` as the int `library.push` takes;
+  - a store giving up under contention is a retryable `checklist_contended`;
+  - the byte-level atomic write is shared from `transcript_file`
+
 ## [0.27.0] - 2026-10-24
 
 ### Added
