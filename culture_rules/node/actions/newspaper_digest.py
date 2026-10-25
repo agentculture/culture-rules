@@ -107,24 +107,34 @@ class _Issue(HTMLParser):
         if tag in ("strong", "b") and self._where in ("p", "li"):
             self._out("**")
         elif tag == "a" and self._href is not None:
-            label = "".join(self._label).strip()
-            href, self._href = self._href, None
-            if not self._skip:
-                self._text.append(f"[{label}](<{href}>)" if href else label)
-        elif tag == "h1" and self._where == "h1":
-            self.title, self._where = "".join(self._text).strip(), None
-        elif tag == "h2" and self._where == "h2":
-            self.sections.append(("".join(self._text).strip(), []))
-            self._where = None
-        elif tag == "p" and self._where == "date":
+            self._end_link()
+        elif tag == self._where and tag in ("h1", "h2", "li"):
+            self._end_block(tag, "".join(self._text).strip())
+        elif tag == "p":
+            self._end_p()
+
+    def _end_link(self) -> None:
+        label = "".join(self._label).strip()
+        href, self._href = self._href, None
+        if not self._skip:
+            self._text.append(f"[{label}](<{href}>)" if href else label)
+
+    def _end_block(self, tag: str, text: str) -> None:
+        if tag == "h1":
+            self.title = text
+        elif tag == "h2":
+            self.sections.append((text, []))
+        else:
+            self._emit("- " + text)
+        self._where = None
+
+    def _end_p(self) -> None:
+        if self._where == "date":
             self.day, self._where = "".join(self._text).strip(), None
-        elif tag == "p" and self._where == "p":
+        elif self._where == "p":
             self._end_paragraph()
-        elif tag == "p" and self._where == "li":
+        elif self._where == "li":
             self._skip = False
-        elif tag == "li" and self._where == "li":
-            self._emit("- " + "".join(self._text).strip())
-            self._where = None
 
     def _end_paragraph(self) -> None:
         text = "".join(self._text).strip()
