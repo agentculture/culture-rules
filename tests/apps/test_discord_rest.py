@@ -201,3 +201,104 @@ def test_list_targets_failure_never_carries_the_token():
         client.list_targets()
     assert TOKEN not in str(ei.value)
     assert not ei.value.retryable
+
+
+class SeqTransport:
+    """Replies from a list, one per call; the last repeats."""
+
+    def __init__(self, *responses):
+        self.calls = []
+        self._responses = list(responses)
+
+    def __call__(self, url, data, headers, timeout):
+        self.calls.append(url)
+        i = min(len(self.calls) - 1, len(self._responses) - 1)
+        return self._responses[i]
+
+
+def _msg(mid, content="hi", **extra):
+    return {"id": str(mid), "content": content, "author": {"id": "7", "username": "ann"}, **extra}
+
+
+def test_get_message_returns_full_content_author_url_attachments():
+    big = "x" * 3000
+    att = {"id": "9", "filename": "a.mp3", "content_type": "audio/mpeg", "size": 5, "url": "u"}
+    t = SeqTransport((200, _msg(55, big, attachments=[{**att, "extra": 1}]), {}))
+    out = DiscordClient(TOKEN, transport=t).get_message("123", "55", guild_id="42")
+    assert t.calls == ["https://discord.com/api/v10/channels/123/messages/55"]
+    assert out["content"] == big
+    assert out["author_id"] == "7" and out["author_name"] == "ann"
+    assert out["url"] == "https://discord.com/channels/42/123/55"
+    assert out["attachments"] == [att]
+    assert out["id"] == "55" and out["channel_id"] == "123"
+
+
+def test_get_message_url_none_without_guild_and_ids_validated():
+    t = SeqTransport((200, _msg(55), {}))
+    client = DiscordClient(TOKEN, transport=t)
+    assert client.get_message("123", "55")["url"] is None
+    assert client.get_message("123", "55", guild_id="@me")["url"] == (
+        "https://discord.com/channels/@me/123/55"
+    )
+    for bad in (("1/../x", "5"), ("1", "5?x=1"), ("", "5")):
+        with pytest.raises(DiscordError) as ei:
+            client.get_message(*bad)
+        assert not ei.value.retryable
+    assert len(t.calls) == 2
+
+
+def test_history_pages_oldest_first_and_bounded():
+    page1 = [_msg(i) for i in range(300, 200, -1)]  # newest first, 100
+    page2 = [_msg(i) for i in range(350, 300, -1)]  # 50, newer than page1
+    t = SeqTransport((200, page1, {}), (200, page2, {}))
+    out = DiscordClient(TOKEN, transport=t).history("123", "100", limit=1000)
+    assert [m["id"] for m in out] == [str(i) for i in range(201, 351)]
+    assert t.calls[0].endswith("/channels/123/messages?after=100&limit=100")
+    assert "after=300&" in t.calls[1]
+    assert len(t.calls) == 2
+
+
+def test_history_respects_limit_and_page_cap():
+    full = [_msg(i) for i in range(1000, 900, -1)]
+    t = SeqTransport((200, full, {}))
+    client = DiscordClient(TOKEN, transport=t)
+    assert len(client.history("1", "0", limit=30)) == 30
+    assert "limit=30" in t.calls[0]
+    t.calls.clear()
+    t2 = SeqTransport(
+        *[(200, [_msg(10 * n + k) for k in range(100, 0, -1)], {}) for n in range(99)]
+    )
+    client = DiscordClient(TOKEN, transport=t2)
+    out = client.history("1", "0", limit=100000, max_pages=3)
+    assert len(t2.calls) == 3 and len(out) == 300
+
+
+def test_history_rejects_bad_after():
+    with pytest.raises(DiscordError):
+        DiscordClient(TOKEN, transport=SeqTransport((200, [], {}))).history("1", "x y", limit=5)
+
+
+def test_get_retries_429_after_retry_after_then_succeeds():
+    slept = []
+    t = SeqTransport((429, {"retry_after": 0.5}, {}), (429, {"retry_after": 1}, {}), (200, [], {}))
+    client = DiscordClient(TOKEN, transport=t, sleep=slept.append)
+    assert client.list_targets() == []
+    assert slept == [0.5, 1.0] and len(t.calls) == 3
+
+
+def test_get_429_exhausted_raises_retryable_and_caps_wait():
+    slept = []
+    t = SeqTransport((429, {"retry_after": 9999}, {}))
+    client = DiscordClient(TOKEN, transport=t, sleep=slept.append)
+    with pytest.raises(DiscordError) as ei:
+        client.get_message("1", "2")
+    assert ei.value.retryable
+    assert TOKEN not in str(ei.value) and TOKEN not in repr(client)
+    assert slept and max(slept) <= 5.0 and len(t.calls) == len(slept) + 1
+
+
+def test_429_without_retry_after_uses_default_wait():
+    slept = []
+    t = SeqTransport((429, {}, {}), (200, [], {}))
+    DiscordClient(TOKEN, transport=t, sleep=slept.append).list_targets()
+    assert len(slept) == 1 and 0 < slept[0] <= 5.0
