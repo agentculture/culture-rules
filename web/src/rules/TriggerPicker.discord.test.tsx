@@ -104,4 +104,24 @@ describe("Discord trigger filters", () => {
     await user.click(screen.getByRole("checkbox", { name: "Include messages from bots" }));
     expect(saved()).toEqual(START);
   });
+
+  it("will not save Only these channels with none picked (PR #96 review)", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="rule">
+        <Harness />
+        <button type="submit">Save</button>
+      </form>,
+    );
+    const group = await screen.findByRole("group", { name: "Channels" });
+    await user.click(within(group).getByRole("radio", { name: "Only these channels" }));
+    const general = await within(group).findByRole("checkbox", { name: "#general" });
+    expect(general).toBeRequired();
+    expect(within(group).getByText("Pick at least one channel.")).toBeInTheDocument();
+    expect((screen.getByRole("form", { name: "rule" }) as HTMLFormElement).checkValidity()).toBe(false);
+    await user.click(general);
+    expect(general).not.toBeRequired();
+    expect((screen.getByRole("form", { name: "rule" }) as HTMLFormElement).checkValidity()).toBe(true);
+    expect(saved()).toEqual({ kind: "event", params: { type: "discord.message.created", channels: ["101"] } });
+  });
 });

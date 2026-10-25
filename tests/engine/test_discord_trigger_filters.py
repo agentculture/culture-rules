@@ -99,3 +99,16 @@ def test_users_filter_never_admits_an_event_without_an_author():
     assert not trigger_matches(trig(users=["alice"]), e)
     # a users list of blanks only is no users filter (like an empty guild_id list)
     assert trigger_matches(trig(users=[""]), e)
+
+
+# PR #96 review: a bot's own message (self_authored) still passes the Discord filters
+
+
+def test_include_self_still_applies_the_channel_and_user_filters():
+    own = ev(bot=True, self_authored=True, channel_id="22", author_name="Culture.dev")
+    assert not trigger_matches(trig(include_self=True, channels=["111"]), own)
+    assert not trigger_matches(trig(include_self=True, users=["alice"]), own)
+    assert trigger_matches(trig(include_self=True, channels=["22"]), own)
+    # include_self admits the bot's own post without also needing include_bots
+    assert trigger_matches(trig(include_self=True), own)
+    assert not trigger_matches(trig(channels=["22"]), own)

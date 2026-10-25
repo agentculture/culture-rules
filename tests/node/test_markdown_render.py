@@ -12,6 +12,7 @@ from culture_rules.node.actions.library import LibraryPushPort
 from culture_rules.node.actions.markdown_render import (
     MARKDOWN_RENDER_BUILTIN,
     MarkdownRenderPort,
+    markdown_render,
 )
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.memory import MemoryStore
@@ -145,3 +146,9 @@ def test_discord_event_through_render_into_library_push_dedupes():
     second = run_once()
     assert second.outcome == COMPLETED and second.output["created"] is False
     assert second.output["item_id"] == first.output["item_id"]
+
+
+def test_an_empty_text_renders_title_and_facts_only():
+    """An attachment-only Discord message has empty content: it still renders (PR #96 review)."""
+    out = markdown_render({"title": "9001", "text": "", "url": "https://x/1"}, {})
+    assert out["markdown"] == "# 9001\n\n- URL: https://x/1\n"

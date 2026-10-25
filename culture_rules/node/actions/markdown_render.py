@@ -1,14 +1,16 @@
 """Built-in ``markdown.render``: generic fields to one Markdown document (discord-surfaces t5).
 
-Inputs (each may instead sit in ``config``; the input wins): ``title`` and ``text`` (required
-strings), and the optional ``author``, ``source``, ``url`` and ``id`` (a string or a number).
+Inputs (each may instead sit in ``config``; the input wins): ``title`` (a non-empty string),
+``text`` (a string, possibly empty), and the optional ``author``, ``source``, ``url`` and
+``id`` (a string or a number).
 Nothing here knows about any one app; a workflow maps an event's fields onto these.
 
 Outputs: ``markdown`` (the document) and ``content_base64`` (its UTF-8 bytes, base64, ready
-for ``library.push``). The body is ``# <title>``, the text, then a bullet per optional field
-that is set (Author, Source, URL, ID). The output depends on the inputs alone - no render time -
-so the same inputs give the same bytes (a library dedupes on them). Final failure:
-``bad_params`` (title or text missing or not a string). Standard library only.
+for ``library.push``). The body is ``# <title>``, the text (if any), then a bullet per
+optional field that is set (Author, Source, URL, ID). The output depends on the inputs alone -
+no render time - so the same inputs give the same bytes (a library dedupes on them). Final
+failure:
+``bad_params`` (title missing or empty, or text not a string). Standard library only.
 """
 
 from __future__ import annotations
@@ -54,8 +56,11 @@ def _optional(value: Any, name: str) -> str | None:
 def markdown_render(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, str]:
     """The rendered document (module doc), else :class:`_Refused`."""
     title = _required(_param(input, config, "title"), "title").strip()
-    text = _required(_param(input, config, "text"), "text").strip("\n")
-    lines = [f"# {title}", "", text]
+    text = _param(input, config, "text")
+    if not isinstance(text, str):  # may be empty: an attachment-only message has no text
+        raise _Refused("text must be a string")
+    text = text.strip("\n")
+    lines = [f"# {title}", *(["", text] if text else [])]
     facts = []
     for key, label in _OPTIONAL:
         value = _optional(_param(input, config, key), key)

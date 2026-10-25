@@ -302,3 +302,16 @@ def test_429_without_retry_after_uses_default_wait():
     t = SeqTransport((429, {}, {}), (200, [], {}))
     DiscordClient(TOKEN, transport=t, sleep=slept.append).list_targets()
     assert len(slept) == 1 and 0 < slept[0] <= 5.0
+
+
+def test_channel_guild_returns_the_guild_of_a_channel():
+    calls = []
+
+    def transport(url, data, headers, timeout):
+        calls.append(url)
+        return 200, {"id": "42", "guild_id": "12"}, {}
+
+    assert DiscordClient("t", transport=transport).channel_guild("42") == "12"
+    assert calls[-1].endswith("/channels/42")
+    with pytest.raises(DiscordError):
+        DiscordClient("t", transport=transport).channel_guild("general")

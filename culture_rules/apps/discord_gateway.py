@@ -74,7 +74,7 @@ from culture_rules.apps.discord_rest import guild_ids
 from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, LeaseKeeper
 from culture_rules.engine.named_lease import NamedLease
 from culture_rules.events.hook_sink import ensure_discord_event_ttl, sink
-from culture_rules.model.discord_filters import discord_channels
+from culture_rules.model.discord_filters import discord_channels, filter_values
 from culture_rules.model.rule import Rule
 
 __all__ = [
@@ -326,7 +326,12 @@ class GatewaySupervisor:
         self._warned: set[str] = set()
         self._unavailable_logged = False
         self._selection: frozenset[str] | None = frozenset()  # nothing until the first tick
-        ensure_discord_event_ttl(store)
+        try:
+            ensure_discord_event_ttl(store)
+        except Exception as exc:  # noqa: BLE001 - a missing index must not stop the node
+            log.warning(
+                "discord gateway: ensuring the event TTL index failed (%s)", type(exc).__name__
+            )
 
     # ------------------------------------------------------------------ cycle
 
@@ -334,7 +339,8 @@ class GatewaySupervisor:
         """Reconcile with the actors: renew leases, start/stop listeners; return the ids
         of the actors this node is listening for."""
         wanted = self._wanted()
-        self._refresh_selection()
+        if wanted:  # no Discord listener here: nobody reads the selection, skip the scan
+            self._refresh_selection()
         if wanted and not self._gateway.available():
             if not self._unavailable_logged:
                 log.info("discord extra not installed: the discord gateway stage is idle")
@@ -566,8 +572,8 @@ class GatewaySupervisor:
         data = message_data(msg)
         if not data["message_id"] or not self._selected(data["channel_id"]):
             return  # no enabled discord.* rule selects this channel: never written
-        channels = connection.get("channels")
-        if channels and data["channel_id"] not in {str(c) for c in channels}:
+        channels = filter_values(connection.get("channels"))  # a bare id is one channel
+        if channels and data["channel_id"] not in channels:
             return
         guilds = guild_ids(connection.get("guild_id"))
         if guilds is not None and data["guild_id"] is not None and data["guild_id"] not in guilds:

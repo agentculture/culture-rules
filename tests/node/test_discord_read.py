@@ -140,3 +140,46 @@ def test_discord_error_keeps_retryable_flag_and_no_token():
         )
         assert res.outcome == FAILED and res.retryable is retryable
         assert "tok-xyz" not in res.error
+
+
+class RoutedTransport:
+    """GET /channels/<id> answers the channel's guild; any other GET the message."""
+
+    def __init__(self, guild):
+        self.calls = []
+        self.guild = guild
+
+    def __call__(self, url, data, headers, timeout):
+        self.calls.append(url)
+        if url.rstrip("/").endswith("/channels/42"):
+            return 200, {"id": "42", "guild_id": self.guild}, {}
+        return 200, FakeTransport.default(), {}
+
+
+def test_a_channel_outside_the_actors_guilds_is_refused():
+    """PR #96 review: guild_id restricts reads like it restricts the gateway and targets."""
+    t = RoutedTransport(guild="99")
+    res = action(store_with(guild_id=["11", "12"]), t).invoke(
+        {"channel": "42", "message": "900"}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == FAILED and res.retryable is False
+    assert "guild" in res.error
+    assert not any("/messages/" in u for u in t.calls)
+
+
+def test_a_channel_in_the_actors_guild_is_read_and_its_url_filled():
+    t = RoutedTransport(guild="12")
+    res = action(store_with(guild_id=["11", "12"]), t).invoke(
+        {"channel": "42", "message": "900"}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == COMPLETED
+    assert res.output["url"] == "https://discord.com/channels/12/42/900"
+
+
+def test_no_guild_id_reads_without_a_channel_lookup():
+    t = RoutedTransport(guild="99")
+    res = action(store_with(), t).invoke(
+        {"channel": "42", "message": "900"}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == COMPLETED
+    assert not any(u.rstrip("/").endswith("/channels/42") for u in t.calls)

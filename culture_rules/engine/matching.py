@@ -202,7 +202,8 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
     An ``event`` trigger must name a ``type`` and matches only that event type; one without a
     type matches nothing. Other kinds match on kind alone (plus ``type`` when named). An event
     whose ``data.self_authored`` is true (set by ingest) matches only triggers with
-    ``params.include_self`` true. ``discord.*`` events also pass the Discord filters
+    ``params.include_self`` true. ``discord.*`` events, the bot's own included, also pass the
+    Discord filters
     (``include_bots``, ``channels``, ``users``, ``roles``; see :func:`_discord_admits`).
     """
     if trigger.kind != event.get("kind", "event"):
@@ -214,20 +215,25 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
     elif wanted != event.get("type"):
         return False
     data = event.get("data")
-    if isinstance(data, Mapping) and data.get("self_authored") is True:
-        return trigger.params.get("include_self") is True
+    own = isinstance(data, Mapping) and data.get("self_authored") is True
+    if own and trigger.params.get("include_self") is not True:
+        return False
     if isinstance(data, Mapping) and str(event.get("type", "")).startswith("discord."):
-        return _discord_admits(trigger.params, data)
+        return _discord_admits(trigger.params, data, own=own)
     return True
 
 
-def _discord_admits(params: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
+def _discord_admits(
+    params: Mapping[str, Any], data: Mapping[str, Any], *, own: bool = False
+) -> bool:
     """Discord filters: ``include_bots`` (default off), ``channels`` (ids; absent, empty or
     ``"all"`` is every channel), and who: ``users`` (ids or names, case-insensitive) and
     ``roles`` (role ids against ``data.user_roles``). A bare string is a one-item list. With
     both ``users`` and ``roles`` set, either admits (a listed user, or anyone holding a listed
     role); an event with no author id or name never passes a ``users`` filter."""
-    if data.get("bot") is True and params.get("include_bots") is not True:
+    # the bot's own post (``own``, admitted by include_self) needs no include_bots, but the
+    # channel and who filters still apply to it
+    if data.get("bot") is True and not own and params.get("include_bots") is not True:
         return False
     channels = discord_channels(params)
     if channels is not None and str(data.get("channel_id")) not in channels:

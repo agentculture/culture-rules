@@ -195,7 +195,13 @@ const idList = (text: string) =>
     .filter(Boolean);
 
 /** A comma-separated list field; the text is kept as typed and the parsed list is what is saved. */
-function ListField({ label, hint, value, onList }: Readonly<{ label: string; hint?: string; value: string[]; onList: (l: string[]) => void }>) {
+function ListField({
+  label,
+  hint,
+  value,
+  required,
+  onList,
+}: Readonly<{ label: string; hint?: string; value: string[]; required?: boolean; onList: (l: string[]) => void }>) {
   const [text, setText] = useState(value.join(", "));
   const hintId = useId();
   return (
@@ -204,6 +210,7 @@ function ListField({ label, hint, value, onList }: Readonly<{ label: string; hin
         <span>{label}</span>
         <input
           value={text}
+          required={required}
           aria-describedby={hint ? hintId : undefined}
           spellCheck={false}
           onChange={(e) => {
@@ -250,6 +257,9 @@ function DiscordFilters({ name, actorId, t, load, onChange }: Readonly<DiscordFi
   const picked = channels ?? [];
   const listed = new Set((targets?.guilds ?? []).flatMap((g) => g.channels.map((c) => c.id)));
   const toggle = (id: string) => set({ channels: picked.includes(id) ? picked.filter((c) => c !== id) : [...picked, id] });
+  // "Only these channels" with none picked would save no channels, i.e. every channel: the
+  // form refuses to submit until one is picked (native validation, like the Name field).
+  const needOne = only && picked.length === 0;
   return (
     <>
       <fieldset className="trigger-picker__filter">
@@ -265,9 +275,10 @@ function DiscordFilters({ name, actorId, t, load, onChange }: Readonly<DiscordFi
         {only && failed ? (
           <>
             <Empty>Could not load the bot&apos;s channels; type the channel ids instead.</Empty>
-            <ListField label="Channel ids" value={picked} onList={(l) => set({ channels: l })} />
+            <ListField label="Channel ids" value={picked} required={needOne} onList={(l) => set({ channels: l })} />
           </>
         ) : null}
+        {needOne ? <small className="trigger-picker__hint">Pick at least one channel.</small> : null}
         {only && !failed && !targets ? <output className="trigger-picker__words" aria-live="polite">Loading the bot&apos;s channels…</output> : null}
         {only && targets
           ? targets.guilds.map((g) => (
@@ -275,7 +286,7 @@ function DiscordFilters({ name, actorId, t, load, onChange }: Readonly<DiscordFi
                 <legend>{g.name}</legend>
                 {g.channels.map((c) => (
                   <label key={c.id} className="trigger-kind">
-                    <input type="checkbox" checked={picked.includes(c.id)} onChange={() => toggle(c.id)} />
+                    <input type="checkbox" checked={picked.includes(c.id)} required={needOne} onChange={() => toggle(c.id)} />
                     <span>{c.visible ? `#${c.name}` : `#${c.name} (the bot was not added)`}</span>
                   </label>
                 ))}

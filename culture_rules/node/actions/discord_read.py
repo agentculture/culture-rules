@@ -5,7 +5,10 @@ token (``connection.bot_token``, a ``grant:NAME`` reference resolved at call tim
 is ``channel`` and ``message`` (numeric ids) and an optional ``guild`` (the gateway event's
 ``data.guild_id``), which only fills the jump ``url``. ``connection.channels`` restricts the
 channels the same way :class:`~culture_rules.node.actions.message.MessageAction` does: unset or
-empty means every channel. The token is never logged or echoed in errors.
+empty means every channel. ``connection.guild_id`` (one id or a list) restricts the guilds as
+the gateway does: the channel's guild is looked up first and a channel elsewhere is refused
+(that lookup also fills the ``url`` when no ``guild`` is given). The token is never logged or
+echoed in errors.
 """
 
 from __future__ import annotations
@@ -16,8 +19,9 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport
+from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport, guild_ids
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.model.discord_filters import filter_values
 from culture_rules.node.actions.message import ACTORS_COLLECTION
 
 __all__ = ["DiscordReadAction"]
@@ -74,10 +78,8 @@ class DiscordReadAction:
         if surface != "discord":
             return _fail(f"actor {actor_id!r} is not a discord app actor")
         connection = actor.get("connection") or params.get("connection") or {}
-        allowed = connection.get("channels")
-        if isinstance(allowed, str):  # one channel, not a set of characters
-            allowed = [allowed]
-        if allowed and channel not in {str(c) for c in allowed}:
+        allowed = filter_values(connection.get("channels"))  # a bare id is one channel
+        if allowed and channel not in allowed:
             return _fail(f"channel {channel!r} is not in actor {actor_id!r} allow-list")
         ref = connection.get("bot_token")
         if not isinstance(ref, str) or not ref:
@@ -89,8 +91,17 @@ class DiscordReadAction:
         kwargs: dict[str, Any] = {"transport": self._transport}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        guilds = guild_ids(connection.get("guild_id"))
         try:
-            out = DiscordClient(token, **kwargs).get_message(channel, message, guild_id=guild_id)
+            client = DiscordClient(token, **kwargs)
+            if guilds is not None:  # guild_id restricts reads as it does the gateway
+                found = client.channel_guild(channel)
+                if found not in guilds:
+                    return _fail(
+                        f"channel {channel!r} is not in actor {actor_id!r} guilds (guild_id)"
+                    )
+                guild_id = guild_id or found
+            out = client.get_message(channel, message, guild_id=guild_id)
         except DiscordError as exc:
             log.warning("discord read of %s/%s failed: %s", channel, message, exc)
             return InvocationResult.failed(str(exc), retryable=exc.retryable)

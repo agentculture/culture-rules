@@ -112,6 +112,7 @@
   "discord-message-to-library": {
     "description": "Files a Discord message in the library as a Markdown document.",
     "steps": {
+      "read": "Reads the whole message with the bot that saw it.",
       "render": "Writes the message as a Markdown page.",
       "push": "Adds the page to the library as a private document."
     }

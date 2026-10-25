@@ -7,7 +7,7 @@ placeholder, and no step sends `visibility: public`.
 | File | What it is |
 |---|---|
 | `rules/discord-to-library.json` | trigger `discord.message.created`, disabled |
-| `workflows/discord-message-to-library.json` | `markdown.render`, then `library.push` (kind `document`, format `md`) |
+| `workflows/discord-message-to-library.json` | `discord.read` (the whole message, with the bot that saw it), `markdown.render`, then `library.push` (kind `document`, format `md`) |
 
 It ships no actors. It uses the Discord actor (`discord-bot`, grant
 `RULES_DISCORD_BOT_TOKEN`, or `jetson-bot`, grant
@@ -26,18 +26,17 @@ It ships no actors. It uses the Discord actor (`discord-bot`, grant
 3. Check the rule is placed on the machine that holds the Discord actor.
 4. Import and enable it with the CLI, dry run first.
 
-## Not on disk yet
+## How it behaves
 
-- `markdown.render` is built in code, but it is not registered in the node's
-  runner or offered in the editor until task t8 of the plan lands. Until
-  then the workflow's first step does not run.
-- The `discord.read` action (full message or channel history) lands with
-  t7. This bundle uses only the
-  fields the event carries (`content` is truncated).
-- Reactions, attachments, commands and the scheduled sweep are planned for
-  Releases 2 and 3.
 - Enabling the rule is also what makes the gateway record its channel:
   messages from channels no enabled `discord.*` rule selects are never
   stored, and Discord events expire after 30 days.
+- The text comes from `discord.read`, so a message longer than the event's
+  2000 characters is filed whole. A message with only an attachment is filed
+  with no text; filing the attachment itself is planned (Release 2), as are
+  reactions, commands and the scheduled sweep (Release 3).
+- If both bots are in the channel, each records its own event and the rule
+  runs twice; both runs render the same page, so the library keeps one item
+  (the second push reports `created: false`).
 
 Deleting the Discord message later leaves the library item; archive it by hand.

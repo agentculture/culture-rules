@@ -3,27 +3,51 @@
   "edges": [
     {
       "source": "inputs",
-      "source_port": "title",
-      "target": "render",
-      "target_port": "title"
+      "source_port": "actor",
+      "target": "read",
+      "target_port": "actor"
     },
     {
       "source": "inputs",
-      "source_port": "text",
+      "source_port": "channel",
+      "target": "read",
+      "target_port": "channel"
+    },
+    {
+      "source": "inputs",
+      "source_port": "id",
+      "target": "read",
+      "target_port": "id"
+    },
+    {
+      "source": "inputs",
+      "source_port": "guild",
+      "target": "read",
+      "target_port": "guild"
+    },
+    {
+      "source": "read",
+      "source_port": "content",
       "target": "render",
       "target_port": "text"
     },
     {
-      "source": "inputs",
-      "source_port": "author",
+      "source": "read",
+      "source_port": "author_name",
       "target": "render",
       "target_port": "author"
     },
     {
-      "source": "inputs",
+      "source": "read",
       "source_port": "url",
       "target": "render",
       "target_port": "url"
+    },
+    {
+      "source": "inputs",
+      "source_port": "title",
+      "target": "render",
+      "target_port": "title"
     },
     {
       "source": "inputs",
@@ -55,31 +79,31 @@
     },
     {
       "description": "",
-      "name": "text",
+      "name": "actor",
       "required": true,
       "type": "string"
     },
     {
       "description": "",
-      "name": "author",
-      "required": false,
-      "type": "string"
-    },
-    {
-      "description": "",
-      "name": "url",
-      "required": false,
+      "name": "channel",
+      "required": true,
       "type": "string"
     },
     {
       "description": "",
       "name": "id",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "guild",
       "required": false,
       "type": "string"
     }
   ],
   "name": "File a Discord message in the library",
-  "notes": "One Markdown item per message. Needs markdown.render registered (plan task t8).",
+  "notes": "One Markdown item per message: discord.read fetches it in full, markdown.render writes the page, library.push files it.",
   "outputs": [
     {
       "name": "item_id",
@@ -89,6 +113,78 @@
   ],
   "schema_version": "1.0",
   "steps": [
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "discord.read",
+          "params": {
+            "actor": "inputs.actor",
+            "channel": "inputs.channel",
+            "guild": "inputs.guild",
+            "message": "inputs.id"
+          }
+        },
+        "builtin": "action",
+        "idempotent": true
+      },
+      "description": "",
+      "enabled": true,
+      "id": "read",
+      "inputs": [
+        {
+          "description": "",
+          "name": "actor",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "channel",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "guild",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Read the whole message",
+      "notes": "discord.read with the bot that saw it: the text untruncated (the event's content stops at 2000 characters), the author and the url.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "content",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "author_name",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "url",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
     {
       "body": [],
       "config": {
@@ -132,7 +228,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Render the message",
-      "notes": "markdown.render: the message as one Markdown document (title, text, then author, url and id).",
+      "notes": "markdown.render: the message as one Markdown document (title, the full text, then author, url and id). An attachment-only message renders with no text.",
       "outputs": [
         {
           "description": "",

@@ -499,3 +499,36 @@ def test_a_failed_rules_read_keeps_the_last_selection(rig):
     r.store.find = broken
     r.sup._refresh_selection()
     assert r.sup._selection == frozenset({"20"})
+
+
+def test_a_failing_ttl_index_does_not_stop_the_supervisor(monkeypatch, caplog):
+    def broken(_store):
+        raise RuntimeError("index options conflict")
+
+    monkeypatch.setattr(dg, "ensure_discord_event_ttl", broken)
+    sup = dg.GatewaySupervisor(
+        MemoryStore(), "engine@spark", gateway=FakeGateway(FakeHub(), "spark")
+    )
+    assert sup.listening() == []
+    assert "ttl" in caplog.text.lower()
+
+
+def test_no_discord_actor_means_no_rules_scan(rig):
+    r = rig(rule=False)
+    reads = []
+    real = r.store.find
+    r.store.find = lambda coll, *a, **k: (reads.append(coll), real(coll, *a, **k))[1]
+    r.sup.tick()
+    assert "rules" not in reads
+
+
+def test_a_bare_string_connection_channels_is_one_channel(rig):
+    r = rig()
+    actor = discord_actor()
+    actor["params"]["connection"]["channels"] = "20"  # one id, not the characters 2 and 0
+    r.store.put("actors", actor)
+    r.sup.tick()
+    session = r.sup._sessions["bot"]
+    r.sup._on_message(session, message(1, channel="20"))
+    r.sup._on_message(session, message(2, channel="2"))
+    assert _ids(r) == ["9001"]

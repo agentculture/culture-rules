@@ -405,12 +405,18 @@
         {
           "depth": 0,
           "label": "1",
+          "step": "read",
+          "text": "discord.read"
+        },
+        {
+          "depth": 0,
+          "label": "2",
           "step": "render",
           "text": "markdown.render: fields as one Markdown page, the same bytes each time"
         },
         {
           "depth": 0,
-          "label": "2",
+          "label": "3",
           "step": "push",
           "text": "library.push as newspaper-library kind document (private) as .md (≤3 attempts)"
         }
@@ -418,8 +424,9 @@
       "id": "discord-message-to-library",
       "kind": "workflow",
       "lines": [
-        "1 render — markdown.render: fields as one Markdown page, the same bytes each time",
-        "2 push — library.push as newspaper-library kind document (private) as .md (≤3 attempts)"
+        "1 read — discord.read",
+        "2 render — markdown.render: fields as one Markdown page, the same bytes each time",
+        "3 push — library.push as newspaper-library kind document (private) as .md (≤3 attempts)"
       ],
       "paragraph": {
         "segments": [
@@ -444,9 +451,28 @@
             "keys": [
               "first"
             ],
-            "name": "Render the message",
+            "name": "Read the whole message",
             "part": "step",
             "phrase": "First",
+            "sentence": 1,
+            "shown": "reads the whole message with the bot that saw it",
+            "standin": false,
+            "step": "read",
+            "tail": "",
+            "tail_keys": [],
+            "text": "Reads the whole message with the bot that saw it."
+          },
+          {
+            "depth": 0,
+            "fallback": false,
+            "gap": false,
+            "grouped": true,
+            "keys": [
+              "then_grouped"
+            ],
+            "name": "Render the message",
+            "part": "step",
+            "phrase": "; then",
             "sentence": 1,
             "shown": "writes the message as a Markdown page",
             "standin": false,
@@ -508,7 +534,7 @@
             "text": "It runs one at a time per discord:{message_id}."
           }
         ],
-        "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, on spark.\nFirst writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
+        "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, on spark.\nFirst reads the whole message with the bot that saw it; then writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
       }
     },
     "pr-fix": {
@@ -2501,7 +2527,7 @@
       "action": {
         "idempotent": false,
         "kind": "noop",
-        "name": "Nothing: the transcript is the workflow's work",
+        "name": "Nothing: filing the message is the workflow's work",
         "only_at_chain_end": false,
         "params": {},
         "retry": null,
@@ -2510,7 +2536,7 @@
       "concurrency_key": "discord:{trigger.data.message_id}",
       "condition": null,
       "counts_toward_budget": true,
-      "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: renders it as Markdown and pushes it to the library as kind document. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
+      "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: reads it in full with the bot that saw it, renders it as Markdown and pushes it to the library as kind document. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
       "enabled": false,
       "exclusive_group": null,
       "id": "discord-to-library",
@@ -2540,11 +2566,11 @@
       "workflow": {
         "id": "discord-message-to-library",
         "inputs": {
-          "author": "trigger.data.author_name",
+          "actor": "trigger.data.actor",
+          "channel": "trigger.data.channel_id",
+          "guild": "trigger.data.guild_id",
           "id": "trigger.data.message_id",
-          "text": "trigger.data.content",
-          "title": "trigger.data.message_id",
-          "url": "trigger.data.url"
+          "title": "trigger.data.message_id"
         },
         "version": null
       }
@@ -6731,27 +6757,51 @@
       "edges": [
         {
           "source": "inputs",
-          "source_port": "title",
-          "target": "render",
-          "target_port": "title"
+          "source_port": "actor",
+          "target": "read",
+          "target_port": "actor"
         },
         {
           "source": "inputs",
-          "source_port": "text",
+          "source_port": "channel",
+          "target": "read",
+          "target_port": "channel"
+        },
+        {
+          "source": "inputs",
+          "source_port": "id",
+          "target": "read",
+          "target_port": "id"
+        },
+        {
+          "source": "inputs",
+          "source_port": "guild",
+          "target": "read",
+          "target_port": "guild"
+        },
+        {
+          "source": "read",
+          "source_port": "content",
           "target": "render",
           "target_port": "text"
         },
         {
-          "source": "inputs",
-          "source_port": "author",
+          "source": "read",
+          "source_port": "author_name",
           "target": "render",
           "target_port": "author"
         },
         {
-          "source": "inputs",
+          "source": "read",
           "source_port": "url",
           "target": "render",
           "target_port": "url"
+        },
+        {
+          "source": "inputs",
+          "source_port": "title",
+          "target": "render",
+          "target_port": "title"
         },
         {
           "source": "inputs",
@@ -6783,31 +6833,31 @@
         },
         {
           "description": "",
-          "name": "text",
+          "name": "actor",
           "required": true,
           "type": "string"
         },
         {
           "description": "",
-          "name": "author",
-          "required": false,
-          "type": "string"
-        },
-        {
-          "description": "",
-          "name": "url",
-          "required": false,
+          "name": "channel",
+          "required": true,
           "type": "string"
         },
         {
           "description": "",
           "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "guild",
           "required": false,
           "type": "string"
         }
       ],
       "name": "File a Discord message in the library",
-      "notes": "One Markdown item per message. Needs markdown.render registered (plan task t8).",
+      "notes": "One Markdown item per message: discord.read fetches it in full, markdown.render writes the page, library.push files it.",
       "outputs": [
         {
           "name": "item_id",
@@ -6817,6 +6867,78 @@
       ],
       "schema_version": "1.0",
       "steps": [
+        {
+          "body": [],
+          "config": {
+            "action": {
+              "kind": "discord.read",
+              "params": {
+                "actor": "inputs.actor",
+                "channel": "inputs.channel",
+                "guild": "inputs.guild",
+                "message": "inputs.id"
+              }
+            },
+            "builtin": "action",
+            "idempotent": true
+          },
+          "description": "Reads the whole message with the bot that saw it.",
+          "enabled": true,
+          "id": "read",
+          "inputs": [
+            {
+              "description": "",
+              "name": "actor",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "channel",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "guild",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Read the whole message",
+          "notes": "discord.read with the bot that saw it: the text untruncated (the event's content stops at 2000 characters), the author and the url.",
+          "outputs": [
+            {
+              "description": "",
+              "name": "content",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "author_name",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "url",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": null,
+          "retry": null,
+          "timeout_s": null
+        },
         {
           "body": [],
           "config": {
@@ -6860,7 +6982,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Render the message",
-          "notes": "markdown.render: the message as one Markdown document (title, text, then author, url and id).",
+          "notes": "markdown.render: the message as one Markdown document (title, the full text, then author, url and id). An attachment-only message renders with no text.",
           "outputs": [
             {
               "description": "",

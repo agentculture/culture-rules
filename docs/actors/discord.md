@@ -242,7 +242,9 @@ The gateway event's delivery id is per actor. When two bots can see the same
 message (both in one server and channel), each records its own
 `discord.message.created` event, so a rule triggered by both runs twice. Keep
 each actor to its own servers with `guild_id`, or limit the rule's trigger to
-one actor's channels.
+one actor's channels. A flow that renders the message with `markdown.render`
+and pushes it still files one library item: both runs build the same page, and
+the library keeps the first (the second push reports `created: false`).
 
 ## Filtering a trigger
 
@@ -274,11 +276,14 @@ Not on disk yet, and not to be relied on:
 - reactions as triggers and the attachment fetch (Release 2);
 - slash and message commands, the ephemeral reply and a scheduled sweep
   (Release 3);
-- the `discord.read` action, and the
-  `markdown.render` step being offered in the editor and run by the node. The
-  step's code and the REST message and history reads exist; registration does
-  not. The disabled bundle [`docs/rules/discord-library`](../rules/discord-library/README.md)
-  shows the flow.
+- roles on message events (`data.user_roles`, Release 2): until then a `roles`
+  filter matches no message.
+
+On disk today: the `discord.read` action (one message in full; it keeps to
+the actor's `connection.channels` and `connection.guild_id`) and the
+`markdown.render` step (the step panel's Built-in select). The disabled bundle
+[`docs/rules/discord-library`](../rules/discord-library/README.md) shows the
+flow: read, render, push.
 
 ## Troubleshooting
 

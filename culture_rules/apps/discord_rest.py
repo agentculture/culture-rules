@@ -177,6 +177,13 @@ class DiscordClient:
             )
         return out
 
+    def channel_guild(self, channel_id: str) -> str | None:
+        """The id of the guild a channel belongs to (``None`` for a DM)."""
+        _check_id(channel_id, "channel")
+        payload = self._get_ok(f"/channels/{channel_id}") or {}
+        guild = payload.get("guild_id") if isinstance(payload, Mapping) else None
+        return str(guild) if guild else None
+
     def get_message(
         self, channel_id: str, message_id: str, *, guild_id: str | None = None
     ) -> dict[str, Any]:
