@@ -199,7 +199,8 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
     An ``event`` trigger must name a ``type`` and matches only that event type; one without a
     type matches nothing. Other kinds match on kind alone (plus ``type`` when named). An event
     whose ``data.self_authored`` is true (set by ingest) matches only triggers with
-    ``params.include_self`` true.
+    ``params.include_self`` true. ``discord.*`` events also pass the Discord filters
+    (``include_bots``, ``channels``, ``users``, ``roles``; see :func:`_discord_admits`).
     """
     if trigger.kind != event.get("kind", "event"):
         return False
@@ -212,6 +213,37 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
     data = event.get("data")
     if isinstance(data, Mapping) and data.get("self_authored") is True:
         return trigger.params.get("include_self") is True
+    if isinstance(data, Mapping) and str(event.get("type", "")).startswith("discord."):
+        return _discord_admits(trigger.params, data)
+    return True
+
+
+def _norm_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [str(v) for v in value]
+    return []
+
+
+def _discord_admits(params: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
+    """Discord filters: ``include_bots`` (default off), ``channels`` (ids; absent/"all"/empty is
+    every channel), ``users`` (ids or names, case-insensitive) and ``roles`` (role ids against
+    ``data.user_roles``). Each present filter must admit the event."""
+    if data.get("bot") is True and params.get("include_bots") is not True:
+        return False
+    channels = _norm_list(params.get("channels"))
+    if channels and str(data.get("channel_id")) not in channels:
+        return False
+    users = {u.casefold() for u in _norm_list(params.get("users"))}
+    if users:
+        who = {
+            str(data.get("author_id", "")).casefold(),
+            str(data.get("author_name", "")).casefold(),
+        }
+        if not users & who:
+            return False
+    roles = set(_norm_list(params.get("roles")))
+    if roles and not roles & set(_norm_list(data.get("user_roles"))):
+        return False
     return True
 
 
