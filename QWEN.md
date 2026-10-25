@@ -97,6 +97,11 @@ On disk today:
   cache; `transcript.render` `format: md`; the builtins `json.read` and
   `checklist.merge|set|render|bind`; `audio.transcribe` without a hash. The
   flows that use them are configured live, never committed.
+- Discord surfaces, Release 1 (guide `docs/actors/discord.md`): any number of
+  Discord bots, one app actor each; a per-actor delivery id; `guild_id` as one id
+  or a list; `discord.*` trigger filters (`include_bots`, `channels`, `users`,
+  `roles`); only selected channels stored, for 30 days; `discord.read` and the
+  builtin `markdown.render`; the bundle `docs/rules/discord-library` (disabled).
 - the workflow phrases (#69, spec
   `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language
   `description` plus an optional technical `notes` on workflows and steps,

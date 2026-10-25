@@ -192,6 +192,17 @@ plan. What exists today:
     across re-extraction, a flip applied only when newer, Markdown with a
     revision, a bound library item and stale-push detection);
   - `audio.transcribe` hashes the audio itself when no `audio_sha256` is given.
+- **Discord surfaces, Release 1** (spec `docs/specs/2026-10-25-discord-surfaces.md`,
+  guide `docs/actors/discord.md`; Releases 2-3 planned):
+  - any number of Discord bots, one app actor each (Culture.dev as `discord-bot`,
+    `jetson-bot`); the gateway's delivery id is per actor, and `connection.guild_id`
+    is one id or a list (upgrade every node and the API before switching to a list);
+  - `discord.*` trigger filters `include_bots`, `channels`, `users`, `roles` (users OR
+    roles; `model/discord_filters.py`); the gateway stores only channels an enabled
+    `discord.*` rule selects, and Discord events expire after 30 days;
+  - the action kind `discord.read` (one message in full, with attachments) and the
+    builtin `markdown.render` (a deterministic page and its `content_base64` for
+    `library.push`); the bundle `docs/rules/discord-library` ships disabled.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for
