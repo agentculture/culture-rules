@@ -136,7 +136,7 @@ Delivery above).
 | audio.transcribe works without a given hash and fails a missing file finally | high | e12, e13 (sensitivity) · commits `68ffeb7`, `1e00649` |
 | the new pieces are registered and run together on a node | medium | `tests/node/test_library_items_flow.py`, `tests/node/test_default_ports.py` · commit `d4a48ea` |
 | the PR names no person; culture-rules runs no embodiment ingest | high | e14, e15 |
-| a recording becomes a Markdown transcript item and, with action items, a to-do item, live | high | e22, e23 (proposed): items 58, 60 and 61 from new recordings with no manual step; e17, e20: items 57 and 59 from hand-started runs |
+| a recording becomes a Markdown transcript item and, with action items, a to-do item, live | high | e22, e23: items 58, 60 and 61 from new recordings with no manual step; e17, e20: items 57 and 59 from hand-started runs |
 | a flip replaces the to-do item under the same id within 60 s; re-extraction keeps ids and done marks | medium | e21: 2 s, item 59, by a direct `todo-flip` run; the reader's event path is not yet exercised |
 | the live newspaper push sends kind newspaper with links | medium | e18: item 55, public, 20 links, pushed under 0.27.0 |
 | no live definition calls embodiment memory ingest, after t9 | high | e19: 19 workflows, 33 rules, 21 actors |
@@ -154,8 +154,8 @@ is clean, and the full-tree bandit gate passes.
 
 - `t9` — the first real `embodiment.bus.todo` flip, once the reader sends checklist ids (r2); file
   its evidence. Owner: main agent, after the embodiment change.
-- Records awaiting the operator: evidence `e23`. Approved: deviations `d1`–`d5`
-  (`d4` withdrawn by `d5`), obligations `o1`–`o18`, evidence `e1`–`e22`, deltas `b1`–`b3` and
+- Records: none await the operator. Approved: deviations `d1`–`d5`
+  (`d4` withdrawn by `d5`), obligations `o1`–`o18`, evidence `e1`–`e23`, deltas `b1`–`b3` and
   `b5`–`b7`, lapse `l1`; `b4` rejected (a duplicate of `b5`).
 - Embodiment (risk r2): Gwen reads to-dos from the library and sends the checklist comment id in
   `embodiment.bus.todo`.

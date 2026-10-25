@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T06:52:54Z",
+  "updated": "2026-10-25T06:57:50Z",
   "deviations": [
     {
       "id": "d1",
@@ -509,7 +509,7 @@
         "commit": "48e58ee"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 28
     }
