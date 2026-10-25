@@ -174,7 +174,14 @@ def test_run_id_is_not_readable_from_an_action_step(value):
 
 
 @pytest.mark.parametrize(
-    "actor", ["inputs.item", "inputs.item.actor", "{{ inputs.item }}", {"$ref": "inputs.item"}]
+    "actor",
+    [
+        "inputs.item",
+        "inputs.item.actor",
+        "{{ inputs.item }}",
+        {"$ref": "inputs.item"},
+        {"$literal": "gh-app"},
+    ],
 )
 def test_an_action_steps_actor_must_be_a_literal_id(actor):
     """The node dispatches through ``params.actor`` as given, so a reference there never
