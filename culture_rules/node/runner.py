@@ -276,6 +276,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
     from culture_rules.node.actions import checklist  # noqa: PLC0415
     from culture_rules.node.actions.decider import DeciderAssessPort  # noqa: PLC0415
+    from culture_rules.node.actions.discord_read import DiscordReadAction  # noqa: PLC0415
     from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
     from culture_rules.node.actions.fixer_cooldown import (  # noqa: PLC0415
         FIXER_COOLDOWN_BUILTIN,
@@ -307,6 +308,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     from culture_rules.node.actions.library import LibraryPushPort  # noqa: PLC0415
     from culture_rules.node.actions.llm import LlmCompletePort  # noqa: PLC0415
     from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
+    from culture_rules.node.actions.markdown_render import (  # noqa: PLC0415
+        MARKDOWN_RENDER_BUILTIN,
+        MarkdownRenderPort,
+    )
     from culture_rules.node.actions.message import (  # noqa: PLC0415
         DiscordMessageAction,
         MessageAction,
@@ -352,6 +357,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:message": message,
         "action:mesh.message": message,  # legacy alias of message
         "action:discord.message": DiscordMessageAction(store),
+        "action:discord.read": DiscordReadAction(store),  # one message in full + attachments
         "action:github.comment": github,
         "action:github.push": push,
         "action:github.review_reply": reply,
@@ -388,6 +394,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 FIXER_COOLDOWN_BUILTIN: FixerCooldownPort(store),  # #39: capacity_exhausted
                 SELECT_BUILTIN: SelectPort(),  # #39: the gate's one source, whichever path ran
                 JSON_READ_BUILTIN: JsonReadPort(),  # named fields from a JSON file under a root
+                MARKDOWN_RENDER_BUILTIN: MarkdownRenderPort(),  # fields as one Markdown page
                 checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
                     store
                 ),  # stored lists, stable ids

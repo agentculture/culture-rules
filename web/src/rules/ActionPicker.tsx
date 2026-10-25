@@ -1,6 +1,7 @@
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { getDiscordTargets } from "../api/actors";
-import type { Actor, DiscordTargets, HttpPolicy, RunnerActorParams } from "../api/actors";
+import { useDiscordTargets, type LoadTargets } from "./useDiscordTargets";
+import type { Actor, HttpPolicy, RunnerActorParams } from "../api/actors";
 import type { Action, Workflow } from "../api/types";
 
 type ParamType = "str" | "int" | "number" | "bool" | "dict" | "list" | "any";
@@ -63,6 +64,10 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   "discord.message": {
     label: "Post a message on Discord",
     params: { actor: RS, guild: S, channel: RS, text: RS },
+  },
+  "discord.read": {
+    label: "Read a Discord message in full",
+    params: { actor: RS, guild: S, channel: RS, message: RS },
   },
   "github.comment": {
     label: "Comment on GitHub",
@@ -600,8 +605,6 @@ function HeadersField({ value, onChange }: Readonly<HeadersProps>) {
   );
 }
 
-type LoadTargets = (actorId: string) => Promise<DiscordTargets>;
-
 interface DiscordTargetProps {
   id: string;
   actorId: string;
@@ -618,27 +621,9 @@ interface DiscordTargetProps {
  * from); when the bot's channels cannot be loaded, the channel id is typed.
  */
 function DiscordTarget({ id, actorId, params, refs, load, setParams }: Readonly<DiscordTargetProps>) {
-  const [targets, setTargets] = useState<DiscordTargets | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let live = true;
-    setTargets(null);
-    setFailed(false);
-    if (!actorId) return undefined;
-    load(actorId)
-      .then((t) => {
-        if (!live) return;
-        setTargets(t);
-        if (t.guilds.length === 1 && !params.guild) setParams({ ...params, guild: t.guilds[0].id });
-      })
-      .catch(() => {
-        if (live) setFailed(true);
-      });
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the actor changes
-  }, [actorId, load]);
+  const { targets, failed } = useDiscordTargets(actorId, load, (t) => {
+    if (t.guilds.length === 1 && !params.guild) setParams({ ...params, guild: t.guilds[0].id });
+  });
 
   const channelValue = (v: unknown) => (
     <ValueField
@@ -662,7 +647,7 @@ function DiscordTarget({ id, actorId, params, refs, load, setParams }: Readonly<
       </>
     );
   }
-  if (!targets) return <output className="trigger-picker__words">Loading the bot&apos;s servers…</output>;
+  if (!targets) return <output className="trigger-picker__words" aria-live="polite">Loading the bot&apos;s servers…</output>;
 
   const guildId = typeof params.guild === "string" ? params.guild : "";
   const guild = targets.guilds.find((g) => g.id === guildId);
@@ -758,7 +743,7 @@ interface ParamFieldsProps {
 
 /** One typed field per param of the chosen action kind (the actor select is rendered separately). */
 function ParamFields(props: Readonly<ParamFieldsProps>) {
-  const discord = props.kind === "discord.message";
+  const discord = props.kind === "discord.message" || props.kind === "discord.read";
   const actorId = typeof props.params.actor === "string" ? props.params.actor : "";
   return (
     <>
@@ -1016,7 +1001,7 @@ export default function ActionPicker({
                 command: undefined,
                 args: undefined,
                 guild: undefined,
-                channel: kind === "discord.message" ? undefined : params.channel,
+                channel: kind === "discord.message" || kind === "discord.read" ? undefined : params.channel,
                 ...libraryCarryOver(kind, params, actors.find((a) => a.id === e.target.value)),
               })
             }

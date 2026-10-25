@@ -309,3 +309,96 @@ def test_each_invalid_input_raises_its_own_error_before_anything_is_written(
         sink(store, a, type, {}, delivery, "alice")
     assert store.find(EVENTS_COLLECTION) == []
     assert store.find(HOOK_STATS_COLLECTION) == []
+
+
+# discord-surfaces t4 (R1): Discord events expire; nothing else does
+
+
+def discord_app(**over):
+    doc = {
+        "id": "bot",
+        "kind": "app",
+        "enabled": True,
+        "params": {"surface": "discord", "events": ["discord.message.created"]},
+    }
+    doc.update(over)
+    return doc
+
+
+def _discord(store, delivery="bot:1"):
+    return sink(
+        store, discord_app(), "discord.message.created", {"channel_id": "1"}, delivery, "alice"
+    )
+
+
+def test_a_discord_event_carries_an_expiry_date_30_days_on(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from culture_rules.events.hook_sink import DISCORD_RETENTION_ENV
+
+    monkeypatch.delenv(DISCORD_RETENTION_ENV, raising=False)
+    s = MemoryStore()
+    before = datetime.now(UTC)
+    assert _discord(s) == "accepted"
+    after = datetime.now(UTC)
+    (doc,) = s.find(EVENTS_COLLECTION)
+    assert isinstance(doc["expires_at"], datetime)  # a date: what a MongoDB TTL index needs
+    assert before + timedelta(days=30) <= doc["expires_at"] <= after + timedelta(days=30)
+
+
+def test_non_discord_events_never_expire():
+    s = MemoryStore()
+    assert call(s) == "accepted"
+    (doc,) = s.find(EVENTS_COLLECTION)
+    assert "expires_at" not in doc
+
+
+def test_non_discord_events_never_expire_even_with_retention_set(monkeypatch):
+    from culture_rules.events.hook_sink import DISCORD_RETENTION_ENV
+
+    monkeypatch.setenv(DISCORD_RETENTION_ENV, "7")
+    s = MemoryStore()
+    assert call(s) == "accepted"
+    (doc,) = s.find(EVENTS_COLLECTION)
+    assert "expires_at" not in doc
+
+
+@pytest.mark.parametrize(("raw", "days"), [("7", 7), ("1", 1), ("0", 30), ("x", 30), ("", 30)])
+def test_discord_retention_is_configurable_in_days(monkeypatch, raw, days):
+    from datetime import UTC, datetime, timedelta
+
+    from culture_rules.events.hook_sink import DISCORD_RETENTION_ENV
+
+    monkeypatch.setenv(DISCORD_RETENTION_ENV, raw)
+    s = MemoryStore()
+    before = datetime.now(UTC)
+    _discord(s)
+    (doc,) = s.find(EVENTS_COLLECTION)
+    assert before + timedelta(days=days) <= doc["expires_at"]
+    assert doc["expires_at"] <= datetime.now(UTC) + timedelta(days=days)
+
+
+class _IndexRecorder(MemoryStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.indexes: list[tuple] = []
+
+    def ensure_index(self, collection, keys, *, name, partial=None, ttl_seconds=None):
+        self.indexes.append((collection, keys, name, ttl_seconds))
+
+
+def test_the_discord_ttl_index_is_ensured_on_the_events_expiry_date():
+    from culture_rules.events.hook_sink import DISCORD_TTL_INDEX, ensure_discord_event_ttl
+
+    s = _IndexRecorder()
+    ensure_discord_event_ttl(s)
+    assert s.indexes == [(EVENTS_COLLECTION, [("expires_at", 1)], DISCORD_TTL_INDEX, 0)]
+
+
+def test_a_store_without_indexes_ignores_the_ttl_safely():
+    from culture_rules.events.hook_sink import ensure_discord_event_ttl
+
+    s = MemoryStore()
+    ensure_discord_event_ttl(s)  # MemoryStore has no ensure_index: a no-op, never an error
+    assert _discord(s) == "accepted"
+    assert len(s.find(EVENTS_COLLECTION)) == 1

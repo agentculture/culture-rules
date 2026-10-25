@@ -14,6 +14,9 @@ The secret this guide creates:
 |---|---|---|
 | `RULES_DISCORD_BOT_TOKEN` | the bot's token | engine node and API |
 
+This table is the first bot's. More bots are covered in
+[Several bots](#several-bots) below.
+
 ## 1. Create the application and bot
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications)
@@ -47,7 +50,12 @@ open this link:
 https://discord.com/oauth2/authorize?client_id=<Application ID>&scope=bot&permissions=68608&guild_id=<server id>&disable_guild_select=true
 ```
 
-`68608` grants View Channels, Send Messages and Read Message History. To find
+`68608` grants View Channels, Send Messages and Read Message History. A bot
+that is to react to messages (planned, Release 2) also needs **Add
+Reactions**: use `68672` (`68608` plus `64`). For slash commands (planned,
+Release 3) add the `applications.commands` scope: `scope=bot%20applications.commands`.
+Permissions are the bot's access; a bot that only reads and posts does not need
+the extra bit. To find
 the **server id**, turn on **User Settings**, **Advanced**, **Developer Mode**.
 Then right-click the server icon and choose **Copy Server ID**. Channel ids are
 copied the same way.
@@ -129,6 +137,14 @@ replies (see below).
 bot sends itself are tagged `self_authored`. Mass mentions (`@everyone`,
 `@here`, roles) in posted messages are always suppressed.
 
+A message is recorded only from a channel that an enabled rule with a
+`discord.*` trigger selects. A rule with no `channels`, or `"all"`, selects
+every channel. With no such rule, nothing is recorded. The selection is one
+union for every Discord actor, and each actor's `connection.channels` and
+`guild_id` still apply on top. Discord events expire after 30 days through a
+MongoDB TTL index. Set `CULTURE_RULES_DISCORD_EVENT_RETENTION_DAYS` on the
+listening node to change that. Other events never expire.
+
 ## Posting a message
 
 In a rule, choose **Post a message on Discord** under "Then what happens?":
@@ -155,6 +171,120 @@ a Culture mesh channel and takes no actor. A rule saved before 0.12.0 as
 `message` with a Discord actor still posts to Discord, and the editor shows it
 as a Discord message.
 
+## Several bots
+
+More than one bot can serve one culture-rules install, each as its own actor.
+The target set is two bots:
+
+| Actor id | Bot | Token grant | Servers |
+|---|---|---|---|
+| `discord-bot` | Culture.dev | `RULES_DISCORD_BOT_TOKEN` | `1413999242648748195` (JetsonBot experiments) and `<private server id>` (the operator's private server): a list |
+| `jetson-bot` | jetson-bot | `DISCORD_BOT_TOKEN_JETSON_BOT` | `1326246312072581160` (Jetson AI Lab Research Group, public) only: a single id, never in experiments |
+
+For each bot, repeat sections 1 to 5 with its own application:
+
+- **Invite** with the `bot` and `applications.commands` scopes, and the
+  permissions View Channels, Send Messages, Read Message History and Add
+  Reactions (`68672`). The invite link in section 3 shows the shape; add
+  `%20applications.commands` to `scope`.
+- **Intents** (on **Bot**, **Privileged Gateway Intents**): MESSAGE CONTENT
+  INTENT is required. Guild messages are a standard intent and are always on.
+  Reactions (guild message reactions) are a standard intent too; the listener
+  asks for them from Release 2 on (planned), and nothing to switch on in the
+  portal.
+- **One grant name per bot.** The pattern for a new bot is
+  `DISCORD_BOT_TOKEN_<BOT>` (for example `DISCORD_BOT_TOKEN_JETSON_BOT`), and
+  the actor's `connection.bot_token` is `grant:DISCORD_BOT_TOKEN_JETSON_BOT`.
+  The first bot keeps its older name `RULES_DISCORD_BOT_TOKEN`. Inject each
+  token into both units (section 4) under its own
+  `CULTURE_RULES_SECRET_<NAME>` variable.
+- **Unused grants.** The jetson-bot's `DISCORD_BOT_APPLICATION_ID_JETSON_BOT`
+  and `DISCORD_BOT_PUBLIC_KEY_JETSON_BOT` also exist in grant. The public key
+  is not used: culture-rules receives interactions over the gateway, not an
+  HTTP interactions endpoint, so there is nothing to verify and no public URL.
+  Do not inject either.
+
+```json
+{
+  "id": "jetson-bot",
+  "name": "jetson-bot",
+  "kind": "app",
+  "machine": "<serving host>",
+  "params": {
+    "surface": "discord",
+    "events": ["discord.message.created"],
+    "actions": ["discord.message"],
+    "self_identity": "<bot username>",
+    "connection": {
+      "bot_token": "grant:DISCORD_BOT_TOKEN_JETSON_BOT",
+      "guild_id": "1326246312072581160"
+    }
+  }
+}
+```
+
+### `guild_id` as a list
+
+`connection.guild_id` is one id or a list of ids. Unset or empty means every
+server the bot is in. A list limits listening, posting and the editor's server
+list to those servers.
+
+**Rollout order matters.** A node or API older than this change reads a list
+as matching no server, so the listener and the editor's lists go quiet.
+Upgrade every node and the API first, and only then change a stored
+`guild_id` from a single id to a list. This applies to Culture.dev's switch to
+its two servers; jetson-bot's single id has no ordering constraint and works on
+every version.
+
+### Two bots, one message
+
+The gateway event's delivery id is per actor. When two bots can see the same
+message (both in one server and channel), each records its own
+`discord.message.created` event, so a rule triggered by both runs twice. Keep
+each actor to its own servers with `guild_id`, or limit the rule's trigger to
+one actor's channels. A flow that renders the message with `markdown.render`
+and pushes it still files one library item: both runs build the same page, and
+the library keeps the first (the second push reports `created: false`).
+
+## Filtering a trigger
+
+A rule with a `discord.message.created` trigger takes these optional
+parameters in the trigger's `params`:
+
+| Param | Meaning |
+|---|---|
+| `include_bots` | `true` to admit messages from bots; off by default |
+| `channels` | a list of channel ids, a bare id, or `"all"`; absent or empty is every channel |
+| `users` | author ids or usernames, case-insensitive |
+| `roles` | role ids |
+
+With both `users` and `roles` set, either admits: a listed user, or anyone
+holding a listed role. **A `roles` filter matches no message yet.** Roles are
+read from `data.user_roles`, which message events do not carry in Release 1
+(planned, Release 2), so a rule with only `roles` never fires, and with
+`users` too it admits only the listed users.
+
+## Deleting a message
+
+Deleting a Discord message does not delete what a flow made from it. The
+library item stays; archive it by hand in the library.
+
+## What is planned
+
+Not on disk yet, and not to be relied on:
+
+- reactions as triggers and the attachment fetch (Release 2);
+- slash and message commands, the ephemeral reply and a scheduled sweep
+  (Release 3);
+- roles on message events (`data.user_roles`, Release 2): until then a `roles`
+  filter matches no message.
+
+On disk today: the `discord.read` action (one message in full; it keeps to
+the actor's `connection.channels` and `connection.guild_id`) and the
+`markdown.render` step (the step panel's Built-in select). The disabled bundle
+[`docs/rules/discord-library`](../rules/discord-library/README.md) shows the
+flow: read, render, push.
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -163,6 +293,7 @@ as a Discord message.
 | `Missing Access` on a channel | The channel is private; add the bot to its permissions |
 | Messages arrive with empty `content` | MESSAGE CONTENT INTENT is off |
 | No node is listening | The actor's machine's node lacks the token injection, or the `discord` extra |
+| A message produces no event | No enabled rule with a `discord.*` trigger selects its channel |
 | Posting fails "not in actor allow-list" | `connection.channels` is set and excludes the channel |
 | `401` from Discord | The token was reset after it was sealed; seal the new one and restart the node |
 
@@ -172,5 +303,5 @@ as a Discord message.
 |---|---|
 | Actor id, machine | `discord-bot`, `spark` |
 | Bot | `Culture.dev`, Application ID `1556270251979571320` |
-| Server | `1413999242648748195` (JetsonBot experiments), the whole server |
+| Servers | `["1413999242648748195", "<private server id>"]` (JetsonBot experiments and the operator's private server; a list, so upgrade every node and the API first) |
 | Default channel | `#culture`, `1537538645337182239` (private: the bot must be added) |

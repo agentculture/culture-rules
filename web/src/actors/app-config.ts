@@ -51,6 +51,11 @@ export interface ConnectionField {
   label: string;
   /** A comma-separated list in the form, an array in the actor. */
   list?: boolean;
+  /**
+   * A comma-separated list in the form; one entry is written as a plain string (what an
+   * older node reads), several as an array.
+   */
+  oneOrMany?: boolean;
   /** An enum: rendered as a select of exactly these values, the first one the default. */
   options?: readonly string[];
   /** Refused when blank. */
@@ -83,7 +88,7 @@ export const CONNECTION_FIELDS: Record<AppSurface, ConnectionField[]> = {
   ],
   discord: [
     { key: "bot_token", label: "Bot token" },
-    { key: "guild_id", label: "Guild id" },
+    { key: "guild_id", label: "Guild ids", oneOrMany: true },
     { key: "channels", label: "Channels", list: true },
   ],
   email: [
@@ -153,6 +158,24 @@ export function appDraftFrom(params: ActorParams | undefined): AppDraft {
   };
 }
 
+/** One connection field's stored value from its text, or undefined when it is left out. */
+function connectionValue(field: ConnectionField, text: string): unknown {
+  if (field.oneOrMany) {
+    const items = splitList(text);
+    if (!items.length) return undefined;
+    return items.length === 1 ? items[0] : items; // one id stays a string (older nodes)
+  }
+  if (text === "" && !field.keepEmpty) return undefined;
+  return field.list ? splitList(text) : text;
+}
+
+function probeFrom(p: AppDraft["probes"][number]): AppProbe {
+  const probe: AppProbe = { name: p.name.trim(), command: p.command.trim() };
+  const schedule = p.schedule.trim();
+  if (schedule) probe.schedule = schedule;
+  return probe;
+}
+
 /** The `app` params for a draft; blank connection fields are omitted. `base` keeps keys the form does not edit. */
 export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): ActorParams {
   const surface = draft.surface as AppSurface;
@@ -161,16 +184,10 @@ export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): A
   const connection: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(baseConnection)) if (!known.has(key)) connection[key] = value;
   for (const field of CONNECTION_FIELDS[surface]) {
-    const text = (draft.connection[field.key] ?? "").trim();
-    if (text === "" && !field.keepEmpty) continue;
-    connection[field.key] = field.list ? splitList(text) : text;
+    const value = connectionValue(field, (draft.connection[field.key] ?? "").trim());
+    if (value !== undefined) connection[field.key] = value;
   }
-  const probes: AppProbe[] = draft.probes.map((p) => {
-    const probe: AppProbe = { name: p.name.trim(), command: p.command.trim() };
-    const schedule = p.schedule.trim();
-    if (schedule) probe.schedule = schedule;
-    return probe;
-  });
+  const probes = draft.probes.map(probeFrom);
   const next: ActorParams = {
     ...base,
     surface,

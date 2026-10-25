@@ -108,5 +108,13 @@
       "render": "Makes the book, titled with the recording's date and topic, right to left for Hebrew.",
       "push": "Uploads the book to the e-reader library and queues it for the device."
     }
+  },
+  "discord-message-to-library": {
+    "description": "Files a Discord message in the library as a Markdown document.",
+    "steps": {
+      "read": "Reads the whole message with the bot that saw it.",
+      "render": "Writes the message as a Markdown page.",
+      "push": "Adds the page to the library as a private document."
+    }
   }
 }

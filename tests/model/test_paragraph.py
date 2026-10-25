@@ -807,9 +807,9 @@ def _all_steps(steps: list[dict]):
         yield from _all_steps(s.get("body") or [])
 
 
-def test_the_fixture_covers_the_twelve_committed_workflows():
+def test_the_fixture_covers_the_thirteen_committed_workflows():
     committed = _committed()
-    assert len(committed) == 12
+    assert len(committed) == 13
     fixture = json.loads(FIXTURE.read_text())
     assert set(fixture) == {wf["id"] for wf in committed}
     ids = {wf["id"]: {s["id"] for s in _all_steps(wf["steps"])} for wf in committed}

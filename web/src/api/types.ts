@@ -41,6 +41,14 @@ export interface Whoami {
 export interface EventTriggerParams {
   type: string;
   include_self?: boolean;
+  /** discord.* events (culture_rules/model/discord_filters.py): channel ids; absent = every channel. */
+  channels?: string[];
+  /** discord.* events: user ids or usernames. */
+  users?: string[];
+  /** discord.* events: role ids (they match nothing on message events until Release 2). */
+  roles?: string[];
+  /** discord.* events: also fire for messages from bots (default off). */
+  include_bots?: boolean;
   max_fires_per_hour?: number;
 }
 
@@ -95,6 +103,7 @@ export type ActionKind =
   | "message"
   | "mesh.message"
   | "discord.message"
+  | "discord.read"
   | "github.comment"
   | "jira.comment"
   | "http.call"

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-10-25
+
+### Added
+
+- Discord surfaces, Release 1 (spec docs/specs/2026-10-25-discord-surfaces.md): any number of Discord bots, each its own app actor
+- connection.guild_id takes one id or a list (unset = every guild) in the gateway, the targets API, the REST client and the Actors form
+- discord.* trigger filters: include_bots (default off), channels (ids, a bare id, or all), users (ids or names) and roles; users OR roles; type-checked on save and spelled out in the rule sentence
+- action kind discord.read: one message in full (text untruncated, author, url, attachments) with the actor's own token, within its allow-list
+- builtin markdown.render: fields as one deterministic Markdown page plus content_base64 for library.push; offered in the step panel's Built-in select
+- DiscordClient.get_message and history (oldest-first, page-capped) and a bounded 429 retry on every GET
+- Discord events expire after 30 days (CULTURE_RULES_DISCORD_EVENT_RETENTION_DAYS) through a TTL index; other events never expire
+- the disabled bundle docs/rules/discord-library and the guide's several-bots, filters and rollout-order sections
+
+### Changed
+
+- the Discord gateway's delivery id is actor-scoped, so two bots seeing one message record two events
+- the gateway stores a message only when an enabled discord.* rule selects its channel; a Discord actor with no such rule records nothing
+
 ## [0.28.1] - 2026-10-25
 
 ### Changed

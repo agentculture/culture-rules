@@ -41,7 +41,8 @@ export interface JiraConnection {
 }
 export interface DiscordConnection {
   bot_token?: string;
-  guild_id?: string;
+  /** One guild id, or several; unset or empty means every guild the bot is in. */
+  guild_id?: string | string[];
   channels?: string[];
 }
 /** The sender domains an `email` actor may send from (app_actor.py `EMAIL_DOMAINS`). */

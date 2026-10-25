@@ -1,0 +1,319 @@
+{
+  "description": "",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "actor",
+      "target": "read",
+      "target_port": "actor"
+    },
+    {
+      "source": "inputs",
+      "source_port": "channel",
+      "target": "read",
+      "target_port": "channel"
+    },
+    {
+      "source": "inputs",
+      "source_port": "id",
+      "target": "read",
+      "target_port": "id"
+    },
+    {
+      "source": "inputs",
+      "source_port": "guild",
+      "target": "read",
+      "target_port": "guild"
+    },
+    {
+      "source": "read",
+      "source_port": "content",
+      "target": "render",
+      "target_port": "text"
+    },
+    {
+      "source": "read",
+      "source_port": "author_name",
+      "target": "render",
+      "target_port": "author"
+    },
+    {
+      "source": "read",
+      "source_port": "url",
+      "target": "render",
+      "target_port": "url"
+    },
+    {
+      "source": "inputs",
+      "source_port": "title",
+      "target": "render",
+      "target_port": "title"
+    },
+    {
+      "source": "inputs",
+      "source_port": "id",
+      "target": "render",
+      "target_port": "id"
+    },
+    {
+      "source": "render",
+      "source_port": "content_base64",
+      "target": "push",
+      "target_port": "content_base64"
+    },
+    {
+      "source": "inputs",
+      "source_port": "title",
+      "target": "push",
+      "target_port": "title"
+    }
+  ],
+  "enabled": true,
+  "id": "discord-message-to-library",
+  "inputs": [
+    {
+      "description": "",
+      "name": "title",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "actor",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "channel",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "id",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "guild",
+      "required": false,
+      "type": "string"
+    }
+  ],
+  "name": "File a Discord message in the library",
+  "notes": "One Markdown item per message: discord.read fetches it in full, markdown.render writes the page, library.push files it.",
+  "outputs": [
+    {
+      "name": "item_id",
+      "source": "steps.push.outputs.item_id",
+      "type": "integer"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "discord.read",
+          "params": {
+            "actor": "inputs.actor",
+            "channel": "inputs.channel",
+            "guild": "inputs.guild",
+            "message": "inputs.id"
+          }
+        },
+        "builtin": "action",
+        "idempotent": true
+      },
+      "description": "",
+      "enabled": true,
+      "id": "read",
+      "inputs": [
+        {
+          "description": "",
+          "name": "actor",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "channel",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "guild",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Read the whole message",
+      "notes": "discord.read with the bot that saw it: the text untruncated (the event's content stops at 2000 characters), the author and the url.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "content",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "author_name",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "url",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "markdown.render"
+      },
+      "description": "",
+      "enabled": true,
+      "id": "render",
+      "inputs": [
+        {
+          "description": "",
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "text",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "author",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "url",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "id",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Render the message",
+      "notes": "markdown.render: the message as one Markdown document (title, the full text, then author, url and id). An attachment-only message renders with no text.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "markdown",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "content_base64",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "library.push",
+          "params": {
+            "actor": "newspaper-library",
+            "content_base64": "inputs.content_base64",
+            "format": "md",
+            "kind": "document",
+            "title": "inputs.title",
+            "visibility": "private"
+          }
+        },
+        "builtin": "action",
+        "idempotent": true
+      },
+      "description": "",
+      "enabled": true,
+      "id": "push",
+      "inputs": [
+        {
+          "description": "",
+          "name": "content_base64",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "title",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Put it in the library",
+      "notes": "library.push through newspaper-library: kind document, format md, visibility private. The actor must list both.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "item_id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "created",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "queue_id",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": {
+        "backoff_multiplier": 2.0,
+        "backoff_s": 30.0,
+        "max_attempts": 3
+      },
+      "timeout_s": null
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

@@ -1,0 +1,50 @@
+{
+  "plan_slug": "discord-surfaces",
+  "schema_version": 2,
+  "created": "2026-10-25T11:56:08Z",
+  "updated": "2026-10-25T13:01:56Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t2's Discord who-filter changes after review: users and roles combine as EITHER (a listed user or anyone holding a listed role), not both; a bare-string channels/users/roles value (other than channels \"all\") is a one-item list instead of no filter; a users filter never admits an event with no author id or name",
+      "task_ref": "t2",
+      "reason": "operator decision 2026-10-25 on the wave 1 Qwen review: q5 reads as listed users OR opt-in roles; two fail-open edges found in matching._discord_admits",
+      "affects": [
+        "t4",
+        "t10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "server assignment changes: Culture.dev (actor discord-bot) listens in JetsonBot experiments (1413999242648748195) and the operator's private server; jetson-bot listens only in the public Jetson AI Lab Research Group (1326246312072581160), not in experiments. The spec's after-state 'two bots across both servers' becomes one bot per server set, three servers in all",
+      "task_ref": "t11",
+      "reason": "operator decision 2026-10-25 while setting the jetson-bot grants",
+      "affects": [
+        "t10",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t9 offers markdown.render in the workflow step panel (a Built-in select on code steps, filling its typed ports) instead of in ActionPicker: markdown.render is a code-step builtin, not an action kind, and no picker offered builtins before",
+      "task_ref": "t9",
+      "reason": "plan text assumed markdown.render was an action kind; the t9 agent found it is config.builtin on a code step",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

@@ -149,6 +149,15 @@ Markdown; the builtins `json.read` and `checklist.merge|set|render|bind` keep a 
 to-do list with stable ids; `audio.transcribe` hashes the audio itself. The flows that
 use them are configured live, never committed.
 
+**Discord surfaces, Release 1** (guide `docs/actors/discord.md`). Any number of
+Discord bots, one app actor each; the delivery id is per actor and
+`connection.guild_id` is one id or a list. `discord.*` triggers filter on
+`include_bots`, `channels`, `users` and `roles` (users OR roles); the gateway stores
+only channels an enabled rule selects, for 30 days. The action kind `discord.read`
+and the builtin `markdown.render` take a message into `library.push`; the bundle
+`docs/rules/discord-library` ships disabled. Reactions, commands and the schedule
+are planned.
+
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's
 conventions if you need more context than fits here. It covers:

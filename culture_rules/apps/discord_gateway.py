@@ -31,6 +31,18 @@ of the TTL). Disabling or deleting the actor stops the listener and releases the
 :meth:`GatewaySupervisor.shutdown` (the node stopping) does the same, so another node takes
 over at once.
 
+Channel selection and retention
+===============================
+A message is sunk only from a channel some enabled rule with a ``discord.*`` event trigger
+selects (:func:`selected_channels`, recomputed from the ``rules`` collection on every
+:meth:`GatewaySupervisor.tick`): a rule's ``channels`` param is read exactly as the trigger
+matcher reads it (:func:`~culture_rules.model.discord_filters.discord_channels`), so a rule with no
+channels or ``"all"`` selects every channel, and with no such rule nothing is sunk. A
+trigger names no actor, so the selection is one union shared by every Discord actor (a
+channel any rule selects is kept for each bot); the actor's own ``connection.channels``
+allow-list and ``guild_id`` filter still apply on top. Sunk events expire
+(:func:`~culture_rules.events.hook_sink.ensure_discord_event_ttl`, ensured by the supervisor).
+
 Secrets and logs
 ================
 ``connection.bot_token`` must be a ``grant:<NAME>`` reference; a literal is refused (the
@@ -52,15 +64,18 @@ import importlib.util
 import logging
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from culture_rules.actors import secrets
+from culture_rules.apps.discord_rest import guild_ids
 from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, LeaseKeeper
 from culture_rules.engine.named_lease import NamedLease
-from culture_rules.events.hook_sink import sink
+from culture_rules.events.hook_sink import ensure_discord_event_ttl, sink
+from culture_rules.model.discord_filters import discord_channels, filter_values
+from culture_rules.model.rule import Rule
 
 __all__ = [
     "ACTORS_COLLECTION",
@@ -73,11 +88,14 @@ __all__ = [
     "GatewaySupervisor",
     "gateway_intents",
     "message_data",
+    "selected_channels",
 ]
 
 log = logging.getLogger("culture_rules.apps.discord_gateway")
 
 ACTORS_COLLECTION = "actors"
+RULES_COLLECTION = "rules"
+DISCORD_TYPE_PREFIX = "discord."
 GATEWAY_EVENT = "discord.message.created"
 LEASE_PREFIX = "discord-gateway:"
 MAX_CONTENT = 2000
@@ -204,6 +222,34 @@ def message_data(msg: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def selected_channels(rule_docs: Iterable[Mapping[str, Any]]) -> frozenset[str] | None:
+    """The channels the enabled ``discord.*`` event rules select, as one union: ``None`` when
+    any of them selects every channel, an empty set when there is no such rule. Deleted,
+    disabled and unparseable rules select nothing (they never fire)."""
+    union: set[str] = set()
+    for doc in rule_docs:
+        if doc.get("deleted_at"):
+            continue
+        try:
+            rule = Rule.from_dict(doc, strict=False)
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+        ):  # unparseable (or trigger: null): never fires
+            continue
+        wanted = rule.trigger.params.get("type")
+        if not rule.enabled or rule.trigger.kind != "event":
+            continue
+        if not isinstance(wanted, str) or not wanted.startswith(DISCORD_TYPE_PREFIX):
+            continue
+        channels = discord_channels(rule.trigger.params)
+        if channels is None:
+            return None
+        union |= channels
+    return frozenset(union)
+
+
 GATEWAY_STATE_COLLECTION = "gateway_state"
 """One ``{id: actor id, connected, last_event_at}`` document per gateway actor (observability)."""
 _EVENT_STAMP_EVERY_S = 10.0
@@ -279,6 +325,13 @@ class GatewaySupervisor:
         self._stragglers: list[threading.Thread] = []
         self._warned: set[str] = set()
         self._unavailable_logged = False
+        self._selection: frozenset[str] | None = frozenset()  # nothing until the first tick
+        try:
+            ensure_discord_event_ttl(store)
+        except Exception as exc:  # noqa: BLE001 - a missing index must not stop the node
+            log.warning(
+                "discord gateway: ensuring the event TTL index failed (%s)", type(exc).__name__
+            )
 
     # ------------------------------------------------------------------ cycle
 
@@ -286,6 +339,8 @@ class GatewaySupervisor:
         """Reconcile with the actors: renew leases, start/stop listeners; return the ids
         of the actors this node is listening for."""
         wanted = self._wanted()
+        if wanted:  # no Discord listener here: nobody reads the selection, skip the scan
+            self._refresh_selection()
         if wanted and not self._gateway.available():
             if not self._unavailable_logged:
                 log.info("discord extra not installed: the discord gateway stage is idle")
@@ -320,6 +375,17 @@ class GatewaySupervisor:
         )
 
     # ------------------------------------------------------------------ reconcile
+
+    def _refresh_selection(self) -> None:
+        """Recompute the channel selection; a failed read keeps the last one."""
+        try:
+            self._selection = selected_channels(self._store.find(RULES_COLLECTION))
+        except Exception as exc:  # noqa: BLE001 - the listeners keep the last selection
+            log.warning("discord gateway: reading the rules failed (%s)", type(exc).__name__)
+
+    def _selected(self, channel_id: str | None) -> bool:
+        selection = self._selection  # one read: the tick thread replaces it whole
+        return selection is None or channel_id in selection
 
     def _listens_here(self, doc: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
         """An enabled Discord app declaring the gateway event, on this node's machine (its
@@ -504,13 +570,13 @@ class GatewaySupervisor:
         doc = session.snapshot()
         _, connection = _view(doc)
         data = message_data(msg)
-        if not data["message_id"]:
+        if not data["message_id"] or not self._selected(data["channel_id"]):
+            return  # no enabled discord.* rule selects this channel: never written
+        channels = filter_values(connection.get("channels"))  # a bare id is one channel
+        if channels and data["channel_id"] not in channels:
             return
-        channels = connection.get("channels")
-        if channels and data["channel_id"] not in {str(c) for c in channels}:
-            return
-        guild = connection.get("guild_id")
-        if guild and data["guild_id"] is not None and data["guild_id"] != str(guild):
+        guilds = guild_ids(connection.get("guild_id"))
+        if guilds is not None and data["guild_id"] is not None and data["guild_id"] not in guilds:
             return
         author = data["author_name"] or data["author_id"]
         now = time.monotonic()
@@ -524,7 +590,7 @@ class GatewaySupervisor:
                     doc,
                     GATEWAY_EVENT,
                     data,
-                    delivery_id=data["message_id"],
+                    delivery_id=f"{session.actor_id}:{data['message_id']}",
                     author=author,
                 )
                 return

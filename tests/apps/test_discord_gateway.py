@@ -17,7 +17,9 @@ from culture_rules.apps import discord_gateway as dg
 from culture_rules.engine.leasekeeper import LeaseKeeper
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
+from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
+from culture_rules.model.rule import Rule, Trigger
 from culture_rules.store.memory import MemoryStore
 from culture_rules.store.port import TransientStoreError
 from tests.apps.discord_fakes import FakeGateway, FakeHub, eventually, message
@@ -30,7 +32,7 @@ SECRET_TEXT = "the-secret-plan-" + uuid.uuid4().hex
 
 
 def discord_actor(
-    id="bot", *, enabled=True, token="grant:DISCORD_BOT", channels=(), events=(EVENT,)
+    id="bot", *, enabled=True, token="grant:DISCORD_BOT", channels=(), events=(EVENT,), guild="1"
 ):
     return Actor(
         id=id,
@@ -40,9 +42,20 @@ def discord_actor(
         params={
             "surface": "discord",
             "events": list(events),
-            "connection": {"bot_token": token, "guild_id": "1", "channels": list(channels)},
+            "connection": {"bot_token": token, "guild_id": guild, "channels": list(channels)},
             "self_identity": "rulesbot",
         },
+    ).to_dict()
+
+
+def discord_rule(id="every-message", *, enabled=True, type=EVENT, **params):
+    """An enabled rule on a discord.* trigger; with no ``channels`` it selects every channel."""
+    return Rule(
+        id=id,
+        name=id,
+        enabled=enabled,
+        trigger=Trigger(kind="event", params={"type": type, **params}),
+        action=Action(kind="noop"),
     ).to_dict()
 
 
@@ -59,9 +72,11 @@ class Grant:
 
 
 class Rig:
-    def __init__(self, *, keeper=None, available=True, store=None, host=None) -> None:
+    def __init__(self, *, keeper=None, available=True, store=None, host=None, rule=True) -> None:
         self.clock = Clock()
         self.store = store or MemoryStore(clock=self.clock)
+        if rule:  # the gateway sinks only channels an enabled discord.* rule selects
+            self.store.put("rules", discord_rule())
         self.hub = FakeHub()
         self.grant = Grant()
         self.sup = dg.GatewaySupervisor(
@@ -122,8 +137,57 @@ def test_connects_when_held_and_writes_each_message_once(rig):
     assert eventually(lambda: len(r.events()) == 3)
     ev = r.events()[0]
     assert ev["envelope"]["source"] == "app://bot"
-    assert ev["envelope"]["data"]["delivery_id"] == ev["envelope"]["data"]["message_id"]
+    data = ev["envelope"]["data"]
+    assert data["delivery_id"] == "bot:" + data["message_id"]
     assert r.store.get(LEASES_COLLECTION, "discord-gateway:bot")["holder"] == "engine@spark"
+
+
+def test_two_actors_sinking_the_same_message_record_two_events(rig):
+    r = rig()
+    other = Rig(store=r.store)  # a second supervisor and fake gateway on the same store
+    try:
+        r.store.put("actors", discord_actor("bot-a"))
+        r.sup.tick()
+        assert eventually(lambda: r.hub.live_now() == ["spark"])
+        r.store.put("actors", discord_actor("bot-a", enabled=False))
+        b = discord_actor("bot-b")
+        b["params"]["self_identity"] = "otherbot"
+        r.store.put("actors", b)
+        other.sup.tick()
+        assert eventually(lambda: other.hub.live_now() == ["spark"])
+        r.store.put("actors", discord_actor("bot-a"))
+        r.sup.tick()
+        # the same Discord message (author "rulesbot") is seen by both bots
+        same = message(1)
+        same["author_name"] = "rulesbot"
+        r.hub.post(same)
+        other.hub.post(same)
+        assert eventually(lambda: len(r.events()) == 2)
+        by_actor = {e["envelope"]["data"]["actor"]: e for e in r.events()}
+        assert set(by_actor) == {"bot-a", "bot-b"}
+        for actor_id, ev in by_actor.items():
+            assert ev["envelope"]["source"] == f"app://{actor_id}"
+            assert ev["envelope"]["data"]["message_id"] == "9001"
+            assert ev["envelope"]["data"]["delivery_id"] == f"{actor_id}:9001"
+        assert by_actor["bot-a"]["envelope"]["data"]["self_authored"] is True
+        assert by_actor["bot-b"]["envelope"]["data"]["self_authored"] is False
+    finally:
+        other.sup.shutdown()
+
+
+def test_one_actors_redelivery_of_a_message_is_a_duplicate(rig):
+    r = rig()
+    r.store.put("actors", discord_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1))
+    assert eventually(lambda: len(r.events()) == 1)
+    r.hub.post(message(1))
+    r.hub.drop()
+    assert eventually(lambda: len(r.hub.connects) == 2)
+    r.hub.post(message(2))
+    assert eventually(lambda: len(r.events()) == 2)
+    assert len(r.events()) == 2
 
 
 def test_reconnect_and_resume_replays_land_once(rig):
@@ -155,6 +219,40 @@ def test_channel_allow_list_ignores_other_channels(rig):
     r.hub.post(message(2, channel="100"))
     assert eventually(lambda: len(r.events()) == 1)
     assert r.events()[0]["envelope"]["data"]["channel_id"] == "100"
+
+
+def test_a_guild_id_string_ignores_other_guilds(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(guild="1"))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, guild="2"))
+    r.hub.post(message(2, guild="1"))
+    assert eventually(lambda: len(r.events()) == 1)
+    assert r.events()[0]["envelope"]["data"]["guild_id"] == "1"
+
+
+def test_a_guild_id_list_takes_messages_from_each_listed_guild(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(guild=["1", "3"]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, guild="2"))
+    r.hub.post(message(2, guild="1"))
+    r.hub.post(message(3, guild="3"))
+    assert eventually(lambda: len(r.events()) == 2)
+    assert sorted(e["envelope"]["data"]["guild_id"] for e in r.events()) == ["1", "3"]
+
+
+@pytest.mark.parametrize("unset", [None, "", []])
+def test_an_unset_or_empty_guild_id_takes_every_guild(rig, unset):
+    r = rig()
+    r.store.put("actors", discord_actor(guild=unset))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, guild="2"))
+    r.hub.post(message(2, guild="1"))
+    assert eventually(lambda: len(r.events()) == 2)
 
 
 def test_the_token_comes_only_from_grant(rig, monkeypatch):
@@ -302,3 +400,135 @@ def test_an_actor_on_another_machine_is_not_listened_for(rig):
     r.store.put("actors", {**discord_actor(), "machine": "spark"})
     r.sup.tick()
     assert eventually(lambda: len(r.hub.connects) == 1)
+
+
+# discord-surfaces t4 (R1): only channels an enabled discord.* rule selects are sunk
+
+
+def _ids(r):
+    return sorted(e["envelope"]["data"]["message_id"] for e in r.events())
+
+
+def test_no_enabled_discord_rule_sinks_nothing(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("off", enabled=False))
+    r.store.put("rules", discord_rule("gh", type="github.pr.merged"))
+    r.store.put("actors", discord_actor())
+    r.sup.tick()
+    session = r.sup._sessions["bot"]
+    r.sup._on_message(session, message(1))  # delivered synchronously: no listener race
+    assert r.events() == []
+    r.store.put("rules", discord_rule("on"))
+    r.sup.tick()  # the selection is refreshed each tick
+    r.sup._on_message(session, message(2))
+    assert _ids(r) == ["9002"]
+
+
+def test_a_channel_no_rule_selects_is_never_written(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("a", channels=["100"]))
+    r.store.put("rules", discord_rule("b", channels="300"))  # a bare string: one channel
+    r.store.put("actors", discord_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, channel="200"))
+    r.hub.post(message(2, channel="100"))
+    r.hub.post(message(3, channel="300"))
+    assert eventually(lambda: len(r.events()) == 2)
+    assert sorted(e["envelope"]["data"]["channel_id"] for e in r.events()) == ["100", "300"]
+
+
+@pytest.mark.parametrize("channels", ["all", "ALL", ["all"], [], None])
+def test_a_rule_with_no_channels_or_all_selects_every_channel(rig, channels):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("narrow", channels=["100"]))
+    wide = {} if channels is None else {"channels": channels}
+    r.store.put("rules", discord_rule("wide", type="discord.reaction.added", **wide))
+    r.store.put("actors", discord_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, channel="200"))
+    r.hub.post(message(2, channel="100"))
+    assert eventually(lambda: len(r.events()) == 2)
+
+
+def test_the_actor_allow_list_still_applies_inside_the_selection(rig):
+    r = rig()  # the catch-all rule selects every channel
+    r.store.put("actors", discord_actor(channels=["100"]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, channel="200"))
+    r.hub.post(message(2, channel="100"))
+    assert eventually(lambda: len(r.events()) == 1)
+    assert _ids(r) == ["9002"]
+
+
+def test_selected_channels_is_the_union_over_enabled_discord_rules():
+    every = dg.selected_channels([discord_rule("a", channels=["1"]), discord_rule("b")])
+    assert every is None  # None: every channel
+    assert dg.selected_channels([]) == frozenset()
+    assert dg.selected_channels(
+        [
+            discord_rule("a", channels=["1", 2]),
+            discord_rule("b", channels="3"),
+            discord_rule("off", enabled=False),
+            discord_rule("gh", type="github.pr.merged"),
+            {**discord_rule("gone"), "deleted_at": "2026-10-01T00:00:00Z"},
+            {"id": "broken", "trigger": "not a trigger"},
+        ]
+    ) == frozenset({"1", "2", "3"})
+
+
+def test_the_supervisor_ensures_the_discord_ttl_index(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dg, "ensure_discord_event_ttl", calls.append)
+    store = MemoryStore()
+    dg.GatewaySupervisor(store, "engine@spark", gateway=FakeGateway(FakeHub(), "spark"))
+    assert calls == [store]
+
+
+def test_a_failed_rules_read_keeps_the_last_selection(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule(channels=["20"]))
+    r.sup._refresh_selection()
+    assert r.sup._selection == frozenset({"20"})
+
+    def broken(*_a, **_k):
+        raise OSError("mongo down")
+
+    r.store.find = broken
+    r.sup._refresh_selection()
+    assert r.sup._selection == frozenset({"20"})
+
+
+def test_a_failing_ttl_index_does_not_stop_the_supervisor(monkeypatch, caplog):
+    def broken(_store):
+        raise RuntimeError("index options conflict")
+
+    monkeypatch.setattr(dg, "ensure_discord_event_ttl", broken)
+    sup = dg.GatewaySupervisor(
+        MemoryStore(), "engine@spark", gateway=FakeGateway(FakeHub(), "spark")
+    )
+    assert sup.listening() == []
+    assert "ttl" in caplog.text.lower()
+
+
+def test_no_discord_actor_means_no_rules_scan(rig):
+    r = rig(rule=False)
+    reads = []
+    real = r.store.find
+    r.store.find = lambda coll, *a, **k: (reads.append(coll), real(coll, *a, **k))[1]
+    r.sup.tick()
+    assert "rules" not in reads
+
+
+def test_a_bare_string_connection_channels_is_one_channel(rig):
+    r = rig()
+    actor = discord_actor()
+    actor["params"]["connection"]["channels"] = "20"  # one id, not the characters 2 and 0
+    r.store.put("actors", actor)
+    r.sup.tick()
+    session = r.sup._sessions["bot"]
+    r.sup._on_message(session, message(1, channel="20"))
+    r.sup._on_message(session, message(2, channel="2"))
+    assert _ids(r) == ["9001"]

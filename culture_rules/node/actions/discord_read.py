@@ -1,0 +1,128 @@
+"""The ``discord.read`` action: fetch one Discord message, untruncated, with its attachments.
+
+``params.actor`` is an app actor with surface ``discord``; the read uses that actor's own bot
+token (``connection.bot_token``, a ``grant:NAME`` reference resolved at call time). The input
+is ``channel`` and ``message`` (numeric ids) and an optional ``guild`` (the gateway event's
+``data.guild_id``), which only fills the jump ``url``. ``connection.channels`` restricts the
+channels the same way :class:`~culture_rules.node.actions.message.MessageAction` does: unset or
+empty means every channel. ``connection.guild_id`` (one id or a list) restricts the guilds as
+the gateway does: the channel's guild is looked up first and a channel elsewhere is refused
+(that lookup also fills the ``url`` when no ``guild`` is given). The token is never logged or
+echoed in errors.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable, Mapping
+from datetime import datetime
+from typing import Any
+
+from culture_rules.actors import secrets
+from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport, guild_ids
+from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.model.discord_filters import filter_values
+from culture_rules.node.actions.message import ACTORS_COLLECTION
+
+__all__ = ["DiscordReadAction"]
+
+log = logging.getLogger("culture_rules.node")
+
+
+def _fail(error: str) -> InvocationResult:
+    return InvocationResult.failed(error, retryable=False)
+
+
+class DiscordReadAction:
+    """Action port for ``discord.read``."""
+
+    supports_idempotency_key = False  # a read changes nothing
+
+    def __init__(
+        self,
+        store: Any,
+        *,
+        resolve_secret: Callable[[str], str] | None = None,
+        transport: Transport | None = None,
+        discord_base_url: str | None = None,
+    ) -> None:
+        self._store = store
+        self._resolve = resolve_secret or secrets.resolve_or_literal
+        self._transport = transport
+        self._base_url = discord_base_url
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],  # noqa: A002 - the ActorPort signature
+        idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        del idempotency_key, deadline
+        actor_id = context.actor
+        if not actor_id:
+            return _fail("discord.read needs a Discord app actor in params.actor")
+        channel, message, guild = input.get("channel"), input.get("message"), input.get("guild")
+        if not _nonempty(channel) or not _nonempty(message):
+            return _fail("discord.read needs a channel and a message id")
+        connection = self._connection(actor_id, channel)
+        if isinstance(connection, InvocationResult):
+            return connection
+        ref = connection.get("bot_token")
+        try:
+            token = self._resolve(ref)
+        except secrets.SecretError as exc:
+            return InvocationResult.failed(str(exc), retryable=True)
+        guild_id = str(guild) if guild not in (None, "") else None
+        return self._read(token, connection, actor_id, channel, message, guild_id)
+
+    def _connection(self, actor_id: str, channel: str) -> Mapping[str, Any] | InvocationResult:
+        """The actor's Discord connection, or the refusal: not found, not Discord, a channel
+        outside its allow-list, or no bot_token reference."""
+        actor = self._store.get(ACTORS_COLLECTION, actor_id)
+        if actor is None:
+            return _fail(f"actor {actor_id!r} not found")
+        params = actor.get("params") if isinstance(actor.get("params"), Mapping) else {}
+        if (actor.get("surface") or params.get("surface")) != "discord":
+            return _fail(f"actor {actor_id!r} is not a discord app actor")
+        connection = actor.get("connection") or params.get("connection") or {}
+        allowed = filter_values(connection.get("channels"))  # a bare id is one channel
+        if allowed and channel not in allowed:
+            return _fail(f"channel {channel!r} is not in actor {actor_id!r} allow-list")
+        if not _nonempty(connection.get("bot_token")):
+            return _fail(f"actor {actor_id!r} has no bot_token reference")
+        return connection
+
+    def _read(
+        self,
+        token: str,
+        connection: Mapping[str, Any],
+        actor_id: str,
+        channel: str,
+        message: str,
+        guild_id: str | None,
+    ) -> InvocationResult:
+        """Read the message; with ``guild_id`` set on the actor, only from its guilds."""
+        kwargs: dict[str, Any] = {"transport": self._transport}
+        if self._base_url:
+            kwargs["base_url"] = self._base_url
+        guilds = guild_ids(connection.get("guild_id"))
+        try:
+            client = DiscordClient(token, **kwargs)
+            if guilds is not None:  # guild_id restricts reads as it does the gateway
+                found = client.channel_guild(channel)
+                if found not in guilds:
+                    return _fail(
+                        f"channel {channel!r} is not in actor {actor_id!r} guilds (guild_id)"
+                    )
+                guild_id = guild_id or found
+            out = client.get_message(channel, message, guild_id=guild_id)
+        except DiscordError as exc:
+            log.warning("discord read of %s/%s failed: %s", channel, message, exc)
+            return InvocationResult.failed(str(exc), retryable=exc.retryable)
+        return InvocationResult.completed(out)
+
+
+def _nonempty(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)

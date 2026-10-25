@@ -1,0 +1,52 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: filing the message is the workflow's work",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "discord:{trigger.data.message_id}",
+  "condition": null,
+  "counts_toward_budget": true,
+  "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: reads it in full with the bot that saw it, renders it as Markdown and pushes it to the library as kind document. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "discord-to-library",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "File each Discord message in the library",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "channels": [
+        "000000000000000000"
+      ],
+      "type": "discord.message.created"
+    }
+  },
+  "workflow": {
+    "id": "discord-message-to-library",
+    "inputs": {
+      "actor": "trigger.data.actor",
+      "channel": "trigger.data.channel_id",
+      "guild": "trigger.data.guild_id",
+      "id": "trigger.data.message_id",
+      "title": "trigger.data.message_id"
+    },
+    "version": null
+  }
+}

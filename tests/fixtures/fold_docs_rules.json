@@ -2,6 +2,14 @@
   "source": "web/src/fold/model.ts foldModel over docs/rules (web/src/fold/parity.test.ts)",
   "entries": [
     {
+      "rule": "discord-to-library",
+      "workflow": "discord-message-to-library",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
+    },
+    {
       "rule": "daily-newspaper",
       "workflow": "daily-newspaper",
       "kind": "entry",

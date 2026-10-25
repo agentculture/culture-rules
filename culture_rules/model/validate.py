@@ -63,6 +63,7 @@ __all__ = [
 
 #: Pseudo step id an edge uses to read from the workflow's own inputs.
 INPUTS_NODE = "inputs"
+_CHANNEL_ID = re.compile(r"^\d{1,25}$")
 _RESERVED_STEP_IDS = frozenset({"inputs", "outputs", "vars", "steps", "trigger"})
 _PROBE_MODES = ("change", "condition")
 
@@ -479,6 +480,58 @@ def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
         _err(errors, _join(pp, "cron"), "trigger_cron_required", "schedule requires params.cron")
     elif obj.kind == "probe":
         _check_probe_params(params, pp, errors)
+    if obj.kind == "event" and str(params.get("type", "")).startswith("discord."):
+        _check_discord_filters(params, pp, errors)
+
+
+def _filter_item(value: Any) -> bool:
+    return isinstance(value, str) or (isinstance(value, int) and not isinstance(value, bool))
+
+
+def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
+    """A ``discord.*`` trigger's filters (engine.matching): ``include_bots`` a bool;
+    ``channels``, ``users`` and ``roles`` an id/name or a list of them."""
+    if "include_bots" in params and not isinstance(params["include_bots"], bool):
+        _err(
+            errors,
+            _join(pp, "include_bots"),
+            "trigger_param_invalid",
+            "params.include_bots must be true or false",
+        )
+    for name in ("channels", "users", "roles"):
+        value = params.get(name)
+        if not _filter_value_ok(value):
+            _err(
+                errors,
+                _join(pp, name),
+                "trigger_param_invalid",
+                f"params.{name} must be an id or name, or a list of them",
+            )
+            continue
+        if name == "channels" and value is not None and not _channel_ids_ok(value):
+            _err(
+                errors,
+                _join(pp, name),
+                "trigger_param_invalid",
+                'params.channels holds numeric Discord channel ids, or "all"',
+            )
+
+
+def _filter_value_ok(value: Any) -> bool:
+    """Absent, one id or name, or a list of them."""
+    if value is None or _filter_item(value):
+        return True
+    return isinstance(value, (list, tuple)) and all(_filter_item(v) for v in value)
+
+
+def _channel_ids_ok(value: Any) -> bool:
+    """Every ``channels`` entry is a numeric Discord id or ``all`` (a name never matches)."""
+    items = value if isinstance(value, (list, tuple)) else [value]
+    for item in items:
+        text = str(item).strip()
+        if text and text.casefold() != "all" and not _CHANNEL_ID.match(text):
+            return False
+    return True
 
 
 def _present(params: dict, name: str) -> bool:

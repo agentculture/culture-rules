@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request  # nosec B404 - fixed https base URL, no file/custom schemes accepted
 from collections.abc import Callable, Mapping, Sequence
@@ -22,12 +23,34 @@ __all__ = [
     "TEXT_CHANNEL_TYPES",
     "DiscordClient",
     "DiscordError",
+    "guild_ids",
 ]
 
 DEFAULT_BASE_URL = "https://discord.com/api/v10"
 MAX_CONTENT = 2000
 _TIMEOUT_S = 15.0
 _CHANNEL_RE = re.compile(r"^\d{1,25}$")
+#: A GET that gets a 429 is retried this many times, waiting ``retry_after`` (capped) each time.
+_MAX_RETRIES = 3
+_MAX_WAIT_S = 5.0
+_DEFAULT_WAIT_S = 1.0
+_PAGE_SIZE = 100
+_MAX_PAGES = 10
+
+
+def guild_ids(value: Any) -> frozenset[str] | None:
+    """A Discord connection's ``guild_id`` as a set of guild ids, or ``None`` for every guild.
+
+    ``value`` is one id (a string or a number, as before) or a list/tuple/set of ids. Unset
+    (``None``), an empty string and an empty list all mean *every guild the bot is in* and give
+    ``None``; blank entries inside a list are dropped, so a list of only blanks is unset too.
+    """
+    if value is None:
+        return None
+    items = value if isinstance(value, (list, tuple, set, frozenset)) else [value]
+    ids = frozenset(text for text in (str(v).strip() for v in items if v is not None) if text)
+    return ids or None
+
 
 #: ``transport(url, data, headers, timeout) -> (status, json_body, response_headers)``;
 #: ``data`` is ``None`` for a GET.
@@ -78,11 +101,13 @@ class DiscordClient:
         base_url: str = DEFAULT_BASE_URL,
         transport: Transport | None = None,
         timeout: float = _TIMEOUT_S,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._token = token
         self._base = base_url.rstrip("/")
         self._transport = transport or _urllib_transport
         self._timeout = timeout
+        self._sleep = sleep
 
     def __repr__(self) -> str:
         return f"DiscordClient(base_url={self._base!r})"
@@ -95,13 +120,20 @@ class DiscordClient:
         }
 
     def _get(self, path: str) -> tuple[int, Any]:
-        try:
-            status, payload, _ = self._transport(
-                self._base + path, None, self._headers(), self._timeout
-            )
-        except OSError as exc:
-            raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
-        return status, payload
+        """GET ``path``; a 429 is retried after its ``retry_after`` (each wait capped at
+        ``_MAX_WAIT_S``) up to ``_MAX_RETRIES`` times, then it is returned as is."""
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                status, payload, _ = self._transport(
+                    self._base + path, None, self._headers(), self._timeout
+                )
+            except OSError as exc:
+                raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
+            if status != 429 or attempt == _MAX_RETRIES:
+                return status, payload
+            wait = _retry_after(payload)
+            self._sleep(min(_DEFAULT_WAIT_S if wait is None else max(wait, 0.0), _MAX_WAIT_S))
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def _get_ok(self, path: str) -> Any:
         status, payload = self._get(path)
@@ -111,15 +143,17 @@ class DiscordClient:
             f"discord returned HTTP {status}", retryable=status >= 500 or status == 429
         )
 
-    def list_targets(self, guild_id: str | None = None) -> list[dict[str, Any]]:
-        """The servers the bot is in (only ``guild_id`` when given), each with its text and
-        announcement channels in Discord order; ``visible`` is whether the bot can open the
-        channel (a private channel it was not added to is not)."""
+    def list_targets(self, guild_id: Any = None) -> list[dict[str, Any]]:
+        """The servers the bot is in (only those ``guild_id`` names when given: one id or a
+        collection of ids, see :func:`guild_ids`), each with its text and announcement channels
+        in Discord order; ``visible`` is whether the bot can open the channel (a private channel
+        it was not added to is not)."""
+        wanted = guild_ids(guild_id)
         guilds = self._get_ok("/users/@me/guilds") or []
         out = []
         for guild in guilds:
             gid = str(guild.get("id", ""))
-            if guild_id and gid != str(guild_id):
+            if wanted is not None and gid not in wanted:
                 continue
             channels = [
                 c
@@ -142,6 +176,56 @@ class DiscordClient:
                 }
             )
         return out
+
+    def channel_guild(self, channel_id: str) -> str | None:
+        """The id of the guild a channel belongs to (``None`` for a DM)."""
+        _check_id(channel_id, "channel")
+        payload = self._get_ok(f"/channels/{channel_id}") or {}
+        guild = payload.get("guild_id") if isinstance(payload, Mapping) else None
+        return str(guild) if guild else None
+
+    def get_message(
+        self, channel_id: str, message_id: str, *, guild_id: str | None = None
+    ) -> dict[str, Any]:
+        """One message, untruncated: ``id``, ``channel_id``, ``content``, ``author_id``,
+        ``author_name``, ``url`` and ``attachments`` (``id``, ``filename``, ``content_type``,
+        ``size``, ``url``). Discord's GET does not reliably return the guild, so the jump
+        ``url`` is built from the ``guild_id`` keyword (``"@me"`` for a DM) and is ``None``
+        when it is not given."""
+        _check_id(channel_id, "channel")
+        _check_id(message_id, "message")
+        raw = self._get_ok(f"/channels/{channel_id}/messages/{message_id}")
+        return _shape_message(raw, channel_id, guild_id)
+
+    def history(
+        self,
+        channel_id: str,
+        after: str,
+        limit: int = 100,
+        *,
+        guild_id: str | None = None,
+        max_pages: int = _MAX_PAGES,
+    ) -> list[dict[str, Any]]:
+        """Messages after message ``after``, oldest first, at most ``limit`` of them and at
+        most ``max_pages`` requests (each page is up to 100 messages)."""
+        _check_id(channel_id, "channel")
+        _check_id(after, "message")
+        out: list[dict[str, Any]] = []
+        cursor = after
+        for _ in range(max(max_pages, 0)):
+            want = min(_PAGE_SIZE, limit - len(out))
+            if want <= 0:
+                break
+            page = self._get_ok(f"/channels/{channel_id}/messages?after={cursor}&limit={want}")
+            if not isinstance(page, list) or not page:
+                break
+            shaped = [_shape_message(m, channel_id, guild_id) for m in page]
+            shaped.sort(key=lambda m: int(m["id"]) if m["id"].isdigit() else 0)
+            out.extend(shaped)
+            cursor = shaped[-1]["id"]
+            if len(page) < want or not cursor.isdigit():
+                break
+        return out[:limit]
 
     def post_message(
         self,
@@ -185,3 +269,32 @@ class DiscordClient:
 def _retry_after(payload: Any) -> float | None:
     value = payload.get("retry_after") if isinstance(payload, Mapping) else None
     return float(value) if isinstance(value, (int, float)) else None
+
+
+def _check_id(value: Any, what: str) -> None:
+    if not isinstance(value, str) or not _CHANNEL_RE.match(value):
+        raise DiscordError(f"{what} must be a numeric Discord id", retryable=False)
+
+
+def _shape_message(raw: Any, channel_id: str, guild_id: str | None) -> dict[str, Any]:
+    raw = raw if isinstance(raw, Mapping) else {}
+    author = raw.get("author") if isinstance(raw.get("author"), Mapping) else {}
+    mid = str(raw.get("id", ""))
+    atts = raw.get("attachments")
+    return {
+        "id": mid,
+        "channel_id": channel_id,
+        "content": str(raw.get("content") or ""),
+        "author_id": str(author.get("id", "")),
+        "author_name": str(author.get("username", "")),
+        "url": (
+            f"https://discord.com/channels/{guild_id}/{channel_id}/{mid}"
+            if guild_id and mid
+            else None
+        ),
+        "attachments": [
+            {k: a.get(k) for k in ("id", "filename", "content_type", "size", "url")}
+            for a in (atts if isinstance(atts, list) else [])
+            if isinstance(a, Mapping)
+        ],
+    }
