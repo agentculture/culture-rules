@@ -76,7 +76,9 @@ __all__ = [
     "Decision",
     "RuleOutcome",
     "RunFacts",
+    "discord_channels",
     "exported_outputs",
+    "filter_values",
     "fired",
     "match",
     "trigger_matches",
@@ -218,7 +220,7 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
     return True
 
 
-def _norm_list(value: Any) -> list[str]:
+def filter_values(value: Any) -> list[str]:
     """A filter param as a list of strings: a list as is, a bare string or number as one item,
     anything else (absent, empty) as no items."""
     if isinstance(value, (list, tuple, set, frozenset)):
@@ -230,6 +232,15 @@ def _norm_list(value: Any) -> list[str]:
     return []
 
 
+def discord_channels(params: Mapping[str, Any]) -> frozenset[str] | None:
+    """The channel ids a Discord trigger's ``channels`` param selects; ``None`` when it
+    selects every channel (absent, empty, or ``"all"`` in any case)."""
+    channels = filter_values(params.get("channels"))
+    if not channels or any(c.casefold() == "all" for c in channels):
+        return None
+    return frozenset(channels)
+
+
 def _discord_admits(params: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
     """Discord filters: ``include_bots`` (default off), ``channels`` (ids; absent, empty or
     ``"all"`` is every channel), and who: ``users`` (ids or names, case-insensitive) and
@@ -238,18 +249,17 @@ def _discord_admits(params: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
     role); an event with no author id or name never passes a ``users`` filter."""
     if data.get("bot") is True and params.get("include_bots") is not True:
         return False
-    channels = _norm_list(params.get("channels"))
-    if channels and not any(c.casefold() == "all" for c in channels):
-        if str(data.get("channel_id")) not in channels:
-            return False
-    users = {u.casefold() for u in _norm_list(params.get("users"))}
-    roles = set(_norm_list(params.get("roles")))
+    channels = discord_channels(params)
+    if channels is not None and str(data.get("channel_id")) not in channels:
+        return False
+    users = {u.casefold() for u in filter_values(params.get("users"))}
+    roles = set(filter_values(params.get("roles")))
     if not users and not roles:
         return True
     who = {str(data.get(key) or "").casefold() for key in ("author_id", "author_name")} - {""}
     if users & who:
         return True
-    return bool(roles & set(_norm_list(data.get("user_roles"))))
+    return bool(roles & set(filter_values(data.get("user_roles"))))
 
 
 def exported_outputs(rule: Rule, workflows: Mapping[str, Workflow]) -> frozenset[str]:

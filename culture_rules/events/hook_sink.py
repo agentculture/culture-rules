@@ -32,6 +32,12 @@ an untagged one (the attempt budget resets only on an explicit ``false``,
 :mod:`culture_rules.node.firing`). Without a ``self_identity`` the key is absent. A payload key
 of those names is overwritten, never trusted.
 
+Discord events expire: a ``discord`` surface's event document carries ``expires_at``, a date
+:func:`discord_retention` after it was written (default :data:`DISCORD_RETENTION_DAYS` days,
+set in whole days by :data:`DISCORD_RETENTION_ENV`), and MongoDB's TTL index
+:data:`DISCORD_TTL_INDEX` (:func:`ensure_discord_event_ttl`) deletes it then. No other
+surface's event has the field, so none ever expires.
+
 Outcome counters live in :data:`HOOK_STATS_COLLECTION`, one document per (actor, outcome) with
 a ``count`` and the ``surface`` (receiver refusals are counted by
 :func:`record_outcome`), incremented by compare-and-set (``update_if``) so concurrent writers
@@ -42,7 +48,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.events.emit import derive_envelope, envelope_shape_problem, reserved_reason
@@ -58,6 +66,9 @@ __all__ = [
     "ACCEPTED",
     "BAD_REQUEST",
     "DISABLED",
+    "DISCORD_RETENTION_DAYS",
+    "DISCORD_RETENTION_ENV",
+    "DISCORD_TTL_INDEX",
     "DUPLICATE",
     "HOOK_HOST",
     "HOOK_STATS_COLLECTION",
@@ -68,6 +79,8 @@ __all__ = [
     "SELF_TAG_EXEMPT_TYPES",
     "TOO_LARGE",
     "UNAUTHORIZED",
+    "discord_retention",
+    "ensure_discord_event_ttl",
     "event_id_for",
     "record_outcome",
     "sink",
@@ -94,6 +107,42 @@ For every other type a matching author sets it to *true*; a non-matching author 
 *false* (once ``params.self_identity`` is configured; without one the key is absent).
 """
 _CAS_RETRIES = 50
+
+DISCORD_SURFACE = "discord"
+DISCORD_RETENTION_DAYS = 30
+"""How long a Discord event is kept by default, in days."""
+DISCORD_RETENTION_ENV = "CULTURE_RULES_DISCORD_EVENT_RETENTION_DAYS"
+"""Overrides :data:`DISCORD_RETENTION_DAYS` with a positive whole number of days."""
+DISCORD_TTL_INDEX = "events_discord_ttl"
+"""The MongoDB TTL index on the events' ``expires_at`` (set on Discord events only)."""
+_EXPIRES_AT = "expires_at"
+
+
+def discord_retention(environ: Mapping[str, str] | None = None) -> timedelta:
+    """How long a Discord event is kept: :data:`DISCORD_RETENTION_ENV` days when it is a
+    positive whole number, else :data:`DISCORD_RETENTION_DAYS` (a bad value is logged)."""
+    raw = ((os.environ if environ is None else environ).get(DISCORD_RETENTION_ENV) or "").strip()
+    if raw:
+        try:
+            days = int(raw)
+        except ValueError:
+            days = 0
+        if days > 0:
+            return timedelta(days=days)
+        _log.warning(
+            "%s must be a positive whole number of days; using %d",
+            DISCORD_RETENTION_ENV,
+            DISCORD_RETENTION_DAYS,
+        )
+    return timedelta(days=DISCORD_RETENTION_DAYS)
+
+
+def ensure_discord_event_ttl(store: Any) -> None:
+    """Create :data:`DISCORD_TTL_INDEX` where the store supports indexes (MongoDB); a store
+    without ``ensure_index`` (the in-memory one) keeps every event."""
+    ensure = getattr(store, "ensure_index", None)
+    if callable(ensure):
+        ensure(EVENTS_COLLECTION, [(_EXPIRES_AT, 1)], name=DISCORD_TTL_INDEX, ttl_seconds=0)
 
 
 def event_id_for(surface: str, delivery_id: str) -> str:
@@ -241,8 +290,12 @@ def _record(
         # text a store cannot hold (a lone surrogate in the payload): recorded, not stored
         quarantine(store, envelope, unstorable, host=HOOK_HOST)
         return _finish(store, actor_id, type, QUARANTINED, surface)
+    now = datetime.now(UTC)
+    doc = event_document(envelope, host=HOOK_HOST, received_at=now)
+    if surface == DISCORD_SURFACE:
+        doc[_EXPIRES_AT] = now + discord_retention()  # a date: the TTL index deletes it then
     try:
-        store.insert(EVENTS_COLLECTION, event_document(envelope, host=HOOK_HOST))
+        store.insert(EVENTS_COLLECTION, doc)
     except DuplicateKeyError:
         return _finish(store, actor_id, type, DUPLICATE, surface)
     return _finish(store, actor_id, type, ACCEPTED, surface)
