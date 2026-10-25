@@ -524,7 +524,7 @@ class GatewaySupervisor:
                     doc,
                     GATEWAY_EVENT,
                     data,
-                    delivery_id=data["message_id"],
+                    delivery_id=f"{session.actor_id}:{data['message_id']}",
                     author=author,
                 )
                 return
