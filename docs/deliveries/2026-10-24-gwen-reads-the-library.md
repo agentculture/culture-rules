@@ -13,7 +13,8 @@ action items, a `todo` checklist item. When Gwen marks a to-do done, the checkli
 replaced under the same id, and everything Gwen knows is in the library.
 
 This run built the generic code (t1–t8) on branch `rules/gwen-library`. The live
-configuration and its validation (t9) come after merge and rollout, as the plan orders them.
+configuration and its validation (t9) came after the merge (PR #93, `48e58ee`) and the 0.28.0
+rollout, as the plan orders them.
 
 ## Planned Work
 
@@ -41,7 +42,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t6` | delivered | `stt.py`: `audio_sha256` is optional (the file is hashed in chunks), and a missing file gives `audio_missing` (final). Commits `68ffeb7` and `1e00649`, merged in `883e649` |
 | `t7` | delivered | Wiring in commit `d4a48ea`: runner registration, catalog params, describe glosses, the editor, and `tests/node/test_library_items_flow.py`. Then `f8a6821` and `86ab3b0`: bind takes an int `item_id`, render returns `item_id` |
 | `t8` | delivered | `docs/operations/library-items.md` plus updates to `library.md`, `llm.md`, `pocket-transcribe.md`, the four harness files, 0.28.0 and `release.json`. Commit `f2a3767` |
-| `t9` | blocked | Not run. It needs the merge and a rollout (operator-approved), and its to-do and flip parts need agentculture/culture-library#10 (replace route + `todo` kind) |
+| `t9` | partial | 0.28.0 rolled out (verified on 4 nodes). Live, outside the repo: `read-recording` (json.read on `meta.json`) and rule `pocket-recording-created` (enriched, change created); both transcription rules now follow it, building the audio's absolute path with a `{{ }}` template; `transcript-to-reader` uses the recording brief with the cache and pushes Markdown; `recording-todos` and `todo-flip` (rules enabled); the library actor lists `md`, `todo` and culture-library 0.12.0's replace route; the library key rotated to one that can write `todo` (key 6). Validated by hand-started runs (e17, e20, e21): transcript item 57, to-do item 59, a flip replacing item 59 in 2 s. Not yet seen: a new recording going through with no manual step, and a real `embodiment.bus.todo` event |
 
 ## Mid-work Decisions
 
@@ -62,10 +63,17 @@ Quoted verbatim from the `devague summary` skeleton:
   cache hits charged tokens twice, and that a `StoreError` escaped the checklist's retries.
   Each was fixed with a failing-first test (commit `b019be9`). The answer cache staying keyed by
   content, not model, is kept by design and documented.
-- t9 keeps the plan's order (after merge + rollout). The decider leaned `partial_before_pr`
-  (0.67: roll out the unmerged branch and validate the transcript flow before the PR). That
-  needs a live rollout the operator has not approved, so no deviation was recorded, and t9's
-  obligations o16–o18 are reported unchecked.
+- t9 kept the plan's order (after merge + rollout). The decider had leaned `partial_before_pr`
+  (0.67); without an approved pre-merge rollout, no deviation was recorded.
+- `d4` then `d5` (both the operator's) — during t9 the enriched event turned out to name the
+  audio only relative to pocketsync's files root, while `audio.transcribe` needs an absolute
+  path. I first told the operator no mapping could join the two, and they chose a code fix
+  (`d4`, PR #94). That premise was wrong: rule mappings and action-step params substitute
+  `{{ }}` templates (`culture_rules/model/refs.py`). The operator then chose to close #94
+  unmerged and build the path with a template; `d5` withdraws `d4`. No code changed.
+- The library key could not be rotated by the assistant (the secret-store write is the
+  operator's); the operator ran the rotation script, and key 6 replaced key 3.
+  agentculture/culture-library#14 asks for a `keys rotate` verb so this is one command.
 - t3 was sent back once to HTML-escape transcript- and model-derived text in the Markdown,
   because inside the rtl `<div>` a stray `<` could be read as HTML (commit `d371de8`).
 - The Gwen and embodiment names were removed from code and tests: plan-slug references became
@@ -86,7 +94,8 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t4` / `t7` (`d1`) | Wiring needed render to return the bound `item_id` and bind to accept library.push's int id; t7 changed t4's file. Delta `b6` | needs-follow-up |
 | `t1` (`d2`) | The replace reply shape was guessed before culture-library defined it; fixed to accept the item itself. Evidence `e16`, delta `b7` | acceptable |
 | `t2` / `t3` / `t4` (`d3`) | Review fixes: render reads the list summary; cache usage, chunked hash; checklist `at` range, string `item_id`, `StoreError` | acceptable |
-| `t9` | Not run: needs the merge, an approved rollout, and culture-library#10 for the to-do and flip parts | needs-follow-up |
+| `t9` (`d4`, withdrawn by `d5`) | A relative audio path in the event: bridged in configuration with a `{{ }}` template, no code change | acceptable |
+| `t9` | Validated with hand-started runs; a new recording with no manual step and a real reader event are still to be seen | needs-follow-up |
 
 No other task drifted: t1–t3, t5, t6 and t8 delivered against their acceptance criteria (Actual
 Delivery above).
@@ -127,8 +136,10 @@ Delivery above).
 | audio.transcribe works without a given hash and fails a missing file finally | high | e12, e13 (sensitivity) · commits `68ffeb7`, `1e00649` |
 | the new pieces are registered and run together on a node | medium | `tests/node/test_library_items_flow.py`, `tests/node/test_default_ports.py` · commit `d4a48ea` |
 | the PR names no person; culture-rules runs no embodiment ingest | high | e14, e15 |
-| a new recording becomes Markdown transcript and todo items live; a flip lands within 60 s under the same id | unverified | t9 not run — not claimed done (o16, o17) |
-| the live newspaper push still sends kind newspaper with links | unverified | no live push since 0.27.0's change (o18) |
+| a recording becomes a Markdown transcript item and, with action items, a to-do item, live | medium | e17, e20 (proposed): items 57 and 59, from hand-started runs; no new recording observed end to end yet |
+| a flip replaces the to-do item under the same id within 60 s; re-extraction keeps ids and done marks | medium | e21 (proposed): 2 s, item 59, by a direct `todo-flip` run; the reader's event path is not yet exercised |
+| the live newspaper push sends kind newspaper with links | medium | e18 (proposed): item 55, public, 20 links, pushed under 0.27.0 |
+| no live definition calls embodiment memory ingest, after t9 | high | e19 (proposed): 19 workflows, 33 rules, 21 actors |
 
 Lapse ledger evidence (approved):
 
@@ -141,17 +152,12 @@ is clean, and the full-tree bandit gate passes.
 
 ## Remaining Work / Follow-up
 
-- `t9` — after merge, roll out 0.28.0 (operator-approved) and configure the transcript flow
-  live: enriched (created) → json.read → transcribe → recording brief (cache) → md render →
-  library.push `kind: transcript`. Then validate o16 and file evidence. Owner: operator + main
-  agent.
-- The to-do item and the flip (o16 part b, o17) — once agentculture/culture-library#10 ships the
-  replace route and `todo` kind: mint a key that can write `todo`, give the library actor
-  `formats` [md], `replace_path` and `replace_method`, configure the merge/render/push/bind and
-  flip rules, then validate.
-- Records: none await the operator. The operator approved deviations `d1`–`d3`,
-  obligations `o1`–`o18`, evidence `e1`–`e16`, deltas `b1`–`b3` and `b5`–`b7`, and lapse `l1`,
-  and rejected `b4` (a duplicate of `b5`).
+- `t9` — watch the next new recording go through with no manual step (transcript and to-do
+  items), and the first real `embodiment.bus.todo` flip; file the evidence. Owner: main agent.
+- Revoke the old library key 3 (`keys revoke --id 3`) once nothing else uses it. Owner: operator.
+- Records awaiting the operator: evidence `e17`–`e21`. Approved earlier: deviations `d1`–`d5`
+  (`d4` withdrawn by `d5`), obligations `o1`–`o18`, evidence `e1`–`e16`, deltas `b1`–`b3` and
+  `b5`–`b7`, lapse `l1`; `b4` rejected (a duplicate of `b5`).
 - Embodiment (risk r2): Gwen reads to-dos from the library and sends the checklist comment id in
   `embodiment.bus.todo`.
 - Re-pushing the 33 old transcripts as Markdown items (v2) — live, after t9.

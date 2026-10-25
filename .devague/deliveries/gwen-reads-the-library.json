@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T06:31:13Z",
+  "updated": "2026-10-25T06:35:23Z",
   "deviations": [
     {
       "id": "d1",
@@ -436,6 +436,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 24
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o16",
+      "test_ref": "live: workflows run recording-todos (recording 2549024c, its 2 extracted action items) run-24e919ba; library DB item 59",
+      "behavior_text": "todo part: checklist.merge stored 2 items (ids pocket.<recording>.1/.2), render + library.push uploaded item 59 (kind todo, md, private) and bind recorded it at revision 1; started by hand because recording-todos was enabled after this recording's transcript run; the rules (recording-todos, todo-flip) are now enabled",
+      "contract_text": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live run succeeded on 0.28.0 with the rotated key (6) and the library row was read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:35:30",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o17",
+      "test_ref": "live: workflows run todo-flip (id pocket.2549024c...1, done true, by operator); then recording-todos re-run; library DB item 59 sha before/after and its file",
+      "behavior_text": "the flip applied and item 59 was replaced in place (PUT /api/library/59/file, created false) 2 s after the run started: same id, new sha, the line now '- [x] ... done_at=2026-10-25T06:34:48Z by=operator'; a re-extraction kept both ids (added 0, kept 2) and the done mark, and left item 59 at revision 2; the embodiment.bus.todo event path itself is not yet exercised (the reader does not send checklist ids yet, r2)",
+      "contract_text": "a todo event flips its line within 60 s under the same item id; re-extraction keeps ids",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live runs succeeded and the stored file was read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:35:30",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
     }
   ],
   "deltas": [
