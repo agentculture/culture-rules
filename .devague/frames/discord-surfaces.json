@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-25T16:02:27Z",
+  "updated": "2026-10-25T22:52:07Z",
   "claims": [
     {
       "id": "c1",
@@ -1131,7 +1131,7 @@
         "closeout step a / library key 7"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": []
