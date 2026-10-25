@@ -29,10 +29,13 @@ It ships no actors. It uses the Discord actor (`discord-bot`, grant
 - `markdown.render` is built in code, but it is not registered in the node's
   runner or offered in the editor until task t8 of the plan lands. Until
   then the workflow's first step does not run.
-- The `discord.read` action (full message or channel history) and the
-  per-channel retention drop land with t7 and t4. This bundle uses only the
+- The `discord.read` action (full message or channel history) lands with
+  t7. This bundle uses only the
   fields the event carries (`content` is truncated).
 - Reactions, attachments, commands and the scheduled sweep are planned for
   Releases 2 and 3.
+- Enabling the rule is also what makes the gateway record its channel:
+  messages from channels no enabled `discord.*` rule selects are never
+  stored, and Discord events expire after 30 days.
 
 Deleting the Discord message later leaves the library item; archive it by hand.

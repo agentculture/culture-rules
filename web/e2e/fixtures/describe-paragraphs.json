@@ -399,6 +399,118 @@
         "text": "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.\nFirst reads the configured sections and their search queries; then claims today's issue, unless it was already delivered.\nThen searches the web for each section, for each item (up to 20).\nEach time, from here on, only if deliver is true, runs the section's web search, trying up to 3 times; then keeps only the results the issue may show.\nThen summarises each section, for each item (up to 20).\nEach time, if deliver is true and results is not {}, asks the language model for a short summary of the section's results, trying up to 2 times, carrying on even if it fails.\nThen, if deliver is true, renders the issue as an email and as an EPUB; then checks the email has not been sent yet and freezes what will be sent.\nThen, if send is true, sends the issue by email, trying up to 3 times, carrying on even if it fails.\nThen, if deliver is true, records the sent email and checks the reader does not have the issue yet.\nThen, if deliver is true and push is true, queues the EPUB on the e-reader, trying up to 3 times.\nThen, if deliver is true, marks the day's issue as delivered.\nNothing continues from here.\nWhen it is done, nothing else happens."
       }
     },
+    "discord-message-to-library": {
+      "description": "Files a Discord message in the library as a Markdown document.",
+      "entries": [
+        {
+          "depth": 0,
+          "label": "1",
+          "step": "render",
+          "text": "builtin markdown.render"
+        },
+        {
+          "depth": 0,
+          "label": "2",
+          "step": "push",
+          "text": "library.push as newspaper-library kind document (private) as .md (≤3 attempts)"
+        }
+      ],
+      "id": "discord-message-to-library",
+      "kind": "workflow",
+      "lines": [
+        "1 render — builtin markdown.render",
+        "2 push — library.push as newspaper-library kind document (private) as .md (≤3 attempts)"
+      ],
+      "paragraph": {
+        "segments": [
+          {
+            "disabled": true,
+            "enabled": false,
+            "keys": [
+              "starts_event",
+              "rule_where"
+            ],
+            "kind": "entry",
+            "part": "start",
+            "rule": "discord-to-library",
+            "sentence": 0,
+            "text": "It starts when discord.message.created arrives, on spark."
+          },
+          {
+            "depth": 0,
+            "fallback": false,
+            "gap": false,
+            "grouped": false,
+            "keys": [
+              "first"
+            ],
+            "name": "Render the message",
+            "part": "step",
+            "phrase": "First",
+            "sentence": 1,
+            "shown": "writes the message as a Markdown page",
+            "standin": false,
+            "step": "render",
+            "tail": ".",
+            "tail_keys": [],
+            "text": "Writes the message as a Markdown page."
+          },
+          {
+            "depth": 0,
+            "fallback": false,
+            "gap": false,
+            "grouped": false,
+            "keys": [
+              "then"
+            ],
+            "name": "Put it in the library",
+            "part": "step",
+            "phrase": "Then",
+            "sentence": 2,
+            "shown": "adds the page to the library as a private document",
+            "standin": false,
+            "step": "push",
+            "tail": ", trying up to 3 times.",
+            "tail_keys": [
+              "retry"
+            ],
+            "text": "Adds the page to the library as a private document."
+          },
+          {
+            "keys": [
+              "continues_none"
+            ],
+            "part": "then",
+            "rules": [],
+            "sentence": 3,
+            "text": "Nothing continues from here."
+          },
+          {
+            "keys": [
+              "ends_noop"
+            ],
+            "part": "then",
+            "rules": [
+              "discord-to-library"
+            ],
+            "sentence": 4,
+            "text": "When it is done, nothing else happens."
+          },
+          {
+            "keys": [
+              "runs_key"
+            ],
+            "part": "then",
+            "rules": [
+              "discord-to-library"
+            ],
+            "sentence": 5,
+            "text": "It runs one at a time per discord:{message_id}."
+          }
+        ],
+        "text": "It starts when discord.message.created arrives, on spark.\nFirst writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
+      }
+    },
     "pr-fix": {
       "description": "Fixes a pull request's review threads and failing SonarCloud conditions with an agent, then runs the repository's test gate on the agent's commit.",
       "entries": [
@@ -2385,6 +2497,58 @@
     }
   },
   "rules": [
+    {
+      "action": {
+        "idempotent": false,
+        "kind": "noop",
+        "name": "Nothing: the transcript is the workflow's work",
+        "only_at_chain_end": false,
+        "params": {},
+        "retry": null,
+        "timeout_s": null
+      },
+      "concurrency_key": "discord:{trigger.data.message_id}",
+      "condition": null,
+      "counts_toward_budget": true,
+      "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: renders it as Markdown and pushes it to the library as kind document. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
+      "enabled": false,
+      "exclusive_group": null,
+      "id": "discord-to-library",
+      "max_attempts": null,
+      "may_after": [],
+      "must_after": [],
+      "name": "File each Discord message in the library",
+      "on_failure": null,
+      "placement": {
+        "actor": null,
+        "machine": "spark",
+        "requirement": null
+      },
+      "priority": 0,
+      "resets_attempt_budget": false,
+      "schema_version": "1.0",
+      "supersedes": [],
+      "trigger": {
+        "kind": "event",
+        "params": {
+          "channels": [
+            "CHANNEL_ID_PLACEHOLDER"
+          ],
+          "type": "discord.message.created"
+        }
+      },
+      "workflow": {
+        "id": "discord-message-to-library",
+        "inputs": {
+          "author": "trigger.data.author_name",
+          "id": "trigger.data.message_id",
+          "text": "trigger.data.content",
+          "title": "trigger.data.message_id",
+          "url": "trigger.data.url"
+        },
+        "version": null
+      }
+    },
     {
       "action": {
         "idempotent": false,
@@ -6556,6 +6720,229 @@
           ],
           "placement": null,
           "retry": null,
+          "timeout_s": null
+        }
+      ],
+      "variables": [],
+      "version": 1
+    },
+    "discord-message-to-library": {
+      "description": "Files a Discord message in the library as a Markdown document.",
+      "edges": [
+        {
+          "source": "inputs",
+          "source_port": "title",
+          "target": "render",
+          "target_port": "title"
+        },
+        {
+          "source": "inputs",
+          "source_port": "text",
+          "target": "render",
+          "target_port": "text"
+        },
+        {
+          "source": "inputs",
+          "source_port": "author",
+          "target": "render",
+          "target_port": "author"
+        },
+        {
+          "source": "inputs",
+          "source_port": "url",
+          "target": "render",
+          "target_port": "url"
+        },
+        {
+          "source": "inputs",
+          "source_port": "id",
+          "target": "render",
+          "target_port": "id"
+        },
+        {
+          "source": "render",
+          "source_port": "content_base64",
+          "target": "push",
+          "target_port": "content_base64"
+        },
+        {
+          "source": "inputs",
+          "source_port": "title",
+          "target": "push",
+          "target_port": "title"
+        }
+      ],
+      "enabled": true,
+      "id": "discord-message-to-library",
+      "inputs": [
+        {
+          "description": "",
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "text",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "author",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "url",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "id",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "File a Discord message in the library",
+      "notes": "One Markdown item per message. Needs markdown.render registered (plan task t8).",
+      "outputs": [
+        {
+          "name": "item_id",
+          "source": "steps.push.outputs.item_id",
+          "type": "integer"
+        }
+      ],
+      "schema_version": "1.0",
+      "steps": [
+        {
+          "body": [],
+          "config": {
+            "builtin": "markdown.render"
+          },
+          "description": "Writes the message as a Markdown page.",
+          "enabled": true,
+          "id": "render",
+          "inputs": [
+            {
+              "description": "",
+              "name": "title",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "text",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "author",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "url",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "id",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Render the message",
+          "notes": "markdown.render: the message as one Markdown document (title, text, then author, url and id).",
+          "outputs": [
+            {
+              "description": "",
+              "name": "markdown",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "content_base64",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "placement": null,
+          "retry": null,
+          "timeout_s": null
+        },
+        {
+          "body": [],
+          "config": {
+            "action": {
+              "kind": "library.push",
+              "params": {
+                "actor": "newspaper-library",
+                "content_base64": "inputs.content_base64",
+                "format": "md",
+                "kind": "document",
+                "title": "inputs.title",
+                "visibility": "private"
+              }
+            },
+            "builtin": "action",
+            "idempotent": true
+          },
+          "description": "Adds the page to the library as a private document.",
+          "enabled": true,
+          "id": "push",
+          "inputs": [
+            {
+              "description": "",
+              "name": "content_base64",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "title",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Put it in the library",
+          "notes": "library.push through newspaper-library: kind document, format md, visibility private. The actor must list both.",
+          "outputs": [
+            {
+              "description": "",
+              "name": "item_id",
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "description": "",
+              "name": "created",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "description": "",
+              "name": "queue_id",
+              "required": false,
+              "type": "integer"
+            }
+          ],
+          "placement": null,
+          "retry": {
+            "backoff_multiplier": 2.0,
+            "backoff_s": 30.0,
+            "max_attempts": 3
+          },
           "timeout_s": null
         }
       ],

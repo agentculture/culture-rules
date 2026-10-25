@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-25T09:25:28Z",
+  "updated": "2026-10-25T12:23:00Z",
   "claims": [
     {
       "id": "c1",
@@ -1088,6 +1088,40 @@
       "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "t5 task agent wrote markdown_render tests and module together and never ran the tests red first, so the tests were never shown to fail without the code",
+      "skipped_check": "run new tests against the missing module before implementing",
+      "refs": [
+        "assign-to-workforce wave 1 / t5"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "provenance-missing",
+      "what": "t2 task agent handed back the literal text 'placeholder' instead of a report: no test command, pass summary or shortcut list was reported for commit 9d23356",
+      "skipped_check": "task agent's own report of its test run",
+      "refs": [
+        "assign-to-workforce wave 1 / t2"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "control-absent",
+      "what": "main agent merged t10 (a new committed docs/rules workflow) on tests/rules alone and deferred the full suite to after t4; 12 corpus tests (paragraph fixtures, fold parity, workflow count guards) failed and were caught only at the wave-3 full run",
+      "skipped_check": "full suite before and after each merge",
+      "refs": [
+        "assign-to-workforce wave 3 / t10 merge"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": []
 }

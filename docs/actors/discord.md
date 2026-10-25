@@ -274,7 +274,7 @@ Not on disk yet, and not to be relied on:
 - reactions as triggers and the attachment fetch (Release 2);
 - slash and message commands, the ephemeral reply and a scheduled sweep
   (Release 3);
-- the `discord.read` action, the per-channel retention drop, and the
+- the `discord.read` action, and the
   `markdown.render` step being offered in the editor and run by the node. The
   step's code and the REST message and history reads exist; registration does
   not. The disabled bundle [`docs/rules/discord-library`](../rules/discord-library/README.md)
