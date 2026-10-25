@@ -137,6 +137,14 @@ replies (see below).
 bot sends itself are tagged `self_authored`. Mass mentions (`@everyone`,
 `@here`, roles) in posted messages are always suppressed.
 
+A message is recorded only from a channel that an enabled rule with a
+`discord.*` trigger selects. A rule with no `channels`, or `"all"`, selects
+every channel. With no such rule, nothing is recorded. The selection is one
+union for every Discord actor, and each actor's `connection.channels` and
+`guild_id` still apply on top. Discord events expire after 30 days through a
+MongoDB TTL index. Set `CULTURE_RULES_DISCORD_EVENT_RETENTION_DAYS` on the
+listening node to change that. Other events never expire.
+
 ## Posting a message
 
 In a rule, choose **Post a message on Discord** under "Then what happens?":
@@ -280,6 +288,7 @@ Not on disk yet, and not to be relied on:
 | `Missing Access` on a channel | The channel is private; add the bot to its permissions |
 | Messages arrive with empty `content` | MESSAGE CONTENT INTENT is off |
 | No node is listening | The actor's machine's node lacks the token injection, or the `discord` extra |
+| A message produces no event | No enabled rule with a `discord.*` trigger selects its channel |
 | Posting fails "not in actor allow-list" | `connection.channels` is set and excludes the channel |
 | `401` from Discord | The token was reset after it was sealed; seal the new one and restart the node |
 

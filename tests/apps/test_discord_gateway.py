@@ -17,7 +17,9 @@ from culture_rules.apps import discord_gateway as dg
 from culture_rules.engine.leasekeeper import LeaseKeeper
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
+from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
+from culture_rules.model.rule import Rule, Trigger
 from culture_rules.store.memory import MemoryStore
 from culture_rules.store.port import TransientStoreError
 from tests.apps.discord_fakes import FakeGateway, FakeHub, eventually, message
@@ -46,6 +48,17 @@ def discord_actor(
     ).to_dict()
 
 
+def discord_rule(id="every-message", *, enabled=True, type=EVENT, **params):
+    """An enabled rule on a discord.* trigger; with no ``channels`` it selects every channel."""
+    return Rule(
+        id=id,
+        name=id,
+        enabled=enabled,
+        trigger=Trigger(kind="event", params={"type": type, **params}),
+        action=Action(kind="noop"),
+    ).to_dict()
+
+
 class Grant:
     """Stands in for the ``grant get NAME`` call behind :func:`secrets.resolve`."""
 
@@ -59,9 +72,11 @@ class Grant:
 
 
 class Rig:
-    def __init__(self, *, keeper=None, available=True, store=None, host=None) -> None:
+    def __init__(self, *, keeper=None, available=True, store=None, host=None, rule=True) -> None:
         self.clock = Clock()
         self.store = store or MemoryStore(clock=self.clock)
+        if rule:  # the gateway sinks only channels an enabled discord.* rule selects
+            self.store.put("rules", discord_rule())
         self.hub = FakeHub()
         self.grant = Grant()
         self.sup = dg.GatewaySupervisor(
@@ -385,3 +400,80 @@ def test_an_actor_on_another_machine_is_not_listened_for(rig):
     r.store.put("actors", {**discord_actor(), "machine": "spark"})
     r.sup.tick()
     assert eventually(lambda: len(r.hub.connects) == 1)
+
+
+# discord-surfaces t4 (R1): only channels an enabled discord.* rule selects are sunk
+
+
+def _ids(r):
+    return sorted(e["envelope"]["data"]["message_id"] for e in r.events())
+
+
+def test_no_enabled_discord_rule_sinks_nothing(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("off", enabled=False))
+    r.store.put("rules", discord_rule("gh", type="github.pr.merged"))
+    r.store.put("actors", discord_actor())
+    r.sup.tick()
+    session = r.sup._sessions["bot"]
+    r.sup._on_message(session, message(1))  # delivered synchronously: no listener race
+    assert r.events() == []
+    r.store.put("rules", discord_rule("on"))
+    r.sup.tick()  # the selection is refreshed each tick
+    r.sup._on_message(session, message(2))
+    assert _ids(r) == ["9002"]
+
+
+def test_a_channel_no_rule_selects_is_never_written(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("a", channels=["100"]))
+    r.store.put("rules", discord_rule("b", channels="300"))  # a bare string: one channel
+    r.store.put("actors", discord_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, channel="200"))
+    r.hub.post(message(2, channel="100"))
+    r.hub.post(message(3, channel="300"))
+    assert eventually(lambda: len(r.events()) == 2)
+    assert sorted(e["envelope"]["data"]["channel_id"] for e in r.events()) == ["100", "300"]
+
+
+@pytest.mark.parametrize("channels", ["all", "ALL", ["all"], [], None])
+def test_a_rule_with_no_channels_or_all_selects_every_channel(rig, channels):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("narrow", channels=["100"]))
+    wide = {} if channels is None else {"channels": channels}
+    r.store.put("rules", discord_rule("wide", type="discord.reaction.added", **wide))
+    r.store.put("actors", discord_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, channel="200"))
+    r.hub.post(message(2, channel="100"))
+    assert eventually(lambda: len(r.events()) == 2)
+
+
+def test_the_actor_allow_list_still_applies_inside_the_selection(rig):
+    r = rig()  # the catch-all rule selects every channel
+    r.store.put("actors", discord_actor(channels=["100"]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, channel="200"))
+    r.hub.post(message(2, channel="100"))
+    assert eventually(lambda: len(r.events()) == 1)
+    assert _ids(r) == ["9002"]
+
+
+def test_selected_channels_is_the_union_over_enabled_discord_rules():
+    every = dg.selected_channels([discord_rule("a", channels=["1"]), discord_rule("b")])
+    assert every is None  # None: every channel
+    assert dg.selected_channels([]) == frozenset()
+    assert dg.selected_channels(
+        [
+            discord_rule("a", channels=["1", 2]),
+            discord_rule("b", channels="3"),
+            discord_rule("off", enabled=False),
+            discord_rule("gh", type="github.pr.merged"),
+            {**discord_rule("gone"), "deleted_at": "2026-10-01T00:00:00Z"},
+            {"id": "broken", "trigger": "not a trigger"},
+        ]
+    ) == frozenset({"1", "2", "3"})
