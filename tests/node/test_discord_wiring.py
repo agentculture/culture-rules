@@ -23,7 +23,8 @@ def test_discord_read_and_markdown_render_have_words():
     words = action_text(
         {"kind": "discord.read", "params": {"actor": "jetson-bot", "channel": "20"}}
     )
-    assert "discord.read" in words and "20" in words
+    assert "discord.read" in words
+    assert "20" in words
 
 
 def test_the_node_registers_discord_read_and_markdown_render():

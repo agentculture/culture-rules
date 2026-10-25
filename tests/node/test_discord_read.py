@@ -100,7 +100,8 @@ def test_non_discord_actor_fails_non_retryable():
     res = action(store_with(surface="github"), t).invoke(
         {"channel": "42", "message": "900"}, "k", NOW, context=ctx()
     )
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert "not a discord" in res.error
     assert t.calls == []
 
@@ -110,7 +111,8 @@ def test_channel_outside_connection_channels_fails_non_retryable():
     res = action(store_with(channels=["1", "2"]), t).invoke(
         {"channel": "42", "message": "900"}, "k", NOW, context=ctx()
     )
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert "allow-list" in res.error
     assert t.calls == []
 
@@ -130,7 +132,8 @@ def test_missing_actor_unknown_actor_and_bad_input_fail_non_retryable():
         (ctx(), {"channel": "42"}),
     ]:
         res = a.invoke(inp, "k", NOW, context=c)
-        assert res.outcome == FAILED and res.retryable is False
+        assert res.outcome == FAILED
+        assert res.retryable is False
 
 
 def test_discord_error_keeps_retryable_flag_and_no_token():
@@ -138,7 +141,8 @@ def test_discord_error_keeps_retryable_flag_and_no_token():
         res = action(store_with(), FakeTransport(status=status, body={})).invoke(
             {"channel": "42", "message": "900"}, "k", NOW, context=ctx()
         )
-        assert res.outcome == FAILED and res.retryable is retryable
+        assert res.outcome == FAILED
+        assert res.retryable is retryable
         assert "tok-xyz" not in res.error
 
 
@@ -162,7 +166,8 @@ def test_a_channel_outside_the_actors_guilds_is_refused():
     res = action(store_with(guild_id=["11", "12"]), t).invoke(
         {"channel": "42", "message": "900"}, "k", NOW, context=ctx()
     )
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert "guild" in res.error
     assert not any("/messages/" in u for u in t.calls)
 

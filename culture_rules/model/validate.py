@@ -500,11 +500,7 @@ def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
         )
     for name in ("channels", "users", "roles"):
         value = params.get(name)
-        if value is None or _filter_item(value):
-            pass
-        elif isinstance(value, (list, tuple)) and all(_filter_item(v) for v in value):
-            pass
-        else:
+        if not _filter_value_ok(value):
             _err(
                 errors,
                 _join(pp, name),
@@ -519,6 +515,13 @@ def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
                 "trigger_param_invalid",
                 'params.channels holds numeric Discord channel ids, or "all"',
             )
+
+
+def _filter_value_ok(value: Any) -> bool:
+    """Absent, one id or name, or a list of them."""
+    if value is None or _filter_item(value):
+        return True
+    return isinstance(value, (list, tuple)) and all(_filter_item(v) for v in value)
 
 
 def _channel_ids_ok(value: Any) -> bool:

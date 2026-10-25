@@ -56,12 +56,15 @@ def test_returns_markdown_and_base64_with_id_and_url_in_body():
     md = result.output["markdown"]
     assert md.startswith("# Note from ori\n")
     assert "Remember the milk" in md
-    assert EVENT["url"] in md and "998877" in md and "ori" in md
+    assert EVENT["url"] in md
+    assert "998877" in md
+    assert "ori" in md
     assert base64.b64decode(result.output["content_base64"]).decode("utf-8") == md
 
 
 def test_same_inputs_are_byte_identical():
-    assert dict(_render().output) == dict(_render().output)
+    first, second = _render(), _render()
+    assert dict(first.output) == dict(second.output)
 
 
 def test_optional_fields_are_left_out():
@@ -72,7 +75,8 @@ def test_optional_fields_are_left_out():
 def test_missing_title_or_text_fails_bad_params():
     for over in ({"title": ""}, {"text": None}, {"title": 5}):
         result = _render(**over)
-        assert result.outcome == FAILED and "bad_params" in str(result.error)
+        assert result.outcome == FAILED
+        assert "bad_params" in str(result.error)
         assert result.retryable is False
 
 
@@ -140,11 +144,14 @@ def test_discord_event_through_render_into_library_push_dedupes():
         )
 
     first = run_once()
-    assert first.outcome == COMPLETED and first.output["created"] is True
+    assert first.outcome == COMPLETED
+    assert first.output["created"] is True
     body = library.bodies[0]
-    assert b"Remember the milk" in body and EVENT["url"].encode() in body
+    assert b"Remember the milk" in body
+    assert EVENT["url"].encode() in body
     second = run_once()
-    assert second.outcome == COMPLETED and second.output["created"] is False
+    assert second.outcome == COMPLETED
+    assert second.output["created"] is False
     assert second.output["item_id"] == first.output["item_id"]
 
 

@@ -576,7 +576,7 @@ export function StepEditor({
         </Disclosure>
         <Disclosure title="Configuration" startOpen={Object.keys(config).length > 0}>
           <ConfigEditor
-            key={String(config.builtin ?? "")}
+            key={typeof config.builtin === "string" ? config.builtin : ""}
             config={config}
             commands={commands}
             rawConfig={rawConfig}

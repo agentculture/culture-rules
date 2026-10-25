@@ -64,30 +64,46 @@ class DiscordReadAction:
         if not actor_id:
             return _fail("discord.read needs a Discord app actor in params.actor")
         channel, message, guild = input.get("channel"), input.get("message"), input.get("guild")
-        if not isinstance(channel, str) or not channel or not isinstance(message, str):
+        if not _nonempty(channel) or not _nonempty(message):
             return _fail("discord.read needs a channel and a message id")
-        if not message:
-            return _fail("discord.read needs a channel and a message id")
+        connection = self._connection(actor_id, channel)
+        if isinstance(connection, InvocationResult):
+            return connection
+        ref = connection.get("bot_token")
+        try:
+            token = self._resolve(ref)
+        except secrets.SecretError as exc:
+            return InvocationResult.failed(str(exc), retryable=True)
         guild_id = str(guild) if guild not in (None, "") else None
+        return self._read(token, connection, actor_id, channel, message, guild_id)
 
+    def _connection(self, actor_id: str, channel: str) -> Mapping[str, Any] | InvocationResult:
+        """The actor's Discord connection, or the refusal: not found, not Discord, a channel
+        outside its allow-list, or no bot_token reference."""
         actor = self._store.get(ACTORS_COLLECTION, actor_id)
         if actor is None:
             return _fail(f"actor {actor_id!r} not found")
         params = actor.get("params") if isinstance(actor.get("params"), Mapping) else {}
-        surface = actor.get("surface") or params.get("surface")
-        if surface != "discord":
+        if (actor.get("surface") or params.get("surface")) != "discord":
             return _fail(f"actor {actor_id!r} is not a discord app actor")
         connection = actor.get("connection") or params.get("connection") or {}
         allowed = filter_values(connection.get("channels"))  # a bare id is one channel
         if allowed and channel not in allowed:
             return _fail(f"channel {channel!r} is not in actor {actor_id!r} allow-list")
-        ref = connection.get("bot_token")
-        if not isinstance(ref, str) or not ref:
+        if not _nonempty(connection.get("bot_token")):
             return _fail(f"actor {actor_id!r} has no bot_token reference")
-        try:
-            token = self._resolve(ref)
-        except secrets.SecretError as exc:
-            return InvocationResult.failed(str(exc), retryable=True)
+        return connection
+
+    def _read(
+        self,
+        token: str,
+        connection: Mapping[str, Any],
+        actor_id: str,
+        channel: str,
+        message: str,
+        guild_id: str | None,
+    ) -> InvocationResult:
+        """Read the message; with ``guild_id`` set on the actor, only from its guilds."""
         kwargs: dict[str, Any] = {"transport": self._transport}
         if self._base_url:
             kwargs["base_url"] = self._base_url
@@ -106,3 +122,7 @@ class DiscordReadAction:
             log.warning("discord read of %s/%s failed: %s", channel, message, exc)
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
         return InvocationResult.completed(out)
+
+
+def _nonempty(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
