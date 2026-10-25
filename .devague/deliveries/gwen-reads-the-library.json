@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T05:36:56Z",
+  "updated": "2026-10-25T06:31:13Z",
   "deviations": [
     {
       "id": "d1",
@@ -45,6 +45,34 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 19
+    },
+    {
+      "id": "d4",
+      "what": "audio.transcribe resolves a relative audio_path under its actor's audio_root (same containment and symlink checks); patch PR 0.28.1, then rollout, then t9 continues",
+      "task_ref": "t9",
+      "reason": "pocketsync.recording.enriched and meta.json carry only paths relative to the files root, audio.transcribe required an absolute path, and no workflow mapping or builtin can join them, so no live configuration could transcribe from the event; the operator chose this generic fix",
+      "affects": [
+        "t6",
+        "c33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 20
+    },
+    {
+      "id": "d5",
+      "what": "Withdraws d4: no code change; t9's live configuration builds the audio's absolute path with a {{ }} template (files root + the relative path); PR #94 closed unmerged",
+      "task_ref": "t9",
+      "reason": "d4's premise was wrong: rule workflow-input mappings and built-in action step params substitute {{ ... }} templates (culture_rules/model/refs.py), so the relative path can be joined to the files root in configuration; the operator chose to close #94 and use templates",
+      "affects": [
+        "t6",
+        "c33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 21
     }
   ],
   "evidence": [
@@ -351,6 +379,63 @@
       "status": "approved",
       "superseded": false,
       "seq": 18
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o16",
+      "test_ref": "live: workflows run read-recording (recording 2549024c) -> rules pocket-transcribe-he -> pocket-to-reader; runs run-f2cf9741, run-269df4b1, run-62b0f682; library DB item 57",
+      "behavior_text": "transcript part only: from meta.json alone the chain transcribed the recording on the he lane (the en lane did not fire), extracted the recording answer (2 facts, 2 action items) and pushed a Markdown transcript item, id 57, kind transcript, format md, private; the first step was started by hand because the recording's created event (06:23:52Z) preceded the rule; the todo item is not yet checked",
+      "contract_text": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live runs succeeded on 0.28.0 and the library row was read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:31:00",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o18",
+      "test_ref": "live: library DB item 55 (Daily newspaper 2026-10-25) and its EPUB under /data/files",
+      "behavior_text": "the 03:00Z newspaper landed as kind newspaper, public, epub, with 20 external links; pushed under 0.27.0, before the 0.28.0 rollout (the first 0.28.0 push is 2026-10-26)",
+      "contract_text": "the live newspaper push sends kind newspaper with its links",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "library row and EPUB read read-only",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:31:00",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o15",
+      "test_ref": "live: read-only scan of 19 workflows, 33 rules, 21 actors after the t9 configuration",
+      "behavior_text": "no definition calls embodiment memory ingest; embodiment appears only in the todo-flip rule (event type and source) and a repo name",
+      "contract_text": "no live definition or repo code calls embodiment memory ingest",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "grep over exported definitions",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:31:00",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
     }
   ],
   "deltas": [
