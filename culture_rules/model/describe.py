@@ -24,6 +24,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from culture_rules.model.discord_filters import discord_channels, filter_values
+
 __all__ = [
     "ACTION_WORDS",
     "BUILTIN_WORDS",
@@ -82,6 +84,7 @@ BUILTIN_WORDS: dict[str, str] = {
     "checklist.set": "checklist.set: mark one item done or not, if newer",
     "checklist.render": "checklist.render: the list as Markdown, with its revision",
     "checklist.bind": "checklist.bind: record the pushed library item and revision",
+    "markdown.render": "markdown.render: fields as one Markdown page, the same bytes each time",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
@@ -98,6 +101,7 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "message": _TO_CHANNEL,
     "mesh.message": _TO_CHANNEL,
     "discord.message": _TO_CHANNEL,
+    "discord.read": (("channel", "in {}"), ("message", "message {}")),
     "github.comment": (),
     "github.push": (),
     "github.review_reply": (),
@@ -375,7 +379,10 @@ def trigger_text(trigger: Any) -> str:
     kind = str(t.get("kind") or "?")
     params = t.get("params") if isinstance(t.get("params"), Mapping) else {}
     if kind == "event":
-        return str(params.get("type") or _TRIGGER_WORDS["event"])
+        type_ = str(params.get("type") or _TRIGGER_WORDS["event"])
+        if type_.startswith("discord."):
+            return _join(type_, *_discord_filter_words(params))
+        return type_
     if kind == "schedule":
         tz = params.get("tz") or "UTC"
         return f"cron {params.get('cron', '?')} ({tz})"
@@ -388,6 +395,22 @@ def trigger_text(trigger: Any) -> str:
             mode,
         )
     return _TRIGGER_WORDS.get(kind, kind)
+
+
+def _discord_filter_words(params: Mapping[str, Any]) -> list[str]:
+    """``(in channels 1, 2; from alice or role r1; bots too)``: a discord.* trigger's filters,
+    read as engine.matching applies them; nothing when every filter is open."""
+    parts = []
+    channels = discord_channels(params)
+    if channels is not None:
+        parts.append("in channels " + ", ".join(sorted(channels)))
+    who = [*filter_values(params.get("users"))]
+    who += [f"role {r}" for r in filter_values(params.get("roles"))]
+    if who:
+        parts.append("from " + " or ".join(who))
+    if params.get("include_bots") is True:
+        parts.append("bots too")
+    return [f"({'; '.join(parts)})"] if parts else []
 
 
 # --------------------------------------------------------------------------- rules

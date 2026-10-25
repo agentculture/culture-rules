@@ -36,7 +36,7 @@ Channel selection and retention
 A message is sunk only from a channel some enabled rule with a ``discord.*`` event trigger
 selects (:func:`selected_channels`, recomputed from the ``rules`` collection on every
 :meth:`GatewaySupervisor.tick`): a rule's ``channels`` param is read exactly as the trigger
-matcher reads it (:func:`~culture_rules.engine.matching.discord_channels`), so a rule with no
+matcher reads it (:func:`~culture_rules.model.discord_filters.discord_channels`), so a rule with no
 channels or ``"all"`` selects every channel, and with no such rule nothing is sunk. A
 trigger names no actor, so the selection is one union shared by every Discord actor (a
 channel any rule selects is kept for each bot); the actor's own ``connection.channels``
@@ -72,9 +72,9 @@ from typing import Any, Protocol
 from culture_rules.actors import secrets
 from culture_rules.apps.discord_rest import guild_ids
 from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, LeaseKeeper
-from culture_rules.engine.matching import discord_channels
 from culture_rules.engine.named_lease import NamedLease
 from culture_rules.events.hook_sink import ensure_discord_event_ttl, sink
+from culture_rules.model.discord_filters import discord_channels
 from culture_rules.model.rule import Rule
 
 __all__ = [

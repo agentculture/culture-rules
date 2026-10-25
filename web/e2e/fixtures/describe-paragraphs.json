@@ -406,7 +406,7 @@
           "depth": 0,
           "label": "1",
           "step": "render",
-          "text": "builtin markdown.render"
+          "text": "markdown.render: fields as one Markdown page, the same bytes each time"
         },
         {
           "depth": 0,
@@ -418,7 +418,7 @@
       "id": "discord-message-to-library",
       "kind": "workflow",
       "lines": [
-        "1 render — builtin markdown.render",
+        "1 render — markdown.render: fields as one Markdown page, the same bytes each time",
         "2 push — library.push as newspaper-library kind document (private) as .md (≤3 attempts)"
       ],
       "paragraph": {
@@ -434,7 +434,7 @@
             "part": "start",
             "rule": "discord-to-library",
             "sentence": 0,
-            "text": "It starts when discord.message.created arrives, on spark."
+            "text": "It starts when discord.message.created (in channels CHANNEL_ID_PLACEHOLDER) arrives, on spark."
           },
           {
             "depth": 0,
@@ -508,7 +508,7 @@
             "text": "It runs one at a time per discord:{message_id}."
           }
         ],
-        "text": "It starts when discord.message.created arrives, on spark.\nFirst writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
+        "text": "It starts when discord.message.created (in channels CHANNEL_ID_PLACEHOLDER) arrives, on spark.\nFirst writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
       }
     },
     "pr-fix": {

@@ -52,6 +52,7 @@ from typing import Any
 
 from culture_rules.events.emit import MAX_EVENT_HOPS, event_hops
 from culture_rules.model import condition as cond
+from culture_rules.model.discord_filters import discord_channels, filter_values
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
@@ -218,27 +219,6 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
     if isinstance(data, Mapping) and str(event.get("type", "")).startswith("discord."):
         return _discord_admits(trigger.params, data)
     return True
-
-
-def filter_values(value: Any) -> list[str]:
-    """A filter param as a list of strings: a list as is, a bare string or number as one item,
-    anything else (absent, empty) as no items."""
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return [str(v) for v in value if str(v) != ""]
-    if isinstance(value, bool) or value is None:
-        return []
-    if isinstance(value, (str, int)):
-        return [str(value)] if str(value) != "" else []
-    return []
-
-
-def discord_channels(params: Mapping[str, Any]) -> frozenset[str] | None:
-    """The channel ids a Discord trigger's ``channels`` param selects; ``None`` when it
-    selects every channel (absent, empty, or ``"all"`` in any case)."""
-    channels = filter_values(params.get("channels"))
-    if not channels or any(c.casefold() == "all" for c in channels):
-        return None
-    return frozenset(channels)
 
 
 def _discord_admits(params: Mapping[str, Any], data: Mapping[str, Any]) -> bool:

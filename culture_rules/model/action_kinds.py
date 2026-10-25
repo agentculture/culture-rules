@@ -4,15 +4,16 @@ An :class:`~culture_rules.model.action.Action` has no actor slot; an action that
 actor capability names the actor in ``params.actor`` (an actor id, or a reference). Per kind
 this module says which params exist, their types and which are required.
 
-Actor policy: ``discord.message``, ``github.comment``, ``github.push``, ``github.review_reply``,
-``jira.comment``, ``http.call``, ``machine.command``, ``email.send``, ``search.web``,
-``llm.complete``, ``audio.transcribe``, ``decider.assess`` and ``library.push`` always need
-``params.actor`` (the
-credentialed or executing party).
+Actor policy: ``discord.message``, ``discord.read``, ``github.comment``, ``github.push``,
+``github.review_reply``, ``jira.comment``, ``http.call``, ``machine.command``, ``email.send``,
+``search.web``, ``llm.complete``, ``audio.transcribe``, ``decider.assess`` and ``library.push``
+always need ``params.actor`` (the credentialed or executing party).
 ``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
 a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
-the server the channel was picked from. ``mesh.message`` is a legacy alias of ``message``.
+the server the channel was picked from. ``discord.read`` reads one message in full (its
+text untruncated and its attachments) with the same actor's token, within its allow-list.
+``mesh.message`` is a legacy alias of ``message``.
 
 Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`` object or a
 ``{{ }}`` template, accepted wherever a typed value is expected. Extra params are tolerated.
@@ -91,6 +92,14 @@ _KINDS = (
         guild=_S,
         channel=_RS,
         text=_RS,
+    ),
+    _k(
+        "discord.read",
+        "Read one Discord message in full (text and attachments) through a Discord app actor",
+        actor=_RS,
+        guild=_S,  # fills the message url when given
+        channel=_RS,
+        message=_RS,
     ),
     _k(
         "github.comment",
