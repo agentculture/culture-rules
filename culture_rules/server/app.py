@@ -981,7 +981,11 @@ def _register_discord_targets(
     app: FastAPI, store: StoragePort, resolve_secret: Any, transport: Any
 ) -> None:
     from culture_rules.actors import secrets  # noqa: PLC0415
-    from culture_rules.apps.discord_rest import DiscordClient, DiscordError  # noqa: PLC0415
+    from culture_rules.apps.discord_rest import (  # noqa: PLC0415
+        DiscordClient,
+        DiscordError,
+        guild_ids,
+    )
 
     @app.get(
         "/actors/{actor_id}/discord/targets",
@@ -1004,9 +1008,8 @@ def _register_discord_targets(
         except Exception:  # noqa: BLE001 - never echo why: the text may hold a value
             return _envelope(409, "secret_unavailable", "the bot token cannot be read here")
         kwargs = {"transport": transport} if transport is not None else {}
-        guild = conn.get("guild_id")
         try:
-            guilds = DiscordClient(token, **kwargs).list_targets(str(guild) if guild else None)
+            guilds = DiscordClient(token, **kwargs).list_targets(guild_ids(conn.get("guild_id")))
         except DiscordError as exc:
             return _envelope(502, "discord_error", str(exc))
         return DiscordTargets(guilds=guilds)

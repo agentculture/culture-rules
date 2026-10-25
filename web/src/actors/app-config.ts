@@ -51,6 +51,11 @@ export interface ConnectionField {
   label: string;
   /** A comma-separated list in the form, an array in the actor. */
   list?: boolean;
+  /**
+   * A comma-separated list in the form; one entry is written as a plain string (what an
+   * older node reads), several as an array.
+   */
+  oneOrMany?: boolean;
   /** An enum: rendered as a select of exactly these values, the first one the default. */
   options?: readonly string[];
   /** Refused when blank. */
@@ -83,7 +88,7 @@ export const CONNECTION_FIELDS: Record<AppSurface, ConnectionField[]> = {
   ],
   discord: [
     { key: "bot_token", label: "Bot token" },
-    { key: "guild_id", label: "Guild id" },
+    { key: "guild_id", label: "Guild ids", oneOrMany: true },
     { key: "channels", label: "Channels", list: true },
   ],
   email: [
@@ -162,6 +167,11 @@ export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): A
   for (const [key, value] of Object.entries(baseConnection)) if (!known.has(key)) connection[key] = value;
   for (const field of CONNECTION_FIELDS[surface]) {
     const text = (draft.connection[field.key] ?? "").trim();
+    if (field.oneOrMany) {
+      const items = splitList(text);
+      if (items.length) connection[field.key] = items.length === 1 ? items[0] : items;
+      continue;
+    }
     if (text === "" && !field.keepEmpty) continue;
     connection[field.key] = field.list ? splitList(text) : text;
   }

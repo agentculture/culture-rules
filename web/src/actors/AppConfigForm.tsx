@@ -49,7 +49,7 @@ function ConnectionInput({ field, value, error, onChange }: Readonly<ConnectionI
       value={value}
       onChange={onChange}
       error={error}
-      hint={connectionHint(isSecret, field.list)}
+      hint={connectionHint(isSecret, field.list || field.oneOrMany)}
       placeholder={isSecret ? "grant:NAME" : field.placeholder}
       mono={isSecret}
     />

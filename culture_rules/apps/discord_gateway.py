@@ -58,6 +58,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from culture_rules.actors import secrets
+from culture_rules.apps.discord_rest import guild_ids
 from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, LeaseKeeper
 from culture_rules.engine.named_lease import NamedLease
 from culture_rules.events.hook_sink import sink
@@ -509,8 +510,8 @@ class GatewaySupervisor:
         channels = connection.get("channels")
         if channels and data["channel_id"] not in {str(c) for c in channels}:
             return
-        guild = connection.get("guild_id")
-        if guild and data["guild_id"] is not None and data["guild_id"] != str(guild):
+        guilds = guild_ids(connection.get("guild_id"))
+        if guilds is not None and data["guild_id"] is not None and data["guild_id"] not in guilds:
             return
         author = data["author_name"] or data["author_id"]
         now = time.monotonic()

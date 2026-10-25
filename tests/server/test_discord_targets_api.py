@@ -61,6 +61,23 @@ def test_a_guild_id_on_the_actor_limits_the_servers(store):
     assert [g["id"] for g in body["guilds"]] == ["20"]
 
 
+def test_a_guild_id_list_on_the_actor_limits_the_servers(store):
+    discord_actor(store, guild_id=["20"])
+    client, _ = client_for(store, guild_routes())
+    body = client.get("/actors/disc/discord/targets", headers=ALICE).json()
+    assert [g["id"] for g in body["guilds"]] == ["20"]
+    discord_actor(store, guild_id=["10", "20"])
+    body = client.get("/actors/disc/discord/targets", headers=ALICE).json()
+    assert [g["id"] for g in body["guilds"]] == ["10", "20"]
+
+
+def test_an_empty_guild_id_list_means_every_server(store):
+    discord_actor(store, guild_id=[])
+    client, _ = client_for(store, guild_routes())
+    body = client.get("/actors/disc/discord/targets", headers=ALICE).json()
+    assert [g["id"] for g in body["guilds"]] == ["10", "20"]
+
+
 def test_unknown_actor_is_404_and_a_non_discord_actor_is_422(store):
     store.put("actors", {"id": "gh", "name": "gh", "kind": "app", "params": {"surface": "github"}})
     client, resolved = client_for(store, guild_routes())
