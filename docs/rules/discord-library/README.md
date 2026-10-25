@@ -7,7 +7,7 @@ placeholder, and no step sends `visibility: public`.
 | File | What it is |
 |---|---|
 | `rules/discord-to-library.json` | trigger `discord.message.created`, disabled |
-| `workflows/discord-message-to-library.json` | `markdown.render`, then `library.push` (kind `discord`, format `md`) |
+| `workflows/discord-message-to-library.json` | `markdown.render`, then `library.push` (kind `document`, format `md`) |
 
 It ships no actors. It uses the Discord actor (`discord-bot`, grant
 `RULES_DISCORD_BOT_TOKEN`, or `jetson-bot`, grant
@@ -20,7 +20,7 @@ It ships no actors. It uses the Discord actor (`discord-bot`, grant
 
 1. Replace `CHANNEL_ID_PLACEHOLDER` in the rule's trigger `channels` with the
    real channel id (or a list of ids).
-2. Add kind `discord` and format `md` to the library actor.
+2. Add kind `document` and format `md` to the library actor.
 3. Check the rule is placed on the machine that holds the Discord actor.
 4. Import and enable it with the CLI, dry run first.
 

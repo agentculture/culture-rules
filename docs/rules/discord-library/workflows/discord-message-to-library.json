@@ -160,7 +160,7 @@
             "actor": "newspaper-library",
             "content_base64": "inputs.content_base64",
             "format": "md",
-            "kind": "discord",
+            "kind": "document",
             "title": "inputs.title",
             "visibility": "private"
           }
@@ -188,7 +188,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Put it in the library",
-      "notes": "library.push through newspaper-library: kind discord, format md, visibility private. The actor must list both.",
+      "notes": "library.push through newspaper-library: kind document, format md, visibility private. The actor must list both.",
       "outputs": [
         {
           "description": "",

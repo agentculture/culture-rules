@@ -11,7 +11,7 @@
   "concurrency_key": "discord:{trigger.data.message_id}",
   "condition": null,
   "counts_toward_budget": true,
-  "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: renders it as Markdown and pushes it to the library as kind discord. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
+  "description": "When a message is posted in the chosen channel (discord.message.created), runs discord-message-to-library: renders it as Markdown and pushes it to the library as kind document. Ships disabled with a placeholder channel id (docs/rules/discord-library/README.md).",
   "enabled": false,
   "exclusive_group": null,
   "id": "discord-to-library",
