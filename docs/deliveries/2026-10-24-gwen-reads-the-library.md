@@ -71,8 +71,8 @@ Quoted verbatim from the `devague summary` skeleton:
 - The Gwen and embodiment names were removed from code and tests: plan-slug references became
   "library items" and test actors became `assistant`/`operator` (c19). Two pre-existing lines on
   `main` in `tests/model/test_describe.py` are untouched.
-- Task agents decided several things the plan left open, each filed as a proposed delta:
-  - checklist ids are 1-based (`b4`/`b5`);
+- Task agents decided several things the plan left open, each filed as a delta (approved; `b4` rejected as a duplicate of `b5`):
+  - checklist ids are 1-based (`b5`);
   - the Markdown render is cached like the EPUB (`b1`);
   - the answer cache is allowed only with the recording brief and a `content_path` (`b2`);
   - an actor with no `formats` accepts only epub (`b3`).
@@ -130,8 +130,14 @@ Delivery above).
 | a new recording becomes Markdown transcript and todo items live; a flip lands within 60 s under the same id | unverified | t9 not run — not claimed done (o16, o17) |
 | the live newspaper push still sends kind newspaper with links | unverified | no live push since 0.27.0's change (o18) |
 
-Lapse ledger evidence: `l1` (t6's agent did not read bandit's output) is pending approval, so it
-is not yet evidence. Bandit was run again on `stt.py` at the t6 merge and is clean.
+Lapse ledger evidence (approved):
+
+| Lapse | Code | What |
+|-------|------|------|
+| `l1` | grader-unverified | t6's agent ran bandit on `stt.py` but did not read its output before committing |
+
+It touches no claim's confidence above: bandit was run again on `stt.py` at the t6 merge and
+is clean, and the full-tree bandit gate passes.
 
 ## Remaining Work / Follow-up
 
@@ -143,10 +149,9 @@ is not yet evidence. Bandit was run again on `stt.py` at the t6 merge and is cle
   replace route and `todo` kind: mint a key that can write `todo`, give the library actor
   `formats` [md], `replace_path` and `replace_method`, configure the merge/render/push/bind and
   flip rules, then validate.
-- Records awaiting the operator:
-  - deviation `d3`;
-  - deltas `b1`–`b7` (`b4` duplicates `b5`; reject `b4`; `b6` and `b7` record `d1` and `d2`);
-  - evidence `e1`–`e16`, obligations `o1`–`o18`, lapse `l1`.
+- Records awaiting the operator: deviation `d3` (the review fixes). The operator approved
+  obligations `o1`–`o18`, evidence `e1`–`e16`, deltas `b1`–`b3` and `b5`–`b7`, and lapse `l1`,
+  and rejected `b4` (a duplicate of `b5`).
 - Embodiment (risk r2): Gwen reads to-dos from the library and sends the checklist comment id in
   `embodiment.bus.todo`.
 - Re-pushing the 33 old transcripts as Markdown items (v2) — live, after t9.
