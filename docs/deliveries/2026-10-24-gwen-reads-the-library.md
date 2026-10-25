@@ -42,7 +42,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t6` | delivered | `stt.py`: `audio_sha256` is optional (the file is hashed in chunks), and a missing file gives `audio_missing` (final). Commits `68ffeb7` and `1e00649`, merged in `883e649` |
 | `t7` | delivered | Wiring in commit `d4a48ea`: runner registration, catalog params, describe glosses, the editor, and `tests/node/test_library_items_flow.py`. Then `f8a6821` and `86ab3b0`: bind takes an int `item_id`, render returns `item_id` |
 | `t8` | delivered | `docs/operations/library-items.md` plus updates to `library.md`, `llm.md`, `pocket-transcribe.md`, the four harness files, 0.28.0 and `release.json`. Commit `f2a3767` |
-| `t9` | partial | 0.28.0 rolled out (verified on 4 nodes). Live, outside the repo: `read-recording` (json.read on `meta.json`) and rule `pocket-recording-created` (enriched, change created); both transcription rules now follow it, building the audio's absolute path with a `{{ }}` template; `transcript-to-reader` uses the recording brief with the cache and pushes Markdown; `recording-todos` and `todo-flip` (rules enabled); the library actor lists `md`, `todo` and culture-library 0.12.0's replace route; the library key rotated to one that can write `todo` (key 6). Validated: a new recording went from its created event to transcript item 58 in about 70 s with no manual step (e22); hand-started runs gave transcript item 57, to-do item 59, and a flip replacing item 59 in 2 s (e17, e20, e21). Not yet seen: a real `embodiment.bus.todo` event, and a rule-fired to-do item (the first natural recording had no action items) |
+| `t9` | partial | 0.28.0 rolled out (verified on 4 nodes). Live, outside the repo: `read-recording` (json.read on `meta.json`) and rule `pocket-recording-created` (enriched, change created); both transcription rules now follow it, building the audio's absolute path with a `{{ }}` template; `transcript-to-reader` uses the recording brief with the cache and pushes Markdown; `recording-todos` and `todo-flip` (rules enabled); the library actor lists `md`, `todo` and culture-library 0.12.0's replace route; the library key rotated to one that can write `todo` (key 6). Validated: new recordings ran with no manual step, to transcript item 58 (e22), and, for one with an action item, to transcript item 60 plus a rule-fired to-do item 61 in about 2 min 15 s (e23); hand-started runs gave transcript item 57, to-do item 59, and a flip replacing item 59 in 2 s (e17, e20, e21). Not yet seen: a real `embodiment.bus.todo` event (the reader does not send checklist ids yet, r2) |
 
 ## Mid-work Decisions
 
@@ -95,7 +95,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t1` (`d2`) | The replace reply shape was guessed before culture-library defined it; fixed to accept the item itself. Evidence `e16`, delta `b7` | acceptable |
 | `t2` / `t3` / `t4` (`d3`) | Review fixes: render reads the list summary; cache usage, chunked hash; checklist `at` range, string `item_id`, `StoreError` | acceptable |
 | `t9` (`d4`, withdrawn by `d5`) | A relative audio path in the event: bridged in configuration with a `{{ }}` template, no code change | acceptable |
-| `t9` | A real reader event, and a rule-fired to-do item, are still to be seen | needs-follow-up |
+| `t9` | A real reader event is still to be seen (needs the reader to send checklist ids, r2) | needs-follow-up |
 
 No other task drifted: t1–t3, t5, t6 and t8 delivered against their acceptance criteria (Actual
 Delivery above).
@@ -136,7 +136,7 @@ Delivery above).
 | audio.transcribe works without a given hash and fails a missing file finally | high | e12, e13 (sensitivity) · commits `68ffeb7`, `1e00649` |
 | the new pieces are registered and run together on a node | medium | `tests/node/test_library_items_flow.py`, `tests/node/test_default_ports.py` · commit `d4a48ea` |
 | the PR names no person; culture-rules runs no embodiment ingest | high | e14, e15 |
-| a recording becomes a Markdown transcript item and, with action items, a to-do item, live | medium | e22: item 58 from a new recording with no manual step; e17, e20: items 57 and 59 from hand-started runs; a rule-fired to-do item not yet seen |
+| a recording becomes a Markdown transcript item and, with action items, a to-do item, live | high | e22, e23 (proposed): items 58, 60 and 61 from new recordings with no manual step; e17, e20: items 57 and 59 from hand-started runs |
 | a flip replaces the to-do item under the same id within 60 s; re-extraction keeps ids and done marks | medium | e21: 2 s, item 59, by a direct `todo-flip` run; the reader's event path is not yet exercised |
 | the live newspaper push sends kind newspaper with links | medium | e18: item 55, public, 20 links, pushed under 0.27.0 |
 | no live definition calls embodiment memory ingest, after t9 | high | e19: 19 workflows, 33 rules, 21 actors |
@@ -152,10 +152,9 @@ is clean, and the full-tree bandit gate passes.
 
 ## Remaining Work / Follow-up
 
-- `t9` — watch the first new recording with action items get its to-do item from the rule, and the
-  first real `embodiment.bus.todo` flip (needs the reader to send checklist ids, r2); file the
-  evidence. Owner: main agent.
-- Records: none await the operator. Approved: deviations `d1`–`d5`
+- `t9` — the first real `embodiment.bus.todo` flip, once the reader sends checklist ids (r2); file
+  its evidence. Owner: main agent, after the embodiment change.
+- Records awaiting the operator: evidence `e23`. Approved: deviations `d1`–`d5`
   (`d4` withdrawn by `d5`), obligations `o1`–`o18`, evidence `e1`–`e22`, deltas `b1`–`b3` and
   `b5`–`b7`, lapse `l1`; `b4` rejected (a duplicate of `b5`).
 - Embodiment (risk r2): Gwen reads to-dos from the library and sends the checklist comment id in
