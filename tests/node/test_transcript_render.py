@@ -15,6 +15,7 @@ import pytest
 from culture_rules.engine.actorport import COMPLETED, InvocationContext
 from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.node.actions import transcript_render as tr
+from culture_rules.node.actions.recording_answer import parse_recording_answer
 from culture_rules.node.actions.transcript_file import build_result
 from culture_rules.node.actions.transcript_render import TranscriptRenderPort, parse_summary
 
@@ -444,3 +445,40 @@ def test_md_escapes_ampersand_and_angle_brackets_in_derived_text() -> None:
     assert "<b>" not in text
     assert "&amp;amp;" not in text
     assert out["title"] == "2026-10-24 0130 plans"
+
+
+def _llm_recording_output(*, cached: bool) -> dict[str, Any]:
+    """llm.complete's real recording output: the parsed answer keeps summary as lines, and a
+    cache hit's text is that answer as JSON."""
+    reply = json.dumps(
+        {
+            "summary": "Line one.\nLine two.",
+            "word": "Plans",
+            "facts": ["Fact A"],
+            "action_items": ["Book the truck"],
+        }
+    )
+    answer = parse_recording_answer(reply)
+    text = json.dumps(answer, sort_keys=True) if cached else reply
+    return {"text": text, "model": "m", "usage": {}, "answer": answer, "cached": cached}
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_md_uses_llm_complete_recording_output_as_given(cached: bool) -> None:
+    summary = _llm_recording_output(cached=cached)
+    out = tr.render_transcript(_doc("en"), recorded_at=AT, summary=summary, format="md")
+    assert out["summary_used"] is True
+    assert out["word"] == "plans"
+    text = _md(out)
+    assert "Line one." in text
+    assert "- Fact A" in text
+
+
+def test_a_cached_answer_text_alone_still_parses() -> None:
+    text = _llm_recording_output(cached=True)["text"]
+    assert tr.parse_answer({"text": text}) == (["Line one.", "Line two."], "plans", ["Fact A"])
+
+
+def test_a_summary_list_must_hold_only_strings() -> None:
+    bad = {"summary": ["ok", 5], "word": "plans"}
+    assert tr.parse_answer(bad) is None

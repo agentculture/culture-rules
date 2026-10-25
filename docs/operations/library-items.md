@@ -22,9 +22,9 @@ services involved, so it is never committed.
 | `llm.complete` with `brief: recording` | action | Asks for one JSON answer: `{summary, word, facts, action_items}`. The brief is a code constant and a step cannot change it. With `cache: true` and a `content_path`, the first valid answer is kept beside the content file (`answer.recording.<sha16>.json`). A re-run returns that answer, so re-extracting the same transcript gives the same items. |
 | `transcript.render` with `format: md` | action | Writes the transcript as Markdown: the dated title as H1, the summary, `## Key facts`, then `## Transcript`. Hebrew or unlabelled transcripts are wrapped in `<div dir="rtl">`. Derived text is HTML-escaped. The first Markdown with a used summary is kept as `book.<sha16>.md`, like the EPUB. |
 | `checklist.merge` | builtin | Merges extracted item texts into the stored list for a `list_key`. An item whose normalized text matches keeps its id and done mark. A new item gets the next index, and an index is never reused. A stored item not extracted again is kept. |
-| `checklist.set` | builtin | Marks one item done or not done, recording `at` (epoch seconds) and `by`. It applies only when `at` is newer than the item's last applied flip. An unknown list or id, or a flip that isn't newer, completes with `applied: false` and a `reason`. |
+| `checklist.set` | builtin | Marks one item done or not done, recording `at` (epoch seconds, from 1970 to the end of 9999) and `by`. It applies only when `at` is newer than the item's last applied flip. An unknown list or id, or a flip that isn't newer, completes with `applied: false` and a `reason`. |
 | `checklist.render` | builtin | Renders the list as Markdown with the list's `revision` and its bound library `item_id` (null before the first push). Each line is `- [ ] text <!-- todo:<id> -->`, or `- [x] text <!-- todo:<id> done_at=<ISO> by=<by> -->` once done. Ids are `<prefix>.<list key>.<n>`, with `n` starting at 1. |
-| `checklist.bind` | builtin | Records the library item a list was pushed as, at a revision. It keeps only a newer revision, and answers `stale: true` when the list has moved on since. |
+| `checklist.bind` | builtin | Records the library item a list was pushed as, at a revision. A decimal string id is stored as the integer `library.push` takes. It keeps only a newer revision, and answers `stale: true` when the list has moved on since. |
 | `library.push` with `format` / `item_id` | action | Uploads Markdown (or any format the actor lists), or replaces an item's file under its id through the actor's `replace_path`. See [the library actor guide](../actors/library.md). |
 
 ## Rules that keep a to-do list correct
@@ -34,7 +34,8 @@ services involved, so it is never committed.
   one. A flip rule that keys on a whole list could therefore drop a flip on
   another line. Key flips per item (`todo:{trigger.data.data.id}`), or not at
   all. `checklist.set` is safe to run concurrently on one list: every write is
-  a compare-and-set on the list document, retried on conflict.
+  a compare-and-set on the list document, retried on conflict; a list still
+  contended after the retries fails `checklist_contended`, which is retried.
 - **Render from the stored list, never from the event.** Every flip lands in
   the store first, and the library item is always rendered from the store.
 - **Push until current.** Render, push (replace), then bind with the rendered

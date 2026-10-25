@@ -27,6 +27,7 @@ from culture_rules.node.actions.checklist import (
     normalize,
 )
 from culture_rules.store.memory import MemoryStore
+from culture_rules.store.port import StoreError
 
 DEADLINE = datetime(2030, 1, 1, tzinfo=UTC)
 KEY = "weekly"
@@ -500,3 +501,47 @@ def test_render_returns_the_bound_item_so_the_next_push_replaces_it(store):
     assert ok(render(store))["item_id"] is None
     ok(bind(store, 42, 1))
     assert ok(render(store))["item_id"] == 42
+
+
+def test_bind_stores_a_decimal_string_item_id_as_the_int_library_push_takes(store):
+    ok(merge(store, ["a"]))
+    ok(bind(store, "7", 1))
+    assert ok(render(store))["item_id"] == 7
+
+
+def test_bind_keeps_a_non_decimal_string_item_id(store):
+    ok(merge(store, ["a"]))
+    ok(bind(store, "lib-7", 1))
+    assert ok(render(store))["item_id"] == "lib-7"
+
+
+@pytest.mark.parametrize("at", [1e20, -1.0, -1e15, 253402300800])
+def test_set_refuses_an_at_outside_the_renderable_range(store, at):
+    ok(merge(store, ["a"]))
+    res = flip(store, "todo.weekly.1", True, at)
+    assert res.outcome == "failed"
+    assert res.error.startswith("bad_input")
+    assert ok(render(store))["done_count"] == 0
+
+
+def test_set_accepts_the_last_renderable_second(store):
+    ok(merge(store, ["a"]))
+    assert ok(flip(store, "todo.weekly.1", True, 253402300799))["applied"] is True
+    assert "done_at=9999-12-31T23:59:59Z" in ok(render(store))["markdown"]
+
+
+def test_a_store_error_under_contention_is_a_retryable_contended_failure(store):
+    ok(merge(store, ["a"]))
+
+    class Raising:
+        def get(self, *a, **kw):
+            return store.get(*a, **kw)
+
+        def update_if(self, *a, **kw):
+            raise StoreError("update_if checklists/weekly: too much contention")
+
+    inputs = {"list_key": KEY, "id": "todo.weekly.1", "done": True, "at": 5.0, "by": "op"}
+    res = ChecklistSetPort(Raising()).invoke(inputs, "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed"
+    assert res.retryable is True
+    assert res.error.startswith("checklist_contended")

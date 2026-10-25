@@ -73,6 +73,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.store.port import StoreError
 
 __all__ = [
     "BIND_BUILTIN",
@@ -98,6 +99,7 @@ CAS_TRIES = 8
 MAX_ITEMS = 500
 MAX_TEXT = 500
 _MAX_BY = 100
+_MAX_AT = 253402300799  # 9999-12-31T23:59:59Z, the last second a done_at can render
 _MAX_ID = 200
 _KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:-]{0,99}")
 _PREFIX = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,39}")
@@ -218,18 +220,22 @@ def _text_id(value: Any, name: str) -> str:
 
 
 def _item_ref(value: Any) -> int | str:
-    """The library item id: a positive int (library.push's ``item_id``) or a non-empty string,
-    kept as given so it maps straight back into a replace."""
+    """The library item id: a positive int (library.push's ``item_id``) or a non-empty string.
+    A decimal string becomes that int, so it maps straight back into a replace; any other
+    string is kept as given."""
     if isinstance(value, int) and not isinstance(value, bool):
         if value < 1:
             raise _bad(f"{_ITEM_ID}: a positive int or a non-empty string")
         return value
-    return _text_id(value, _ITEM_ID)
+    text = _text_id(value, _ITEM_ID)
+    return int(text) if text.isascii() and text.isdigit() and int(text) >= 1 else text
 
 
 def _at(value: Any) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise _bad("at: finite epoch seconds")
+    if not 0 <= value <= _MAX_AT:
+        raise _bad("at: epoch seconds from 1970 to the end of 9999")
     return value
 
 
@@ -282,9 +288,12 @@ class _ChecklistPort:
     def _cas(self, key: str, doc: Mapping[str, Any] | None, changes: dict[str, Any]) -> bool:
         rev = (doc or {}).get(_REV)
         changes = {**changes, _LIST_KEY: key, _REV: (rev or 0) + 1}
-        result = self._store.update_if(
-            CHECKLISTS_COLLECTION, key, {_REV: rev}, changes, upsert=doc is None
-        )
+        try:
+            result = self._store.update_if(
+                CHECKLISTS_COLLECTION, key, {_REV: rev}, changes, upsert=doc is None
+            )
+        except StoreError:
+            return False  # the store gave up under contention: a lost round, retried
         return bool(result.won)
 
     @staticmethod

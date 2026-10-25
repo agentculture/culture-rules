@@ -1018,6 +1018,8 @@ def test_first_answer_is_cached_beside_the_content_file_and_replayed(tmp_path):
     assert two.output["cached"] is True
     assert two.output["answer"] == one.output["answer"]
     assert two.output["model"] == one.output["model"]
+    assert one.output["usage"] != {}
+    assert two.output["usage"] == {}  # no tokens were spent, so none count toward the budget
     assert not [p for p in path.parent.iterdir() if p.name.startswith(".")]
 
 

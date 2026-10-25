@@ -21,6 +21,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `audio.transcribe` hashes the audio itself when no `audio_sha256` is given, and a missing file fails `audio_missing` (final)
 - docs/actors/llm.md describes all three briefs, content_path and the cache; docs/actors/library.md describes formats and replace
 
+### Fixed
+
+- From the review of #93:
+  - `transcript.render` reads a recording answer whose `summary` is a list of lines, as `llm.complete` outputs it, fresh or cached;
+  - a cache hit reports empty `usage`, so it no longer counts toward the token budget;
+  - the cache hashes the content file in chunks;
+  - `checklist.set` refuses an `at` outside 1970–9999, which could not render;
+  - `checklist.bind` stores a decimal string `item_id` as the int `library.push` takes;
+  - a store giving up under contention is a retryable `checklist_contended`;
+  - the byte-level atomic write is shared from `transcript_file`
+
 ## [0.27.0] - 2026-10-24
 
 ### Added

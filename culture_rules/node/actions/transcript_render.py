@@ -71,7 +71,6 @@ import io
 import json
 import os
 import re
-import tempfile
 import zipfile
 from collections.abc import Mapping
 from datetime import datetime
@@ -80,7 +79,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.node.actions.transcript_file import TRANSCRIPT_FILE_CAP
+from culture_rules.node.actions.transcript_file import TRANSCRIPT_FILE_CAP, write_bytes_atomic
 
 __all__ = [
     "DEFAULT_WORD",
@@ -196,6 +195,8 @@ def parse_answer(value: Any) -> tuple[list[str], str, list[str]] | None:
     if data is None:
         return None
     summary, word = data.get("summary"), data.get("word")
+    if isinstance(summary, list) and all(isinstance(ln, str) for ln in summary):
+        summary = "\n".join(summary)  # the recording answer keeps its summary as lines
     if not isinstance(summary, str) or not isinstance(word, str):
         return None
     word = word.strip()
@@ -487,18 +488,6 @@ def _cached_book(path: Path, raw: bytes, fmt: str = "epub") -> dict[str, Any] | 
     return out
 
 
-def _write_atomic(target: Path, data: bytes) -> None:
-    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp, target)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
-
-
 def _store_book(path: Path, raw: bytes, out: Mapping[str, Any], fmt: str = "epub") -> None:
     """Keep the rendered book beside its transcript (best effort: a folder that cannot be
     written to still gets its book, it is only rendered again next time). A book without
@@ -510,8 +499,8 @@ def _store_book(path: Path, raw: bytes, out: Mapping[str, Any], fmt: str = "epub
     meta = {name: out[name] for name in _CACHED_FIELDS}
     meta.update(transcript_sha256=digest, book_sha256=hashlib.sha256(book).hexdigest())
     with contextlib.suppress(OSError):
-        _write_atomic(epub_path, book)  # the book first: the record is only valid with it
-        _write_atomic(meta_path, json.dumps(meta, sort_keys=True).encode("utf-8"))
+        write_bytes_atomic(epub_path, book)  # the book first: the record is only valid with it
+        write_bytes_atomic(meta_path, json.dumps(meta, sort_keys=True).encode("utf-8"))
 
 
 class TranscriptRenderPort:

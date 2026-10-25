@@ -108,7 +108,11 @@ With `cache: true`, the first valid recording answer is written beside the
 content file as `answer.recording.<first 16 hex of its sha256>.json`. A later
 run for the same file returns it without calling the model, so re-extracting
 a transcript gives the same answer. A changed file has a new sha256 and is
-asked again.
+asked again. The cache follows the content, not the model: after moving the
+step to another model, a cached transcript keeps its first answer (and that
+model's name) so its to-do ids stay stable. Delete the
+`answer.recording.*.json` files to ask again. A cache hit reports empty
+`usage`, because no tokens were spent.
 
 The request body has exactly `model`, `messages`, `max_tokens`,
 `stream: false` and, when given, `temperature`. It never has a `tools`
@@ -117,8 +121,9 @@ field. Environment proxies are ignored and redirects are not followed.
 The output is `{text, model, usage}`, plus `answer` (the parsed JSON) and
 `cached` for the recording brief. `text` is the first choice's message,
 with a leading `<think>` block dropped. On a cache hit (`cached: true`),
-`text` is the stored answer as canonical JSON, not the model's original
-reply, so map later steps from `answer`, not `text`. `usage` keeps the token counts, which
+`text` is the stored answer as canonical JSON (its `summary` a list of
+lines), not the model's original reply. `transcript.render` reads either form,
+or the whole output. `usage` keeps the token counts, which
 count toward the actor's token budget.
 
 ## Failures

@@ -85,11 +85,8 @@ Standard-library only.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import http.client
 import json
-import os
-import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -105,7 +102,13 @@ from culture_rules.model.actor import Actor
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.machine import load_bound_actor
 from culture_rules.node.actions.recording_answer import AnswerRefused, parse_recording_answer
-from culture_rules.node.actions.transcript_file import ExcerptRefused, _under, read_excerpt
+from culture_rules.node.actions.transcript_file import (
+    ExcerptRefused,
+    _under,
+    file_sha256,
+    read_excerpt,
+    write_bytes_atomic,
+)
 from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
@@ -380,18 +383,6 @@ def _usage(usage: Mapping[str, Any]) -> dict[str, int]:
     }
 
 
-def _write_atomic(target: Path, data: bytes) -> None:
-    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp, target)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
-
-
 def _cache_path(input: Mapping[str, Any]) -> tuple[Path, str] | None:
     """``(answer cache file, content sha256)`` when ``cache: true`` applies, else None."""
     flag = input.get(_CACHE)
@@ -403,7 +394,7 @@ def _cache_path(input: Mapping[str, Any]) -> tuple[Path, str] | None:
         raise _Refused(INVALID, "cache needs brief 'recording' and a content_path")
     try:
         path = _under(input.get(_CONTENT_PATH), input.get(_CONTENT_ROOT))
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = file_sha256(path)
     except ExcerptRefused as exc:
         raise _Refused(exc.code, exc.detail) from exc
     except OSError as exc:
@@ -433,7 +424,7 @@ def _cached_answer(file: Path, digest: str) -> dict[str, Any] | None:
     return {
         "text": json.dumps(answer, sort_keys=True, ensure_ascii=False),
         _MODEL: model,
-        "usage": _usage(usage),
+        "usage": {},  # no model call, so nothing counts toward the actor's token budget
         "answer": answer,
         "cached": True,
     }
@@ -451,7 +442,9 @@ def _store_answer(file: Path, digest: str, out: Mapping[str, Any]) -> None:
         "answer": out["answer"],
     }
     with contextlib.suppress(OSError):
-        _write_atomic(file, json.dumps(doc, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        write_bytes_atomic(
+            file, json.dumps(doc, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        )
 
 
 def _status_failure(status: int) -> _Refused:

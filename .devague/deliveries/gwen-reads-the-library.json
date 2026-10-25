@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T05:07:08Z",
+  "updated": "2026-10-25T05:24:27Z",
   "deviations": [
     {
       "id": "d1",
@@ -31,6 +31,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 17
+    },
+    {
+      "id": "d3",
+      "what": "Review fixes on #93: transcript.render reads a list summary (llm.complete's recording answer, fresh or cached); a cache hit reports empty usage and the cache hashes in chunks; checklist.set refuses at outside 1970-9999; checklist.bind stores a decimal string item_id as an int; a store giving up under contention is retryable checklist_contended; the byte atomic write is shared",
+      "task_ref": "t3",
+      "reason": "/code-review medium on PR #93 found that render could not read llm.complete's recording output (every transcript item lost its summary), a string bind broke the next push, an out-of-range at made the list unrenderable, cache hits charged tokens twice, and StoreError escaped; each has a failing-first test",
+      "affects": [
+        "t2",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 19
     }
   ],
   "evidence": [
