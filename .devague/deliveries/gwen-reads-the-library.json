@@ -2,7 +2,7 @@
   "plan_slug": "gwen-reads-the-library",
   "schema_version": 2,
   "created": "2026-10-24T22:17:12Z",
-  "updated": "2026-10-25T05:36:56Z",
+  "updated": "2026-10-25T06:57:50Z",
   "deviations": [
     {
       "id": "d1",
@@ -45,6 +45,34 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 19
+    },
+    {
+      "id": "d4",
+      "what": "audio.transcribe resolves a relative audio_path under its actor's audio_root (same containment and symlink checks); patch PR 0.28.1, then rollout, then t9 continues",
+      "task_ref": "t9",
+      "reason": "pocketsync.recording.enriched and meta.json carry only paths relative to the files root, audio.transcribe required an absolute path, and no workflow mapping or builtin can join them, so no live configuration could transcribe from the event; the operator chose this generic fix",
+      "affects": [
+        "t6",
+        "c33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 20
+    },
+    {
+      "id": "d5",
+      "what": "Withdraws d4: no code change; t9's live configuration builds the audio's absolute path with a {{ }} template (files root + the relative path); PR #94 closed unmerged",
+      "task_ref": "t9",
+      "reason": "d4's premise was wrong: rule workflow-input mappings and built-in action step params substitute {{ ... }} templates (culture_rules/model/refs.py), so the relative path can be joined to the files root in configuration; the operator chose to close #94 and use templates",
+      "affects": [
+        "t6",
+        "c33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 21
     }
   ],
   "evidence": [
@@ -351,6 +379,139 @@
       "status": "approved",
       "superseded": false,
       "seq": 18
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o16",
+      "test_ref": "live: workflows run read-recording (recording 2549024c) -> rules pocket-transcribe-he -> pocket-to-reader; runs run-f2cf9741, run-269df4b1, run-62b0f682; library DB item 57",
+      "behavior_text": "transcript part only: from meta.json alone the chain transcribed the recording on the he lane (the en lane did not fire), extracted the recording answer (2 facts, 2 action items) and pushed a Markdown transcript item, id 57, kind transcript, format md, private; the first step was started by hand because the recording's created event (06:23:52Z) preceded the rule; the todo item is not yet checked",
+      "contract_text": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live runs succeeded on 0.28.0 and the library row was read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:31:00",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o18",
+      "test_ref": "live: library DB item 55 (Daily newspaper 2026-10-25) and its EPUB under /data/files",
+      "behavior_text": "the 03:00Z newspaper landed as kind newspaper, public, epub, with 20 external links; pushed under 0.27.0, before the 0.28.0 rollout (the first 0.28.0 push is 2026-10-26)",
+      "contract_text": "the live newspaper push sends kind newspaper with its links",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "library row and EPUB read read-only",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:31:00",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o15",
+      "test_ref": "live: read-only scan of 19 workflows, 33 rules, 21 actors after the t9 configuration",
+      "behavior_text": "no definition calls embodiment memory ingest; embodiment appears only in the todo-flip rule (event type and source) and a repo name",
+      "contract_text": "no live definition or repo code calls embodiment memory ingest",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "grep over exported definitions",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:31:00",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o16",
+      "test_ref": "live: workflows run recording-todos (recording 2549024c, its 2 extracted action items) run-24e919ba; library DB item 59",
+      "behavior_text": "todo part: checklist.merge stored 2 items (ids pocket.<recording>.1/.2), render + library.push uploaded item 59 (kind todo, md, private) and bind recorded it at revision 1; started by hand because recording-todos was enabled after this recording's transcript run; the rules (recording-todos, todo-flip) are now enabled",
+      "contract_text": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live run succeeded on 0.28.0 with the rotated key (6) and the library row was read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:35:30",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o17",
+      "test_ref": "live: workflows run todo-flip (id pocket.2549024c...1, done true, by operator); then recording-todos re-run; library DB item 59 sha before/after and its file",
+      "behavior_text": "the flip applied and item 59 was replaced in place (PUT /api/library/59/file, created false) 2 s after the run started: same id, new sha, the line now '- [x] ... done_at=2026-10-25T06:34:48Z by=operator'; a re-extraction kept both ids (added 0, kept 2) and the done mark, and left item 59 at revision 2; the embodiment.bus.todo event path itself is not yet exercised (the reader does not send checklist ids yet, r2)",
+      "contract_text": "a todo event flips its line within 60 s under the same item id; re-extraction keeps ids",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live runs succeeded and the stored file was read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:35:30",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o16",
+      "test_ref": "live, no manual step: pocketsync created event 2026-10-25T06:31:11Z (recording 4b859cbe) -> rule pocket-recording-created run-7cf58778 -> pocket-transcribe-he run-4a3c662f -> pocket-to-reader run-89a99d73; library item 58",
+      "behavior_text": "a new recording went from its created event to a Markdown transcript item (58, '2026-10-25 0830 stickers', kind transcript) in about 70 s with no manual step; its answer had 0 action items, so no to-do item was due",
+      "contract_text": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "rule-fired live runs succeeded; run outputs read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:32:30",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o16",
+      "test_ref": "live, no manual step: pocketsync created 2026-10-25T06:50:06Z (recording 70b523d5, en) -> pocket-recording-created run-24e9fd39 -> pocket-transcribe run-d4d55900 -> pocket-to-reader run-949427e5 -> recording-todos run-40fe5247; library items 60 and 61",
+      "behavior_text": "a new recording with an action item became a Markdown transcript item (60, kind transcript) and a rule-fired to-do item (61, kind todo, one open line with id pocket.70b523d5....1) about 2 minutes 15 seconds after its created event, with no manual step; the en lane (stt-en) ran and the he lane did not",
+      "contract_text": "a new recording becomes a Markdown transcript item and, with action items, a todo item",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "rule-fired live runs succeeded; library rows and the to-do file were read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T06:52:20",
+        "commit": "48e58ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 28
     }
   ],
   "deltas": [
