@@ -72,7 +72,7 @@ Quoted verbatim from the `devague summary` skeleton:
   `{{ }}` templates (`culture_rules/model/refs.py`). The operator then chose to close #94
   unmerged and build the path with a template; `d5` withdraws `d4`. No code changed.
 - The library key could not be rotated by the assistant (the secret-store write is the
-  operator's); the operator ran the rotation script, and key 6 replaced key 3.
+  operator's); the operator ran the rotation script: key 6 replaced key 3, which was revoked at 2026-10-25T06:48Z.
   agentculture/culture-library#14 asks for a `keys rotate` verb so this is one command.
 - t3 was sent back once to HTML-escape transcript- and model-derived text in the Markdown,
   because inside the rtl `<div>` a stray `<` could be read as HTML (commit `d371de8`).
@@ -155,7 +155,6 @@ is clean, and the full-tree bandit gate passes.
 - `t9` — watch the first new recording with action items get its to-do item from the rule, and the
   first real `embodiment.bus.todo` flip (needs the reader to send checklist ids, r2); file the
   evidence. Owner: main agent.
-- Revoke the old library key 3 (`keys revoke --id 3`) once nothing else uses it. Owner: operator.
 - Records: none await the operator. Approved: deviations `d1`–`d5`
   (`d4` withdrawn by `d5`), obligations `o1`–`o18`, evidence `e1`–`e22`, deltas `b1`–`b3` and
   `b5`–`b7`, lapse `l1`; `b4` rejected (a duplicate of `b5`).
