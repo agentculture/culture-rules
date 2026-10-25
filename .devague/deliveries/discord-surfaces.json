@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T15:02:35Z",
+  "updated": "2026-10-25T15:42:52Z",
   "deviations": [
     {
       "id": "d1",
@@ -71,6 +71,21 @@
     }
   ],
   "evidence": [],
-  "deltas": [],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "Each delivered daily newspaper is posted to the Jetson AI Lab Discord as Jetson Bot through a live continuation rule (rules.run.succeeded of daily-newspaper with an item_id) and generic steps run.read -> markdown.from_html -> discord.message for_each; live on 0.30.0 to #bot-experimentations 1407337283794767873 (workflow rev 2; #bot-news denies the bot Send Messages). Validated live 2026-10-25: run run-2c77aee79f2c472da6493d372d69876d posted the 2026-10-25 issue as 4 ordered messages (1741/1630/1862/1559 chars, no embeds; ids 1563940592843624479..1563940599151853709), read back from the channel; the operator confirmed it works",
+      "caused_by": [
+        "d4",
+        "d5",
+        "c20"
+      ],
+      "evidence_refs": [],
+      "origin": "user",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
