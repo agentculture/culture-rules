@@ -322,6 +322,16 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
     inputs: [PORT("title", true), PORT("text", true), PORT("author", false), PORT("source", false), PORT("url", false), PORT("id", false)],
     outputs: [PORT("markdown", true), PORT("content_base64", true)],
   },
+  "markdown.from_html": {
+    label: "markdown.from_html: HTML as Markdown, whole and in chunks",
+    inputs: [PORT("html", true)],
+    outputs: [PORT("markdown", true), { name: "chunks", type: "array", required: true }, { name: "count", type: "integer", required: true }],
+  },
+  "run.read": {
+    label: "run.read: a step's outputs from the run that started this one",
+    inputs: [PORT("run_id", false)],
+    outputs: [PORT("run_id", true)],
+  },
 };
 
 /**

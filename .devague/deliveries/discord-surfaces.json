@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T14:35:35Z",
+  "updated": "2026-10-25T15:02:35Z",
   "deviations": [
     {
       "id": "d1",
@@ -55,6 +55,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "d4's posting flow is built from generic steps instead of a newspaper-specific builtin: run.read (a step's outputs from the verified upstream run) and markdown.from_html (HTML as Markdown chunks) replace newspaper.digest; the newspaper specifics (render step, classes to drop, the Discord channel) live only in the live flow's config",
+      "task_ref": "t11",
+      "reason": "operator rule 2026-10-25: the code shouldn't have the newsletter, that's configuration; code holds schedule, web search, passing data, previous run results, convert to Markdown, post to Discord",
+      "affects": [
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
     }
   ],
   "evidence": [],

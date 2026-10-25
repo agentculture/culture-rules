@@ -358,29 +358,28 @@ summary window has closed and it sends the results only. A re-run more than
 
 ## 7. Post each issue to Discord (optional)
 
-The builtin `newspaper.digest` turns a delivered issue into Discord-sized
-Markdown: the title and date in bold, then each section's name in bold and its
-summary bullets (a section shown without a summary lists its headlines as links,
-an empty one says so). It reads the issue `newspaper.issue` stored for a date, so
-it needs only the date, and the same issue always gives the same chunks. Links
-are written `[label](<url>)`, so Discord shows no preview per link.
+Posting the newspaper is configuration, built from generic steps; nothing in
+the code knows about it. The flow lives in the store, not committed:
 
-The posting flow is configured live in the store, not committed, as a rule that
-continues from the newspaper:
-
-- a rule on `rules.run.succeeded` with the condition `data.workflow_id ==
-  "daily-newspaper"`, passing `date` from `trigger.data.outputs.date` to the
-  workflow;
-- a workflow with a `newspaper.digest` code step (input `date`; config
-  `max_chars`, default 1900) and a `for_each` over its `chunks`, whose body is a
-  `discord.message` action through a Discord app actor (`params.actor`,
-  `guild`, `channel`, `text` from `inputs.item`).
+- **The rule** fires on `rules.run.succeeded` with the condition
+  `data.workflow_id == "daily-newspaper"` and `data.outputs.item_id != null`. A
+  re-run that finds the day already delivered succeeds quietly with no
+  `item_id`, so it posts nothing.
+- **`run.read`** (config `step: render`, `fields: [html]`) reads the rendered
+  issue from the newspaper run that started this one, verified from the store.
+- **`markdown.from_html`** turns that HTML into Markdown chunks of at most
+  `max_chars` (1900 fits a Discord message). For the newspaper's markup, set
+  `drop_classes: [meta]` (a result's source line), `item_paragraphs: 1` (a
+  result's headline, not its snippet) and `italic_classes: [note, empty]`.
+- **A `for_each` over `chunks`**, whose body is a `discord.message` action
+  through a Discord app actor (`params.actor`, `guild`, `channel`, and `text`
+  from `inputs.item`), posts the chunks in order.
 
 The library at library.culture.dev is behind Cloudflare Access, so a post that
-only links to the issue would not open for readers outside it; the digest
-carries the headlines and summaries themselves. To try it once for a day that
-already went out, run the workflow by hand with that day's date (`workflows
-run`); the newspaper itself is not re-run.
+only links to the issue would not open for readers outside it; the chunks carry
+the headlines and summaries themselves. To post a day that already went out,
+run the workflow by hand with `run_id` set to that day's `daily-newspaper` run
+(`workflows run ... --input run_id=<run id>`); the newspaper itself is not re-run.
 
 ## Known limits
 
