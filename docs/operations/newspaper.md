@@ -356,6 +356,31 @@ summary window has closed and it sends the results only. A re-run more than
 23 hours after an unacknowledged email sends no email and reports
 `email_uncertain: true` (see the email delivery guarantees above).
 
+## 7. Post each issue to Discord (optional)
+
+Posting the newspaper is configuration, built from generic steps; nothing in
+the code knows about it. The flow lives in the store, not committed:
+
+- **The rule** fires on `rules.run.succeeded` with the condition
+  `data.workflow_id == "daily-newspaper"` and `data.outputs.item_id != null`. A
+  re-run that finds the day already delivered succeeds quietly with no
+  `item_id`, so it posts nothing.
+- **`run.read`** (config `step: render`, `fields: [html]`) reads the rendered
+  issue from the newspaper run that started this one, verified from the store.
+- **`markdown.from_html`** turns that HTML into Markdown chunks of at most
+  `max_chars` (1900 fits a Discord message). For the newspaper's markup, set
+  `drop_classes: [meta]` (a result's source line), `item_paragraphs: 1` (a
+  result's headline, not its snippet) and `italic_classes: [note, empty]`.
+- **A `for_each` over `chunks`**, whose body is a `discord.message` action
+  through a Discord app actor (`params.actor`, `guild`, `channel`, and `text`
+  from `inputs.item`), posts the chunks in order.
+
+The library at library.culture.dev is behind Cloudflare Access, so a post that
+only links to the issue would not open for readers outside it; the chunks carry
+the headlines and summaries themselves. To post a day that already went out,
+run the workflow by hand with `run_id` set to that day's `daily-newspaper` run
+(`workflows run ... --input run_id=<run id>`); the newspaper itself is not re-run.
+
 ## Known limits
 
 - **The summary replay ledger is per process.** `llm.complete` replays a

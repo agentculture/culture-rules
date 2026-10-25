@@ -308,6 +308,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     from culture_rules.node.actions.library import LibraryPushPort  # noqa: PLC0415
     from culture_rules.node.actions.llm import LlmCompletePort  # noqa: PLC0415
     from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
+    from culture_rules.node.actions.markdown_html import (  # noqa: PLC0415
+        FROM_HTML_BUILTIN,
+        MarkdownFromHtmlPort,
+    )
     from culture_rules.node.actions.markdown_render import (  # noqa: PLC0415
         MARKDOWN_RENDER_BUILTIN,
         MarkdownRenderPort,
@@ -334,6 +338,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         QueueProgressPort,
         QueueStopPort,
     )
+    from culture_rules.node.actions.run_read import RUN_READ_BUILTIN, RunReadPort  # noqa: PLC0415
     from culture_rules.node.actions.search import SearchWebPort  # noqa: PLC0415
     from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort  # noqa: PLC0415
     from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
@@ -395,6 +400,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 SELECT_BUILTIN: SelectPort(),  # #39: the gate's one source, whichever path ran
                 JSON_READ_BUILTIN: JsonReadPort(),  # named fields from a JSON file under a root
                 MARKDOWN_RENDER_BUILTIN: MarkdownRenderPort(),  # fields as one Markdown page
+                FROM_HTML_BUILTIN: MarkdownFromHtmlPort(),  # HTML as Markdown, in chunks
+                RUN_READ_BUILTIN: RunReadPort(store),  # a step's outputs from an earlier run
                 checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
                     store
                 ),  # stored lists, stable ids

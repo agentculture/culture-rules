@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-10-25
+
+### Added
+
+- builtin run.read: a step's outputs from an earlier run, so a rule that continues from another workflow can build on everything it produced; with no run_id it reads the run that started this one, verified from the store (lineage.upstream), and with a run_id (by hand) a run that succeeded
+- builtin markdown.from_html: generic HTML (headings, paragraphs, lists, links, bold, italic) as Markdown, whole and in chunks of at most max_chars; links as [label](<url>) so chat apps embed no preview, Markdown characters in the text escaped, config drop_classes, italic_classes and item_paragraphs; both builtins are offered in the step panel's Built-in select
+- docs/operations/newspaper.md step 7: posting each issue to Discord as configuration only (a continuation rule on rules.run.succeeded with run.read, markdown.from_html and a discord.message for_each)
+
 ## [0.29.0] - 2026-10-25
 
 ### Added

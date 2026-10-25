@@ -31,3 +31,14 @@ def test_the_node_registers_discord_read_and_markdown_render():
     ports = default_ports(MemoryStore(), "spark")
     assert isinstance(ports["action:discord.read"], DiscordReadAction)
     assert isinstance(ports["code"]._builtins[MARKDOWN_RENDER_BUILTIN], MarkdownRenderPort)
+
+
+def test_the_node_registers_the_generic_markdown_and_run_steps():
+    from culture_rules.node.actions.markdown_html import FROM_HTML_BUILTIN, MarkdownFromHtmlPort
+    from culture_rules.node.actions.run_read import RUN_READ_BUILTIN, RunReadPort
+
+    builtins = default_ports(MemoryStore(), "spark")["code"]._builtins
+    assert isinstance(builtins[FROM_HTML_BUILTIN], MarkdownFromHtmlPort)
+    assert isinstance(builtins[RUN_READ_BUILTIN], RunReadPort)
+    assert FROM_HTML_BUILTIN in BUILTIN_WORDS
+    assert RUN_READ_BUILTIN in BUILTIN_WORDS
