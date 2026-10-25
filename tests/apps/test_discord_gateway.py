@@ -122,8 +122,57 @@ def test_connects_when_held_and_writes_each_message_once(rig):
     assert eventually(lambda: len(r.events()) == 3)
     ev = r.events()[0]
     assert ev["envelope"]["source"] == "app://bot"
-    assert ev["envelope"]["data"]["delivery_id"] == ev["envelope"]["data"]["message_id"]
+    data = ev["envelope"]["data"]
+    assert data["delivery_id"] == "bot:" + data["message_id"]
     assert r.store.get(LEASES_COLLECTION, "discord-gateway:bot")["holder"] == "engine@spark"
+
+
+def test_two_actors_sinking_the_same_message_record_two_events(rig):
+    r = rig()
+    other = Rig(store=r.store)  # a second supervisor and fake gateway on the same store
+    try:
+        r.store.put("actors", discord_actor("bot-a"))
+        r.sup.tick()
+        assert eventually(lambda: r.hub.live_now() == ["spark"])
+        r.store.put("actors", discord_actor("bot-a", enabled=False))
+        b = discord_actor("bot-b")
+        b["params"]["self_identity"] = "otherbot"
+        r.store.put("actors", b)
+        other.sup.tick()
+        assert eventually(lambda: other.hub.live_now() == ["spark"])
+        r.store.put("actors", discord_actor("bot-a"))
+        r.sup.tick()
+        # the same Discord message (author "rulesbot") is seen by both bots
+        same = message(1)
+        same["author_name"] = "rulesbot"
+        r.hub.post(same)
+        other.hub.post(same)
+        assert eventually(lambda: len(r.events()) == 2)
+        by_actor = {e["envelope"]["data"]["actor"]: e for e in r.events()}
+        assert set(by_actor) == {"bot-a", "bot-b"}
+        for actor_id, ev in by_actor.items():
+            assert ev["envelope"]["source"] == f"app://{actor_id}"
+            assert ev["envelope"]["data"]["message_id"] == "9001"
+            assert ev["envelope"]["data"]["delivery_id"] == f"{actor_id}:9001"
+        assert by_actor["bot-a"]["envelope"]["data"]["self_authored"] is True
+        assert by_actor["bot-b"]["envelope"]["data"]["self_authored"] is False
+    finally:
+        other.sup.shutdown()
+
+
+def test_one_actors_redelivery_of_a_message_is_a_duplicate(rig):
+    r = rig()
+    r.store.put("actors", discord_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1))
+    assert eventually(lambda: len(r.events()) == 1)
+    r.hub.post(message(1))
+    r.hub.drop()
+    assert eventually(lambda: len(r.hub.connects) == 2)
+    r.hub.post(message(2))
+    assert eventually(lambda: len(r.events()) == 2)
+    assert len(r.events()) == 2
 
 
 def test_reconnect_and_resume_replays_land_once(rig):
