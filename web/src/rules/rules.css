@@ -347,6 +347,32 @@
   color: var(--ink-soft);
 }
 
+/* Discord trigger filters: channel pills grouped by server, the same pills as the kinds. */
+.trigger-picker .trigger-picker__filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.trigger-picker .trigger-picker__filter legend {
+  width: 100%;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.trigger-picker__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .trigger-kind {
     transition: border-color 0.15s ease, background-color 0.15s ease;
