@@ -155,6 +155,22 @@ upload deduplicates by content, and queueing an item that is still queued
 returns the existing entry. If the reader synced the item between a lost
 reply and the retry, it downloads the book once more.
 
+## For Discord flows
+
+A flow that files Discord messages in a library
+([`docs/rules/discord-library`](../rules/discord-library/README.md)) needs the
+library actor to list:
+
+- a **kind** for them, for example `discord` (the push names it; there is no
+  built-in list), and a `visibilities` entry such as `private` if the step
+  sends one;
+- the **format** `md` for a rendered message, and `pdf` for the attachments the
+  flow will file later (planned, Release 2). `pdf` is in the allowed set but is
+  not in `formats` unless you add it.
+
+Mint the key with `--kind discord` as well, e.g. add it to the
+`culture-library keys mint` command above.
+
 ## Failures
 
 | Code | Meaning | Retried |
