@@ -55,6 +55,13 @@ Quoted verbatim from the `devague summary` skeleton:
   `{item: {id}}`. t1 had assumed the wrapped shape, so every live replace would have failed
   `bad_response`. library.push now accepts either shape for a replace (commit `d0d51d7`, tests
   on culture-library's real shape); an upload still needs `{item: {id}}`.
+- `d3` (proposed, pending the operator) — `/code-review medium` on #93 found that
+  `transcript.render` could not read `llm.complete`'s recording answer (its `summary` is a list
+  of lines), so every live transcript item would have lost its summary. It also found that a
+  string `bind` broke the next push, that an out-of-range `at` made a list unrenderable, that
+  cache hits charged tokens twice, and that a `StoreError` escaped the checklist's retries.
+  Each was fixed with a failing-first test (commit `b019be9`). The answer cache staying keyed by
+  content, not model, is kept by design and documented.
 - t9 keeps the plan's order (after merge + rollout). The decider leaned `partial_before_pr`
   (0.67: roll out the unmerged branch and validate the transcript flow before the PR). That
   needs a live rollout the operator has not approved, so no deviation was recorded, and t9's
@@ -78,6 +85,7 @@ Quoted verbatim from the `devague summary` skeleton:
 |-----------|-----------------------|----------------|
 | `t4` / `t7` (`d1`) | Wiring needed render to return the bound `item_id` and bind to accept library.push's int id; t7 changed t4's file. Delta `b6` | needs-follow-up |
 | `t1` (`d2`) | The replace reply shape was guessed before culture-library defined it; fixed to accept the item itself. Evidence `e16`, delta `b7` | acceptable |
+| `t2` / `t3` / `t4` (`d3`, proposed) | Review fixes: render reads the list summary; cache usage, chunked hash; checklist `at` range, string `item_id`, `StoreError` | acceptable |
 | `t9` | Not run: needs the merge, an approved rollout, and culture-library#10 for the to-do and flip parts | needs-follow-up |
 
 No other task drifted: t1–t3, t5, t6 and t8 delivered against their acceptance criteria (Actual
@@ -98,7 +106,7 @@ Delivery above).
   - t2: 9 still fail with a stub brief;
   - t3: 8 of 10 fail, and the escape test failed first;
   - t6: 3 of 5 fail.
-- Full suite at `f2a3767`: 7429 passed, 9 skipped. vitest: 834 passed. tsc: clean.
+- Full suite at `f2a3767`: 7429 passed, 9 skipped; at `b019be9` (after the review fixes): 7450 passed, 9 skipped. vitest: 834 passed. tsc: clean.
 - Lint: black, isort, flake8 and bandit clean; markdownlint `**/*.md` 0 errors; scan-secrets
   clean; `teken cli doctor --strict` exit 0; harness-smoke 6/6.
 - Observation (e14): the branch's diff adds 0 lines naming a person.
@@ -136,6 +144,7 @@ is not yet evidence. Bandit was run again on `stt.py` at the t6 merge and is cle
   `formats` [md], `replace_path` and `replace_method`, configure the merge/render/push/bind and
   flip rules, then validate.
 - Records awaiting the operator:
+  - deviation `d3`;
   - deltas `b1`–`b7` (`b4` duplicates `b5`; reject `b4`; `b6` and `b7` record `d1` and `d2`);
   - evidence `e1`–`e16`, obligations `o1`–`o18`, lapse `l1`.
 - Embodiment (risk r2): Gwen reads to-dos from the library and sends the checklist comment id in
