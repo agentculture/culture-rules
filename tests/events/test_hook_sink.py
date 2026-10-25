@@ -353,6 +353,16 @@ def test_non_discord_events_never_expire():
     assert "expires_at" not in doc
 
 
+def test_non_discord_events_never_expire_even_with_retention_set(monkeypatch):
+    from culture_rules.events.hook_sink import DISCORD_RETENTION_ENV
+
+    monkeypatch.setenv(DISCORD_RETENTION_ENV, "7")
+    s = MemoryStore()
+    assert call(s) == "accepted"
+    (doc,) = s.find(EVENTS_COLLECTION)
+    assert "expires_at" not in doc
+
+
 @pytest.mark.parametrize(("raw", "days"), [("7", 7), ("1", 1), ("0", 30), ("x", 30), ("", 30)])
 def test_discord_retention_is_configurable_in_days(monkeypatch, raw, days):
     from datetime import UTC, datetime, timedelta

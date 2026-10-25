@@ -232,7 +232,11 @@ def selected_channels(rule_docs: Iterable[Mapping[str, Any]]) -> frozenset[str] 
             continue
         try:
             rule = Rule.from_dict(doc, strict=False)
-        except (ValueError, TypeError, AttributeError):  # ModelParseError: it never fires
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+        ):  # unparseable (or trigger: null): never fires
             continue
         wanted = rule.trigger.params.get("type")
         if not rule.enabled or rule.trigger.kind != "event":

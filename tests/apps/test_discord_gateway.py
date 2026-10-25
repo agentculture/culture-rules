@@ -477,3 +477,25 @@ def test_selected_channels_is_the_union_over_enabled_discord_rules():
             {"id": "broken", "trigger": "not a trigger"},
         ]
     ) == frozenset({"1", "2", "3"})
+
+
+def test_the_supervisor_ensures_the_discord_ttl_index(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dg, "ensure_discord_event_ttl", calls.append)
+    store = MemoryStore()
+    dg.GatewaySupervisor(store, "engine@spark", gateway=FakeGateway(FakeHub(), "spark"))
+    assert calls == [store]
+
+
+def test_a_failed_rules_read_keeps_the_last_selection(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule(channels=["20"]))
+    r.sup._refresh_selection()
+    assert r.sup._selection == frozenset({"20"})
+
+    def broken(*_a, **_k):
+        raise OSError("mongo down")
+
+    r.store.find = broken
+    r.sup._refresh_selection()
+    assert r.sup._selection == frozenset({"20"})
