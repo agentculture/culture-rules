@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T11:59:54Z",
+  "updated": "2026-10-25T13:01:56Z",
   "deviations": [
     {
       "id": "d1",
@@ -31,6 +31,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t9 offers markdown.render in the workflow step panel (a Built-in select on code steps, filling its typed ports) instead of in ActionPicker: markdown.render is a code-step builtin, not an action kind, and no picker offered builtins before",
+      "task_ref": "t9",
+      "reason": "plan text assumed markdown.render was an action kind; the t9 agent found it is config.builtin on a code step",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
     }
   ],
   "evidence": [],
