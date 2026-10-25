@@ -647,7 +647,7 @@ function DiscordTarget({ id, actorId, params, refs, load, setParams }: Readonly<
       </>
     );
   }
-  if (!targets) return <output className="trigger-picker__words">Loading the bot&apos;s servers…</output>;
+  if (!targets) return <output className="trigger-picker__words" aria-live="polite">Loading the bot&apos;s servers…</output>;
 
   const guildId = typeof params.guild === "string" ? params.guild : "";
   const guild = targets.guilds.find((g) => g.id === guildId);

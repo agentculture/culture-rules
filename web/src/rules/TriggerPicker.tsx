@@ -268,7 +268,7 @@ function DiscordFilters({ name, actorId, t, load, onChange }: Readonly<DiscordFi
             <ListField label="Channel ids" value={picked} onList={(l) => set({ channels: l })} />
           </>
         ) : null}
-        {only && !failed && !targets ? <output className="trigger-picker__words">Loading the bot&apos;s channels…</output> : null}
+        {only && !failed && !targets ? <output className="trigger-picker__words" aria-live="polite">Loading the bot&apos;s channels…</output> : null}
         {only && targets
           ? targets.guilds.map((g) => (
               <fieldset key={g.id} className="trigger-picker__filter">

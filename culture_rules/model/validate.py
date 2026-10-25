@@ -63,6 +63,7 @@ __all__ = [
 
 #: Pseudo step id an edge uses to read from the workflow's own inputs.
 INPUTS_NODE = "inputs"
+_CHANNEL_ID = re.compile(r"^\d{1,25}$")
 _RESERVED_STEP_IDS = frozenset({"inputs", "outputs", "vars", "steps", "trigger"})
 _PROBE_MODES = ("change", "condition")
 
@@ -500,15 +501,34 @@ def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
     for name in ("channels", "users", "roles"):
         value = params.get(name)
         if value is None or _filter_item(value):
+            pass
+        elif isinstance(value, (list, tuple)) and all(_filter_item(v) for v in value):
+            pass
+        else:
+            _err(
+                errors,
+                _join(pp, name),
+                "trigger_param_invalid",
+                f"params.{name} must be an id or name, or a list of them",
+            )
             continue
-        if isinstance(value, (list, tuple)) and all(_filter_item(v) for v in value):
-            continue
-        _err(
-            errors,
-            _join(pp, name),
-            "trigger_param_invalid",
-            f"params.{name} must be an id or name, or a list of them",
-        )
+        if name == "channels" and value is not None and not _channel_ids_ok(value):
+            _err(
+                errors,
+                _join(pp, name),
+                "trigger_param_invalid",
+                'params.channels holds numeric Discord channel ids, or "all"',
+            )
+
+
+def _channel_ids_ok(value: Any) -> bool:
+    """Every ``channels`` entry is a numeric Discord id or ``all`` (a name never matches)."""
+    items = value if isinstance(value, (list, tuple)) else [value]
+    for item in items:
+        text = str(item).strip()
+        if text and text.casefold() != "all" and not _CHANNEL_ID.match(text):
+            return False
+    return True
 
 
 def _present(params: dict, name: str) -> bool:

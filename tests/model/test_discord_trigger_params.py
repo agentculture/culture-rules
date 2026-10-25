@@ -24,7 +24,8 @@ def codes(params: dict, type_: str = TYPE) -> set[str]:
         {"channels": ["1", "2"], "users": ["alice", "30"], "roles": ["r1"]},
         {"channels": "all"},
         {"channels": "20", "users": "alice", "roles": 7},
-        {"channels": "trigger.data.channel_id"},
+        {"channels": ["all"]},
+        {"channels": [20, "21"]},
     ],
 )
 def test_well_typed_discord_filters_are_accepted(params):
@@ -38,6 +39,9 @@ def test_well_typed_discord_filters_are_accepted(params):
         {"channels": {"id": "1"}},
         {"users": [["alice"]]},
         {"roles": [True]},
+        {"channels": ["general"]},
+        {"channels": "CHANNEL_ID_PLACEHOLDER"},
+        {"channels": ["20", "12ab"]},
     ],
 )
 def test_badly_typed_discord_filters_are_refused(params):

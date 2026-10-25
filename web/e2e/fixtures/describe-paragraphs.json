@@ -434,7 +434,7 @@
             "part": "start",
             "rule": "discord-to-library",
             "sentence": 0,
-            "text": "It starts when discord.message.created (in channels CHANNEL_ID_PLACEHOLDER) arrives, on spark."
+            "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, on spark."
           },
           {
             "depth": 0,
@@ -508,7 +508,7 @@
             "text": "It runs one at a time per discord:{message_id}."
           }
         ],
-        "text": "It starts when discord.message.created (in channels CHANNEL_ID_PLACEHOLDER) arrives, on spark.\nFirst writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
+        "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, on spark.\nFirst writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
       }
     },
     "pr-fix": {
@@ -2532,7 +2532,7 @@
         "kind": "event",
         "params": {
           "channels": [
-            "CHANNEL_ID_PLACEHOLDER"
+            "000000000000000000"
           ],
           "type": "discord.message.created"
         }

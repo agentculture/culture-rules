@@ -312,8 +312,10 @@ function ConfigEditor({
   return <ConfigPairs config={config} onConfig={onConfig} onError={onError} />;
 }
 
-/** Built-ins a code step can run, with the typed ports they take and give (builtin: config key). */
 const PORT = (name: string, required: boolean): Port => ({ name, type: "string", required });
+/** Built-ins a code step can run, with the typed ports they take and give (builtin: config key).
+ * The ports mirror culture_rules/node/actions (e.g. markdown_render.py) and the words
+ * describe.py BUILTIN_WORDS: change all three together. */
 export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: Port[] }> = {
   "markdown.render": {
     label: "markdown.render: fields as one Markdown page",

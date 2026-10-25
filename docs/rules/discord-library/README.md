@@ -18,8 +18,10 @@ It ships no actors. It uses the Discord actor (`discord-bot`, grant
 
 ## Before enabling
 
-1. Replace `CHANNEL_ID_PLACEHOLDER` in the rule's trigger `channels` with the
-   real channel id (or a list of ids).
+1. Replace the placeholder `000000000000000000` in the rule's trigger
+   `channels` with the real channel id (or a list of ids). The placeholder is a
+   valid id that no channel has, so the rule never fires until you do; a
+   channel name is refused on save, because only numeric ids (or `all`) match.
 2. Add kind `document` and format `md` to the library actor.
 3. Check the rule is placed on the machine that holds the Discord actor.
 4. Import and enable it with the CLI, dry run first.

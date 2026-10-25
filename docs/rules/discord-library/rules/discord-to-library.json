@@ -33,7 +33,7 @@
     "kind": "event",
     "params": {
       "channels": [
-        "CHANNEL_ID_PLACEHOLDER"
+        "000000000000000000"
       ],
       "type": "discord.message.created"
     }
