@@ -73,6 +73,7 @@ def _port(responder=None, resolved=(PUBLIC,), **kw):
         calls.append({"pinned": pinned})
         return FakeOpener(calls, responder or default)
 
+    kw.setdefault("base_root", ROOT)  # never the real ~/.local/share
     port = AttachmentFetchPort(resolver=resolver, opener_factory=opener_factory, **kw)
     return port, calls, lookups
 
@@ -399,7 +400,7 @@ def test_same_bytes_again_reuse_the_file_and_refresh_its_age() -> None:
     assert os.stat(first["path"]).st_mtime > 1_000_000
 
 
-@pytest.mark.parametrize("value", [None, "", "relative/dir", 7])
+@pytest.mark.parametrize("value", ["", "relative/dir", 7])
 def test_output_root_must_be_an_absolute_path(value) -> None:
     port, calls, _ = _port()
     res = _invoke(port, {"attachments": [_att()]}, config={"output_root": value})
@@ -521,3 +522,129 @@ def test_a_write_error_fails_the_step_retryable_and_leaves_no_temp_file(monkeypa
     assert res.retryable is True
     assert res.error.startswith("write_failed")
     assert os.listdir(ROOT) == []
+
+
+# ------------------------------------------------------------------ confinement (review of #102)
+
+
+@pytest.mark.parametrize("literal", ["127.0.0.1", "10.0.0.5", "::1", "[::1]", "162.159.130.233"])
+def test_an_ip_literal_in_allowed_hosts_is_bad_params(literal) -> None:
+    port, calls, lookups = _port()
+    url = f"https://{literal}/a/paper.pdf"
+    res = _invoke(port, {"attachments": [{**_att(), "url": url}]}, {"allowed_hosts": [literal]})
+    assert res.outcome == FAILED
+    assert res.retryable is False
+    assert res.error.startswith("bad_params")
+    assert calls == []
+    assert lookups == []
+
+
+@pytest.mark.parametrize("address", ["127.0.0.1", "10.0.0.5", "::1"])
+def test_a_listed_hostname_resolving_to_a_private_address_is_refused(address) -> None:
+    port, calls, _ = _port(resolved=[address])
+    res = _invoke(
+        port,
+        {"attachments": [_att(host="files.example.org")]},
+        {"allowed_hosts": ["files.example.org"]},
+    )
+    assert res.outcome == COMPLETED
+    assert res.output["items"][0]["reason"] == "private_address"
+    assert calls == []
+
+
+def test_output_root_outside_the_base_is_path_refused(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    port, calls, _ = _port()
+    res = _invoke(port, {"attachments": [_att()]}, {"output_root": str(outside)})
+    assert res.outcome == FAILED
+    assert res.retryable is False
+    assert res.error.startswith("path_refused")
+    assert calls == []
+    assert os.listdir(outside) == []
+
+
+def test_output_root_of_slash_is_path_refused() -> None:
+    port, calls, _ = _port()
+    res = _invoke(port, {"attachments": [], "retention_days": 1}, {"output_root": "/"})
+    assert res.error.startswith("path_refused")
+    assert calls == []
+
+
+def test_retention_never_runs_outside_the_base(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / ("a" * 64 + ".pdf")
+    victim.write_bytes(b"x")
+    _age(victim, 30)
+    port, _, _ = _port()
+    _invoke(port, {"attachments": [], "retention_days": 1}, {"output_root": str(outside)})
+    assert victim.exists()
+
+
+def test_a_symlink_in_the_base_pointing_outside_is_path_refused(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = os.path.join(ROOT, "escape")
+    os.symlink(outside, link)
+    port, calls, _ = _port()
+    res = _invoke(port, {"attachments": [_att()]}, {"output_root": link})
+    assert res.error.startswith("path_refused")
+    assert calls == []
+
+
+def test_absent_output_root_writes_to_the_base() -> None:
+    port, _, _ = _port()
+    deadline = datetime.now(UTC) + timedelta(seconds=30)
+    res = port.invoke({"attachments": [_att()]}, "k1", deadline, context=_ctx())
+    assert res.outcome == COMPLETED, res.error
+    path = res.output["items"][0]["path"]
+    assert os.path.dirname(path) == os.path.realpath(ROOT)
+
+
+def test_an_output_root_under_the_base_is_accepted() -> None:
+    sub = os.path.join(ROOT, "discord")
+    os.mkdir(sub)
+    port, _, _ = _port()
+    res = _invoke(port, {"attachments": [_att()]}, {"output_root": sub})
+    assert res.outcome == COMPLETED, res.error
+    assert os.path.dirname(res.output["items"][0]["path"]) == os.path.realpath(sub)
+
+
+def test_a_missing_base_is_created_private(tmp_path) -> None:
+    base = tmp_path / "fresh" / "attachments"
+    port, _, _ = _port(base_root=str(base))
+    deadline = datetime.now(UTC) + timedelta(seconds=30)
+    res = port.invoke({"attachments": [_att()]}, "k1", deadline, context=_ctx())
+    assert res.outcome == COMPLETED, res.error
+    assert base.is_dir()
+    assert base.stat().st_mode & 0o777 == 0o700
+
+
+def test_the_base_comes_from_the_environment(tmp_path, monkeypatch) -> None:
+    base = tmp_path / "from-env"
+    monkeypatch.setenv("CULTURE_RULES_ATTACHMENTS_ROOT", str(base))
+    port, _, _ = _port(base_root=None)
+    deadline = datetime.now(UTC) + timedelta(seconds=30)
+    res = port.invoke({"attachments": [_att()]}, "k1", deadline, context=_ctx())
+    assert res.outcome == COMPLETED, res.error
+    assert os.path.dirname(res.output["items"][0]["path"]) == os.path.realpath(base)
+
+
+def test_the_default_base_is_under_the_home_directory(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("CULTURE_RULES_ATTACHMENTS_ROOT", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    port, _, _ = _port(base_root=None)
+    deadline = datetime.now(UTC) + timedelta(seconds=30)
+    res = port.invoke({"attachments": []}, "k1", deadline, context=_ctx())
+    assert res.outcome == COMPLETED, res.error
+    assert (tmp_path / "home" / ".local/share/culture-rules/attachments").is_dir()
+
+
+def test_a_relative_base_from_the_environment_is_path_refused(monkeypatch) -> None:
+    monkeypatch.setenv("CULTURE_RULES_ATTACHMENTS_ROOT", "relative/attachments")
+    port, calls, _ = _port(base_root=None)
+    deadline = datetime.now(UTC) + timedelta(seconds=30)
+    res = port.invoke({"attachments": [_att()]}, "k1", deadline, context=_ctx())
+    assert res.error.startswith("path_refused")
+    assert calls == []
