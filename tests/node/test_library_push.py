@@ -1007,3 +1007,135 @@ def test_replace_and_format_combine():
     port, _ = _port(_store(_replace_params(formats=["md"])), transport)
     assert _invoke(port, item_id=7, format="md").outcome == COMPLETED
     assert 'filename="daily-newspaper-2026-10-11.md"' in _parts(transport.calls[0])[FILE][0]
+
+
+# ------------------------------------------------------------------ content_path (d7)
+
+
+def _file_input(tmp_path, data=EPUB, name="a.pdf", **over):
+    root = tmp_path / "root"
+    root.mkdir(exist_ok=True)
+    (root / name).write_bytes(data)
+    fields = {"content_base64": None, "content_path": str(root / name), "content_root": str(root)}
+    fields.update(over)
+    return {k: v for k, v in fields.items() if v is not None}, root
+
+
+def _push_path(over_input, store=None):
+    transport = FakeTransport((200, {"item": {"id": 7}, "created": True}), (200, {"id": 1}))
+    port, _ = _port(store or _store(), transport)
+    data = _input(**over_input)
+    if over_input.get("content_base64", 0) is None:
+        data.pop("content_base64")
+    return port.invoke(data, "k1", DEADLINE, context=_ctx()), transport
+
+
+def _path_refused(tmp_path, code, **over):
+    fields, _ = _file_input(tmp_path)
+    fields.update(over)
+    fields = {k: v for k, v in fields.items() if v is not None}
+    fields["content_base64"] = fields.get("content_base64")
+    result, transport = _push_path({**fields, "content_base64": fields["content_base64"]})
+    assert transport.calls == []
+    assert result.outcome == FAILED
+    assert result.error.startswith(code)
+    assert result.retryable is False
+
+
+def test_content_path_uploads_the_file_bytes(tmp_path):
+    fields, _ = _file_input(tmp_path, data=b"%PDF-bytes")
+    fields["content_base64"] = None
+    result, transport = _push_path(fields)
+    assert result.outcome == COMPLETED
+    assert b"%PDF-bytes" in transport.calls[0].body
+
+
+def test_content_path_outside_the_root_is_path_refused(tmp_path):
+    other = tmp_path / "other.pdf"
+    other.write_bytes(EPUB)
+    _path_refused(tmp_path, "path_refused", content_path=str(other), content_base64=None)
+
+
+def test_content_path_symlinked_file_is_path_refused(tmp_path):
+    fields, root = _file_input(tmp_path)
+    (root / "link.pdf").symlink_to(root / "a.pdf")
+    _path_refused(tmp_path, "path_refused", content_path=str(root / "link.pdf"))
+
+
+def test_content_path_symlinked_parent_is_path_refused(tmp_path):
+    fields, root = _file_input(tmp_path)
+    real = root / "real"
+    real.mkdir()
+    (real / "b.pdf").write_bytes(EPUB)
+    (root / "dir").symlink_to(real)
+    _path_refused(tmp_path, "path_refused", content_path=str(root / "dir" / "b.pdf"))
+
+
+def test_content_path_missing_file_is_path_refused(tmp_path):
+    fields, root = _file_input(tmp_path)
+    _path_refused(tmp_path, "path_refused", content_path=str(root / "nope.pdf"))
+
+
+def test_content_path_that_is_a_directory_is_path_refused(tmp_path):
+    fields, root = _file_input(tmp_path)
+    (root / "d").mkdir()
+    _path_refused(tmp_path, "path_refused", content_path=str(root / "d"))
+
+
+def test_content_path_needs_an_absolute_path_and_root(tmp_path):
+    _path_refused(tmp_path, "path_refused", content_path="a.pdf")
+    _path_refused(tmp_path, "path_refused", content_root="root")
+
+
+def test_content_path_without_a_root_is_invalid(tmp_path):
+    fields, _ = _file_input(tmp_path)
+    fields.pop("content_root")
+    fields["content_base64"] = None
+    result, transport = _push_path(fields)
+    assert transport.calls == []
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+def test_both_sources_are_invalid(tmp_path):
+    fields, _ = _file_input(tmp_path)
+    fields["content_base64"] = _b64()
+    result, transport = _push_path(fields)
+    assert transport.calls == []
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+def test_neither_source_is_invalid():
+    result, transport = _push_path({"content_base64": None})
+    assert transport.calls == []
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+def test_content_root_alone_is_invalid(tmp_path):
+    result, transport = _push_path({"content_base64": None, "content_root": str(tmp_path)})
+    assert transport.calls == []
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+def test_content_path_over_the_cap_is_invalid(tmp_path, monkeypatch):
+    monkeypatch.setattr(library_mod, "MAX_BYTES", 8)
+    fields, _ = _file_input(tmp_path, data=b"123456789")
+    fields["content_base64"] = None
+    result, transport = _push_path(fields)
+    assert transport.calls == []
+    assert result.error.startswith(INVALID_REQUEST)
+
+
+def test_content_path_with_replace_by_item_id(tmp_path):
+    params = _params(replace_path="/api/library/{item_id}/file", replace_method="PUT")
+    fields, _ = _file_input(tmp_path, data=b"%PDF-new")
+    fields["content_base64"] = None
+    fields["item_id"] = 5
+    transport = FakeTransport((200, {"item": {"id": 5}}))
+    port, _ = _port(_store(params), transport)
+    data = _input(**fields)
+    data.pop("content_base64")
+    result = port.invoke(data, "k1", DEADLINE, context=_ctx())
+    assert result.outcome == COMPLETED
+    assert transport.calls[0].method == "PUT"
+    assert transport.calls[0].url.endswith("/api/library/5/file")
+    assert b"%PDF-new" in transport.calls[0].body

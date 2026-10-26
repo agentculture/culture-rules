@@ -222,8 +222,11 @@ _KINDS = (
     _k(
         "library.push",
         "Upload a file to a library, or replace one by id (and queue it on a device queue)",
+        any_of=(("content_base64", "content_path"),),
         actor=_RS,
-        content_base64=_RS,
+        content_base64=_S,  # or content_path + content_root (d7): one of the two is required
+        content_path=_S,  # a file under content_root on the node; its bytes never enter run state
+        content_root=_S,
         title=_RS,
         kind=_RS,  # one of the actor's params.kinds
         visibility=_S,  # one of the actor's params.visibilities

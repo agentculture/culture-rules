@@ -2,7 +2,11 @@
 the library has a device queue, or replace an existing item by id (#53, culture-rules#86).
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (falls back to ``context.actor``),
-``content_base64`` (the file bytes, base64), ``title``, ``kind`` (one of the actor's
+``content_base64`` (the file bytes, base64) or, instead (exactly one of the two),
+``content_path`` with ``content_root`` (d7: absolute paths; the file must be a regular file
+under the root with no symlink below the root (the root itself is trusted), else
+``path_refused``; at most 50 MiB, else ``invalid_request``; the bytes are read here, so they
+never enter run state), ``title``, ``kind`` (one of the actor's
 ``kinds``), optional ``visibility`` (one of the actor's ``visibilities``), optional
 ``author`` (default ``culture-rules``) and optional ``device_id`` (overrides the actor's;
 used, and checked, only when the actor has a ``queue_path``: a library without a device
@@ -99,12 +103,15 @@ from __future__ import annotations
 import base64
 import http.client
 import json
+import os
 import re
 import secrets
+import stat
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -155,6 +162,7 @@ REPLACE_METHODS = ("PUT", "POST", "PATCH")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _UNSAFE_HEADER_TEXT = re.compile(r'["\r\n]')
 _INVALID_REQUEST = "invalid_request"
+_PATH_REFUSED = "path_refused"
 _INVALID_ACTOR = "invalid_actor"
 _BAD_RESPONSE = "bad_response"
 _NETWORK_ERROR = "network_error"
@@ -320,6 +328,52 @@ def _content(value: Any) -> bytes:
     if len(data) > MAX_BYTES:
         raise _Refused("too_large", f"content exceeds {MAX_BYTES} bytes")
     return data
+
+
+def _read_under(path_value: Any, root_value: Any) -> bytes:
+    """The bytes of the regular file at ``path_value``, which must lie under ``root_value``
+    (both absolute). A symlink anywhere from the root down (the file or a parent) is refused
+    ``path_refused``; the file is capped at ``MAX_BYTES`` (``invalid_request``)."""
+    for value, label in ((root_value, "content_root"), (path_value, "content_path")):
+        if not isinstance(value, str) or not os.path.isabs(value):
+            raise _Refused(_PATH_REFUSED, f"{label} must be an absolute path")
+    try:
+        root = Path(os.path.normpath(root_value))
+        path = Path(os.path.normpath(path_value))
+        if not path.is_relative_to(root) or path == root:
+            raise _Refused(_PATH_REFUSED, "content_path is not a file under content_root")
+        current = root
+        for part in path.relative_to(root).parts:
+            current = current / part
+            if current.is_symlink():
+                raise _Refused(_PATH_REFUSED, "content_path must not contain a symlink")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                raise _Refused(_PATH_REFUSED, "content_path is not a regular file")
+            data = handle.read(MAX_BYTES + 1)
+    except (OSError, RuntimeError) as exc:
+        raise _Refused(_PATH_REFUSED, "content_path is not a readable file under the root") from exc
+    if len(data) > MAX_BYTES:
+        raise _Refused(_INVALID_REQUEST, f"content_path file exceeds {MAX_BYTES} bytes")
+    if not data:
+        raise _Refused(_INVALID_REQUEST, "content_path file is empty")
+    return data
+
+
+def _source(input: Mapping[str, Any]) -> bytes:
+    """The file bytes: ``content_base64`` or, instead, ``content_path`` with ``content_root``."""
+    b64, path, root = (input.get(n) for n in ("content_base64", "content_path", "content_root"))
+    if path is None:
+        if root is not None:
+            raise _Refused(_INVALID_REQUEST, "content_root needs content_path")
+        return _content(b64)
+    if b64 is not None:
+        raise _Refused(_INVALID_REQUEST, "give content_base64 or content_path, not both")
+    if root is None:
+        raise _Refused(_INVALID_REQUEST, "content_path needs content_root")
+    return _read_under(path, root)
 
 
 def _text(input: Mapping[str, Any], name: str, default: str | None = None) -> str:
@@ -552,7 +606,7 @@ class LibraryPushPort:
         visibilities = (
             None if raw_visibilities is None else _words(raw_visibilities, "visibilities")
         )
-        data = _content(input.get("content_base64"))
+        data = _source(input)
         title = _text(input, "title")
         author = _text(input, "author", DEFAULT_AUTHOR)
         fields = [

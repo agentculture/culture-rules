@@ -339,6 +339,13 @@ def test_llm_complete_takes_content_or_content_path() -> None:
         assert not [e for e in _errs(LLM_COMPLETE, {**base, **one}) if e[0].endswith("content")]
 
 
+def test_library_push_takes_content_base64_or_content_path() -> None:
+    base = {"actor": "lib", "title": "T", "kind": "transcript"}
+    assert ("action.params.content_base64", "action_param_required") in _errs("library.push", base)
+    for one in ({"content_base64": "QUJD"}, {"content_path": "/r/x.pdf", "content_root": "/r"}):
+        assert _errs("library.push", {**base, **one}) == set()
+
+
 # --- the generic pieces for library items (library items, t7) ----------------------
 
 
