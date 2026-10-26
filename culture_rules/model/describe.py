@@ -94,6 +94,7 @@ BUILTIN_WORDS: dict[str, str] = {
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
+_IN_CHANNEL = ("channel", "in {}")
 _QUOTED = '"{}"'
 
 #: Per action kind: which literal params are worth a word, as ``(param, template)``.
@@ -107,10 +108,10 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "message": _TO_CHANNEL,
     "mesh.message": _TO_CHANNEL,
     "discord.message": _TO_CHANNEL,
-    "discord.read": (("channel", "in {}"), ("message", "message {}")),
-    "discord.react": (("emoji", "with {}"), ("channel", "in {}"), ("message", "on message {}")),
+    "discord.read": (_IN_CHANNEL, ("message", "message {}")),
+    "discord.react": (("emoji", "with {}"), _IN_CHANNEL, ("message", "on message {}")),
     "discord.reply": (("text", '"{}"'),),
-    "discord.sweep": (("channel", "in {}"), ("limit", "up to {} messages")),
+    "discord.sweep": (_IN_CHANNEL, ("limit", "up to {} messages")),
     "github.comment": (),
     "github.push": (),
     "github.review_reply": (),

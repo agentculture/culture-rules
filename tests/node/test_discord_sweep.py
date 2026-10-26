@@ -163,7 +163,8 @@ def test_sweep_refusals():
     s = store_with()
     for bad in ({"cursor_key": ""}, {"cursor_key": "a b"}, {"channel": ""}, {"limit": 0}):
         res = sweep(s, t, **bad)
-        assert res.outcome == FAILED and not res.retryable, bad
+        assert res.outcome == FAILED, bad
+        assert not res.retryable, bad
     s.put(SWEEP_CURSORS_COLLECTION, {"id": "lib:555", "value": "not-an-id"})
     res = sweep(s, t)
     assert res.outcome == FAILED
@@ -277,7 +278,9 @@ def test_advance_bad_params():
         {"key": "k", "value": 5},
     ):
         res = advance(s, **bad)
-        assert res.outcome == FAILED and not res.retryable and "bad_params" in res.error, bad
+        assert res.outcome == FAILED, bad
+        assert not res.retryable, bad
+        assert "bad_params" in res.error, bad
 
 
 def test_concurrent_advances_from_the_same_cursor_one_wins():

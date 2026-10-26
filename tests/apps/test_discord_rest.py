@@ -462,8 +462,9 @@ def test_edit_interaction_response_errors(status, retryable, expired):
 
 def test_edit_interaction_response_refuses_bad_ids():
     t = PutTransport()
+    client = DiscordClient(TOKEN, transport=t)
     with pytest.raises(DiscordError):
-        DiscordClient(TOKEN, transport=t).edit_interaction_response("90/01", "itok", "hi")
+        client.edit_interaction_response("90/01", "itok", "hi")
     with pytest.raises(DiscordError):
-        DiscordClient(TOKEN, transport=t).edit_interaction_response("9", "bad/tok", "hi")
+        client.edit_interaction_response("9", "bad/tok", "hi")
     assert t.calls == []

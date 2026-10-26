@@ -52,6 +52,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -87,6 +88,59 @@ def _limit(value: Any) -> int | None:
     return min(value, MAX_LIMIT)
 
 
+@dataclass(frozen=True)
+class _Sweep:
+    """One sweep's checked inputs."""
+
+    channel: str
+    key: str  # ``<cursor_key>:<channel>``
+    limit: int
+    include_bots: bool
+    backfill: bool
+    guild: str | None
+
+
+class _Refused(Exception):
+    """A final failure of the sweep, before or while reading."""
+
+
+def _sweep_inputs(input: Mapping[str, Any], config: Mapping[str, Any]) -> _Sweep:
+    channel = input.get("channel")
+    if not _nonempty(channel):
+        raise _Refused("discord.sweep needs a channel id")
+    flow = _param(input, config, "cursor_key")
+    if not isinstance(flow, str) or not _KEY_RE.match(flow):
+        raise _Refused("discord.sweep needs a cursor_key of letters, digits, '_', '.' or '-'")
+    limit = _limit(_param(input, config, "limit"))
+    if limit is None:
+        raise _Refused(f"discord.sweep limit must be an integer from 1 to {MAX_LIMIT}")
+    include_bots = _param(input, config, "include_bots")
+    backfill = _param(input, config, "backfill")
+    if not all(v is None or isinstance(v, bool) for v in (include_bots, backfill)):
+        raise _Refused("discord.sweep include_bots and backfill must be true or false")
+    guild = input.get("guild")
+    return _Sweep(
+        channel=str(channel),
+        key=f"{flow}:{channel}",
+        limit=limit,
+        include_bots=include_bots is True,
+        backfill=backfill is True,
+        guild=str(guild) if guild not in (None, "") else None,
+    )
+
+
+def _outputs(sweep: _Sweep, cursor: str | None, read: list[dict], next_cursor: str | None):
+    messages = [m for m in read if sweep.include_bots or m.get("bot") is not True]
+    return {
+        "messages": messages,
+        "count": len(messages),
+        "more": len(read) >= sweep.limit,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "cursor_key": sweep.key,
+    }
+
+
 class DiscordSweepAction(DiscordReadAction):
     """Action port for ``discord.sweep``; resolves its actor as ``discord.read`` does."""
 
@@ -105,24 +159,12 @@ class DiscordSweepAction(DiscordReadAction):
         actor_id = context.actor
         if not actor_id:
             return _fail("discord.sweep needs a Discord app actor in params.actor")
-        channel = input.get("channel")
-        if not _nonempty(channel):
-            return _fail("discord.sweep needs a channel id")
-        flow = _param(input, config, "cursor_key")
-        if not isinstance(flow, str) or not _KEY_RE.match(flow):
-            return _fail("discord.sweep needs a cursor_key of letters, digits, '_', '.' or '-'")
-        limit = _limit(_param(input, config, "limit"))
-        if limit is None:
-            return _fail(f"discord.sweep limit must be an integer from 1 to {MAX_LIMIT}")
-        include_bots = _param(input, config, "include_bots")
-        backfill = _param(input, config, "backfill")
-        if not all(v is None or isinstance(v, bool) for v in (include_bots, backfill)):
-            return _fail("discord.sweep include_bots and backfill must be true or false")
-        key = f"{flow}:{channel}"
-        cursor = read_cursor(self._store, key)
-        if cursor is not None and not (isinstance(cursor, str) and _ID_RE.match(cursor)):
-            return _fail(f"bad_cursor: stored cursor {key!r} is not a message id")
-        connection = self._connection(actor_id, channel)
+        try:
+            sweep = _sweep_inputs(input, config)
+            cursor = self._cursor(sweep.key)
+        except _Refused as exc:
+            return _fail(str(exc))
+        connection = self._connection(actor_id, sweep.channel)
         if isinstance(connection, InvocationResult):
             return connection
         ref = connection.get("bot_token")
@@ -130,47 +172,51 @@ class DiscordSweepAction(DiscordReadAction):
             token = self._resolve(ref)
         except secrets.SecretError as exc:
             return InvocationResult.failed(str(exc), retryable=True)
-        guild = input.get("guild")
-        guild_id = str(guild) if guild not in (None, "") else None
+        try:
+            return InvocationResult.completed(
+                self._read(token, connection, actor_id, sweep, cursor)
+            )
+        except _Refused as exc:
+            return _fail(str(exc))
+        except DiscordError as exc:
+            log.warning("discord sweep of %s failed: %s", sweep.channel, exc)
+            return InvocationResult.failed(str(exc), retryable=exc.retryable)
+
+    def _cursor(self, key: str) -> str | None:
+        cursor = read_cursor(self._store, key)
+        if cursor is not None and not (isinstance(cursor, str) and _ID_RE.match(cursor)):
+            raise _Refused(f"bad_cursor: stored cursor {key!r} is not a message id")
+        return cursor
+
+    def _read(
+        self,
+        token: str,
+        connection: Mapping[str, Any],
+        actor_id: str,
+        sweep: _Sweep,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        """The sweep's outputs: messages since ``cursor`` (or none, on a first run that does
+        not backfill: it starts at the channel's newest message, or ``"0"`` when empty)."""
         kwargs: dict[str, Any] = {"transport": self._transport}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        client = DiscordClient(token, **kwargs)
+        guild_id = sweep.guild
         guilds = guild_ids(connection.get("guild_id"))
-        try:
-            client = DiscordClient(token, **kwargs)
-            if guilds is not None:  # guild_id restricts sweeps as it does reads
-                found = client.channel_guild(channel)
-                if found not in guilds:
-                    return _fail(
-                        f"channel {channel!r} is not in actor {actor_id!r} guilds (guild_id)"
-                    )
-                guild_id = guild_id or found
-            if cursor is None and backfill is not True:
-                start = client.latest(channel) or "0"  # a first run starts now
-                return InvocationResult.completed(
-                    {
-                        "messages": [],
-                        "count": 0,
-                        "more": False,
-                        "cursor": None,
-                        "next_cursor": start,
-                        "cursor_key": key,
-                    }
+        if guilds is not None:  # guild_id restricts sweeps as it does reads
+            found = client.channel_guild(sweep.channel)
+            if found not in guilds:
+                raise _Refused(
+                    f"channel {sweep.channel!r} is not in actor {actor_id!r} guilds (guild_id)"
                 )
-            read = client.history(channel, cursor or "0", limit, guild_id=guild_id, max_pages=1)
-        except DiscordError as exc:
-            log.warning("discord sweep of %s failed: %s", channel, exc)
-            return InvocationResult.failed(str(exc), retryable=exc.retryable)
+            guild_id = guild_id or found
+        if cursor is None and not sweep.backfill:
+            start = client.latest(sweep.channel) or "0"  # a first run starts now
+            return _outputs(sweep, None, [], start)
+        read = client.history(
+            sweep.channel, cursor or "0", sweep.limit, guild_id=guild_id, max_pages=1
+        )
         for message in read:
             message["guild_id"] = guild_id
-        messages = [m for m in read if include_bots is True or m.get("bot") is not True]
-        return InvocationResult.completed(
-            {
-                "messages": messages,
-                "count": len(messages),
-                "more": len(read) >= limit,
-                "cursor": cursor,
-                "next_cursor": read[-1]["id"] if read else cursor,
-                "cursor_key": key,
-            }
-        )
+        return _outputs(sweep, cursor, read, read[-1]["id"] if read else cursor)

@@ -57,7 +57,8 @@ def test_the_definitions_are_save_and_a_save_to_library_message_command():
 
 
 def test_the_definition_hash_is_stable_and_covers_the_application_id():
-    assert dc.definition_hash(APP_ID) == dc.definition_hash(APP_ID)
+    first, again = dc.definition_hash(APP_ID), dc.definition_hash(APP_ID)
+    assert first == again
     assert dc.definition_hash(APP_ID) != dc.definition_hash("778000")
     changed = [dict(d) for d in dc.DEFINITIONS]
     changed[0]["description"] = "something else"

@@ -814,24 +814,38 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
     _positive_number(obj.timeout_s, _join(path, "timeout_s"), errors)
     _check_ports(obj.inputs, _join(path, "inputs"), errors)
     _check_ports(obj.outputs, _join(path, "outputs"), errors)
-    max_path = _join(path, "max_iterations")
     if obj.kind in LOOP_KINDS:
-        if obj.max_iterations is None:
-            _err(errors, max_path, "loop_max_required", f"{obj.kind} loop needs max_iterations")
-        elif isinstance(obj.max_iterations, int) and obj.max_iterations < 1:
-            _err(errors, max_path, "range", "max_iterations must be >= 1")
+        _check_loop_step(obj, path, errors)
     else:
-        if obj.max_iterations is not None:
-            _err(errors, max_path, "not_allowed", "only loop steps take max_iterations")
-        if obj.body:
-            _err(errors, _join(path, "body"), "not_allowed", "only loop steps have a body")
-        if obj.kind == "wait":
-            _check_wait_config(obj.config, _join(path, "config"), errors)
-        elif is_action_step(obj.kind, obj.config):
-            _check_action_step(obj, _join(path, "config.action"), errors)
+        _check_plain_step(obj, path, errors)
     if isinstance(obj.config, dict) and BUILTIN_WITH in obj.config:
         _check_builtin_with(obj, _join(path, f"config.{BUILTIN_WITH}"), errors)
     _check_when_explain(obj, _join(path, "config"), errors)
+
+
+def _check_loop_step(obj: Step, path: str, errors: Errors) -> None:
+    max_path = _join(path, "max_iterations")
+    if obj.max_iterations is None:
+        _err(errors, max_path, "loop_max_required", f"{obj.kind} loop needs max_iterations")
+    elif isinstance(obj.max_iterations, int) and obj.max_iterations < 1:
+        _err(errors, max_path, "range", "max_iterations must be >= 1")
+
+
+def _check_plain_step(obj: Step, path: str, errors: Errors) -> None:
+    """A step that is not a loop: no max_iterations or body; a wait or action step's config."""
+    if obj.max_iterations is not None:
+        _err(
+            errors,
+            _join(path, "max_iterations"),
+            "not_allowed",
+            "only loop steps take max_iterations",
+        )
+    if obj.body:
+        _err(errors, _join(path, "body"), "not_allowed", "only loop steps have a body")
+    if obj.kind == "wait":
+        _check_wait_config(obj.config, _join(path, "config"), errors)
+    elif is_action_step(obj.kind, obj.config):
+        _check_action_step(obj, _join(path, "config.action"), errors)
 
 
 def _check_builtin_with(obj: Step, path: str, errors: Errors) -> None:
