@@ -224,6 +224,7 @@ class World:
         self.base.put("actors", bot)
         lib = library_actor()
         lib["params"]["formats"] = sorted({*lib["params"]["formats"], "pdf", "epub"})
+        lib["params"]["content_roots"] = [str(root)]  # the actor decides what a push may read
         self.base.put("actors", lib)
         self.base.put("workflows", reaction_workflow(str(root)))
         self.base.put("rules", reaction_rule())
@@ -235,6 +236,7 @@ class World:
             resolver=lambda host, p: [PUBLIC],
             opener_factory=lambda pinned: FakeOpener([{}], self._cdn),
             clock=self.clock,
+            base_root=root,  # the node's attachments root, never the real home
         )
         ports = {
             "action:noop": NoopAction(),

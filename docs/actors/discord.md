@@ -278,20 +278,30 @@ holding a listed role. An event with no emoji never passes an `emoji` filter.
 ## Saving attachments
 
 The `attachment.fetch` step (a code step's Built-in) takes `discord.read`'s
-`attachments` and saves each pdf and epub as a file under `output_root` on the
-node, named by its sha256. Its `items` give each file's `path`, `format`,
+`attachments` and saves each pdf and epub as a file in the node's attachments
+root, named by its sha256. That root is `CULTURE_RULES_ATTACHMENTS_ROOT` in the
+node's environment, else `~/.local/share/culture-rules/attachments` (created
+with mode `0700` when missing). A step's `output_root` is optional: unset, the
+files go in the attachments root itself; set, it must be an existing directory
+that resolves to the root or a directory under it, else the step fails
+`path_refused`. A step cannot write, or delete old files, anywhere else. Its `items` give each file's `path`, `format`,
 `size` and `sha256`, or `skipped: true` with a `reason` (`unsupported_format`
 for images and other types, `too_large` over 50 MiB, `host_refused`,
 `private_address`, `redirect_refused`, `http_status`). It fetches over https
 from `cdn.discordapp.com` and `media.discordapp.net` only (`allowed_hosts`
-replaces the list), never follows a redirect and never connects to a private
-address. Files older than `retention_days` (7 by default) are removed from
-`output_root` on the next fetch.
+replaces the list with other hostnames; an IP address there fails
+`bad_params`), never follows a redirect and never connects to a private,
+loopback or link-local address, whichever host resolves to it. Files older than
+`retention_days` (7 by default) are removed from the output directory on the
+next fetch.
 
 The bytes never enter the run (deviation d7): a run is one MongoDB document,
 capped at 16 MiB. A `for_each` over `items` pushes each file with
 `library.push`'s `content_path` (the item's `path`) and `content_root` (the
-same `output_root`), with a `when` on `item.skipped` being false.
+attachments root, or the step's `output_root`), with a `when` on `item.skipped`
+being false. The library actor must list the attachments root in its
+`content_roots` ([library.md](library.md)); without it the push fails
+`path_refused`.
 
 `discord.react` adds the bot's reaction (a unicode emoji, or a custom
 `name:id`) to a message: a flow can answer a saving reaction with ✅.
