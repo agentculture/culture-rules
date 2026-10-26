@@ -5,7 +5,7 @@ Params (``culture_rules.model.action_kinds``): ``actor`` (falls back to ``contex
 ``content_base64`` (the file bytes, base64) or, instead (exactly one of the two),
 ``content_path`` with ``content_root`` (d7: absolute paths; the file must be a regular file
 under the root with no symlink below the root (the root itself is trusted), else
-``path_refused``; at most 50 MiB, else ``invalid_request``; the bytes are read here, so they
+``path_refused``; at most 50 MiB, else ``too_large``; the bytes are read here, so they
 never enter run state), ``title``, ``kind`` (one of the actor's
 ``kinds``), optional ``visibility`` (one of the actor's ``visibilities``), optional
 ``author`` (default ``culture-rules``) and optional ``device_id`` (overrides the actor's;
@@ -333,7 +333,7 @@ def _content(value: Any) -> bytes:
 def _read_under(path_value: Any, root_value: Any) -> bytes:
     """The bytes of the regular file at ``path_value``, which must lie under ``root_value``
     (both absolute). A symlink anywhere from the root down (the file or a parent) is refused
-    ``path_refused``; the file is capped at ``MAX_BYTES`` (``invalid_request``)."""
+    ``path_refused``; the file is capped at ``MAX_BYTES`` (``too_large``)."""
     for value, label in ((root_value, "content_root"), (path_value, "content_path")):
         if not isinstance(value, str) or not os.path.isabs(value):
             raise _Refused(_PATH_REFUSED, f"{label} must be an absolute path")
@@ -356,7 +356,7 @@ def _read_under(path_value: Any, root_value: Any) -> bytes:
     except (OSError, RuntimeError) as exc:
         raise _Refused(_PATH_REFUSED, "content_path is not a readable file under the root") from exc
     if len(data) > MAX_BYTES:
-        raise _Refused(_INVALID_REQUEST, f"content_path file exceeds {MAX_BYTES} bytes")
+        raise _Refused("too_large", f"content_path file exceeds {MAX_BYTES} bytes")
     if not data:
         raise _Refused(_INVALID_REQUEST, "content_path file is empty")
     return data

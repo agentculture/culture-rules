@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-26T18:20:36Z",
+  "updated": "2026-10-26T18:35:29Z",
   "claims": [
     {
       "id": "c1",
@@ -1143,6 +1143,28 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l6",
+      "code": "control-absent",
+      "what": "t12 task agent never ran the two discord-library gateway tests (reactions intent, uncached raw payload) red: they were skipped on the first run because discord.py was not installed, and only ran after the implementation",
+      "skipped_check": "red run of the reactions-intent and raw-payload tests",
+      "refs": [
+        "t12 / rules/dr-t12 c5b7cf9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "control-absent",
+      "what": "d7 library.push agent wrote the action_kinds any_of test in the same step as the catalogue change, so tests/model/test_action_kinds.py's new test was never shown red",
+      "skipped_check": "red run of the library.push any_of model test",
+      "refs": [
+        "d7 / rules/dr-d7-push e5a914e"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [

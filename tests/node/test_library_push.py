@@ -1116,13 +1116,13 @@ def test_content_root_alone_is_invalid(tmp_path):
     assert result.error.startswith(INVALID_REQUEST)
 
 
-def test_content_path_over_the_cap_is_invalid(tmp_path, monkeypatch):
+def test_content_path_over_the_cap_is_too_large_like_base64(tmp_path, monkeypatch):
     monkeypatch.setattr(library_mod, "MAX_BYTES", 8)
     fields, _ = _file_input(tmp_path, data=b"123456789")
     fields["content_base64"] = None
     result, transport = _push_path(fields)
     assert transport.calls == []
-    assert result.error.startswith(INVALID_REQUEST)
+    assert result.error.startswith(TOO_LARGE)
 
 
 def test_content_path_with_replace_by_item_id(tmp_path):
