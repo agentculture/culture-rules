@@ -87,7 +87,7 @@ BUILTIN_WORDS: dict[str, str] = {
     "markdown.render": "markdown.render: fields as one Markdown page, the same bytes each time",
     "markdown.from_html": "markdown.from_html: HTML as Markdown, whole and in chunks",
     "run.read": "run.read: a step's outputs from the run that started this one",
-    "attachment.fetch": "attachment.fetch: pdf and epub attachments saved as files on the node",
+    "attachment.fetch": "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node",
     "cursor.advance": "cursor.advance: move a stored cursor on, only from the value read",
 }
 

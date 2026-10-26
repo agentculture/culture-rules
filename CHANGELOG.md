@@ -16,6 +16,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A builtin code step's config.with (deviation d8): references such as inputs.item.content resolved onto its inputs like an action step's params, so a loop body can render each swept message
 - Editor: discord.reply and discord.sweep (with the channel picker), the cursor.advance builtin, and the Discord connection's application id
 - tests/rules/test_discord_command_and_sweep_flows.py: /save files the message and answers Saved privately; a sweep starts now, saves what came since (bots skipped) and nothing twice
+- attachment.fetch also saves Markdown attachments (text/markdown, or a .md name with no type), as format md (deviation d10)
 
 ### Changed
 

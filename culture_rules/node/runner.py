@@ -416,7 +416,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 MARKDOWN_RENDER_BUILTIN: MarkdownRenderPort(),  # fields as one Markdown page
                 FROM_HTML_BUILTIN: MarkdownFromHtmlPort(),  # HTML as Markdown, in chunks
                 RUN_READ_BUILTIN: RunReadPort(store),  # a step's outputs from an earlier run
-                ATTACHMENT_FETCH_BUILTIN: AttachmentFetchPort(),  # pdf/epub to files (d7)
+                ATTACHMENT_FETCH_BUILTIN: AttachmentFetchPort(),  # pdf/epub/md to files (d7, d10)
                 CURSOR_ADVANCE_BUILTIN: CursorAdvancePort(store),  # compare-and-set a cursor
                 checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
                     store

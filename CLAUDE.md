@@ -206,7 +206,7 @@ plan. What exists today:
   - Release 2: the event `discord.reaction.added` (an actor declaring it listens; it
     carries the emoji, the reactor and `user_roles`, which message events now carry
     too), the trigger filter `emoji` (unicode, or a custom `name:id`), the action kind
-    `discord.react`, and the builtin `attachment.fetch` (pdf/epub over https from
+    `discord.react`, and the builtin `attachment.fetch` (pdf, epub and Markdown over https from
     Discord's CDN, through http.call's vetted opener, at most 50 MiB) which writes each
     file under an `output_root` on the node (deviation d7: file bytes never enter run
     state, a MongoDB document); `library.push` reads it by `content_path` +

@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-26T20:30:15Z",
+  "updated": "2026-10-26T22:22:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -123,6 +123,20 @@
       "status": "approved",
       "classification": null,
       "seq": 46
+    },
+    {
+      "id": "d10",
+      "what": "attachment.fetch also saves Markdown attachments: content type text/markdown (or a .md file name when the type is missing or octet-stream) as format md, under the same rules as pdf and epub (https from Discord's CDN, no redirects, no private addresses, at most 50 MiB, a file under the attachments root, sha256-named); images and other types stay unsupported_format",
+      "task_ref": "t13",
+      "reason": "operator decision 2026-10-27 during the live Release 2 check: the operator's test upload was a Markdown runbook (mjolnir-orin-runbook.md), which the pdf/epub-only fetch would skip; the library actor already lists the md format",
+      "affects": [
+        "t13",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 47
     }
   ],
   "evidence": [

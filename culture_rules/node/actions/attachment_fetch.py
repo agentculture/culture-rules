@@ -11,7 +11,7 @@ connection policy reuses ``http.call``'s pieces from :mod:`culture_rules.node.ac
 The bytes never enter run state (deviation d7: a run document is capped at 16 MiB). Each
 fetched file is streamed in :data:`READ_CHUNK` pieces to a temporary file in the output root
 (the cap enforced while reading), hashed on the way, then renamed to
-``<output root>/<sha256>.<pdf|epub>`` - an atomic write. The same bytes again find that file
+``<output root>/<sha256>.<pdf|epub|md>`` - an atomic write. The same bytes again find that file
 and reuse it (its age is refreshed); a symlink or non-file at that name is ``path_refused``.
 A later step (``library.push`` with ``content_path`` + ``content_root``) reads the file; its
 library actor must list the attachments root in its ``content_roots``.
@@ -29,7 +29,7 @@ Inputs (each may instead sit in ``config``; the input wins):
   directory under it, else the step fails ``path_refused`` before anything is fetched or
   deleted; every file is written directly inside the resolved directory;
 * ``retention_days`` (optional, an integer 1-365, default 7): on each call, before fetching,
-  files in the output root named ``<64 lowercase hex>.pdf`` or ``.epub`` that are regular
+  files in the output root named ``<64 lowercase hex>.pdf``, ``.epub`` or ``.md`` that are regular
   files (never symlinks) and older than this are deleted; nothing else there is touched;
 * ``attachments``: a list of ``{url, filename, content_type}`` items - the shape
   ``discord.read`` outputs per attachment (its ``id`` and ``size`` are read when present);
@@ -37,9 +37,10 @@ Inputs (each may instead sit in ``config``; the input wins):
   ``bad_params``; every address a host resolves to is still vetted); it replaces the default
   :data:`DEFAULT_ALLOWED_HOSTS` (Discord's CDN hosts).
 
-The format comes from ``content_type`` (``application/pdf``, ``application/epub+zip``) or,
-when the type is absent or ``application/octet-stream``, from the filename's extension
-(``.pdf``, ``.epub``). Anything else - images included - is not fetched.
+The format comes from ``content_type`` (``application/pdf``, ``application/epub+zip``,
+``text/markdown`` - the last added by deviation d10) or, when the type is absent or
+``application/octet-stream``, from the filename's extension (``.pdf``, ``.epub``, ``.md``).
+Anything else - images and plain text included - is not fetched.
 
 Output: ``items`` (one per attachment, in order), ``fetched`` and ``skipped`` (counts). A
 fetched item is ``{filename, skipped: false, format, content_type, size, sha256, path}``
@@ -113,12 +114,13 @@ MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 READ_CHUNK = 1024 * 1024
 DEFAULT_RETENTION_DAYS = 7
 _RETENTION_BOUNDS = (1, 365)
-_STORED_NAME = re.compile(r"[0-9a-f]{64}\.(?:pdf|epub)")
+_STORED_NAME = re.compile(r"[0-9a-f]{64}\.(?:pdf|epub|md)")
 _PATH_REFUSED = "path_refused"
 _HTTPS_PORT = 443
 _BAD_PARAMS = "bad_params"
-_TYPES = {"application/pdf": "pdf", "application/epub+zip": "epub"}
-_EXTENSIONS = {".pdf": "pdf", ".epub": "epub"}
+_TYPES = {"application/pdf": "pdf", "application/epub+zip": "epub", "text/markdown": "md"}
+_EXTENSIONS = {".pdf": "pdf", ".epub": "epub", ".md": "md"}
+_CONTENT_TYPES = {fmt: ctype for ctype, fmt in _TYPES.items()}
 _GENERIC_TYPES = frozenset({"", "application/octet-stream"})
 _RETRYABLE_STATUS = frozenset({408, 425, 429})
 
@@ -310,7 +312,7 @@ class AttachmentFetchPort:
             sha256, size, path = self._fetch(att["url"], allow, deadline, root, fmt)
         except _Skip as skip:
             return {"filename": filename, "skipped": True, "reason": skip.reason}
-        content_type = "application/pdf" if fmt == "pdf" else "application/epub+zip"
+        content_type = _CONTENT_TYPES[fmt]
         return {
             "filename": filename,
             "skipped": False,

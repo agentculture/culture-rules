@@ -333,7 +333,7 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
     outputs: [PORT("run_id", true)],
   },
   "attachment.fetch": {
-    label: "attachment.fetch: pdf and epub attachments saved as files on the node",
+    label: "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node",
     inputs: [
       { name: "attachments", type: "array", required: true },
       PORT("output_root", false),

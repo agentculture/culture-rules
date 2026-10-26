@@ -141,7 +141,7 @@ only channels an enabled rule selects, for 30 days. The action kind `discord.rea
 and the builtin `markdown.render` take a message into `library.push`; the bundle
 `docs/rules/discord-library` ships disabled. Release 2 adds the event
 `discord.reaction.added` with an `emoji` filter, the action kind `discord.react`,
-`user_roles` on events, and the builtin `attachment.fetch`, which saves pdf/epub
+`user_roles` on events, and the builtin `attachment.fetch`, which saves pdf/epub/Markdown
 attachments as files on the node for `library.push`'s `content_path` (d7).
 Release 3 adds `/save` and the message command Save to library (the interaction
 token kept apart, answered privately by `discord.reply`), and `discord.sweep`

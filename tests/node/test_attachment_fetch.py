@@ -648,3 +648,45 @@ def test_a_relative_base_from_the_environment_is_path_refused(monkeypatch) -> No
     res = port.invoke({"attachments": [_att()]}, "k1", deadline, context=_ctx())
     assert res.error.startswith("path_refused")
     assert calls == []
+
+
+MD = b"# Runbook\n\nSteps.\n"
+
+
+def _md_port():
+    return _port(responder=lambda url: FakeResponse(body=MD))
+
+
+@pytest.mark.parametrize(
+    "name, ctype",
+    [
+        ("runbook.md", "text/markdown; charset=utf-8"),  # what Discord sent live (d10)
+        ("runbook.md", "text/markdown"),
+        ("runbook.md", None),  # no type: the .md name decides
+        ("runbook.md", "application/octet-stream"),
+    ],
+)
+def test_a_markdown_attachment_is_fetched_as_md(name, ctype) -> None:
+    port, _, _ = _md_port()
+    item = _invoke(port, {"attachments": [_att(name, ctype)]}).output["items"][0]
+    assert item["skipped"] is False
+    assert item["format"] == "md"
+    assert item["content_type"] == "text/markdown"
+    assert item["path"].endswith(".md")
+    assert open(item["path"], "rb").read() == MD
+
+
+def test_a_markdown_name_with_an_image_type_is_still_skipped() -> None:
+    port, calls, _ = _md_port()
+    item = _invoke(port, {"attachments": [_att("runbook.md", "image/png")]}).output["items"][0]
+    assert item["reason"] == "unsupported_format"
+    assert calls == []
+
+
+def test_retention_also_clears_old_markdown_files() -> None:
+    port, _, _ = _md_port()
+    old = os.path.join(ROOT, "a" * 64 + ".md")
+    open(old, "wb").write(MD)
+    os.utime(old, (1_000_000, 1_000_000))
+    _invoke(port, {"attachments": []})
+    assert not os.path.exists(old)

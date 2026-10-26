@@ -278,8 +278,8 @@ holding a listed role. An event with no emoji never passes an `emoji` filter.
 ## Saving attachments
 
 The `attachment.fetch` step (a code step's Built-in) takes `discord.read`'s
-`attachments` and saves each pdf and epub as a file in the node's attachments
-root, named by its sha256. That root is `CULTURE_RULES_ATTACHMENTS_ROOT` in the
+`attachments` and saves each pdf, epub and Markdown (`.md`, deviation d10) file
+in the node's attachments root, named by its sha256. That root is `CULTURE_RULES_ATTACHMENTS_ROOT` in the
 node's environment, else `culture-rules/attachments` in the node user's data
 directory (the XDG data home, `.local/share` under its home; created
 with mode `0700` when missing). A step's `output_root` is optional: unset, the
