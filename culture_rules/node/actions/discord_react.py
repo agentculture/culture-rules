@@ -6,8 +6,9 @@ time). The input is ``channel`` and ``message`` (numeric ids) and ``emoji``: a u
 as is, or a custom one as ``name:id``. ``connection.channels`` restricts the channels as
 :class:`~culture_rules.node.actions.discord_read.DiscordReadAction` does (unset or empty means
 every channel), and ``connection.guild_id`` (one id or a list) confines it to those servers:
-the channel's server is looked up first and a channel elsewhere is refused. A 429 is waited out by :class:`DiscordClient`. Reacting twice with the same
-emoji changes nothing, so the action is safe to retry. The token is never logged or echoed.
+the channel's server is looked up first and a channel elsewhere is refused. A 429 is waited
+out by :class:`DiscordClient`. Reacting twice with the same emoji changes nothing, so the
+action is safe to retry. The token is never logged or echoed.
 """
 
 from __future__ import annotations
