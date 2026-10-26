@@ -202,3 +202,12 @@ def test_a_channel_in_the_actors_guilds_is_reacted_in():
     res = action(store_with(guild_id="11"), t).invoke(INPUT, "k", NOW, context=ctx())
     assert res.outcome == COMPLETED, res.error
     assert [m for m, *_ in t.calls] == [None, "PUT"]
+
+
+def test_the_channels_server_is_looked_up_once_per_channel():
+    # review of PR #102: one GET /channels/{id} per channel, not per reaction
+    t = FakeTransport((200, {"id": "42", "guild_id": "11"}, {}), (204, {}, {}))
+    react = action(store_with(guild_id="11"), t)
+    for _ in range(3):
+        assert react.invoke(INPUT, "k", NOW, context=ctx()).outcome == COMPLETED
+    assert [m for m, *_ in t.calls] == [None, "PUT", "PUT", "PUT"]

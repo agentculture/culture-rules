@@ -91,3 +91,25 @@ def test_trigger_text_names_the_emoji():
     text = trigger_text(trig)
     assert "with 📚 or save:99" in text
     assert "from alice" in text
+
+
+@pytest.mark.parametrize("emoji", ["thumbs up", "save:123\n", "a/b", ":"])
+def test_an_emoji_that_could_never_match_is_refused(emoji):
+    # review of PR #102: one grammar (discord_filters.emoji_ok), matched whole
+    assert codes({"emoji": emoji}, "discord.reaction.added") == {"trigger_param_invalid"}
+
+
+def test_an_emoji_filter_belongs_to_reaction_triggers_only():
+    # review of PR #102: a hidden emoji filter left on a message trigger never fires
+    assert codes({"emoji": "📚"}, "discord.message.created") == {"trigger_param_invalid"}
+
+
+def test_one_emoji_grammar_for_the_filter_and_the_action():
+    from culture_rules.model.discord_filters import emoji_ok
+
+    assert emoji_ok("📚")
+    assert emoji_ok("save:99")
+    assert emoji_ok("99")
+    assert not emoji_ok("save:99\n")
+    assert not emoji_ok("thumbs up")
+    assert not emoji_ok("")

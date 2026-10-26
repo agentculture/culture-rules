@@ -15,7 +15,7 @@ CUSTOM_EMOJI_RE = re.compile(r"^\w{2,32}:\d{1,25}$")
 """A server's custom emoji written ``name:id`` (Discord's 2-32 character name and its id): one
 grammar for the ``emoji`` trigger filter and ``discord.react``."""
 
-__all__ = ["CUSTOM_EMOJI_RE", "discord_channels", "emoji_admits", "filter_values"]
+__all__ = ["CUSTOM_EMOJI_RE", "discord_channels", "emoji_admits", "emoji_ok", "filter_values"]
 
 
 def filter_values(value: Any) -> list[str]:
@@ -39,17 +39,36 @@ def discord_channels(params: Mapping[str, Any]) -> frozenset[str] | None:
     return frozenset(channels)
 
 
+VARIATION_SELECTOR = "\ufe0f"
+"""U+FE0F: whether an emoji carries it is a keyboard's choice (❤ vs ❤️), not another emoji."""
+
+
+def emoji_ok(value: Any) -> bool:
+    """One emoji grammar, for the ``emoji`` trigger filter and ``discord.react``: a custom
+    ``name:id`` (:data:`CUSTOM_EMOJI_RE`, matched whole), or one token with no colon, slash
+    or whitespace (a unicode emoji, or for the filter a bare id or name)."""
+    if not isinstance(value, str) or not value:
+        return False
+    if CUSTOM_EMOJI_RE.fullmatch(value):
+        return True
+    return not any(c in value for c in ":/") and not any(c.isspace() for c in value)
+
+
+def _plain(emoji: str) -> str:
+    return emoji.replace(VARIATION_SELECTOR, "")
+
+
 def emoji_admits(wanted: list[str], data: Mapping[str, Any]) -> bool:
     """Whether a reaction's emoji is one of ``wanted`` (an ``emoji`` filter, discord-surfaces
     t15): a unicode emoji matches ``emoji_name``; a custom one matches by ``name:id`` (the id
     decides, so another server's emoji of the same name is not it), by its id alone, or by its
-    name. An event with no emoji never matches."""
-    name = str(data.get("emoji_name") or "")
+    name. U+FE0F is ignored on both sides. An event with no emoji never matches."""
+    name = _plain(str(data.get("emoji_name") or ""))
     emoji_id = str(data.get("emoji_id") or "")
     for value in wanted:
-        if CUSTOM_EMOJI_RE.match(value):
+        if CUSTOM_EMOJI_RE.fullmatch(value):
             if emoji_id and value.rpartition(":")[2] == emoji_id:
                 return True
-        elif value in {name, emoji_id} - {""}:
+        elif _plain(value) in {name, emoji_id} - {""}:
             return True
     return False

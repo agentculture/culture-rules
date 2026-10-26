@@ -169,3 +169,13 @@ def test_the_emoji_filter_combines_with_who_and_channels():
     assert trigger_matches(rtrig(emoji="📚", users=["alice"], channels=["20"]), react())
     assert not trigger_matches(rtrig(emoji="📚", users=["bob"]), react())
     assert not trigger_matches(rtrig(emoji="📚", channels=["21"]), react())
+
+
+def test_the_variation_selector_does_not_split_one_emoji():
+    # review of PR #102: "❤" typed without U+FE0F must match Discord's "❤️", and back
+    assert trigger_matches(rtrig(emoji="❤"), react(emoji_name="❤️"))
+    assert trigger_matches(rtrig(emoji="❤️"), react(emoji_name="❤"))
+
+
+def test_a_skin_tone_is_a_different_emoji():
+    assert not trigger_matches(rtrig(emoji="👍"), react(emoji_name="👍🏽"))

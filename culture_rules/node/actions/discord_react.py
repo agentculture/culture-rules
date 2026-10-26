@@ -50,6 +50,13 @@ class DiscordReactAction(DiscordReadAction):
             discord_base_url=discord_base_url,
         )
         self._sleep = sleep
+        self._guild_of: dict[str, str | None] = {}  # channel -> its server (it does not move)
+
+    def _channel_guild(self, client: DiscordClient, channel: str) -> str | None:
+        """The channel's server, looked up once per channel (each lookup is a REST call)."""
+        if channel not in self._guild_of:
+            self._guild_of[channel] = client.channel_guild(channel)
+        return self._guild_of[channel]
 
     def invoke(
         self,
@@ -82,7 +89,7 @@ class DiscordReactAction(DiscordReadAction):
         guilds = guild_ids(connection.get("guild_id"))
         try:
             client = DiscordClient(token, **kwargs)
-            if guilds is not None and client.channel_guild(channel) not in guilds:
+            if guilds is not None and self._channel_guild(client, channel) not in guilds:
                 # guild_id confines reactions as it does reads and the gateway
                 return _fail(f"channel {channel!r} is not in actor {actor_id!r} guilds (guild_id)")
             out = client.add_reaction(channel, message, emoji)

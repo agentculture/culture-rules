@@ -37,7 +37,7 @@ from culture_rules.model.action_step import (
 from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
-from culture_rules.model.discord_filters import CUSTOM_EMOJI_RE
+from culture_rules.model.discord_filters import emoji_ok
 from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine, MachineInstall
 from culture_rules.model.placement import PLACEMENT_FORMS, Placement
@@ -533,7 +533,14 @@ def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
                 'params.channels holds numeric Discord channel ids, or "all"',
             )
 
-    if "emoji" in params and not _emoji_ok(params["emoji"]):
+    if "emoji" in params and params.get("type") != "discord.reaction.added":
+        _err(
+            errors,
+            _join(pp, "emoji"),
+            "trigger_param_invalid",
+            "params.emoji filters reactions: only a discord.reaction.added trigger takes it",
+        )
+    elif "emoji" in params and not _emoji_ok(params["emoji"]):
         _err(
             errors,
             _join(pp, "emoji"),
@@ -546,12 +553,7 @@ def _emoji_ok(value: Any) -> bool:
     items = value if isinstance(value, (list, tuple)) else [value]
     if not items:
         return False
-    for item in items:
-        if not isinstance(item, str) or not item.strip():
-            return False
-        if ":" in item and not CUSTOM_EMOJI_RE.match(item):
-            return False
-    return True
+    return all(emoji_ok(item) for item in items)
 
 
 def _filter_value_ok(value: Any) -> bool:
