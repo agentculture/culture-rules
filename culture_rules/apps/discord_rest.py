@@ -33,6 +33,7 @@ DEFAULT_BASE_URL = "https://discord.com/api/v10"
 MAX_CONTENT = 2000
 _TIMEOUT_S = 15.0
 _CHANNEL_RE = re.compile(r"^\d{1,25}$")
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9._-]{1,512}$")
 #: A GET that gets a 429 is retried this many times, waiting ``retry_after`` (capped) each time.
 _MAX_RETRIES = 3
 _MAX_WAIT_S = 5.0
@@ -76,10 +77,19 @@ TEXT_CHANNEL_TYPES = (0, 5)
 class DiscordError(Exception):
     """A failed Discord call. ``retryable`` follows the status; the text holds no secrets."""
 
-    def __init__(self, message: str, *, retryable: bool, retry_after: float | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool,
+        retry_after: float | None = None,
+        expired: bool = False,
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.retry_after = retry_after
+        #: an interaction webhook Discord no longer accepts (401/404): the token ran out
+        self.expired = expired
 
 
 def _urllib_transport(
@@ -130,28 +140,37 @@ class DiscordClient:
     def __repr__(self) -> str:
         return f"DiscordClient(base_url={self._base!r})"
 
-    def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bot {self._token}",
+    def _headers(self, *, bot: bool = True) -> dict[str, str]:
+        headers = {
             "Content-Type": "application/json",
             "User-Agent": "DiscordBot (culture-rules, 1)",
         }
+        if bot:  # an interaction webhook is authorised by its own token, never the bot's
+            headers["Authorization"] = f"Bot {self._token}"
+        return headers
 
     def _get(self, path: str) -> tuple[int, Any]:
         """GET ``path``; a 429 is retried after its ``retry_after`` (each wait capped at
         ``_MAX_WAIT_S``) up to ``_MAX_RETRIES`` times, then it is returned as is."""
         return self._send(path)
 
-    def _send(self, path: str, method: str | None = None) -> tuple[int, Any]:
-        """GET (or, with ``method``, that verb with no body) ``path`` with the 429 retry of
-        :meth:`_get`."""
+    def _send(
+        self,
+        path: str,
+        method: str | None = None,
+        *,
+        body: bytes = b"",
+        bot: bool = True,
+    ) -> tuple[int, Any]:
+        """GET (or, with ``method``, that verb with ``body``, empty by default) ``path`` with
+        the 429 retry of :meth:`_get`; ``bot=False`` leaves the bot token out of the headers."""
         extra = {"method": method} if method else {}
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 status, payload, _ = self._transport(
                     self._base + path,
-                    b"" if method else None,
-                    self._headers(),
+                    body if method else None,
+                    self._headers(bot=bot),
                     self._timeout,
                     **extra,
                 )
@@ -280,6 +299,38 @@ class DiscordClient:
         status, payload = self._send(path, "PUT")
         if 200 <= status < 300:
             return {"channel_id": channel_id, "message_id": message_id, "emoji": emoji}
+        if status == 429:
+            retry_after = _retry_after(payload)
+            raise DiscordError(
+                f"discord rate limited (retry_after={retry_after})",
+                retryable=True,
+                retry_after=retry_after,
+            )
+        raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
+
+    def edit_interaction_response(
+        self, application_id: str, interaction_token: str, text: str
+    ) -> dict[str, bool]:
+        """Replace the deferred (ephemeral) original response of a command interaction with
+        ``text`` (cut to 2000 characters with an ellipsis). The interaction token authorises
+        the call, so no bot token is sent, and it is never logged or put in an error. Discord
+        answering 401 or 404 means the token ran out: a non-retryable error with ``expired``
+        set. A 429 is waited out and a 5xx is retryable."""
+        _check_id(application_id, "application")
+        if not isinstance(interaction_token, str) or not _TOKEN_RE.match(interaction_token):
+            raise DiscordError("malformed interaction token", retryable=False)
+        text = str(text)
+        if len(text) > MAX_CONTENT:
+            text = text[: MAX_CONTENT - 1] + "\u2026"
+        body = {"content": text, "allowed_mentions": {"parse": []}}
+        path = f"/webhooks/{application_id}/{interaction_token}/messages/@original"
+        status, payload = self._send(
+            path, "PATCH", body=json.dumps(body).encode("utf-8"), bot=False
+        )
+        if 200 <= status < 300:
+            return {"edited": True}
+        if status in (401, 404):
+            raise DiscordError("discord interaction expired", retryable=False, expired=True)
         if status == 429:
             retry_after = _retry_after(payload)
             raise DiscordError(
