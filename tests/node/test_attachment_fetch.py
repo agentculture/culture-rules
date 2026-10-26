@@ -470,3 +470,35 @@ def test_the_file_just_fetched_survives_its_own_retention_pass() -> None:
     port, _, _ = _port()
     res = _invoke(port, {"attachments": [_att()], "retention_days": 1})
     assert os.path.exists(res.output["items"][0]["path"])
+
+
+def test_a_file_removed_between_the_check_and_the_touch_is_placed_again(monkeypatch) -> None:
+    # review of the R2 diff: a lost race must not escape as an unclassified OSError
+    port, _, _ = _port()
+    first = _invoke(port, {"attachments": [_att()]}).output["items"][0]
+    real = os.utime
+
+    def gone(path, *a, **kw):
+        if str(path) == first["path"]:
+            os.unlink(path)
+            raise FileNotFoundError(path)
+        return real(path, *a, **kw)
+
+    monkeypatch.setattr(os, "utime", gone)
+    res = _invoke(port, {"attachments": [_att()]})
+    assert res.outcome == COMPLETED, res.error
+    assert os.path.isfile(first["path"])
+    assert [n for n in os.listdir(ROOT) if n.endswith(".part")] == []
+
+
+def test_a_write_error_fails_the_step_retryable_and_leaves_no_temp_file(monkeypatch) -> None:
+    port, _, _ = _port()
+
+    def full(*a, **kw):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os, "replace", full)
+    res = _invoke(port, {"attachments": [_att()]})
+    assert res.outcome == FAILED and res.retryable is True
+    assert res.error.startswith("write_failed")
+    assert os.listdir(ROOT) == []

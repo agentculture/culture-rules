@@ -18,6 +18,8 @@ import urllib.request  # nosec B404 - fixed https base URL, no file/custom schem
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from culture_rules.model.discord_filters import CUSTOM_EMOJI_RE
+
 __all__ = [
     "DEFAULT_BASE_URL",
     "MAX_CONTENT",
@@ -35,10 +37,16 @@ _CHANNEL_RE = re.compile(r"^\d{1,25}$")
 _MAX_RETRIES = 3
 _MAX_WAIT_S = 5.0
 _DEFAULT_WAIT_S = 1.0
-#: A reaction emoji: a custom one is ``name:id``; anything else is taken as a unicode emoji.
-_EMOJI_RE = re.compile(r"^(?!\S+:)\S+$|^\w{2,32}:\d{1,25}$")
 _PAGE_SIZE = 100
 _MAX_PAGES = 10
+
+
+def _reaction_emoji_ok(emoji: str) -> bool:
+    """A reaction emoji: a custom ``name:id`` (:data:`CUSTOM_EMOJI_RE`), or anything else with
+    no colon, whitespace or slash, taken as a unicode emoji (Discord validates it)."""
+    if CUSTOM_EMOJI_RE.match(emoji):
+        return True
+    return bool(emoji) and not any(c in emoji for c in ":/") and not any(c.isspace() for c in emoji)
 
 
 def guild_ids(value: Any) -> frozenset[str] | None:
@@ -253,9 +261,9 @@ class DiscordClient:
         (reacting twice with the same emoji is a no-op, so a retry is safe)."""
         _check_id(channel_id, "channel")
         _check_id(message_id, "message")
-        if not isinstance(emoji, str) or not _EMOJI_RE.match(emoji.strip()) or "/" in emoji:
+        emoji = emoji.strip() if isinstance(emoji, str) else ""
+        if not _reaction_emoji_ok(emoji):
             raise DiscordError("emoji must be a unicode emoji or name:id", retryable=False)
-        emoji = emoji.strip()
         path = (
             f"/channels/{channel_id}/messages/{message_id}/reactions/"
             f"{urllib.parse.quote(emoji, safe='')}/@me"
