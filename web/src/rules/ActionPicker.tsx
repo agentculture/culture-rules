@@ -173,7 +173,7 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
       actor: RS,
       content_base64: S,
       content_path: S,
-      content_root: S,
+      content_root: { ...S, optionsFrom: "content_roots", choose: "Choose one of the library's content roots…" },
       title: RS,
       kind: { ...RS, optionsFrom: "kinds", choose: "Choose a kind…" },
       visibility: { ...S, optionsFrom: "visibilities", choose: "The library's default" },

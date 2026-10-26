@@ -21,6 +21,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - docs/actors/discord.md and docs/actors/library.md describe reactions, the emoji filter and saving attachments; Release 3 (commands, reply, sweep) stays planned
+- library.push reads a content_path only under a root its library actor lists in the new `content_roots` (none listed: refused), resolving symlinks in the root so the attachment.fetch chain works under a symlinked root
+- attachment.fetch writes only under the node's attachments directory (`CULTURE_RULES_ATTACHMENTS_ROOT`, default `~/.local/share/culture-rules/attachments`; output_root optional and under it), and allowed_hosts takes hostnames only, every resolved address vetted
+- The gateway drops event types an actor does not declare before writing anything, selects channels per event type (a reaction rule no longer widens which messages are stored), and requests the privileged message content intent only for actors that listen for messages
+- One emoji grammar (`emoji_ok`, matched whole) for the filter and discord.react; U+FE0F ignored when matching; emoji only on discord.reaction.added triggers (the editor drops it on a type change); discord.react looks a channel's server up once
 
 ## [0.30.2] - 2026-10-26
 
