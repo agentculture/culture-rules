@@ -24,6 +24,8 @@ Edit the Owner/Model columns before approving gate 2 — the default Model is a 
 
 **Gate 2 decision (2026-10-25, operator):** approved, Release 1 only (waves 1–7, t1–t11). Releases 2–3 come back for a fresh go/no-go after the live rollout.
 
+**Gate 2 decision (2026-10-26, operator):** go on Releases 2–3 (waves 8–13, t12–t20), after Release 1 shipped live as 0.30.1 and its delivery summary merged (#101).
+
 | Task | Owner | Model |
 | --- | --- | --- |
 | `t1` | subagent | sonnet |
