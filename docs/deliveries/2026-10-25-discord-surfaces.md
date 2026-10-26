@@ -179,7 +179,7 @@ the kind (#19), the `#spark-tests` rule was re-enabled, and #100 moved the bundl
 | `c42` — a save flow carries a who filter (users by id or name, roles, either one admits) | high | `e10`–`e12` · `tests/engine/test_discord_trigger_filters.py::test_users_filter_ids_or_names_case_insensitive` |
 | `c13` — reactions save a message | unverified | Release 2, not built (`t12`–`t15`) |
 
-Lapse ledger evidence (`l1`–`l4` approved; `l5` proposed, pending approval — not yet evidence):
+Lapse ledger evidence (all approved):
 
 | Lapse | Code | What |
 |-------|------|------|
@@ -187,13 +187,13 @@ Lapse ledger evidence (`l1`–`l4` approved; `l5` proposed, pending approval —
 | `l2` | `provenance-missing` | t2 task agent handed back the literal text 'placeholder' instead of a report: no test command, pass summary or shortcut list was reported for commit 9d23356 |
 | `l3` | `control-absent` | main agent merged t10 (a new committed docs/rules workflow) on tests/rules alone and deferred the full suite to after t4; 12 corpus tests (paragraph fixtures, fold parity, workflow count guards) failed and were caught only at the wave-3 full run |
 | `l4` | `grader-unverified` | main agent ran 'grant set `LIBRARY_PUSH_API_KEY` --hidden < file' without the '-' value, which grant treats as a metadata-only update, so key 6 stayed sealed and key 7's only copy was shredded; the follow-up check fetched a public item, which any valid key passes, so it could not tell key 6 from key 7. Found only when the push failed `forbidden_kind` and the sealed token's hash matched key 6 in /data/library.db |
-| `l5` | `grader-unverified` | proposed: evidence `e33` (`o13`, `c27`) says its test asserts a push with no visibility sends none, but `test_without_visibilities_a_push_without_visibility_still_works` only checks the push completes; the absence is asserted by `test_upload_carries_file_title_author_and_kind` |
+| `l5` | `grader-unverified` | evidence `e33` (`o13`, `c27`) says its test asserts a push with no visibility sends none, but `test_without_visibilities_a_push_without_visibility_still_works` only checks the push completes; the absence is asserted by `test_upload_carries_file_title_author_and_kind` |
 
 How the lapses bear on the claims: `l1` caps `c26` at medium, because its render tests were
 never shown red; the #100 bundle tests (red on the old bundle) and live item 72 back the
 dedupe end to end. `c6` stays high on those bundle tests. `l2` (`c42`) is covered by the
 validate-delivery re-run of the filter tests. `l3` was caught by the full suite before merge.
-`l5` (proposed) caps `c27` at medium. `l4` is
+`l5` caps `c27` at medium. `l4` is
 closed: key 10 was hash-verified against grant, the node env and `api_keys` row 10 (`b2`).
 
 ## Remaining Work / Follow-up
