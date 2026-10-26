@@ -27,9 +27,16 @@ Inputs (``cursor_key`` and ``limit`` may instead sit in ``config``; the input wi
     how many messages one run reads, 1-100, default 50;
 ``guild``
     the channel's guild id, which fills ``guild_id`` and ``url`` when the actor has no
-    ``guild_id`` restriction to look it up by.
+    ``guild_id`` restriction to look it up by;
+``include_bots``
+    ``true`` to return messages from bots too; off by default, as on a ``discord.*`` trigger
+    (the cursor still moves past them);
+``backfill``
+    ``true`` to start a flow with no stored cursor at the channel's oldest message. Off by
+    default: a first run starts now (``next_cursor`` is the newest message, or ``"0"`` for an
+    empty channel) and returns nothing, so enabling a flow on a busy channel files no history.
 
-With no stored cursor the sweep starts at the channel's oldest message. Outputs:
+Outputs:
 ``messages`` (oldest first, at most ``limit``; each ``id``, ``channel_id``, ``guild_id``,
 ``content``, ``author_id``, ``author_name``, ``url`` and ``attachments`` as ``discord.read``
 gives them), ``count``, ``more`` (the run hit ``limit``; more may be waiting), ``cursor``
@@ -105,6 +112,10 @@ class DiscordSweepAction(DiscordReadAction):
         limit = _limit(_param(input, config, "limit"))
         if limit is None:
             return _fail(f"discord.sweep limit must be an integer from 1 to {MAX_LIMIT}")
+        include_bots = _param(input, config, "include_bots")
+        backfill = _param(input, config, "backfill")
+        if not all(v is None or isinstance(v, bool) for v in (include_bots, backfill)):
+            return _fail("discord.sweep include_bots and backfill must be true or false")
         key = f"{flow}:{channel}"
         cursor = read_cursor(self._store, key)
         if cursor is not None and not (isinstance(cursor, str) and _ID_RE.match(cursor)):
@@ -132,19 +143,32 @@ class DiscordSweepAction(DiscordReadAction):
                         f"channel {channel!r} is not in actor {actor_id!r} guilds (guild_id)"
                     )
                 guild_id = guild_id or found
-            messages = client.history(channel, cursor or "0", limit, guild_id=guild_id, max_pages=1)
+            if cursor is None and backfill is not True:
+                start = client.latest(channel) or "0"  # a first run starts now
+                return InvocationResult.completed(
+                    {
+                        "messages": [],
+                        "count": 0,
+                        "more": False,
+                        "cursor": None,
+                        "next_cursor": start,
+                        "cursor_key": key,
+                    }
+                )
+            read = client.history(channel, cursor or "0", limit, guild_id=guild_id, max_pages=1)
         except DiscordError as exc:
             log.warning("discord sweep of %s failed: %s", channel, exc)
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
-        for message in messages:
+        for message in read:
             message["guild_id"] = guild_id
+        messages = [m for m in read if include_bots is True or m.get("bot") is not True]
         return InvocationResult.completed(
             {
                 "messages": messages,
                 "count": len(messages),
-                "more": len(messages) >= limit,
+                "more": len(read) >= limit,
                 "cursor": cursor,
-                "next_cursor": messages[-1]["id"] if messages else cursor,
+                "next_cursor": read[-1]["id"] if read else cursor,
                 "cursor_key": key,
             }
         )

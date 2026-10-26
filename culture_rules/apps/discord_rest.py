@@ -247,6 +247,15 @@ class DiscordClient:
                 break
         return out[:limit]
 
+    def latest(self, channel_id: str) -> str | None:
+        """The id of the channel's newest message, or None for an empty channel."""
+        _check_id(channel_id, "channel")
+        page = self._get_ok(f"/channels/{channel_id}/messages?limit=1")
+        if not isinstance(page, list) or not page or not isinstance(page[0], Mapping):
+            return None
+        mid = str(page[0].get("id", ""))
+        return mid if mid.isdigit() else None
+
     def add_reaction(self, channel_id: str, message_id: str, emoji: str) -> dict[str, str]:
         """React to a message as the bot. ``emoji`` is a unicode emoji as is, or a custom one
         as ``name:id``; it is percent-encoded into the URL. A 429 is retried like a GET
@@ -332,6 +341,7 @@ def _shape_message(raw: Any, channel_id: str, guild_id: str | None) -> dict[str,
         "content": str(raw.get("content") or ""),
         "author_id": str(author.get("id", "")),
         "author_name": str(author.get("username", "")),
+        "bot": author.get("bot") is True,
         "url": (
             f"https://discord.com/channels/{guild_id}/{channel_id}/{mid}"
             if guild_id and mid

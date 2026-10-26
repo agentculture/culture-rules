@@ -27,8 +27,9 @@ def ctx(actor="disc", config=None):
 class ChannelTransport:
     """A fake Discord: one channel's messages; honours ``after`` and ``limit`` (newest first)."""
 
-    def __init__(self, ids=(), guild="77"):
+    def __init__(self, ids=(), guild="77", bots=()):
         self.ids = [str(i) for i in ids]
+        self.bots = {str(i) for i in bots}
         self.guild = guild
         self.calls = []
 
@@ -37,13 +38,17 @@ class ChannelTransport:
         parsed = urlparse(url)
         if parsed.path.endswith("/messages"):
             q = parse_qs(parsed.query)
-            after, limit = int(q["after"][0]), int(q["limit"][0])
-            newer = sorted((i for i in self.ids if int(i) > after), key=int)[:limit]
+            limit = int(q["limit"][0])
+            if "after" in q:
+                after = int(q["after"][0])
+                newer = sorted((i for i in self.ids if int(i) > after), key=int)[:limit]
+            else:  # no after: the newest ``limit`` messages
+                newer = sorted(self.ids, key=int)[-limit:] if self.ids else []
             page = [
                 {
                     "id": i,
                     "content": f"m{i}",
-                    "author": {"id": "7", "username": "ori"},
+                    "author": {"id": "7", "username": "ori", "bot": i in self.bots},
                     "attachments": [],
                 }
                 for i in reversed(newer)
@@ -80,9 +85,9 @@ def advance(store, **inp):
 # ------------------------------------------------------------------ discord.sweep
 
 
-def test_first_sweep_reads_from_the_start_oldest_first_with_cursor_outputs():
+def test_a_backfill_first_sweep_reads_from_the_start_oldest_first_with_cursor_outputs():
     s, t = store_with(), ChannelTransport([101, 103, 102])
-    res = sweep(s, t, guild="77")
+    res = sweep(s, t, guild="77", backfill=True)
     assert res.outcome == COMPLETED, res.error
     out = res.output
     assert [m["id"] for m in out["messages"]] == ["101", "102", "103"]
@@ -108,12 +113,12 @@ def test_sweep_reads_after_the_stored_cursor():
 
 def test_sweep_is_bounded_per_run_and_says_more():
     s, t = store_with(), ChannelTransport(range(1000, 1300))
-    out = sweep(s, t).output  # default limit 50
+    out = sweep(s, t, backfill=True).output  # default limit 50
     assert out["count"] == 50 and out["more"] is True
     assert out["next_cursor"] == "1049"
-    out = sweep(s, t, limit=500).output  # hard cap 100
+    out = sweep(s, t, backfill=True, limit=500).output  # hard cap 100
     assert out["count"] == 100
-    out = sweep(s, t, limit=3).output
+    out = sweep(s, t, backfill=True, limit=3).output
     assert [m["id"] for m in out["messages"]] == ["1000", "1001", "1002"]
 
 
@@ -121,7 +126,10 @@ def test_sweep_limit_and_key_from_config():
     s, t = store_with(), ChannelTransport([5, 6, 7])
     action = DiscordSweepAction(s, resolve_secret=lambda ref: "tok", transport=t)
     res = action.invoke(
-        {"channel": "555"}, "k", NOW, context=ctx(config={"cursor_key": "flow", "limit": 2})
+        {"channel": "555"},
+        "k",
+        NOW,
+        context=ctx(config={"cursor_key": "flow", "limit": 2, "backfill": True}),
     )
     assert res.outcome == COMPLETED, res.error
     assert res.output["cursor_key"] == "flow:555" and res.output["count"] == 2
@@ -153,10 +161,10 @@ def test_sweep_refusals():
 
 def test_sweep_honours_the_guild_restriction():
     s, t = store_with(guild_id="1"), ChannelTransport([5], guild="77")
-    res = sweep(s, t)
+    res = sweep(s, t, backfill=True)
     assert res.outcome == FAILED and "guilds" in res.error
     s, t = store_with(guild_id=["77"]), ChannelTransport([5], guild="77")
-    out = sweep(s, t).output
+    out = sweep(s, t, backfill=True).output
     assert out["messages"][0]["guild_id"] == "77"
     assert out["messages"][0]["url"] == "https://discord.com/channels/77/555/5"
 
@@ -277,6 +285,7 @@ def _pushed_ok(store, transport):
 
 def test_a_run_after_a_failed_run_saves_what_it_missed():
     s, t = store_with(), ChannelTransport([101, 102])
+    s.put(SWEEP_CURSORS_COLLECTION, {"id": "lib:555", "value": "100"})
     failed = sweep(s, t).output  # the pushes fail: the run never reaches cursor.advance
     assert [m["id"] for m in failed["messages"]] == ["101", "102"]
     t.ids.append("103")
@@ -311,5 +320,43 @@ def test_an_overlapping_run_cannot_rewind_or_skip():
 def test_cursors_are_per_flow_and_channel():
     s, t = store_with(), ChannelTransport([1, 2])
     _pushed_ok(s, t)
-    other = sweep(s, t, cursor_key="other").output
+    other = sweep(s, t, backfill=True, cursor_key="other").output
     assert other["cursor"] is None and other["count"] == 2
+
+
+# ------------------------------------------------------------------ first run, bots
+
+
+def test_a_first_sweep_starts_now_and_saves_no_history():
+    s, t = store_with(), ChannelTransport([101, 102, 103])
+    out = sweep(s, t).output
+    assert out["messages"] == [] and out["count"] == 0 and out["more"] is False
+    assert out["cursor"] is None and out["next_cursor"] == "103"
+    assert "after=" not in t.calls[-1] and "limit=1" in t.calls[-1]
+    # once advanced, the next run reads only what came after
+    assert advance(s, key="lib:555", expected=None, value="103").outcome == COMPLETED
+    t.ids.append("104")
+    assert [m["id"] for m in sweep(s, t).output["messages"]] == ["104"]
+
+
+def test_a_first_sweep_of_an_empty_channel_starts_at_zero_so_nothing_is_missed():
+    s, t = store_with(), ChannelTransport([])
+    out = sweep(s, t).output
+    assert out["messages"] == [] and out["next_cursor"] == "0"
+
+
+def test_bot_messages_are_skipped_unless_include_bots_but_the_cursor_passes_them():
+    s, t = store_with(), ChannelTransport([101, 102, 103], bots=[102, 103])
+    s.put(SWEEP_CURSORS_COLLECTION, {"id": "lib:555", "value": "100"})
+    out = sweep(s, t).output
+    assert [m["id"] for m in out["messages"]] == ["101"]
+    assert out["count"] == 1 and out["next_cursor"] == "103"
+    both = sweep(s, t, include_bots=True).output
+    assert [m["id"] for m in both["messages"]] == ["101", "102", "103"]
+    assert both["messages"][1]["bot"] is True and both["messages"][0]["bot"] is False
+
+
+def test_backfill_and_include_bots_must_be_booleans():
+    s, t = store_with(), ChannelTransport([101])
+    assert sweep(s, t, backfill="yes").outcome == FAILED
+    assert sweep(s, t, include_bots=1).outcome == FAILED
