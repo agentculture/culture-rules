@@ -133,14 +133,17 @@ Markdown; the builtins `json.read` and `checklist.merge|set|render|bind` keep a 
 to-do list with stable ids; `audio.transcribe` hashes the audio itself. The flows that
 use them are configured live, never committed.
 
-**Discord surfaces, Release 1** (guide `docs/actors/discord.md`). Any number of
+**Discord surfaces, Releases 1-2** (guide `docs/actors/discord.md`). Any number of
 Discord bots, one app actor each; the delivery id is per actor and
 `connection.guild_id` is one id or a list. `discord.*` triggers filter on
 `include_bots`, `channels`, `users` and `roles` (users OR roles); the gateway stores
 only channels an enabled rule selects, for 30 days. The action kind `discord.read`
 and the builtin `markdown.render` take a message into `library.push`; the bundle
-`docs/rules/discord-library` ships disabled. Reactions, commands and the schedule
-are planned.
+`docs/rules/discord-library` ships disabled. Release 2 adds the event
+`discord.reaction.added` with an `emoji` filter, the action kind `discord.react`,
+`user_roles` on events, and the builtin `attachment.fetch`, which saves pdf/epub
+attachments as files on the node for `library.push`'s `content_path` (d7).
+Commands and the schedule are planned.
 
 Two GitHub issues carried the design:
 

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-10-26
+
+### Added
+
+- Discord surfaces Release 2 (t12-t15): the event discord.reaction.added (raw, so uncached messages count; the emoji, the reactor and user_roles; delivery id actor:message:user:emoji), and an actor declaring only reactions listens
+- user_roles on Discord message events, so the roles trigger filter matches
+- The emoji trigger filter on discord.* triggers: a unicode emoji, a custom name:id (the id decides), an id or a name, or a list
+- The action kind discord.react: the bot's reaction (unicode or custom name:id) on a message, with 429 handling
+- The builtin attachment.fetch: pdf and epub attachments over https from Discord's CDN through http.call's vetted pinned opener (no redirects, no private addresses, at most 50 MiB), streamed to `<output_root>/<sha256>.<format>` with a retention_days cleanup; images and other types are skipped (unsupported_format)
+- library.push reads a file by content_path + content_root (one of content_base64 or content_path; symlinks refused), so file bytes never enter run state (deviation d7: a run is one MongoDB document, capped at 16 MiB)
+- Editor: discord.react with the server and channel picker, the Emoji field on reaction triggers, the attachment.fetch builtin's ports, and library.push's content_path source
+- tests/rules/test_discord_reaction_flow.py: a reaction saves the message and each pdf/epub attachment, then reacts, end to end on fakes
+
+### Changed
+
+- docs/actors/discord.md and docs/actors/library.md describe reactions, the emoji filter and saving attachments; Release 3 (commands, reply, sweep) stays planned
+
 ## [0.30.2] - 2026-10-26
 
 ### Added

@@ -192,8 +192,8 @@ plan. What exists today:
     across re-extraction, a flip applied only when newer, Markdown with a
     revision, a bound library item and stale-push detection);
   - `audio.transcribe` hashes the audio itself when no `audio_sha256` is given.
-- **Discord surfaces, Release 1** (spec `docs/specs/2026-10-25-discord-surfaces.md`,
-  guide `docs/actors/discord.md`; Releases 2-3 planned):
+- **Discord surfaces, Releases 1-2** (spec `docs/specs/2026-10-25-discord-surfaces.md`,
+  guide `docs/actors/discord.md`; Release 3 planned):
   - any number of Discord bots, one app actor each (Culture.dev as `discord-bot`,
     `jetson-bot`); the gateway's delivery id is per actor, and `connection.guild_id`
     is one id or a list (upgrade every node and the API before switching to a list);
@@ -202,7 +202,15 @@ plan. What exists today:
     `discord.*` rule selects, and Discord events expire after 30 days;
   - the action kind `discord.read` (one message in full, with attachments) and the
     builtin `markdown.render` (a deterministic page and its `content_base64` for
-    `library.push`); the bundle `docs/rules/discord-library` ships disabled.
+    `library.push`); the bundle `docs/rules/discord-library` ships disabled;
+  - Release 2: the event `discord.reaction.added` (an actor declaring it listens; it
+    carries the emoji, the reactor and `user_roles`, which message events now carry
+    too), the trigger filter `emoji` (unicode, or a custom `name:id`), the action kind
+    `discord.react`, and the builtin `attachment.fetch` (pdf/epub over https from
+    Discord's CDN, through http.call's vetted opener, at most 50 MiB) which writes each
+    file under an `output_root` on the node (deviation d7: file bytes never enter run
+    state, a MongoDB document); `library.push` reads it by `content_path` +
+    `content_root`.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for
