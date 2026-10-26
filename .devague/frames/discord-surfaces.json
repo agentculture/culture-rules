@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-25T23:35:24Z",
+  "updated": "2026-10-26T17:03:47Z",
   "claims": [
     {
       "id": "c1",
@@ -1142,7 +1142,7 @@
       "behavior": "two bots sinking one message record two events",
       "source_text": "Each bot records its own event for the same message: event_id_for(surface, delivery_id) in events/hook_sink.py:99 hashes only the message id, so when both bots sit in one server the second sink is a duplicate and the event is owned by whichever bot wrote first (source, data.actor and self_authored become order-dependent); the event id must include the actor id",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o2",
@@ -1151,7 +1151,7 @@
       "behavior": "the delivery id is actor-scoped; one actor's redelivery is still a duplicate",
       "source_text": "The per-actor event id changes only Discord's ids: github.py:363 checks redelivery with event_id_for(SURFACE, delivery), so the gateway passes an actor-scoped delivery id (e.g. `<actor>:<message id>`) instead of changing event_id_for; old Discord events keep their ids, and at most a message redelivered across the upgrade lands twice",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o3",
@@ -1160,7 +1160,7 @@
       "behavior": "another bot's message is skipped unless the rule sets include_bots",
       "source_text": "Bot-to-bot loops are prevented: the gateway records data.bot but never filters it, and self_authored only matches the actor's own self_identity, so Culture.dev's posts fire jetson-bot rules and vice versa; another bot's messages are skipped by default unless a rule opts in (like include_self)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o4",
@@ -1169,7 +1169,7 @@
       "behavior": "a rule picks its channels or all; unselected channels are never stored",
       "source_text": "A flow chooses its channels: opt-in channels or 'all' the bot can see, per flow (a trigger/step setting picked from /actors/{id}/discord/targets), independent of the actor-level connection.channels allow-list, which also limits posting",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o5",
@@ -1178,7 +1178,7 @@
       "behavior": "who filter: users by id or name, roles by id, either admits",
       "source_text": "A save flow carries a who filter: unset means anyone; users lists Discord user ids or usernames; roles lists role ids, and a role the server lets members self-assign is the opt-in; reaction and command events carry the acting user's id, username and role ids so the condition can check them. Discord does not expose members' emails to bots, so users are matched by id or username, not email",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o6",
@@ -1187,7 +1187,7 @@
       "behavior": "connection.guild_id is one id or a list",
       "source_text": "One actor per bot, not per server: jetson-bot is one actor spanning both servers, because two actors on one token would open two gateway sessions that each receive every message; connection.guild_id becomes a list (or stays unset for every server the bot is in) in the gateway filter, server/app.py:1007, discord_rest.list_targets and web app-config.ts:86",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o7",
@@ -1196,7 +1196,7 @@
       "behavior": "Discord events expire (30 days by default) under a TTL index; others never do",
       "source_text": "Discord message content stored in the events collection expires: today every gateway message is sunk as a plaintext event with no TTL (only handoffs and quarantine carry TTL indexes), and jetson-bot would add every message of a ~120-channel community server; Discord events get a retention (TTL on a date field, e.g. 30 days) and channels outside every flow's selection are not sunk at all",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o8",
@@ -1205,7 +1205,7 @@
       "behavior": "two Discord actors are tested together",
       "source_text": "Tests cover two Discord actors: two sessions and two leases, both bots seeing one message (two events), and one bot not firing on the other's posts; today every gateway test uses a single discord_actor()",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o9",
@@ -1214,7 +1214,7 @@
       "behavior": "a Discord message becomes a library item",
       "source_text": "A Discord message can become a library item: library.push takes only content_base64 (action_kinds.py library.push) and no builtin turns trigger text into base64, so a step composes Markdown from the message (content, author_name, channel, url, message id) and outputs content_base64 for library.push with format md",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o10",
@@ -1223,7 +1223,7 @@
       "behavior": "saving the same message again files no second item",
       "source_text": "Saving is idempotent: the rendered Markdown is deterministic from the message (message id and url in the body, no save time), so the same message saved by two gestures, two users or a rerun produces one item (library sha256 dedupe, created: false); attachments dedupe by their bytes",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o11",
@@ -1232,7 +1232,7 @@
       "behavior": "REST reads honour 429 retry_after, are bounded, and save the whole text",
       "source_text": "REST reads (message fetch, history sweep, targets) honour Discord 429 retry_after and are bounded per run (pages and channels), and the saved text comes from the REST message, so a message longer than the event's 2000-character cut (Nitro allows 4000) is saved whole",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o12",
@@ -1241,7 +1241,7 @@
       "behavior": "discord.read and markdown.render are first-class where kinds live",
       "source_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o13",
@@ -1250,7 +1250,7 @@
       "behavior": "Discord content lands private; nothing ships public",
       "source_text": "Discord content lands private by default: when a library.push step names no visibility none is sent and culture-library stores the item private (library.py sends visibility only when given; library core defaults private); no Discord flow, example bundle or editor default sets public, since the Jetson AI Lab server is community content",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o14",
@@ -1259,7 +1259,7 @@
       "behavior": "flows are live config; only a disabled example bundle is committed",
       "source_text": "The library automations themselves (which channel, which kind and visibility) are configured live in the store, not committed; only the generic step and, at most, a disabled example bundle are committed",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o15",
@@ -1268,7 +1268,7 @@
       "behavior": "jetson-bot works as a second Discord actor with no engine change",
       "source_text": "A second Discord app actor (jetson-bot) works with no engine change: GatewaySupervisor keys sessions by actor id with lease `discord-gateway:<actor id>`, each actor resolves its own `grant:<NAME>` bot token, discord.message resolves params.actor, and /actors/{id}/discord/targets and ops/health gateways() are per actor; the work is a new grant secret, its injection on the listening node and API, the actor, and docs",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o16",
@@ -1277,7 +1277,7 @@
       "behavior": "the live actor and key accept what Discord flows push",
       "source_text": "The live library actor and key accept what Discord flows push: newspaper-library's kinds are newspaper, transcript, todo and formats epub, md, so the kind for Discord items (document or article) and the format pdf are added to the actor and to the culture-library key's kind list (config, at rollout)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o17",
@@ -1286,7 +1286,7 @@
       "behavior": "both bots carry the scopes and intents the gestures need; checked so far: Culture.dev reads full message content (live item 72), jetson-bot posts (b1); unchecked: jetson-bot's MESSAGE CONTENT intent, applications.commands and reactions (Releases 2-3)",
       "source_text": "Both bots are re-invited with the scopes the gestures need: bot plus applications.commands, and permissions View Channels, Send Messages, Read Message History, Add Reactions (for an acknowledgement reaction); intents message content (privileged), guild messages, guild message reactions; docs/actors/discord.md documents this for N bots",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o18",
@@ -1295,7 +1295,7 @@
       "behavior": "an edited or deleted Discord message leaves its library item; no test asserts it (the gateway subscribes only message.created), unchecked",
       "source_text": "A saved item is not removed when its Discord message is edited or deleted (c10 excludes those events); removal is a manual archive in culture-library",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }
