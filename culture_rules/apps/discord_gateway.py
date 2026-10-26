@@ -87,7 +87,9 @@ from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, Leas
 from culture_rules.engine.named_lease import NamedLease
 from culture_rules.events.hook_sink import (
     ACCEPTED,
+    DISABLED,
     DUPLICATE,
+    IGNORED,
     ensure_discord_event_ttl,
     event_id_for,
     sink,
@@ -122,6 +124,9 @@ DISCORD_TYPE_PREFIX = "discord."
 GATEWAY_EVENT = "discord.message.created"
 REACTION_EVENT = "discord.reaction.added"
 COMMAND_EVENT = "discord.command.invoked"
+NOT_ADMITTED = "not_admitted"
+""":meth:`GatewaySupervisor._deliver`'s answer when no rule selects the channel or the actor's
+channel and guild filters keep the event out (nothing was written)."""
 LISTENED_EVENTS = (GATEWAY_EVENT, REACTION_EVENT, COMMAND_EVENT)
 """Declaring any of them in ``params.events`` makes an app actor listen over the Gateway."""
 LEASE_PREFIX = "discord-gateway:"
@@ -270,15 +275,18 @@ def build_command_tree(client: Any, registration: commands_mod.CommandRegistrati
     async def hand_over(interaction: Any, raw: dict[str, Any]) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)  # within Discord's 3 s
         written = await asyncio.to_thread(registration.invoke, raw)
-        if written is False:  # no flow will answer it: say so now, not "thinking" until dropped
-            try:
-                await interaction.edit_original_response(content=commands_mod.NOT_HERE)
-            except Exception as exc:  # noqa: BLE001 - the answer is a courtesy; type logged
-                log.warning(
-                    "discord gateway %s: answering an unsaved command failed (%s)",
-                    registration.actor_id,
-                    type(exc).__name__,
-                )
+        if written is True:
+            return  # the flow answers it (discord.reply)
+        # no flow will answer it: say why now, not "thinking" until Discord drops it
+        answer = commands_mod.NOT_HERE if written is False else commands_mod.NOT_SAVED
+        try:
+            await interaction.edit_original_response(content=answer)
+        except Exception as exc:  # noqa: BLE001 - the answer is a courtesy; type logged
+            log.warning(
+                "discord gateway %s: answering an unsaved command failed (%s)",
+                registration.actor_id,
+                type(exc).__name__,
+            )
 
     async def save(interaction, message=None):  # annotated below, for discord.py
         channel, target = commands_mod.parse_message_ref(message)
@@ -891,7 +899,9 @@ class GatewaySupervisor:
     def _on_command(self, session: _Session, raw: Mapping[str, Any]) -> bool:
         """Keep the invocation's token apart (keyed by the event id), then sink the event
         without it; the token is dropped again when the event is not written. Says whether
-        the event was written (a duplicate counts), so an unwritten one is answered at once."""
+        the event was written (a duplicate counts): ``True``; ``False`` when nothing admits it
+        (no rule selects the channel, the actor's filters, an undeclared type, a disabled
+        actor); ``None`` when every write failed, so the answer does not blame the channel."""
         raw = dict(raw)
         token = raw.pop("token", None)
         app_id = raw.pop("application_id", None)
@@ -924,6 +934,7 @@ class GatewaySupervisor:
                 )
 
         outcome = self._deliver(session, COMMAND_EVENT, data, delivery, before_sink=keep)
+        written = outcome in (ACCEPTED, DUPLICATE)
         if kept and outcome not in (ACCEPTED, DUPLICATE):
             try:
                 commands_mod.forget_interaction(self._store, event_id)
@@ -933,7 +944,9 @@ class GatewaySupervisor:
                     session.actor_id,
                     type(exc).__name__,
                 )
-        return outcome in (ACCEPTED, DUPLICATE)
+        if written:
+            return True
+        return False if outcome in (NOT_ADMITTED, IGNORED, DISABLED) else None
 
     def _admitted(self, connection: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
         """Whether the channel is selected and the actor's channel and guild filters admit it."""
@@ -955,12 +968,13 @@ class GatewaySupervisor:
         before_sink: Callable[[], None] | None = None,
     ) -> str | None:
         """Sink one event if its channel is selected and the actor's filters admit it; the
-        sink's outcome, or ``None`` when it was not admitted or every attempt failed.
+        sink's outcome, :data:`NOT_ADMITTED` when it was not admitted, or ``None`` when every
+        attempt failed.
         ``before_sink`` runs once, after admission and before the first write."""
         doc = session.snapshot()
         _, connection = _view(doc)
         if not self._admitted(connection, data):
-            return None
+            return NOT_ADMITTED
         if before_sink is not None:
             before_sink()
         author = data["author_name"] or data["author_id"]

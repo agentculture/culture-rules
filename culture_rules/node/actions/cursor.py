@@ -67,6 +67,8 @@ def read_cursor(store: Any, key: str) -> Any:
 
 
 def _param(input: Mapping[str, Any], config: Mapping[str, Any], key: str) -> Any:
+    # present in the input wins even when null: a null ``expected`` (no cursor yet) wired
+    # from the sweep must not fall back to a config value (unlike discord.sweep's options)
     return input[key] if key in input else config.get(key)
 
 
@@ -113,6 +115,8 @@ def advance(store: Any, key: Any, expected: Any, value: Any) -> dict[str, Any]:
         return {**out, "advanced": True}
     if current == value:
         return out  # this step already landed (a retry)
+    if current is None:  # we expected a cursor, and there is none at all
+        raise _Refused("cursor_moved", f"{key}: expected {expected!r} but the cursor is gone")
     raise _Refused("cursor_moved", f"{key}: expected {expected!r} but another run left {current!r}")
 
 

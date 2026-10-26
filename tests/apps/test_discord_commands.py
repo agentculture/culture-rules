@@ -476,3 +476,30 @@ def test_the_supervisor_says_whether_the_command_event_was_written(rig):
     (registration,) = r.hub.registrations
     assert registration.invoke(interaction(1, channel="100")) is True
     assert registration.invoke(interaction(2, channel="555")) is False  # no rule selects it
+
+
+def test_an_invocation_whose_write_failed_is_told_to_try_again():
+    # review of the R3 diff: a store failure must not say the channel is not set up
+    discord = pytest.importorskip("discord")
+    order: list = []
+    tree = dg.build_command_tree(_client(), _registration(lambda raw: None))
+    cmd = tree.get_command("save", guild=discord.Object(1))
+    asyncio.run(cmd.callback(_answering_interaction(order, token="t")))
+    assert [kind for kind, _ in order] == ["defer", "edit"]
+    assert order[1][1] == {"content": dc.NOT_SAVED}
+
+
+def test_the_supervisor_returns_none_when_every_write_fails(rig, monkeypatch):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule(type=COMMAND, channels=["100"]))
+    r.store.put("actors", command_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.registrations)
+    (registration,) = r.hub.registrations
+
+    def broken(*a, **kw):
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(dg, "sink", broken)
+    monkeypatch.setattr(dg.time, "sleep", lambda s: None)
+    assert registration.invoke(interaction(3, channel="100")) is None

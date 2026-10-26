@@ -73,6 +73,8 @@ _ID_RE = re.compile(r"^\d{1,25}$")
 
 
 def _param(input: Mapping[str, Any], config: Mapping[str, Any], key: str) -> Any:
+    # a null input is unset and falls back to config (options, unlike cursor.advance's
+    # expected, where null means "no cursor yet")
     value = input.get(key)
     return config.get(key) if value is None else value
 

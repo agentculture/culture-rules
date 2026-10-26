@@ -58,6 +58,7 @@ __all__ = [
     "INTERACTION_TOKEN_TTL",
     "MESSAGE",
     "NOT_HERE",
+    "NOT_SAVED",
     "SAVE_COMMAND",
     "SAVE_MESSAGE_COMMAND",
     "CommandRegistration",
@@ -115,15 +116,21 @@ NOT_HERE = "This channel is not set up to save messages."
 or the bot keeps out of it), instead of leaving it "thinking" until Discord drops it."""
 
 
+NOT_SAVED = "Could not save this right now. Try again in a minute."
+"""The private answer to a command whose event was admitted but could not be written (the
+store failed every attempt): not the channel's fault, so not :data:`NOT_HERE`."""
+
+
 @dataclass(frozen=True, kw_only=True)
 class CommandRegistration:
     """What a gateway needs to register the commands and hand over invocations.
 
     ``invoke`` takes one raw invocation (a mapping with the :func:`command_data` keys plus
-    ``token`` and ``application_id``) and says whether its event was written; one that was not
-    is answered at once with :data:`NOT_HERE`; ``needs_sync(guild)`` says whether the guild's
-    commands must be synced, and ``synced(guild)`` records that they were. ``actor_id`` is for
-    logs."""
+    ``token`` and ``application_id``) and says whether its event was written: ``True``,
+    ``False`` when no rule or filter admits it (answered at once with :data:`NOT_HERE`), or
+    ``None`` when writing it failed (answered with :data:`NOT_SAVED`); ``needs_sync(guild)``
+    says whether the guild's commands must be synced, and ``synced(guild)`` records that they
+    were. ``actor_id`` is for logs."""
 
     actor_id: str
     application_id: str

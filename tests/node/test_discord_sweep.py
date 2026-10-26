@@ -398,3 +398,12 @@ def test_backfill_and_include_bots_must_be_booleans():
     s, t = store_with(), ChannelTransport([101])
     assert sweep(s, t, backfill="yes").outcome == FAILED
     assert sweep(s, t, include_bots=1).outcome == FAILED
+
+
+def test_advance_says_when_the_expected_cursor_is_gone():
+    # review of the R3 diff: "another run left None" read as if a run had cleared it
+    s = MemoryStore()
+    res = advance(s, key="k:1", expected="100", value="120")
+    assert res.outcome == FAILED
+    assert res.error.startswith("cursor_moved")
+    assert "the cursor is gone" in res.error
