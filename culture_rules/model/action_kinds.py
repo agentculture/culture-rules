@@ -4,15 +4,16 @@ An :class:`~culture_rules.model.action.Action` has no actor slot; an action that
 actor capability names the actor in ``params.actor`` (an actor id, or a reference). Per kind
 this module says which params exist, their types and which are required.
 
-Actor policy: ``discord.message``, ``discord.read``, ``github.comment``, ``github.push``,
-``github.review_reply``, ``jira.comment``, ``http.call``, ``machine.command``, ``email.send``,
-``search.web``, ``llm.complete``, ``audio.transcribe``, ``decider.assess`` and ``library.push``
-always need ``params.actor`` (the credentialed or executing party).
+Actor policy: ``discord.message``, ``discord.read``, ``discord.react``, ``github.comment``,
+``github.push``, ``github.review_reply``, ``jira.comment``, ``http.call``, ``machine.command``,
+``email.send``, ``search.web``, ``llm.complete``, ``audio.transcribe``, ``decider.assess`` and
+``library.push`` always need ``params.actor`` (the credentialed or executing party).
 ``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
 a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
 the server the channel was picked from. ``discord.read`` reads one message in full (its
-text untruncated and its attachments) with the same actor's token, within its allow-list.
+text untruncated and its attachments) with the same actor's token, within its allow-list;
+``discord.react`` adds the bot's reaction (a unicode emoji or a custom ``name:id``) to one.
 ``mesh.message`` is a legacy alias of ``message``.
 
 Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`` object or a
@@ -100,6 +101,16 @@ _KINDS = (
         guild=_S,  # fills the message url when given
         channel=_RS,
         message=_RS,
+    ),
+    _k(
+        "discord.react",
+        "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
+        " app actor",
+        actor=_RS,
+        guild=_S,
+        channel=_RS,
+        message=_RS,
+        emoji=_RS,
     ),
     _k(
         "github.comment",
@@ -222,8 +233,11 @@ _KINDS = (
     _k(
         "library.push",
         "Upload a file to a library, or replace one by id (and queue it on a device queue)",
+        any_of=(("content_base64", "content_path"),),
         actor=_RS,
-        content_base64=_RS,
+        content_base64=_S,  # or content_path + content_root (d7): one of the two is required
+        content_path=_S,  # a file under content_root on the node; its bytes never enter run state
+        content_root=_S,
         title=_RS,
         kind=_RS,  # one of the actor's params.kinds
         visibility=_S,  # one of the actor's params.visibilities

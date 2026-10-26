@@ -13,9 +13,12 @@ import json
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request  # nosec B404 - fixed https base URL, no file/custom schemes accepted
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+
+from culture_rules.model.discord_filters import emoji_ok
 
 __all__ = [
     "DEFAULT_BASE_URL",
@@ -54,9 +57,9 @@ def guild_ids(value: Any) -> frozenset[str] | None:
 
 #: ``transport(url, data, headers, timeout) -> (status, json_body, response_headers)``;
 #: ``data`` is ``None`` for a GET.
-Transport = Callable[
-    [str, bytes | None, Mapping[str, str], float], tuple[int, Any, Mapping[str, str]]
-]
+#: A PUT (``add_reaction``) passes ``method="PUT"`` as a fifth keyword argument; a GET or POST
+#: does not, so a four-argument transport still serves them.
+Transport = Callable[..., tuple[int, Any, Mapping[str, str]]]
 
 #: Channel types a bot message can go to: a text channel and an announcement channel.
 TEXT_CHANNEL_TYPES = (0, 5)
@@ -72,10 +75,17 @@ class DiscordError(Exception):
 
 
 def _urllib_transport(
-    url: str, data: bytes | None, headers: Mapping[str, str], timeout: float
+    url: str,
+    data: bytes | None,
+    headers: Mapping[str, str],
+    timeout: float,
+    method: str | None = None,
 ) -> tuple[int, Any, Mapping[str, str]]:
     request = urllib.request.Request(  # noqa: S310  # nosec B310 - https base URL
-        url, data=data, headers=dict(headers), method="GET" if data is None else "POST"
+        url,
+        data=data,
+        headers=dict(headers),
+        method=method or ("GET" if data is None else "POST"),
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as resp:  # noqa: S310  # nosec B310
@@ -122,10 +132,20 @@ class DiscordClient:
     def _get(self, path: str) -> tuple[int, Any]:
         """GET ``path``; a 429 is retried after its ``retry_after`` (each wait capped at
         ``_MAX_WAIT_S``) up to ``_MAX_RETRIES`` times, then it is returned as is."""
+        return self._send(path)
+
+    def _send(self, path: str, method: str | None = None) -> tuple[int, Any]:
+        """GET (or, with ``method``, that verb with no body) ``path`` with the 429 retry of
+        :meth:`_get`."""
+        extra = {"method": method} if method else {}
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 status, payload, _ = self._transport(
-                    self._base + path, None, self._headers(), self._timeout
+                    self._base + path,
+                    b"" if method else None,
+                    self._headers(),
+                    self._timeout,
+                    **extra,
                 )
             except OSError as exc:
                 raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
@@ -226,6 +246,31 @@ class DiscordClient:
             if len(page) < want or not cursor.isdigit():
                 break
         return out[:limit]
+
+    def add_reaction(self, channel_id: str, message_id: str, emoji: str) -> dict[str, str]:
+        """React to a message as the bot. ``emoji`` is a unicode emoji as is, or a custom one
+        as ``name:id``; it is percent-encoded into the URL. A 429 is retried like a GET
+        (reacting twice with the same emoji is a no-op, so a retry is safe)."""
+        _check_id(channel_id, "channel")
+        _check_id(message_id, "message")
+        emoji = emoji.strip() if isinstance(emoji, str) else ""
+        if not emoji_ok(emoji):
+            raise DiscordError("emoji must be a unicode emoji or name:id", retryable=False)
+        path = (
+            f"/channels/{channel_id}/messages/{message_id}/reactions/"
+            f"{urllib.parse.quote(emoji, safe='')}/@me"
+        )
+        status, payload = self._send(path, "PUT")
+        if 200 <= status < 300:
+            return {"channel_id": channel_id, "message_id": message_id, "emoji": emoji}
+        if status == 429:
+            retry_after = _retry_after(payload)
+            raise DiscordError(
+                f"discord rate limited (retry_after={retry_after})",
+                retryable=True,
+                retry_after=retry_after,
+            )
+        raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
     def post_message(
         self,

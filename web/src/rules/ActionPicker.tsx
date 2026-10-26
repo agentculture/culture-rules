@@ -69,6 +69,10 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     label: "Read a Discord message in full",
     params: { actor: RS, guild: S, channel: RS, message: RS },
   },
+  "discord.react": {
+    label: "React to a Discord message",
+    params: { actor: RS, guild: S, channel: RS, message: RS, emoji: RS },
+  },
   "github.comment": {
     label: "Comment on GitHub",
     params: { actor: RS, repo: RS, number: RI, body: RS },
@@ -167,7 +171,9 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     label: "Send a book to a library",
     params: {
       actor: RS,
-      content_base64: RS,
+      content_base64: S,
+      content_path: S,
+      content_root: { ...S, optionsFrom: "content_roots", choose: "Choose one of the library's content roots…" },
       title: RS,
       kind: { ...RS, optionsFrom: "kinds", choose: "Choose a kind…" },
       visibility: { ...S, optionsFrom: "visibilities", choose: "The library's default" },
@@ -176,6 +182,7 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
       author: S,
       device_id: S,
     },
+    anyOf: [["content_base64", "content_path"]],
   },
 };
 
@@ -308,6 +315,9 @@ export function actorsFor(kind: string, actors: Actor[]): Actor[] {
       return actors.filter((a) => declares(a, canonical(kind)));
   }
 }
+
+/** Discord kinds whose server and channel are picked from what the bot can see. */
+const DISCORD_TARGET_KINDS = new Set(["discord.message", "discord.read", "discord.react"]);
 
 /** The mesh message, noop and transcript.render need no actor; every other kind needs one enabled actor that supports it. */
 const offered = (kind: string, actors: Actor[]) =>
@@ -743,7 +753,7 @@ interface ParamFieldsProps {
 
 /** One typed field per param of the chosen action kind (the actor select is rendered separately). */
 function ParamFields(props: Readonly<ParamFieldsProps>) {
-  const discord = props.kind === "discord.message" || props.kind === "discord.read";
+  const discord = DISCORD_TARGET_KINDS.has(props.kind);
   const actorId = typeof props.params.actor === "string" ? props.params.actor : "";
   return (
     <>
@@ -1001,7 +1011,7 @@ export default function ActionPicker({
                 command: undefined,
                 args: undefined,
                 guild: undefined,
-                channel: kind === "discord.message" || kind === "discord.read" ? undefined : params.channel,
+                channel: DISCORD_TARGET_KINDS.has(kind) ? undefined : params.channel,
                 ...libraryCarryOver(kind, params, actors.find((a) => a.id === e.target.value)),
               })
             }

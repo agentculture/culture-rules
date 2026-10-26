@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-10-26
+
+### Added
+
+- Discord surfaces Release 2 (t12-t15): the event discord.reaction.added (raw, so uncached messages count; the emoji, the reactor and user_roles; delivery id actor:message:user:emoji), and an actor declaring only reactions listens
+- user_roles on Discord message events, so the roles trigger filter matches
+- The emoji trigger filter on discord.* triggers: a unicode emoji, a custom name:id (the id decides), an id or a name, or a list
+- The action kind discord.react: the bot's reaction (unicode or custom name:id) on a message, with 429 handling
+- The builtin attachment.fetch: pdf and epub attachments over https from Discord's CDN through http.call's vetted pinned opener (no redirects, no private addresses, at most 50 MiB), streamed to `<output_root>/<sha256>.<format>` with a retention_days cleanup; images and other types are skipped (unsupported_format)
+- library.push reads a file by content_path + content_root (one of content_base64 or content_path; symlinks refused), so file bytes never enter run state (deviation d7: a run is one MongoDB document, capped at 16 MiB)
+- Editor: discord.react with the server and channel picker, the Emoji field on reaction triggers, the attachment.fetch builtin's ports, and library.push's content_path source
+- tests/rules/test_discord_reaction_flow.py: a reaction saves the message and each pdf/epub attachment, then reacts, end to end on fakes
+
+### Changed
+
+- docs/actors/discord.md and docs/actors/library.md describe reactions, the emoji filter and saving attachments; Release 3 (commands, reply, sweep) stays planned
+- library.push reads a content_path only under a root its library actor lists in the new `content_roots` (none listed: refused), resolving symlinks in the root so the attachment.fetch chain works under a symlinked root
+- attachment.fetch writes only under the node's attachments directory (`CULTURE_RULES_ATTACHMENTS_ROOT`, default `culture-rules/attachments` in the node user's XDG data home; output_root optional and under it), and allowed_hosts takes hostnames only, every resolved address vetted
+- The gateway drops event types an actor does not declare before writing anything, selects channels per event type (a reaction rule no longer widens which messages are stored), and requests the privileged message content intent only for actors that listen for messages
+- One emoji grammar (`emoji_ok`, matched whole) for the filter and discord.react; U+FE0F ignored when matching; emoji only on discord.reaction.added triggers (the editor drops it on a type change); discord.react looks a channel's server up once
+
 ## [0.30.2] - 2026-10-26
 
 ### Added

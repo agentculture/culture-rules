@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
 import sys
+import time
+import types
 import uuid
 from datetime import timedelta
 from functools import partial
@@ -22,11 +25,12 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.store.memory import MemoryStore
 from culture_rules.store.port import TransientStoreError
-from tests.apps.discord_fakes import FakeGateway, FakeHub, eventually, message
+from tests.apps.discord_fakes import FakeGateway, FakeHub, eventually, message, reaction
 from tests.engine.run_helpers import Clock
 
 ROOT = Path(__file__).resolve().parents[2]
 EVENT = "discord.message.created"
+REACTION = "discord.reaction.added"
 TTL = timedelta(seconds=30)
 SECRET_TEXT = "the-secret-plan-" + uuid.uuid4().hex
 
@@ -77,6 +81,7 @@ class Rig:
         self.store = store or MemoryStore(clock=self.clock)
         if rule:  # the gateway sinks only channels an enabled discord.* rule selects
             self.store.put("rules", discord_rule())
+            self.store.put("rules", discord_rule("every-reaction", type=REACTION))
         self.hub = FakeHub()
         self.grant = Grant()
         self.sup = dg.GatewaySupervisor(
@@ -89,8 +94,8 @@ class Rig:
             host=host,
         )
 
-    def events(self):
-        return [e for e in self.store.find(EVENTS_COLLECTION) if e["envelope"].get("type") == EVENT]
+    def events(self, type=EVENT):
+        return [e for e in self.store.find(EVENTS_COLLECTION) if e["envelope"].get("type") == type]
 
 
 @pytest.fixture
@@ -122,6 +127,7 @@ def test_message_data_is_a_compact_truncated_subset():
         "content",
         "created_at",
         "url",
+        "user_roles",
     }
     assert len(data["content"]) == dg.MAX_CONTENT
     assert data["message_id"] == "9001"
@@ -301,14 +307,21 @@ def test_deleting_the_actor_disconnects(rig):
     assert r.hub.live_now() == []
 
 
-def test_only_discord_apps_declaring_the_event_are_listened_for(rig):
+def test_only_discord_apps_declaring_a_gateway_event_are_listened_for(rig):
     r = rig()
-    r.store.put("actors", discord_actor(events=("discord.reaction.added",)))
+    r.store.put("actors", discord_actor(events=("discord.thread.created",)))
     other = discord_actor("gh")
     other["params"]["surface"] = "github"
     r.store.put("actors", other)
     assert r.sup.tick() == []
     assert r.hub.connects == []
+
+
+def test_an_actor_declaring_only_reactions_is_listened_for(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(events=("discord.reaction.added",)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
 
 
 def test_fence_disconnects_before_the_lease_can_lapse(rig):
@@ -443,13 +456,43 @@ def test_a_rule_with_no_channels_or_all_selects_every_channel(rig, channels):
     r = rig(rule=False)
     r.store.put("rules", discord_rule("narrow", channels=["100"]))
     wide = {} if channels is None else {"channels": channels}
-    r.store.put("rules", discord_rule("wide", type="discord.reaction.added", **wide))
+    r.store.put("rules", discord_rule("wide", **wide))
     r.store.put("actors", discord_actor())
     r.sup.tick()
     assert eventually(lambda: r.hub.live_now() == ["spark"])
     r.hub.post(message(1, channel="200"))
     r.hub.post(message(2, channel="100"))
     assert eventually(lambda: len(r.events()) == 2)
+
+
+def test_a_wide_reaction_rule_does_not_widen_the_message_selection(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("narrow", channels=["100"]))
+    r.store.put("rules", discord_rule("wide", type=REACTION))
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, channel="200"))
+    r.hub.post(message(2, channel="100"))
+    r.hub.react(reaction(3, channel="200"))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    assert eventually(lambda: len(r.events()) == 1)
+    time.sleep(0.1)
+    assert [e["envelope"]["data"]["channel_id"] for e in r.events()] == ["100"]
+
+
+def test_a_message_rule_does_not_select_reaction_channels(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("msgs"))
+    r.store.put("rules", discord_rule("narrow", type=REACTION, channels=["100"]))
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1, channel="200"))
+    r.hub.react(reaction(2, channel="100"))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    time.sleep(0.1)
+    assert [e["envelope"]["data"]["channel_id"] for e in r.events(REACTION)] == ["100"]
 
 
 def test_the_actor_allow_list_still_applies_inside_the_selection(rig):
@@ -491,14 +534,14 @@ def test_a_failed_rules_read_keeps_the_last_selection(rig):
     r = rig(rule=False)
     r.store.put("rules", discord_rule(channels=["20"]))
     r.sup._refresh_selection()
-    assert r.sup._selection == frozenset({"20"})
+    assert r.sup._selection[EVENT] == frozenset({"20"})
 
     def broken(*_a, **_k):
         raise OSError("mongo down")
 
     r.store.find = broken
     r.sup._refresh_selection()
-    assert r.sup._selection == frozenset({"20"})
+    assert r.sup._selection[EVENT] == frozenset({"20"})
 
 
 def test_a_failing_ttl_index_does_not_stop_the_supervisor(monkeypatch, caplog):
@@ -532,3 +575,184 @@ def test_a_bare_string_connection_channels_is_one_channel(rig):
     r.sup._on_message(session, message(1, channel="20"))
     r.sup._on_message(session, message(2, channel="2"))
     assert _ids(r) == ["9001"]
+
+
+# ------------------------------------------------------------------ reactions (R2)
+
+
+def test_message_events_carry_user_roles(rig):
+    r = rig()
+    r.store.put("actors", discord_actor())
+    msg = message(1)
+    msg["user_roles"] = ["7", 8]
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(msg)
+    assert eventually(lambda: len(r.events()) == 1)
+    assert r.events()[0]["envelope"]["data"]["user_roles"] == ["7", "8"]
+    assert dg.message_data(message(2))["user_roles"] == []
+
+
+def test_a_reaction_is_sunk_as_discord_reaction_added(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    env = r.events(REACTION)[0]["envelope"]
+    assert env["type"] == "discord.reaction.added"
+    d = env["data"]
+    assert d["delivery_id"] == "bot:9001:42:\N{THUMBS UP SIGN}"
+    assert (d["guild_id"], d["channel_id"], d["message_id"]) == ("1", "100", "9001")
+    assert (d["emoji_name"], d["emoji_id"]) == ("\N{THUMBS UP SIGN}", None)
+    assert (d["user_id"], d["username"], d["bot"]) == ("42", "alice", False)
+    assert d["user_roles"] == ["7", "8"]
+    # the users filter reads author_id / author_name: the reactor fills them
+    assert (d["author_id"], d["author_name"]) == ("42", "alice")
+
+
+def test_a_custom_emoji_is_keyed_by_its_id(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1, emoji="party", emoji_id="555"))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    d = r.events(REACTION)[0]["envelope"]["data"]
+    assert (d["emoji_name"], d["emoji_id"]) == ("party", "555")
+    assert d["delivery_id"] == "bot:9001:42:555"
+
+
+def test_a_repeated_reaction_is_a_duplicate_but_another_emoji_or_user_is_not(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    for rx in (reaction(1), reaction(1), reaction(1, emoji="x"), reaction(1, user="43")):
+        r.hub.react(rx)
+    assert eventually(lambda: len(r.events(REACTION)) == 3)
+    time.sleep(0.1)
+    assert len(r.events(REACTION)) == 3
+
+
+def test_a_reaction_goes_through_channel_selection(rig):
+    r = rig(rule=False)
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.store.put("rules", discord_rule(type=REACTION, channels=["100"]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1, channel="999"))  # unselected: never written
+    r.hub.react(reaction(2, channel="100"))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    time.sleep(0.1)
+    assert [e["envelope"]["data"]["channel_id"] for e in r.events(REACTION)] == ["100"]
+
+
+def test_selected_channels_for_one_event_type_ignores_other_types():
+    docs = [discord_rule("m", channels=["1"]), discord_rule("r", type=REACTION)]
+    assert dg.selected_channels(docs, EVENT) == frozenset({"1"})
+    assert dg.selected_channels(docs, REACTION) is None
+    assert dg.selected_channels(docs[:1], REACTION) == frozenset()
+
+
+def test_an_undeclared_event_type_is_dropped_before_the_stats_and_the_sink(rig, monkeypatch):
+    r = rig()  # the Release 1 actor: declares only message.created
+    sunk = []
+    monkeypatch.setattr(dg, "sink", lambda *a, **k: sunk.append(a))
+    r.store.put("actors", discord_actor(events=(EVENT,)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1))
+    r.hub.post(message(1))
+    assert eventually(lambda: len(sunk) == 1)
+    assert sunk[0][2] == EVENT
+    r.hub.react(reaction(2))
+    time.sleep(0.1)
+    assert len(sunk) == 1
+
+
+def test_a_reaction_only_actor_drops_messages_without_a_stats_write(rig, monkeypatch):
+    r = rig()
+    sunk = []
+    monkeypatch.setattr(dg, "sink", lambda *a, **k: sunk.append(a))
+    r.store.put("actors", discord_actor(events=(REACTION,)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1))
+    r.hub.react(reaction(1))
+    assert eventually(lambda: len(sunk) == 1)
+    assert sunk[0][2] == REACTION
+
+
+def test_the_gateway_is_told_the_declared_events(rig):
+    r = rig()
+    seen = []
+    real = r.sup._gateway.connect  # noqa: SLF001
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("events"))
+        return real(*args, **kwargs)
+
+    r.sup._gateway.connect = spy  # noqa: SLF001
+    r.store.put("actors", discord_actor(events=(REACTION,)))
+    r.sup.tick()
+    assert eventually(lambda: len(seen) == 1)
+    assert list(seen[0]) == [REACTION]
+
+
+def test_message_content_is_requested_only_for_message_actors():
+    pytest.importorskip("discord")
+    reaction_only = dg.gateway_intents([REACTION])
+    assert reaction_only.message_content is False
+    assert reaction_only.guild_reactions is True
+    assert dg.gateway_intents([EVENT, REACTION]).message_content is True
+    assert dg.gateway_intents([EVENT]).message_content is True
+
+
+def test_the_reactions_intent_is_on():
+    pytest.importorskip("discord")
+    intents = dg.gateway_intents()
+    assert intents.reactions
+    assert intents.guild_reactions
+
+
+def test_raw_reaction_payload_not_in_cache_raises_the_event():
+    pytest.importorskip("discord")
+    import discord
+
+    got = []
+    gw = dg.DiscordPyGateway()
+    handler = gw._raw_reaction_handler(got.append)  # noqa: SLF001
+    payload = types.SimpleNamespace(
+        message_id=9001,
+        channel_id=100,
+        guild_id=1,
+        user_id=42,
+        member=types.SimpleNamespace(
+            name="alice",
+            bot=False,
+            roles=[types.SimpleNamespace(id=1), types.SimpleNamespace(id=7)],
+        ),
+        emoji=discord.PartialEmoji(name="party", id=555),
+    )
+    asyncio.run(handler(payload))
+    assert got == [
+        {
+            "message_id": "9001",
+            "channel_id": "100",
+            "guild_id": "1",
+            "user_id": "42",
+            "username": "alice",
+            "user_roles": ["1", "7"],
+            "bot": False,
+            "emoji_name": "party",
+            "emoji_id": "555",
+        }
+    ]
+    payload.member = None  # no member (DM, or a member not resolved): still raised
+    payload.emoji = discord.PartialEmoji(name="\N{THUMBS UP SIGN}")
+    asyncio.run(handler(payload))
+    assert got[1]["user_id"] == "42"
+    assert got[1]["user_roles"] == []
+    assert got[1]["emoji_id"] is None

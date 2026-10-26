@@ -54,3 +54,39 @@ describe("discord.read", () => {
     });
   });
 });
+
+describe("discord.react", () => {
+  const REACTOR: Actor = { ...BOT, params: { ...BOT.params, actions: ["discord.read", "discord.react"] } };
+
+  function ReactHarness() {
+    const [value, setValue] = useState<Action>(blankAction());
+    return (
+      <>
+        <ActionPicker value={value} actors={[REACTOR]} triggerType="discord.reaction.added" onChange={setValue}
+          loadDiscordTargets={async () => TARGETS} />
+        <output data-testid="saved">{JSON.stringify(value)}</output>
+      </>
+    );
+  }
+
+  it("is catalogued with actor, channel, message and emoji required", () => {
+    const p = ACTION_KINDS["discord.react"].params;
+    expect([p.actor, p.channel, p.message, p.emoji].every((s) => s.required)).toBe(true);
+    expect(p.guild.required).toBeFalsy();
+    expect(actionProblem({ kind: "discord.react", params: { actor: "a", channel: "1", message: "2" } })).toBe("empty");
+  });
+
+  it("picks the channel from what the bot sees and takes an emoji", async () => {
+    const user = userEvent.setup();
+    render(<ReactHarness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.react");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await user.selectOptions(await screen.findByLabelText("Channel"), "101");
+    await user.type(screen.getByLabelText("Message"), "555");
+    await user.type(screen.getByLabelText("Emoji"), "✅");
+    expect(JSON.parse(screen.getByTestId("saved").textContent ?? "{}")).toEqual({
+      kind: "discord.react",
+      params: { actor: "discord-bot", guild: "10", channel: "101", message: "555", emoji: "✅" },
+    });
+  });
+});

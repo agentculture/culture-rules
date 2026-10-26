@@ -39,6 +39,28 @@ def message(n: int, *, channel: str = "100", guild: str = "1", content: str = "h
     }
 
 
+def reaction(
+    n: int,
+    *,
+    channel: str = "100",
+    guild: str = "1",
+    emoji: str = "\N{THUMBS UP SIGN}",
+    emoji_id: str | None = None,
+    user: str = "42",
+) -> dict:
+    return {
+        "message_id": str(9000 + n),
+        "guild_id": guild,
+        "channel_id": channel,
+        "user_id": user,
+        "username": "alice",
+        "user_roles": ["7", "8"],
+        "bot": False,
+        "emoji_name": emoji,
+        "emoji_id": emoji_id,
+    }
+
+
 class FakeHub:
     def __init__(self, *, replay: int = 3) -> None:
         self._lock = threading.Lock()
@@ -64,6 +86,9 @@ class FakeHub:
         with self._lock:
             return list(self.live)
 
+    def react(self, reaction: Mapping[str, Any]) -> None:
+        self.inbox.put(("reaction", dict(reaction)))
+
     def post(self, msg: Mapping[str, Any]) -> None:
         with self._lock:
             self.history.append(dict(msg))
@@ -88,6 +113,8 @@ class FakeGateway:
         token: str,
         on_message: Callable[[Mapping[str, Any]], None],
         should_stop: Callable[[], bool],
+        on_reaction: Callable[[Mapping[str, Any]], None] | None = None,
+        events: Any = (),
     ) -> None:
         replayed = self.hub.enter(self.name, token)
         try:
@@ -100,6 +127,10 @@ class FakeGateway:
                     continue
                 if kind == "drop":
                     raise ConnectionResetError("gateway closed")
+                if kind == "reaction":
+                    if on_reaction is not None:
+                        on_reaction(payload)
+                    continue
                 on_message(payload)
         finally:
             self.hub.leave(self.name)

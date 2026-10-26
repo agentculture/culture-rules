@@ -52,7 +52,7 @@ from typing import Any
 
 from culture_rules.events.emit import MAX_EVENT_HOPS, event_hops
 from culture_rules.model import condition as cond
-from culture_rules.model.discord_filters import discord_channels, filter_values
+from culture_rules.model.discord_filters import discord_channels, emoji_admits, filter_values
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
@@ -228,15 +228,20 @@ def _discord_admits(
 ) -> bool:
     """Discord filters: ``include_bots`` (default off), ``channels`` (ids; absent, empty or
     ``"all"`` is every channel), and who: ``users`` (ids or names, case-insensitive) and
-    ``roles`` (role ids against ``data.user_roles``). A bare string is a one-item list. With
-    both ``users`` and ``roles`` set, either admits (a listed user, or anyone holding a listed
-    role); an event with no author id or name never passes a ``users`` filter."""
+    ``roles`` (role ids against ``data.user_roles``), and ``emoji`` (a reaction's emoji,
+    :func:`~culture_rules.model.discord_filters.emoji_admits`). A bare string is a one-item
+    list. With both ``users`` and ``roles`` set, either admits (a listed user, or anyone holding
+    a listed role); an event with no author id or name never passes a ``users`` filter, and one
+    with no emoji never passes an ``emoji`` filter."""
     # the bot's own post (``own``, admitted by include_self) needs no include_bots, but the
     # channel and who filters still apply to it
     if data.get("bot") is True and not own and params.get("include_bots") is not True:
         return False
     channels = discord_channels(params)
     if channels is not None and str(data.get("channel_id")) not in channels:
+        return False
+    emoji = filter_values(params.get("emoji"))
+    if emoji and not emoji_admits(emoji, data):
         return False
     users = {u.casefold() for u in filter_values(params.get("users"))}
     roles = set(filter_values(params.get("roles")))

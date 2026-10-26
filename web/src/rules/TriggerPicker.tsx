@@ -304,8 +304,16 @@ function DiscordFilters({ name, actorId, t, load, onChange }: Readonly<DiscordFi
               ))
           : null}
       </fieldset>
+      {params.type === "discord.reaction.added" ? (
+        <ListField
+          label="Emoji"
+          hint="A unicode emoji (📚) or a server's custom emoji as name:id, separated by commas. Empty means any emoji."
+          value={params.emoji ?? []}
+          onList={(l) => set({ emoji: l })}
+        />
+      ) : null}
       <ListField label="Users" hint="Ids or usernames, separated by commas. Empty means anyone." value={params.users ?? []} onList={(l) => set({ users: l })} />
-      <ListField label="Roles" hint="Role ids. Roles apply from Release 2 on reactions and commands." value={params.roles ?? []} onList={(l) => set({ roles: l })} />
+      <ListField label="Roles" hint="Role ids, matched against the roles of whoever posted or reacted." value={params.roles ?? []} onList={(l) => set({ roles: l })} />
       <label className="trigger-kind">
         <input type="checkbox" checked={params.include_bots === true} onChange={(e) => set({ include_bots: e.target.checked })} />
         <span>Include messages from bots</span>
@@ -356,12 +364,12 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
           aria-labelledby={`${name}-event`}
           value={eventType}
           disabled={!surfaceActor}
-          onChange={(e) =>
-            onChange({
-              kind: "event",
-              params: { ...t.params, type: e.target.value },
-            })
-          }
+          onChange={(e) => {
+            // an emoji filter belongs to reactions: never carry it hidden onto another type
+            const { emoji: _emoji, ...rest } = t.params;
+            const keep = e.target.value === "discord.reaction.added" ? t.params : rest;
+            onChange({ kind: "event", params: { ...keep, type: e.target.value } });
+          }}
         >
           <option value="">Choose an event…</option>
           {eventType &&

@@ -42,3 +42,36 @@ def test_the_node_registers_the_generic_markdown_and_run_steps():
     assert isinstance(builtins[RUN_READ_BUILTIN], RunReadPort)
     assert FROM_HTML_BUILTIN in BUILTIN_WORDS
     assert RUN_READ_BUILTIN in BUILTIN_WORDS
+
+
+# --------------------------------------------------------------------------- R2 (t15)
+
+
+def test_discord_react_is_a_catalogued_action_kind():
+    kind = ACTION_KINDS["discord.react"]
+    required = {name for name, spec in kind.params.items() if spec.required}
+    assert required == {"actor", "channel", "message", "emoji"}
+    assert "guild" in kind.params
+
+
+def test_discord_react_and_attachment_fetch_have_words():
+    from culture_rules.node.actions.attachment_fetch import ATTACHMENT_FETCH_BUILTIN
+
+    assert ATTACHMENT_FETCH_BUILTIN in BUILTIN_WORDS
+    words = action_text(
+        {"kind": "discord.react", "params": {"actor": "discord-bot", "emoji": "📚"}}
+    )
+    assert "discord.react" in words
+    assert "📚" in words
+
+
+def test_the_node_registers_discord_react_and_attachment_fetch():
+    from culture_rules.node.actions.attachment_fetch import (
+        ATTACHMENT_FETCH_BUILTIN,
+        AttachmentFetchPort,
+    )
+    from culture_rules.node.actions.discord_react import DiscordReactAction
+
+    ports = default_ports(MemoryStore(), "spark")
+    assert isinstance(ports["action:discord.react"], DiscordReactAction)
+    assert isinstance(ports["code"]._builtins[ATTACHMENT_FETCH_BUILTIN], AttachmentFetchPort)

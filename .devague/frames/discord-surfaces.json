@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-26T18:20:36Z",
+  "updated": "2026-10-26T20:28:33Z",
   "claims": [
     {
       "id": "c1",
@@ -1140,6 +1140,50 @@
       "skipped_check": "",
       "refs": [
         "o13 / e33"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l6",
+      "code": "control-absent",
+      "what": "t12 task agent never ran the two discord-library gateway tests (reactions intent, uncached raw payload) red: they were skipped on the first run because discord.py was not installed, and only ran after the implementation",
+      "skipped_check": "red run of the reactions-intent and raw-payload tests",
+      "refs": [
+        "t12 / rules/dr-t12 c5b7cf9"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l7",
+      "code": "control-absent",
+      "what": "d7 library.push agent wrote the action_kinds any_of test in the same step as the catalogue change, so tests/model/test_action_kinds.py's new test was never shown red",
+      "skipped_check": "red run of the library.push any_of model test",
+      "refs": [
+        "d7 / rules/dr-d7-push e5a914e"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l8",
+      "code": "control-absent",
+      "what": "main agent edited the discord_react.py docstring after its last flake8 run and opened PR #102 on a gate (full suite, bandit, teken, scan-secrets, markdownlint) that left flake8 out; the 151-character line failed CI's lint job",
+      "skipped_check": "flake8 after the final edit, before the PR",
+      "refs": [
+        "PR #102 / 65036a7"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l9",
+      "code": "control-absent",
+      "what": "main agent opened PR #102 without running the Playwright e2e suite after rewording the trigger picker's roles hint in t15; e2e/discord-flow.spec.ts still asserted the old text and CI's web job failed. Also the pre-PR gate never checked SonarCloud's issue list, and CI's test job gates on zero unresolved issues (23 test-code smells, mostly composite assertions)",
+      "skipped_check": "playwright e2e and the Sonar issue list before the PR",
+      "refs": [
+        "PR #102 / adc9854"
       ],
       "origin": "llm",
       "status": "approved"

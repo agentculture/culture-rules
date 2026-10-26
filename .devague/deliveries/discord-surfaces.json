@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-26T17:03:49Z",
+  "updated": "2026-10-26T18:32:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -82,6 +82,20 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "attachment bytes never enter run state: attachment.fetch writes each fetched pdf/epub under a root on the node (an output_root, sha256-named, written atomically) and outputs its path, sha256, size and format instead of content_base64; library.push gains content_path + content_root (read only under the root, symlinks refused), as llm.complete reads a transcript; fetched files expire by a retention rule. The 50 MiB per-file limit stands",
+      "task_ref": "t13",
+      "reason": "operator decision 2026-10-26: MongoDB caps a run document at 16 MiB, so base64 in step outputs fails a run at a ~12 MiB PDF (or a few smaller attachments in one loop) and t13's 50 MiB limit was unreachable; files on the node chosen over lowering the cap",
+      "affects": [
+        "t13",
+        "t15"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 44
     }
   ],
   "evidence": [

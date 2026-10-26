@@ -275,7 +275,12 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     )
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
     from culture_rules.node.actions import checklist  # noqa: PLC0415
+    from culture_rules.node.actions.attachment_fetch import (  # noqa: PLC0415
+        ATTACHMENT_FETCH_BUILTIN,
+        AttachmentFetchPort,
+    )
     from culture_rules.node.actions.decider import DeciderAssessPort  # noqa: PLC0415
+    from culture_rules.node.actions.discord_react import DiscordReactAction  # noqa: PLC0415
     from culture_rules.node.actions.discord_read import DiscordReadAction  # noqa: PLC0415
     from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
     from culture_rules.node.actions.fixer_cooldown import (  # noqa: PLC0415
@@ -363,6 +368,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:mesh.message": message,  # legacy alias of message
         "action:discord.message": DiscordMessageAction(store),
         "action:discord.read": DiscordReadAction(store),  # one message in full + attachments
+        "action:discord.react": DiscordReactAction(store),  # the bot's reaction on a message
         "action:github.comment": github,
         "action:github.push": push,
         "action:github.review_reply": reply,
@@ -402,6 +408,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 MARKDOWN_RENDER_BUILTIN: MarkdownRenderPort(),  # fields as one Markdown page
                 FROM_HTML_BUILTIN: MarkdownFromHtmlPort(),  # HTML as Markdown, in chunks
                 RUN_READ_BUILTIN: RunReadPort(store),  # a step's outputs from an earlier run
+                ATTACHMENT_FETCH_BUILTIN: AttachmentFetchPort(),  # pdf/epub to files (d7)
                 checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
                     store
                 ),  # stored lists, stable ids
