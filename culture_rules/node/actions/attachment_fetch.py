@@ -7,8 +7,21 @@ checks, DNS resolution with every address vetted against the refused (private, l
 link-local, CGNAT, ...) ranges, a connection pinned to the vetted address, no proxies and no
 redirects.
 
+The bytes never enter run state (deviation d7: a run document is capped at 16 MiB). Each
+fetched file is streamed in :data:`READ_CHUNK` pieces to a temporary file in ``output_root``
+(the cap enforced while reading), hashed on the way, then renamed to
+``<output_root>/<sha256>.<pdf|epub>`` - an atomic write. The same bytes again find that file
+and reuse it (its age is refreshed); a symlink or non-file at that name is ``path_refused``.
+A later step (``library.push`` with ``content_path`` + ``content_root``) reads the file.
+
 Inputs (each may instead sit in ``config``; the input wins):
 
+* ``output_root`` (required): an absolute path to an existing directory on the node, else
+  the step fails ``path_refused`` before anything is fetched; symlinks in it are followed
+  once, and every file is written directly inside the resolved directory;
+* ``retention_days`` (optional, an integer 1-365, default 7): on each call, before fetching,
+  files in ``output_root`` named ``<64 lowercase hex>.pdf`` or ``.epub`` that are regular
+  files (never symlinks) and older than this are deleted; nothing else there is touched;
 * ``attachments``: a list of ``{url, filename, content_type}`` items - the shape
   ``discord.read`` outputs per attachment (its ``id`` and ``size`` are read when present);
 * ``allowed_hosts`` (optional): exact hostnames to fetch from; it replaces the default
@@ -19,7 +32,9 @@ when the type is absent or ``application/octet-stream``, from the filename's ext
 (``.pdf``, ``.epub``). Anything else - images included - is not fetched.
 
 Output: ``items`` (one per attachment, in order), ``fetched`` and ``skipped`` (counts). A
-fetched item is ``{filename, skipped: false, format, content_type, size, content_base64}``;
+fetched item is ``{filename, skipped: false, format, content_type, size, sha256, path}``
+(``path`` is the absolute path of the stored file, ``sha256`` its hex digest, ``size`` its
+bytes); there is no ``content_base64``;
 a skipped one is ``{filename, skipped: true, reason}``, the reason one of:
 
 * ``unsupported_format`` - not a pdf or an epub (no request made);
@@ -32,18 +47,25 @@ a skipped one is ``{filename, skipped: true, reason}``, the reason one of:
 * ``http_status`` - a 4xx answer.
 
 A 5xx or 429 answer, a network error and a resolution failure fail the whole step,
-retryable, so a retry fetches again. Non-list ``attachments`` or ``allowed_hosts`` fail
-``bad_params``. Nothing is logged. Standard library only.
+retryable, so a retry fetches again (files already stored are reused). Non-list
+``attachments`` or ``allowed_hosts``, or a ``retention_days`` out of range, fail
+``bad_params``; a bad ``output_root`` or a symlink at a target name fails ``path_refused``
+(neither retryable). Nothing is logged. Standard library only.
 """
 
 from __future__ import annotations
 
-import base64
+import contextlib
+import hashlib
 import http.client
+import os
+import re
+import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -66,12 +88,18 @@ __all__ = [
     "ATTACHMENT_FETCH_BUILTIN",
     "DEFAULT_ALLOWED_HOSTS",
     "MAX_ATTACHMENT_BYTES",
+    "READ_CHUNK",
     "AttachmentFetchPort",
 ]
 
 ATTACHMENT_FETCH_BUILTIN = "attachment.fetch"
 DEFAULT_ALLOWED_HOSTS = ("cdn.discordapp.com", "media.discordapp.net")
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+READ_CHUNK = 1024 * 1024
+DEFAULT_RETENTION_DAYS = 7
+_RETENTION_BOUNDS = (1, 365)
+_STORED_NAME = re.compile(r"[0-9a-f]{64}\.(?:pdf|epub)")
+_PATH_REFUSED = "path_refused"
 _HTTPS_PORT = 443
 _BAD_PARAMS = "bad_params"
 _TYPES = {"application/pdf": "pdf", "application/epub+zip": "epub"}
@@ -95,6 +123,33 @@ class _Skip(Exception):
 
 class _StepFailed(Exception):
     """A transient failure: the whole step fails retryable."""
+
+
+class _PathRefused(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(f"{_PATH_REFUSED}: {message}")
+
+
+def _output_root(value: Any) -> Path:
+    """The resolved, existing ``output_root`` directory, else :class:`_PathRefused`."""
+    if not isinstance(value, str) or not os.path.isabs(value):
+        raise _PathRefused("output_root must be an absolute path")
+    try:
+        root = Path(value).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise _PathRefused("output_root does not exist") from exc
+    if not root.is_dir():
+        raise _PathRefused("output_root is not a directory")
+    return root
+
+
+def _retention_days(value: Any) -> int:
+    if value is None:
+        return DEFAULT_RETENTION_DAYS
+    low, high = _RETENTION_BOUNDS
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        raise _BadParams(f"retention_days must be an integer from {low} to {high}")
+    return value
 
 
 def _param(input: Mapping[str, Any], config: Mapping[str, Any], key: str) -> Any:
@@ -159,8 +214,11 @@ class AttachmentFetchPort:
         config = context.config if isinstance(context.config, Mapping) else {}
         try:
             attachments, allow = self._params(input, config)
-            items = [self._item(att, allow, deadline) for att in attachments]
-        except _BadParams as exc:
+            days = _retention_days(_param(input, config, "retention_days"))
+            root = _output_root(_param(input, config, "output_root"))
+            self._sweep(root, days)
+            items = [self._item(att, allow, deadline, root) for att in attachments]
+        except (_BadParams, _PathRefused) as exc:
             return InvocationResult.failed(str(exc), retryable=False)
         except _StepFailed as exc:
             return InvocationResult.failed(str(exc), retryable=True)
@@ -182,7 +240,22 @@ class AttachmentFetchPort:
         allow = {_norm_host(h) for h in hosts if isinstance(h, str) and h.strip()}
         return attachments, allow
 
-    def _item(self, att: Any, allow: set[str], deadline: datetime) -> dict[str, Any]:
+    def _sweep(self, root: Path, days: int) -> None:
+        """Delete stored files (by name pattern, regular files only) older than ``days``."""
+        cutoff = self._clock().timestamp() - days * 86400
+        try:
+            entries = list(os.scandir(root))
+        except OSError as exc:
+            raise _PathRefused("output_root cannot be listed") from exc
+        for entry in entries:
+            if not _STORED_NAME.fullmatch(entry.name) or entry.is_symlink():
+                continue
+            with contextlib.suppress(OSError):  # gone meanwhile, or not ours to delete
+                if entry.is_file(follow_symlinks=False):
+                    if entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                        os.unlink(entry.path)
+
+    def _item(self, att: Any, allow: set[str], deadline: datetime, root: Path) -> dict[str, Any]:
         filename = att.get("filename") if isinstance(att, Mapping) else None
         try:
             if not isinstance(att, Mapping) or not isinstance(att.get("url"), str):
@@ -192,7 +265,7 @@ class AttachmentFetchPort:
                 raise _Skip("unsupported_format")
             if _over(att.get("size"), self._max_bytes):
                 raise _Skip("too_large")
-            data = self._fetch(att["url"], allow, deadline)
+            sha256, size, path = self._fetch(att["url"], allow, deadline, root, fmt)
         except _Skip as skip:
             return {"filename": filename, "skipped": True, "reason": skip.reason}
         content_type = "application/pdf" if fmt == "pdf" else "application/epub+zip"
@@ -201,8 +274,9 @@ class AttachmentFetchPort:
             "skipped": False,
             "format": fmt,
             "content_type": content_type,
-            "size": len(data),
-            "content_base64": base64.b64encode(data).decode("ascii"),
+            "size": size,
+            "sha256": sha256,
+            "path": str(path),
         }
 
     # -- the vetted fetch (http.call's policy) -------------------------------------------
@@ -232,7 +306,9 @@ class AttachmentFetchPort:
                 raise _Skip("private_address") from exc
         return host, addresses[0]
 
-    def _fetch(self, url: str, allow: set[str], deadline: datetime) -> bytes:
+    def _fetch(
+        self, url: str, allow: set[str], deadline: datetime, root: Path, fmt: str
+    ) -> tuple[str, int, Path]:
         host, pinned = self._pinned(url, allow)
         timeout = (deadline - self._clock()).total_seconds()
         if timeout <= 0:
@@ -253,13 +329,14 @@ class AttachmentFetchPort:
         except (http.client.HTTPException, OSError) as exc:  # URLError is an OSError
             raise _StepFailed(f"network_error: {type(exc).__name__}") from exc
         try:
-            return self._body(response)
+            return self._store(response, root, fmt)
         finally:
             close = getattr(response, "close", None)
             if close is not None:
                 close()
 
-    def _body(self, response: Any) -> bytes:
+    def _store(self, response: Any, root: Path, fmt: str) -> tuple[str, int, Path]:
+        """Check the answer, stream its body into ``root`` and return (sha256, size, path)."""
         status = int(getattr(response, "status", None) or getattr(response, "code", 0))
         if 300 <= status < 400:
             raise _Skip("redirect_refused")
@@ -269,10 +346,41 @@ class AttachmentFetchPort:
             raise _Skip("http_status")
         if _over(_header(getattr(response, "headers", None), "content-length"), self._max_bytes):
             raise _Skip("too_large")
+        fd, tmp = tempfile.mkstemp(dir=root, prefix=".attachment.", suffix=".part")
         try:
-            data = response.read(self._max_bytes + 1)
-        except (OSError, http.client.HTTPException) as exc:
-            raise _StepFailed(f"network_error: {type(exc).__name__}") from exc
-        if len(data) > self._max_bytes:
-            raise _Skip("too_large")
-        return data
+            with os.fdopen(fd, "wb") as out:
+                sha256, size = self._stream(response, out)
+            return sha256, size, _place(tmp, root / f"{sha256}.{fmt}")
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+
+    def _stream(self, response: Any, out: Any) -> tuple[str, int]:
+        """Copy the body to ``out`` in chunks, refusing it once past the cap."""
+        digest, size = hashlib.sha256(), 0
+        while True:
+            try:
+                block = response.read(READ_CHUNK)
+            except (OSError, http.client.HTTPException) as exc:
+                raise _StepFailed(f"network_error: {type(exc).__name__}") from exc
+            if not block:
+                return digest.hexdigest(), size
+            size += len(block)
+            if size > self._max_bytes:
+                raise _Skip("too_large")
+            digest.update(block)
+            out.write(block)
+
+
+def _place(tmp: str, target: Path) -> Path:
+    """Rename ``tmp`` to ``target`` (atomic); an existing regular file there is the same bytes
+    and is reused (``tmp`` dropped, its age refreshed); anything else there is refused."""
+    if os.path.lexists(target):
+        if target.is_symlink() or not target.is_file():
+            raise _PathRefused(f"{target.name} exists and is not a regular file")
+        os.unlink(tmp)
+        os.utime(target)
+        return target
+    os.replace(tmp, target)
+    return target

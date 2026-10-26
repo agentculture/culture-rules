@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import base64
+import hashlib
+import json
+import os
 import urllib.error
 from datetime import UTC, datetime, timedelta
 
@@ -14,6 +16,7 @@ from culture_rules.node.actions.attachment_fetch import (
     ATTACHMENT_FETCH_BUILTIN,
     DEFAULT_ALLOWED_HOSTS,
     MAX_ATTACHMENT_BYTES,
+    READ_CHUNK,
     AttachmentFetchPort,
 )
 
@@ -28,10 +31,13 @@ class FakeResponse:
         self._body = body
         self.headers = headers if headers is not None else {}
         self.reads: list[int] = []
+        self._pos = 0
 
     def read(self, n=-1):
         self.reads.append(n)
-        return self._body if n < 0 else self._body[:n]
+        end = len(self._body) if n < 0 else self._pos + n
+        out, self._pos = self._body[self._pos : end], min(end, len(self._body))
+        return out
 
     def close(self):
         pass
@@ -81,9 +87,25 @@ def _ctx(config=None):
     )
 
 
+ROOT: str = ""
+
+
+@pytest.fixture(autouse=True)
+def _root(tmp_path):
+    global ROOT
+    root = tmp_path / "attachments"
+    root.mkdir()
+    ROOT = str(root)
+    yield root
+
+
 def _invoke(port, input, config=None, seconds=30):
     deadline = datetime.now(UTC) + timedelta(seconds=seconds)
-    return port.invoke(input, "k1", deadline, context=_ctx(config))
+    return port.invoke(input, "k1", deadline, context=_ctx({"output_root": ROOT, **(config or {})}))
+
+
+def _sha(data):
+    return hashlib.sha256(data).hexdigest()
 
 
 def _att(name="paper.pdf", ctype="application/pdf", host="cdn.discordapp.com", **extra):
@@ -118,10 +140,23 @@ def test_pdf_and_epub_are_fetched_as_base64_with_their_format() -> None:
     assert res.outcome == COMPLETED
     items = res.output["items"]
     assert [i["format"] for i in items] == ["pdf", "epub"]
-    assert base64.b64decode(items[0]["content_base64"]) == PDF
-    assert base64.b64decode(items[1]["content_base64"]) == EPUB
-    assert items[0]["filename"] == "paper.pdf"
-    assert items[0]["size"] == len(PDF)
+    assert items[0] == {
+        "filename": "paper.pdf",
+        "skipped": False,
+        "format": "pdf",
+        "content_type": "application/pdf",
+        "size": len(PDF),
+        "sha256": _sha(PDF),
+        "path": os.path.join(ROOT, _sha(PDF) + ".pdf"),
+    }
+    assert items[1]["path"] == os.path.join(ROOT, _sha(EPUB) + ".epub")
+    assert items[1]["content_type"] == "application/epub+zip"
+    with open(items[0]["path"], "rb") as f:
+        assert f.read() == PDF
+    with open(items[1]["path"], "rb") as f:
+        assert f.read() == EPUB
+    assert "content_base64" not in json.dumps(res.output)
+    assert sorted(os.listdir(ROOT)) == sorted([_sha(PDF) + ".pdf", _sha(EPUB) + ".epub"])
     assert all(i["skipped"] is False for i in items)
     assert res.output["fetched"] == 2 and res.output["skipped"] == 0
     # dialled the vetted address, not the hostname
@@ -172,7 +207,7 @@ def test_default_hosts_refuse_any_other_host() -> None:
     assert res.outcome == COMPLETED
     item = res.output["items"][0]
     assert item["skipped"] is True and item["reason"] == "host_refused"
-    assert "content_base64" not in item
+    assert "path" not in item
     assert calls == [] and lookups == []
 
 
@@ -249,6 +284,7 @@ def test_body_over_the_limit_is_refused_even_when_undeclared() -> None:
     port, _, _ = _port(lambda url: FakeResponse(body=PDF), max_bytes=8)
     res = _invoke(port, {"attachments": [_att(size=None)]})
     assert res.output["items"][0]["reason"] == "too_large"
+    assert os.listdir(ROOT) == []  # the partial temp file is removed
     port, _, _ = _port(lambda url: FakeResponse(body=PDF[:8]), max_bytes=8)
     res = _invoke(port, {"attachments": [_att(size=None)]})
     assert res.output["items"][0]["skipped"] is False
@@ -316,3 +352,121 @@ def test_attachments_may_sit_in_config() -> None:
     port, _, _ = _port()
     res = _invoke(port, {}, config={"attachments": [_att()]})
     assert res.output["fetched"] == 1
+
+
+# --------------------------------------------------- d7: bytes on disk, not in run state
+
+
+def test_download_is_streamed_in_chunks_and_capped_while_reading() -> None:
+    body = b"%PDF" + b"x" * (3 * READ_CHUNK)
+    response = FakeResponse(body=body)
+    port, _, _ = _port(lambda url: response)
+    res = _invoke(port, {"attachments": [_att(size=None)]})
+    item = res.output["items"][0]
+    assert item["size"] == len(body) and item["sha256"] == _sha(body)
+    assert all(0 < n <= READ_CHUNK for n in response.reads)
+    assert len(response.reads) >= 3
+    big = FakeResponse(body=b"x" * (READ_CHUNK * 4))
+    port, _, _ = _port(lambda url: big, max_bytes=READ_CHUNK + 10)
+    res = _invoke(port, {"attachments": [_att(size=None)]})
+    assert res.output["items"][0]["reason"] == "too_large"
+    assert sum(big.reads) <= 2 * READ_CHUNK  # stopped once over the cap, not read to the end
+    assert os.listdir(ROOT) == [_sha(body) + ".pdf"]  # only the first fetch; no temp file left
+
+
+def test_same_bytes_again_reuse_the_file_and_refresh_its_age() -> None:
+    port, _, _ = _port()
+    first = _invoke(port, {"attachments": [_att()]}).output["items"][0]
+    os.utime(first["path"], (1_000_000, 1_000_000))
+    again = _invoke(port, {"attachments": [_att("copy.pdf")]}).output["items"][0]
+    assert again["path"] == first["path"] and again["sha256"] == first["sha256"]
+    assert again["filename"] == "copy.pdf"
+    assert os.listdir(ROOT) == [_sha(PDF) + ".pdf"]
+    assert os.stat(first["path"]).st_mtime > 1_000_000
+
+
+@pytest.mark.parametrize("value", [None, "", "relative/dir", 7])
+def test_output_root_must_be_an_absolute_path(value) -> None:
+    port, calls, _ = _port()
+    res = _invoke(port, {"attachments": [_att()]}, config={"output_root": value})
+    assert res.outcome == FAILED and res.retryable is False
+    assert res.error.startswith("path_refused")
+    assert calls == []
+
+
+def test_output_root_must_exist_as_a_directory(tmp_path) -> None:
+    port, _, _ = _port()
+    res = _invoke(port, {"attachments": [_att()]}, config={"output_root": str(tmp_path / "no")})
+    assert res.error.startswith("path_refused")
+    afile = tmp_path / "file"
+    afile.write_text("x")
+    res = _invoke(port, {"attachments": [_att()]}, config={"output_root": str(afile)})
+    assert res.error.startswith("path_refused")
+
+
+def test_a_symlink_at_the_target_name_is_refused(tmp_path) -> None:
+    elsewhere = tmp_path / "elsewhere.pdf"
+    elsewhere.write_bytes(b"other")
+    os.symlink(elsewhere, os.path.join(ROOT, _sha(PDF) + ".pdf"))
+    port, _, _ = _port()
+    res = _invoke(port, {"attachments": [_att()]})
+    assert res.outcome == FAILED and res.retryable is False
+    assert res.error.startswith("path_refused")
+    assert elsewhere.read_bytes() == b"other"
+    assert [n for n in os.listdir(ROOT) if n.startswith(".")] == []
+
+
+def _age(path, days):
+    when = datetime.now(UTC).timestamp() - days * 86400
+    os.utime(path, (when, when), follow_symlinks=False)
+
+
+def test_retention_deletes_only_old_fetched_files(tmp_path) -> None:
+    root = ROOT
+    old_pdf = os.path.join(root, "a" * 64 + ".pdf")
+    old_epub = os.path.join(root, "b" * 64 + ".epub")
+    young = os.path.join(root, "c" * 64 + ".pdf")
+    other = os.path.join(root, "notes.pdf")
+    upper = os.path.join(root, "D" * 64 + ".pdf")  # not the lowercase hex pattern
+    txt = os.path.join(root, "e" * 64 + ".txt")
+    for p in (old_pdf, old_epub, young, other, upper, txt):
+        with open(p, "wb") as f:
+            f.write(b"x")
+    target = tmp_path / "target.pdf"
+    target.write_bytes(b"keep")
+    link = os.path.join(root, "f" * 64 + ".pdf")
+    os.symlink(target, link)
+    adir = os.path.join(root, "9" * 64 + ".epub")
+    os.mkdir(adir)
+    for p in (old_pdf, old_epub, other, upper, txt, link, adir):
+        _age(p, 10)
+    _age(young, 3)
+    port, _, _ = _port()
+    res = _invoke(port, {"attachments": []})
+    assert res.outcome == COMPLETED
+    left = set(os.listdir(root))
+    assert os.path.basename(old_pdf) not in left and os.path.basename(old_epub) not in left
+    for p in (young, other, upper, txt, link, adir):
+        assert os.path.basename(p) in left
+    assert target.read_bytes() == b"keep"
+
+
+def test_retention_days_is_configurable_and_bounded() -> None:
+    old = os.path.join(ROOT, "a" * 64 + ".pdf")
+    with open(old, "wb") as f:
+        f.write(b"x")
+    _age(old, 3)
+    port, _, _ = _port()
+    _invoke(port, {"attachments": [], "retention_days": 5})
+    assert os.path.exists(old)
+    _invoke(port, {"attachments": [], "retention_days": 2})
+    assert not os.path.exists(old)
+    for bad in (0, 366, "7", True, 1.5):
+        res = _invoke(port, {"attachments": [], "retention_days": bad})
+        assert res.outcome == FAILED and res.error.startswith("bad_params")
+
+
+def test_the_file_just_fetched_survives_its_own_retention_pass() -> None:
+    port, _, _ = _port()
+    res = _invoke(port, {"attachments": [_att()], "retention_days": 1})
+    assert os.path.exists(res.output["items"][0]["path"])
