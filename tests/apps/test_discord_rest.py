@@ -325,3 +325,92 @@ def test_channel_guild_returns_the_guild_of_a_channel():
     assert calls[-1].endswith("/channels/42")
     with pytest.raises(DiscordError):
         client.channel_guild("general")
+
+
+# --------------------------------------------------------------------------- add_reaction
+
+
+class PutTransport:
+    """Records the method too (a PUT passes ``method=``); replies from a script of statuses."""
+
+    def __init__(self, *responses, exc=None):
+        self.calls = []
+        self._responses = list(responses) or [(204, {}, {})]
+        self._exc = exc
+
+    def __call__(self, url, data, headers, timeout, method=None):
+        self.calls.append({"url": url, "data": data, "method": method, "headers": headers})
+        if self._exc:
+            raise self._exc
+        if len(self._responses) > 1:
+            return self._responses.pop(0)
+        return self._responses[0]
+
+
+def test_add_reaction_puts_a_percent_encoded_unicode_emoji_on_me():
+    t = PutTransport()
+    out = DiscordClient(TOKEN, transport=t).add_reaction("123", "55", "\N{THUMBS UP SIGN}")
+    assert out == {"channel_id": "123", "message_id": "55", "emoji": "\N{THUMBS UP SIGN}"}
+    (call,) = t.calls
+    assert call["method"] == "PUT"
+    assert call["url"].endswith("/channels/123/messages/55/reactions/%F0%9F%91%8D/@me")
+    assert call["headers"]["Authorization"] == f"Bot {TOKEN}"
+
+
+def test_add_reaction_takes_a_custom_emoji_as_name_and_id():
+    t = PutTransport()
+    DiscordClient(TOKEN, transport=t).add_reaction("123", "55", "party_blob:987654321")
+    assert t.calls[0]["url"].endswith("/reactions/party_blob%3A987654321/@me")
+
+
+@pytest.mark.parametrize("emoji", ["", "   ", "a/b", "name:notanid", 3, None])
+def test_add_reaction_refuses_a_malformed_emoji(emoji):
+    t = PutTransport()
+    with pytest.raises(DiscordError) as ei:
+        DiscordClient(TOKEN, transport=t).add_reaction("123", "55", emoji)
+    assert not ei.value.retryable
+    assert t.calls == []
+
+
+def test_add_reaction_validates_ids():
+    t = PutTransport()
+    client = DiscordClient(TOKEN, transport=t)
+    for channel, message in [("abc", "55"), ("123", "x/y")]:
+        with pytest.raises(DiscordError):
+            client.add_reaction(channel, message, "\N{THUMBS UP SIGN}")
+    assert t.calls == []
+
+
+def test_add_reaction_retries_a_429_after_retry_after_then_succeeds():
+    t = PutTransport((429, {"retry_after": 0.25}, {}), (204, {}, {}))
+    waits = []
+    client = DiscordClient(TOKEN, transport=t, sleep=waits.append)
+    client.add_reaction("123", "55", "\N{THUMBS UP SIGN}")
+    assert waits == [0.25]
+    assert len(t.calls) == 2
+
+
+def test_add_reaction_gives_up_on_a_persistent_429_as_retryable():
+    t = PutTransport((429, {"retry_after": 2}, {}))
+    client = DiscordClient(TOKEN, transport=t, sleep=lambda s: None)
+    with pytest.raises(DiscordError) as ei:
+        client.add_reaction("123", "55", "\N{THUMBS UP SIGN}")
+    assert ei.value.retryable
+    assert ei.value.retry_after == 2.0
+    assert len(t.calls) == 4  # one try and three retries
+
+
+def test_add_reaction_errors_keep_the_retryable_flag_and_no_token():
+    for status, retryable in [(403, False), (404, False), (502, True)]:
+        client = DiscordClient(TOKEN, transport=PutTransport((status, {"message": "x"}, {})))
+        with pytest.raises(DiscordError) as ei:
+            client.add_reaction("123", "55", "\N{THUMBS UP SIGN}")
+        assert ei.value.retryable is retryable
+        assert TOKEN not in str(ei.value)
+
+
+def test_add_reaction_network_failure_is_retryable():
+    client = DiscordClient(TOKEN, transport=PutTransport(exc=urllib.error.URLError("down")))
+    with pytest.raises(DiscordError) as ei:
+        client.add_reaction("123", "55", "\N{THUMBS UP SIGN}")
+    assert ei.value.retryable
