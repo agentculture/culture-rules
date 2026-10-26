@@ -423,3 +423,47 @@ def test_sync_only_the_guilds_that_need_it_and_a_failure_is_not_recorded(caplog)
     asyncio.run(dg.sync_commands(tree, reg))  # logged, not raised
     assert synced == []
     assert "HTTPException" in caplog.text and "secret-ish" not in caplog.text
+
+
+def _answering_interaction(order, *, token):
+    fake = _fake_interaction(order, token=token)
+
+    async def edit_original_response(**kw):
+        order.append(("edit", kw))
+
+    fake.edit_original_response = edit_original_response
+    return fake
+
+
+def test_an_invocation_that_is_not_written_is_answered_at_once():
+    # t16 left it "thinking" until Discord dropped it: a channel no rule selects (t19)
+    discord = pytest.importorskip("discord")
+    order: list = []
+    tree = dg.build_command_tree(_client(), _registration(lambda raw: False))
+    menu = tree.get_command(
+        "Save to library", guild=discord.Object(1), type=discord.AppCommandType.message
+    )
+    target = types.SimpleNamespace(id=9001, channel=types.SimpleNamespace(id=100))
+    asyncio.run(menu.callback(_answering_interaction(order, token="t"), target))
+    assert [kind for kind, _ in order] == ["defer", "edit"]
+    assert order[1][1] == {"content": dc.NOT_HERE}
+
+
+def test_a_written_invocation_is_left_for_the_flow_to_answer():
+    discord = pytest.importorskip("discord")
+    order: list = []
+    tree = dg.build_command_tree(_client(), _registration(lambda raw: True))
+    cmd = tree.get_command("save", guild=discord.Object(1))
+    asyncio.run(cmd.callback(_answering_interaction(order, token="t")))
+    assert [kind for kind, _ in order] == ["defer"]
+
+
+def test_the_supervisor_says_whether_the_command_event_was_written(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule(type=COMMAND, channels=["100"]))
+    r.store.put("actors", command_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.registrations)
+    (registration,) = r.hub.registrations
+    assert registration.invoke(interaction(1, channel="100")) is True
+    assert registration.invoke(interaction(2, channel="555")) is False  # no rule selects it

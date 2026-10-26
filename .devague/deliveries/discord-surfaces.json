@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-26T18:32:45Z",
+  "updated": "2026-10-26T19:25:59Z",
   "deviations": [
     {
       "id": "d1",
@@ -96,6 +96,20 @@
       "status": "approved",
       "classification": null,
       "seq": 44
+    },
+    {
+      "id": "d8",
+      "what": "a builtin code step's config.with maps references onto its inputs (e.g. {\"text\": \"inputs.item.content\"}), resolved as an action step's params are (whole strings, {{ }} templates, $ref/$literal) against the step's input ports only, and validated the same way (only inputs.<declared port>); an edge's value for the same port wins. Every builtin gains it, so a for_each body can render each swept message and the sweep flow is configuration only",
+      "task_ref": "t19",
+      "reason": "operator decision 2026-10-26: edges carry whole ports and only action steps resolved inputs.item.* references, so no loop body could hand a swept message's fields to markdown.render; config.with chosen over a rendering sweep (against the generic-steps rule) and dotted edge ports (engine, validation and editor wiring)",
+      "affects": [
+        "t18",
+        "t19"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 45
     }
   ],
   "evidence": [

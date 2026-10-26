@@ -107,6 +107,8 @@ export type ActionKind =
   | "discord.message"
   | "discord.read"
   | "discord.react"
+  | "discord.reply"
+  | "discord.sweep"
   | "github.comment"
   | "jira.comment"
   | "http.call"

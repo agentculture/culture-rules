@@ -75,3 +75,36 @@ def test_the_node_registers_discord_react_and_attachment_fetch():
     ports = default_ports(MemoryStore(), "spark")
     assert isinstance(ports["action:discord.react"], DiscordReactAction)
     assert isinstance(ports["code"]._builtins[ATTACHMENT_FETCH_BUILTIN], AttachmentFetchPort)
+
+
+# --------------------------------------------------------------------------- R3 (t19)
+
+
+def test_discord_reply_and_sweep_are_catalogued_action_kinds():
+    reply = ACTION_KINDS["discord.reply"]
+    assert {n for n, s in reply.params.items() if s.required} == {"actor", "event_id", "text"}
+    sweep = ACTION_KINDS["discord.sweep"]
+    assert {n for n, s in sweep.params.items() if s.required} == {"actor", "channel", "cursor_key"}
+    assert {"guild", "limit", "include_bots", "backfill"} <= set(sweep.params)
+
+
+def test_discord_reply_sweep_and_cursor_advance_have_words():
+    from culture_rules.node.actions.cursor import CURSOR_ADVANCE_BUILTIN
+
+    assert CURSOR_ADVANCE_BUILTIN in BUILTIN_WORDS
+    assert "Saved" in action_text(
+        {"kind": "discord.reply", "params": {"actor": "discord-bot", "text": "Saved"}}
+    )
+    words = action_text({"kind": "discord.sweep", "params": {"actor": "b", "channel": "42"}})
+    assert "discord.sweep" in words and "42" in words
+
+
+def test_the_node_registers_discord_reply_sweep_and_cursor_advance():
+    from culture_rules.node.actions.cursor import CURSOR_ADVANCE_BUILTIN, CursorAdvancePort
+    from culture_rules.node.actions.discord_reply import DiscordReplyAction
+    from culture_rules.node.actions.discord_sweep import DiscordSweepAction
+
+    ports = default_ports(MemoryStore(), "spark")
+    assert isinstance(ports["action:discord.reply"], DiscordReplyAction)
+    assert isinstance(ports["action:discord.sweep"], DiscordSweepAction)
+    assert isinstance(ports["code"]._builtins[CURSOR_ADVANCE_BUILTIN], CursorAdvancePort)

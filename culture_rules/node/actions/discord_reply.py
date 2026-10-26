@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.apps.discord_commands import interaction_token
@@ -52,11 +52,13 @@ class DiscordReplyAction:
         transport: Transport | None = None,
         discord_base_url: str | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store
         self._transport = transport
         self._base_url = discord_base_url
         self._sleep = sleep
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def invoke(
         self,
@@ -75,7 +77,7 @@ class DiscordReplyAction:
             return _fail("discord.reply needs the triggering event_id")
         if not isinstance(text, str) or not text.strip():
             return _fail("discord.reply needs text")
-        stored = interaction_token(self._store, event_id)
+        stored = interaction_token(self._store, event_id, now=self._clock())
         if stored is None:
             return _fail(_EXPIRED)
         if stored.get("actor") != actor_id:

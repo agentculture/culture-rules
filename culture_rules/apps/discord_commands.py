@@ -57,6 +57,7 @@ __all__ = [
     "INTERACTIONS_TTL_INDEX",
     "INTERACTION_TOKEN_TTL",
     "MESSAGE",
+    "NOT_HERE",
     "SAVE_COMMAND",
     "SAVE_MESSAGE_COMMAND",
     "CommandRegistration",
@@ -109,18 +110,25 @@ _LINK = re.compile(
 _ID = re.compile(r"^\d{1,25}$")
 
 
+NOT_HERE = "This channel is not set up to save messages."
+"""The private answer to a command whose event was not written (no rule selects the channel,
+or the bot keeps out of it), instead of leaving it "thinking" until Discord drops it."""
+
+
 @dataclass(frozen=True, kw_only=True)
 class CommandRegistration:
     """What a gateway needs to register the commands and hand over invocations.
 
     ``invoke`` takes one raw invocation (a mapping with the :func:`command_data` keys plus
-    ``token`` and ``application_id``); ``needs_sync(guild)`` says whether the guild's commands
-    must be synced, and ``synced(guild)`` records that they were. ``actor_id`` is for logs."""
+    ``token`` and ``application_id``) and says whether its event was written; one that was not
+    is answered at once with :data:`NOT_HERE`; ``needs_sync(guild)`` says whether the guild's
+    commands must be synced, and ``synced(guild)`` records that they were. ``actor_id`` is for
+    logs."""
 
     actor_id: str
     application_id: str
     guild_ids: tuple[str, ...]
-    invoke: Callable[[Mapping[str, Any]], None]
+    invoke: Callable[[Mapping[str, Any]], bool | None]
     needs_sync: Callable[[str], bool]
     synced: Callable[[str], None]
     definitions: tuple[Mapping[str, Any], ...] = DEFINITIONS

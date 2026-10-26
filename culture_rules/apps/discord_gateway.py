@@ -269,7 +269,16 @@ def build_command_tree(client: Any, registration: commands_mod.CommandRegistrati
 
     async def hand_over(interaction: Any, raw: dict[str, Any]) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)  # within Discord's 3 s
-        await asyncio.to_thread(registration.invoke, raw)
+        written = await asyncio.to_thread(registration.invoke, raw)
+        if written is False:  # no flow will answer it: say so now, not "thinking" until dropped
+            try:
+                await interaction.edit_original_response(content=commands_mod.NOT_HERE)
+            except Exception as exc:  # noqa: BLE001 - the answer is a courtesy; type logged
+                log.warning(
+                    "discord gateway %s: answering an unsaved command failed (%s)",
+                    registration.actor_id,
+                    type(exc).__name__,
+                )
 
     async def save(interaction, message=None):  # annotated below, for discord.py
         channel, target = commands_mod.parse_message_ref(message)
@@ -879,15 +888,16 @@ class GatewaySupervisor:
             delivery = f"{session.actor_id}:{data['message_id']}:{data['user_id']}:{emoji}"
             self._deliver(session, REACTION_EVENT, data, delivery)
 
-    def _on_command(self, session: _Session, raw: Mapping[str, Any]) -> None:
+    def _on_command(self, session: _Session, raw: Mapping[str, Any]) -> bool:
         """Keep the invocation's token apart (keyed by the event id), then sink the event
-        without it; the token is dropped again when the event is not written."""
+        without it; the token is dropped again when the event is not written. Says whether
+        the event was written (a duplicate counts), so an unwritten one is answered at once."""
         raw = dict(raw)
         token = raw.pop("token", None)
         app_id = raw.pop("application_id", None)
         data = commands_mod.command_data(raw)
         if not data["interaction_id"]:
-            return
+            return False
         delivery = f"{session.actor_id}:interaction:{data['interaction_id']}"
         event_id = event_id_for("discord", delivery)
         kept = False
@@ -923,6 +933,7 @@ class GatewaySupervisor:
                     session.actor_id,
                     type(exc).__name__,
                 )
+        return outcome in (ACCEPTED, DUPLICATE)
 
     def _admitted(self, connection: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
         """Whether the channel is selected and the actor's channel and guild filters admit it."""

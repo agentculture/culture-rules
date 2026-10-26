@@ -72,3 +72,19 @@ describe("attachment.fetch built-in", () => {
     expect(s.outputs?.map((p) => p.name)).toEqual(["items", "fetched", "skipped"]);
   });
 });
+
+describe("cursor.advance built-in", () => {
+  it("sets its ports: key, expected (optional) and value in; advanced out", async () => {
+    const user = userEvent.setup();
+    const last = setup({ id: "advance", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), "cursor.advance");
+    const s = last();
+    expect(s.config).toEqual({ builtin: "cursor.advance" });
+    expect(s.inputs?.map((p) => [p.name, p.required !== false])).toEqual([
+      ["key", true],
+      ["expected", false],
+      ["value", true],
+    ]);
+    expect(s.outputs?.map((p) => p.name)).toEqual(["key", "value", "previous", "advanced"]);
+  });
+});

@@ -90,3 +90,42 @@ describe("discord.react", () => {
     });
   });
 });
+
+describe("Release 3 kinds", () => {
+  it("catalogues discord.reply with actor, event_id and text required", () => {
+    const p = ACTION_KINDS["discord.reply"].params;
+    expect([p.actor, p.event_id, p.text].every((s) => s.required)).toBe(true);
+    expect(actionProblem({ kind: "discord.reply", params: { actor: "a", event_id: "e" } })).toBe("empty");
+    expect(actionProblem({ kind: "discord.reply", params: { actor: "a", event_id: "e", text: "Saved" } })).toBeNull();
+  });
+
+  it("catalogues discord.sweep with the channel and a cursor key required, the rest optional", () => {
+    const p = ACTION_KINDS["discord.sweep"].params;
+    expect([p.actor, p.channel, p.cursor_key].every((s) => s.required)).toBe(true);
+    expect([p.guild, p.limit, p.include_bots, p.backfill].some((s) => s.required)).toBe(false);
+    expect(actionProblem({ kind: "discord.sweep", params: { actor: "a", channel: "1", cursor_key: "k", limit: "x" } })).toBe("invalid_value");
+  });
+
+  it("picks the sweep's channel from what the bot sees", async () => {
+    const SWEEPER: Actor = { ...BOT, params: { ...BOT.params, actions: ["discord.sweep"] } };
+    function SweepHarness() {
+      const [value, setValue] = useState<Action>(blankAction());
+      return (
+        <>
+          <ActionPicker value={value} actors={[SWEEPER]} onChange={setValue} loadDiscordTargets={async () => TARGETS} />
+          <output data-testid="saved">{JSON.stringify(value)}</output>
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<SweepHarness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.sweep");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await user.selectOptions(await screen.findByLabelText("Channel"), "101");
+    await user.type(screen.getByLabelText("Cursor key"), "lib");
+    expect(JSON.parse(screen.getByTestId("saved").textContent ?? "{}")).toEqual({
+      kind: "discord.sweep",
+      params: { actor: "discord-bot", guild: "10", channel: "101", cursor_key: "lib" },
+    });
+  });
+});

@@ -4,7 +4,8 @@ An :class:`~culture_rules.model.action.Action` has no actor slot; an action that
 actor capability names the actor in ``params.actor`` (an actor id, or a reference). Per kind
 this module says which params exist, their types and which are required.
 
-Actor policy: ``discord.message``, ``discord.read``, ``discord.react``, ``github.comment``,
+Actor policy: ``discord.message``, ``discord.read``, ``discord.react``, ``discord.reply``,
+``discord.sweep``, ``github.comment``,
 ``github.push``, ``github.review_reply``, ``jira.comment``, ``http.call``, ``machine.command``,
 ``email.send``, ``search.web``, ``llm.complete``, ``audio.transcribe``, ``decider.assess`` and
 ``library.push`` always need ``params.actor`` (the credentialed or executing party).
@@ -14,6 +15,9 @@ a Discord app actor (the form before ``discord.message`` existed) keeps posting 
 the server the channel was picked from. ``discord.read`` reads one message in full (its
 text untruncated and its attachments) with the same actor's token, within its allow-list;
 ``discord.react`` adds the bot's reaction (a unicode emoji or a custom ``name:id``) to one.
+``discord.reply`` answers a slash or message command privately (``event_id`` names the
+``discord.command.invoked`` event); ``discord.sweep`` reads a channel's messages newer than a
+stored cursor, which the ``cursor.advance`` step moves once the run's saves succeed.
 ``mesh.message`` is a legacy alias of ``message``.
 
 Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`` object or a
@@ -111,6 +115,25 @@ _KINDS = (
         channel=_RS,
         message=_RS,
         emoji=_RS,
+    ),
+    _k(
+        "discord.reply",
+        "Answer a Discord slash or message command privately through a Discord app actor",
+        actor=_RS,
+        event_id=_RS,
+        text=_RS,
+    ),
+    _k(
+        "discord.sweep",
+        "Read a Discord channel's messages newer than a stored cursor through a Discord app"
+        " actor",
+        actor=_RS,
+        guild=_S,
+        channel=_RS,
+        cursor_key=_RS,
+        limit=_I,
+        include_bots=ParamSpec("bool"),
+        backfill=ParamSpec("bool"),
     ),
     _k(
         "github.comment",

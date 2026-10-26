@@ -24,7 +24,7 @@ from culture_rules.node.actions.discord_react import DiscordReactAction
 from culture_rules.node.actions.discord_read import DiscordReadAction
 from culture_rules.node.actions.library import LibraryPushPort
 from culture_rules.node.actions.markdown_render import MARKDOWN_RENDER_BUILTIN, MarkdownRenderPort
-from culture_rules.node.daemon import Node
+from culture_rules.node.daemon import Node, NodeOptions
 from culture_rules.node.runner import BuiltinCodePort, NoopAction
 from culture_rules.store.memory import MemoryStore
 from tests.apps.test_discord_gateway import discord_actor
@@ -258,6 +258,7 @@ class World:
             event_source=self.source,
             clock=self.clock,
             heartbeat_options=BEATS,
+            options=NodeOptions(listen_gateways=False),  # events come from the fake source
         )
         self.node.start()
         self.sent = 0

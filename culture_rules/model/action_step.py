@@ -47,17 +47,23 @@ from culture_rules.model.refs import (
 
 __all__ = [
     "ACTION_BUILTIN",
+    "BUILTIN_WITH",
     "ACTION_SPEC_FIELDS",
     "action_spec",
     "actor_problem",
     "is_action_step",
     "ref_problems",
+    "with_ref_problems",
     "spec_idempotent",
     "validation_params",
 ]
 
 ACTION_BUILTIN = "action"
 """``config.builtin`` of a code step that runs an action kind."""
+
+BUILTIN_WITH = "with"
+"""``config.with`` of a builtin code step (d8): references onto its inputs, resolved like an
+action step's params against its input ports (:func:`with_ref_problems`)."""
 
 ACTOR_PARAM = "actor"
 """The param an action is dispatched through, by id (:func:`actor_problem`)."""
@@ -141,14 +147,27 @@ def actor_problem(value: Any) -> str | None:
 def ref_problems(params: Mapping[str, Any], ports: Collection[str]) -> list[tuple[str, str]]:
     """(param path, reason) for every reference that is not ``inputs.<declared port>``;
     ``actor`` is left to :func:`actor_problem` (never resolved, so never a port reference)."""
-    problems: list[tuple[str, str]] = []
     hits = (hit for k, v in params.items() if k != ACTOR_PARAM for hit in _refs(v, str(k)))
+    return _port_problems(hits, ports, "an action step")
+
+
+def with_ref_problems(values: Mapping[str, Any], ports: Collection[str]) -> list[tuple[str, str]]:
+    """(entry path, reason) for every reference in a builtin's ``config.with`` (d8) that is
+    not ``inputs.<declared port>``: it resolves against the step's input ports only."""
+    hits = (hit for k, v in values.items() for hit in _refs(v, str(k)))
+    return _port_problems(hits, ports, "a builtin's config.with")
+
+
+def _port_problems(
+    hits: Iterator[tuple[str, str]], ports: Collection[str], who: str
+) -> list[tuple[str, str]]:
+    problems: list[tuple[str, str]] = []
     for where, ref in hits:
         head, _, rest = ref.partition(".")
         port = rest.split(".", 1)[0]
         if head != INPUTS_NAMESPACE:
             problems.append(
-                (where, f"{ref!r}: an action step reads only inputs.<port> (map other values in)")
+                (where, f"{ref!r}: {who} reads only inputs.<port> (map other values in)")
             )
         elif port not in ports:
             problems.append((where, f"inputs.{port} is not one of the step's input ports"))

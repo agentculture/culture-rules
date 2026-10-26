@@ -19,7 +19,7 @@ literal is refused on save with ``secret_literal`` by ``assert_refs_only``)::
               repos: [allow-list]}
     jira:    {site, email, token: "grant:N", webhook_token: "grant:N", projects: [...]}
     discord: {bot_token: "grant:N", guild_id: one id or [ids] (unset = every guild),
-              channels: [...]}
+              channels: [...], application_id (for slash and message commands)}
     email:   {api_key: "grant:N", domain: one of EMAIL_DOMAINS (default culture.dev),
               local_part (default no-reply), recipients: [allow-list of addresses]}
     search:  {api_key: "grant:N"}

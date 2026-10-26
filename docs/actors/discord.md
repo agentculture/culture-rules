@@ -52,8 +52,8 @@ https://discord.com/oauth2/authorize?client_id=<Application ID>&scope=bot&permis
 
 `68608` grants View Channels, Send Messages and Read Message History. A bot
 that reacts to messages (`discord.react`) also needs **Add
-Reactions**: use `68672` (`68608` plus `64`). For slash commands (planned,
-Release 3) add the `applications.commands` scope: `scope=bot%20applications.commands`.
+Reactions**: use `68672` (`68608` plus `64`). For slash and message
+commands add the `applications.commands` scope: `scope=bot%20applications.commands`.
 Permissions are the bot's access; a bot that only reads and posts does not need
 the extra bit. To find
 the **server id**, turn on **User Settings**, **Advanced**, **Developer Mode**.
@@ -296,24 +296,70 @@ same `output_root`), with a `when` on `item.skipped` being false.
 `discord.react` adds the bot's reaction (a unicode emoji, or a custom
 `name:id`) to a message: a flow can answer a saving reaction with ✅.
 
+## Commands
+
+An actor that lists `discord.command.invoked` in `params.events` and has
+`connection.application_id` (the application's numeric id, from the Developer
+Portal's **General Information**; not a secret) registers two commands in each
+server of `connection.guild_id`: `/save` (an optional `message` option, a
+message link or id) and the message menu command **Save to library**. They
+are registered once and again only when their definition changes; without an
+application id or a `guild_id`, none are registered (the listener still runs)
+and the node logs why once.
+
+A command is acknowledged at once, privately ("thinking…"), then recorded as a
+`discord.command.invoked` event with `command`, `command_type` (`slash` or
+`message`), `options`, `target_message_id`, `target_channel_id`, the invoking
+`user_id` and `username` (also as `author_id` and `author_name`),
+`user_roles`, `channel_id` and `guild_id`. The interaction's token is never in
+the event: it is kept for 15 minutes in its own collection, keyed by the
+event's id. A command in a channel no rule selects is answered at once: "This
+channel is not set up to save messages."
+
+`discord.reply` answers the invoker privately: it replaces the "thinking…"
+message with its `text`, using the kept token (`event_id` names the event; a
+rule maps it from `trigger.id`). After 15 minutes the token is gone and the
+reply fails `interaction_expired`.
+
+## Sweeping a channel on a schedule
+
+`discord.sweep` reads a channel's messages newer than a stored cursor (per
+`cursor_key` and channel), oldest first, at most `limit` (default 50, at most
+100) per run, with `more` when it stopped at the limit. Bot messages are
+skipped unless `include_bots` is true. A flow with no cursor yet starts now
+and saves no history (`backfill: true` starts at the channel's first message).
+
+The sweep never moves the cursor itself: a later `cursor.advance` step does,
+from the sweep's `cursor` to its `next_cursor`, after the saves succeed. A
+failed run leaves the cursor, so the next run saves what it missed; two runs at
+once cannot move it backwards or skip messages (`cursor_moved`). Give the rule a
+`concurrency_key` so one sweep of a flow runs at a time.
+
+### Reading an item's fields in a loop
+
+A loop body's built-in reads fields of the current item through
+`config.with` (deviation d8), the way an action step's params do: for a swept
+message, `markdown.render` takes
+`{"title": "Discord message {{ inputs.item.id }}", "text": "inputs.item.content",
+"author": "inputs.item.author_name", "url": "inputs.item.url"}`. References
+resolve against the step's input ports only; a value an edge gives the same
+port wins.
+
 ## Deleting a message
 
 Deleting a Discord message does not delete what a flow made from it. The
 library item stays; archive it by hand in the library.
 
-## What is planned
+## What is on disk
 
-Not on disk yet, and not to be relied on: slash and message commands, the
-ephemeral reply and a scheduled sweep (Release 3).
-
-On disk today: the `discord.read` action (one message in full; it keeps to
-the actor's `connection.channels` and `connection.guild_id`), `discord.react`,
-and the `markdown.render` and `attachment.fetch` steps (the step panel's
-Built-in select). The disabled bundle
+The `discord.read`, `discord.react`, `discord.reply` and `discord.sweep`
+actions (each keeps to the actor's `connection.channels` and
+`connection.guild_id`), and the `markdown.render`, `attachment.fetch` and
+`cursor.advance` steps (the step panel's Built-in select). The disabled bundle
 [`docs/rules/discord-library`](../rules/discord-library/README.md) shows the
 flow: read, render, push.
 
-A `discord.read`, `discord.react` or `discord.message` action, as a workflow step or as a
+A Discord action (`discord.message`, `.read`, `.react`, `.reply` or `.sweep`), as a workflow step or as a
 rule's own action, names its bot in `params.actor` by id (`discord-bot`,
 `jetson-bot`). The node dispatches through that value as given, so a reference
 such as `inputs.actor` or `trigger.data.actor` is refused on save

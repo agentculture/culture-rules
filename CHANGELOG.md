@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-10-26
+
+### Added
+
+- Discord surfaces Release 3 (t16-t19): /save (an optional message link or id) and the message command Save to library, registered per guild for an actor declaring discord.command.invoked with connection.application_id, re-synced only when the definitions change; interactions are acknowledged privately before the event is written, and a command in a channel no rule selects is answered at once
+- The interaction token never enters the event: it is kept 15 minutes in discord_interactions, keyed by the event id; the action kind discord.reply replaces the deferred response privately with it (interaction_expired after that)
+- The action kind discord.sweep: a channel's messages since a stored cursor per flow and channel, oldest first and bounded per run; bot messages skipped unless include_bots; a first run starts now unless backfill
+- The generic builtin cursor.advance: moves a stored cursor by compare-and-set after a run's saves, never backwards and never past another run's move (cursor_moved)
+- A builtin code step's config.with (deviation d8): references such as inputs.item.content resolved onto its inputs like an action step's params, so a loop body can render each swept message
+- Editor: discord.reply and discord.sweep (with the channel picker), the cursor.advance builtin, and the Discord connection's application id
+- tests/rules/test_discord_command_and_sweep_flows.py: /save files the message and answers Saved privately; a sweep starts now, saves what came since (bots skipped) and nothing twice
+
+### Changed
+
+- docs/actors/discord.md describes commands, the private reply, the sweep and config.with; nothing in the Discord plan is planned any more
+
 ## [0.31.0] - 2026-10-26
 
 ### Added

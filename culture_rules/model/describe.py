@@ -88,6 +88,7 @@ BUILTIN_WORDS: dict[str, str] = {
     "markdown.from_html": "markdown.from_html: HTML as Markdown, whole and in chunks",
     "run.read": "run.read: a step's outputs from the run that started this one",
     "attachment.fetch": "attachment.fetch: pdf and epub attachments saved as files on the node",
+    "cursor.advance": "cursor.advance: move a stored cursor on, only from the value read",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
@@ -106,6 +107,8 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "discord.message": _TO_CHANNEL,
     "discord.read": (("channel", "in {}"), ("message", "message {}")),
     "discord.react": (("emoji", "with {}"), ("channel", "in {}"), ("message", "on message {}")),
+    "discord.reply": (("text", '"{}"'),),
+    "discord.sweep": (("channel", "in {}"), ("limit", "up to {} messages")),
     "github.comment": (),
     "github.push": (),
     "github.review_reply": (),

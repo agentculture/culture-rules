@@ -21,6 +21,8 @@ export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
   { name: "discord.message", summary: "Post a message on Discord" },
   { name: "discord.read", summary: "Read one Discord message in full (text and attachments)" },
   { name: "discord.react", summary: "React to a Discord message" },
+  { name: "discord.reply", summary: "Answer a Discord slash or message command privately" },
+  { name: "discord.sweep", summary: "Read a Discord channel's messages since the last run" },
   { name: "github.comment", summary: "Comment on a GitHub issue or PR" },
   { name: "github.push", summary: "Fast-forward a same-repo PR's head branch (never force)" },
   { name: "github.review_reply", summary: "Reply in a PR review thread, optionally resolving it" },
@@ -92,6 +94,7 @@ export const CONNECTION_FIELDS: Record<AppSurface, ConnectionField[]> = {
     { key: "bot_token", label: "Bot token" },
     { key: "guild_id", label: "Guild ids", oneOrMany: true },
     { key: "channels", label: "Channels", list: true },
+    { key: "application_id", label: "Application id (for commands)" },
   ],
   email: [
     API_KEY,

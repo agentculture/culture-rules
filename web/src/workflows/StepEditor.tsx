@@ -345,6 +345,11 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
       { name: "skipped", type: "integer", required: true },
     ],
   },
+  "cursor.advance": {
+    label: "cursor.advance: move a stored cursor on, only from the value read",
+    inputs: [PORT("key", true), PORT("expected", false), PORT("value", true)],
+    outputs: [PORT("key", true), PORT("value", true), PORT("previous", false), { name: "advanced", type: "boolean", required: true }],
+  },
 };
 
 /**

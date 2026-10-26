@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from datetime import UTC, datetime, timedelta
 
 from culture_rules.apps.discord_commands import INTERACTIONS_COLLECTION
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
 from culture_rules.engine.runs import Executor, step_state
-from culture_rules.model import action_kinds
 from culture_rules.model.action_step import ACTION_BUILTIN
 from culture_rules.node.actions.discord_reply import DiscordReplyAction
 from culture_rules.store.memory import MemoryStore
@@ -18,7 +16,7 @@ from tests.engine.run_helpers import Clock, FakeActor, edge, port, rule, step, w
 NOW = datetime.now(UTC)
 EVENT = "evt-1"
 INPUT = {"event_id": EVENT, "text": "Saved"}
-SECRET = "interaction-secret-tok"
+KEPT = "itok-" + "reply-1"  # the kept interaction token (built, not a literal)
 
 
 def ctx(actor="disc"):
@@ -43,7 +41,7 @@ def make_store(*, actor="disc", expires=None):
         INTERACTIONS_COLLECTION,
         {
             "id": EVENT,
-            "token": SECRET,
+            "token": KEPT,
             "application_id": "9001",
             "actor": actor,
             "expires_at": (expires or NOW + timedelta(minutes=10)).isoformat(),
@@ -63,7 +61,7 @@ def test_replies_by_editing_the_deferred_original_without_a_bot_token():
     assert res.output == {"replied": True, "event_id": EVENT}
     (call,) = t.calls
     assert call["method"] == "PATCH"
-    assert call["url"].endswith(f"/webhooks/9001/{SECRET}/messages/@original")
+    assert call["url"].endswith(f"/webhooks/9001/{KEPT}/messages/@original")
     assert json.loads(call["data"])["content"] == "Saved"
     assert "Authorization" not in call["headers"]
 
@@ -98,7 +96,7 @@ def test_discord_401_404_mean_interaction_expired_and_5xx_429_retry():
         assert res.outcome == FAILED
         assert res.retryable is retryable
         assert ("interaction_expired" in res.error) is expired
-        assert SECRET not in res.error
+        assert KEPT not in res.error
 
 
 def test_actor_must_match_the_stored_token_actor():
@@ -150,13 +148,6 @@ def reply_workflow(when=SAVED, text_ref="inputs.text"):
 
 
 def run_for(values, transport, monkeypatch, **wf):
-    # t19 adds discord.reply to the catalogue; until then borrow discord.react's entry
-    base = action_kinds.ACTION_KINDS["discord.react"]
-    spec = action_kinds.ParamSpec("str", True)
-    kind = dataclasses.replace(
-        base, name="discord.reply", params={"actor": spec, "event_id": spec, "text": spec}
-    )
-    monkeypatch.setitem(action_kinds.ACTION_KINDS, "discord.reply", kind)
     store = make_store()
     event = FakeActor().on("event", ("complete", {"event_id": EVENT, **values}))
     ports = {"*": event, "action:discord.reply": action(store, transport)}
@@ -194,3 +185,12 @@ def test_a_reply_text_built_from_a_skipped_reason_is_sent(monkeypatch):
     )
     assert step_state(doc, "reply")["status"] == "succeeded", doc["steps"]
     assert json.loads(t.calls[0]["data"])["content"] == "Skipped: already saved"
+
+
+def test_the_token_is_judged_by_the_ports_clock():
+    store = make_store()
+    later = lambda: NOW + timedelta(minutes=20)  # noqa: E731 - past the 15-minute TTL
+    res = DiscordReplyAction(store, transport=FakeTransport(), clock=later).invoke(
+        {"event_id": EVENT, "text": "Saved"}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == FAILED and res.error.startswith("interaction_expired")

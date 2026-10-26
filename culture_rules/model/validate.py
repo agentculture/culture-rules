@@ -29,10 +29,12 @@ from culture_rules.model.action import Action
 from culture_rules.model.action_kinds import ACTION_KINDS, is_lenient, param_type_ok, resolve_kind
 from culture_rules.model.action_step import (
     ACTION_SPEC_FIELDS,
+    BUILTIN_WITH,
     actor_problem,
     is_action_step,
     ref_problems,
     validation_params,
+    with_ref_problems,
 )
 from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
@@ -825,7 +827,25 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
             _check_wait_config(obj.config, _join(path, "config"), errors)
         elif is_action_step(obj.kind, obj.config):
             _check_action_step(obj, _join(path, "config.action"), errors)
+    if isinstance(obj.config, dict) and BUILTIN_WITH in obj.config:
+        _check_builtin_with(obj, _join(path, f"config.{BUILTIN_WITH}"), errors)
     _check_when_explain(obj, _join(path, "config"), errors)
+
+
+def _check_builtin_with(obj: Step, path: str, errors: Errors) -> None:
+    """``config.with`` (d8): only on a builtin code step that is not an action step (whose
+    params already resolve), an object whose references are ``inputs.<declared port>``."""
+    builtin = obj.config.get("builtin")
+    if obj.kind != "code" or not isinstance(builtin, str) or is_action_step(obj.kind, obj.config):
+        _err(errors, path, "not_allowed", "config.with belongs to a builtin code step")
+        return
+    values = obj.config[BUILTIN_WITH]
+    if not isinstance(values, dict):
+        _err(errors, path, "type", "config.with must be an object of input name -> value")
+        return
+    ports = {p.name for _i, p in _items(obj.inputs, Port)}
+    for where, reason in with_ref_problems(values, ports):
+        _err(errors, _join(path, where), "builtin_with_ref", reason)
 
 
 def _check_on_error(obj: Step, value: Any, where: str, errors: Errors) -> None:
