@@ -2,6 +2,9 @@
 
 A Discord ``app`` actor (``params.surface == "discord"``) that declares
 ``discord.message.created`` in ``params.events`` is listened to over the Discord Gateway.
+Added reactions are raised from the raw event as ``discord.reaction.added`` (delivery id
+``actor:message:user:emoji``) and sunk only when the actor declares that type too; they go
+through the same channel selection as messages.
 Every engine node runs a :class:`GatewaySupervisor` from a stage of its cycle
 (:meth:`~culture_rules.node.daemon.Node.run_once`, right after the probe stage); the
 supervisors coordinate through a mesh-wide :class:`~culture_rules.engine.named_lease.NamedLease`
@@ -88,6 +91,7 @@ __all__ = [
     "GatewaySupervisor",
     "gateway_intents",
     "message_data",
+    "reaction_data",
     "selected_channels",
 ]
 
@@ -97,12 +101,14 @@ ACTORS_COLLECTION = "actors"
 RULES_COLLECTION = "rules"
 DISCORD_TYPE_PREFIX = "discord."
 GATEWAY_EVENT = "discord.message.created"
+REACTION_EVENT = "discord.reaction.added"
 LEASE_PREFIX = "discord-gateway:"
 MAX_CONTENT = 2000
 """Longest ``data.content`` carried on an event (Discord's own message limit)."""
 _SINK_ATTEMPTS = 3
 
 OnMessage = Callable[[Mapping[str, Any]], None]
+OnReaction = Callable[[Mapping[str, Any]], None]
 
 
 class Gateway(Protocol):
@@ -111,23 +117,39 @@ class Gateway(Protocol):
     def available(self) -> bool:
         """Whether this client can run here (e.g. its library is installed)."""
 
-    def connect(self, token: str, on_message: OnMessage, should_stop: Callable[[], bool]) -> None:
+    def connect(
+        self,
+        token: str,
+        on_message: OnMessage,
+        should_stop: Callable[[], bool],
+        on_reaction: OnReaction | None = None,
+    ) -> None:
         """Connect and call ``on_message`` with each created message (a mapping with ``id``,
         ``guild_id``, ``channel_id``, ``author_id``, ``author_name``, ``bot``, ``content``,
-        ``created_at``, ``url``) until ``should_stop()`` is true - then disconnect and
+        ``created_at``, ``url``, ``user_roles``) and ``on_reaction`` with each added reaction
+        (``message_id``, ``guild_id``, ``channel_id``, ``user_id``, ``username``,
+        ``user_roles``, ``bot``, ``emoji_name``, ``emoji_id``; raised from the raw event, so
+        the message need not be cached) until ``should_stop()`` is true - then disconnect and
         return. Raise (or return) when the connection is lost for good; the supervisor
         reconnects."""
 
 
 def gateway_intents() -> Any:
-    """discord.py intents: the defaults (guilds, guild messages) plus message content."""
+    """discord.py intents: the defaults (guilds, guild messages and reactions) plus message
+    content."""
     import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
 
     intents = discord.Intents.default()
     intents.guilds = True
     intents.guild_messages = True
+    intents.guild_reactions = True  # raw reaction add events (not message-cache dependent)
     intents.message_content = True  # privileged: enable it for the bot in the dev portal
     return intents
+
+
+def _role_ids(member: Any) -> list[str]:
+    """The member's role ids as strings (empty without a member, e.g. a DM)."""
+    return [str(role.id) for role in (getattr(member, "roles", None) or ())]
 
 
 def _message_dict(msg: Any) -> dict[str, Any]:
@@ -144,6 +166,26 @@ def _message_dict(msg: Any) -> dict[str, Any]:
         "content": msg.content or "",
         "created_at": created.isoformat() if created is not None else None,
         "url": getattr(msg, "jump_url", None),
+        "user_roles": _role_ids(author),
+    }
+
+
+def _reaction_dict(payload: Any) -> dict[str, Any]:
+    """A raw reaction payload (``RawReactionActionEvent``) as a plain mapping."""
+    member = getattr(payload, "member", None)
+    emoji = payload.emoji
+    emoji_id = getattr(emoji, "id", None)
+    guild_id = getattr(payload, "guild_id", None)
+    return {
+        "message_id": str(payload.message_id),
+        "guild_id": None if guild_id is None else str(guild_id),
+        "channel_id": str(payload.channel_id),
+        "user_id": str(payload.user_id),
+        "username": str(getattr(member, "name", "") or ""),
+        "user_roles": _role_ids(member),
+        "bot": bool(getattr(member, "bot", False)),
+        "emoji_name": getattr(emoji, "name", None),
+        "emoji_id": None if emoji_id is None else str(emoji_id),
     }
 
 
@@ -166,7 +208,24 @@ class DiscordPyGateway:
                 self._available = False
         return self._available
 
-    def connect(self, token: str, on_message: OnMessage, should_stop: Callable[[], bool]) -> None:
+    @staticmethod
+    def _raw_reaction_handler(on_reaction: OnReaction) -> Any:
+        """The ``on_raw_reaction_add`` coroutine: it takes the raw payload, so a reaction on a
+        message that is not in the client cache is still raised."""
+        import asyncio  # noqa: PLC0415
+
+        async def on_raw_reaction_add(payload: Any) -> None:
+            await asyncio.to_thread(on_reaction, _reaction_dict(payload))
+
+        return on_raw_reaction_add
+
+    def connect(
+        self,
+        token: str,
+        on_message: OnMessage,
+        should_stop: Callable[[], bool],
+        on_reaction: OnReaction | None = None,
+    ) -> None:
         import asyncio  # noqa: PLC0415
 
         import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
@@ -181,6 +240,8 @@ class DiscordPyGateway:
                 await asyncio.to_thread(on_message, _message_dict(msg))
 
             client.event(_named(on_message_event, "on_message"))
+            if on_reaction is not None:
+                client.event(self._raw_reaction_handler(on_reaction))
 
             async def watchdog() -> None:
                 while not should_stop():
@@ -219,6 +280,36 @@ def message_data(msg: Mapping[str, Any]) -> dict[str, Any]:
         "content": str(msg.get("content") or "")[:MAX_CONTENT],
         "created_at": opt("created_at"),
         "url": opt("url"),
+        "user_roles": _str_list(msg.get("user_roles")),
+    }
+
+
+def _str_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [str(v) for v in value]
+    return []
+
+
+def reaction_data(reaction: Mapping[str, Any]) -> dict[str, Any]:
+    """The compact event ``data`` for one added reaction. The reactor also fills
+    ``author_id`` / ``author_name``, which the ``users`` trigger filter reads."""
+
+    def opt(key: str) -> str | None:
+        value = reaction.get(key)
+        return None if value is None else str(value)
+
+    return {
+        "guild_id": opt("guild_id"),
+        "channel_id": opt("channel_id"),
+        "message_id": opt("message_id"),
+        "emoji_name": opt("emoji_name"),
+        "emoji_id": opt("emoji_id"),
+        "user_id": opt("user_id"),
+        "username": opt("username"),
+        "user_roles": _str_list(reaction.get("user_roles")),
+        "bot": bool(reaction.get("bot", False)),
+        "author_id": opt("user_id"),
+        "author_name": opt("username"),
     }
 
 
@@ -545,7 +636,10 @@ class GatewaySupervisor:
                 self._state(session, connected=True)
                 try:
                     self._gateway.connect(
-                        bot_auth, lambda msg: self._on_message(session, msg), should_stop
+                        bot_auth,
+                        lambda msg: self._on_message(session, msg),
+                        should_stop,
+                        lambda rx: self._on_reaction(session, rx),
                     )
                     failures = 0
                 except Exception as exc:  # noqa: BLE001 - reconnect; the type only is logged
@@ -567,10 +661,29 @@ class GatewaySupervisor:
         return min(opts.max_backoff, opts.backoff * (2 ** max(0, failures - 1)))
 
     def _on_message(self, session: _Session, msg: Mapping[str, Any]) -> None:
+        data = message_data(msg)
+        if data["message_id"]:
+            self._deliver(
+                session,
+                GATEWAY_EVENT,
+                data,
+                f"{session.actor_id}:{data['message_id']}",
+            )
+
+    def _on_reaction(self, session: _Session, reaction: Mapping[str, Any]) -> None:
+        data = reaction_data(reaction)
+        emoji = data["emoji_id"] or data["emoji_name"]
+        if data["message_id"] and data["user_id"] and emoji:
+            delivery = f"{session.actor_id}:{data['message_id']}:{data['user_id']}:{emoji}"
+            self._deliver(session, REACTION_EVENT, data, delivery)
+
+    def _deliver(
+        self, session: _Session, event_type: str, data: dict[str, Any], delivery_id: str
+    ) -> None:
+        """Sink one event if its channel is selected and the actor's filters admit it."""
         doc = session.snapshot()
         _, connection = _view(doc)
-        data = message_data(msg)
-        if not data["message_id"] or not self._selected(data["channel_id"]):
+        if not self._selected(data["channel_id"]):
             return  # no enabled discord.* rule selects this channel: never written
         channels = filter_values(connection.get("channels"))  # a bare id is one channel
         if channels and data["channel_id"] not in channels:
@@ -585,18 +698,11 @@ class GatewaySupervisor:
             self._state(session, last_event_at=self._clock().isoformat())
         for attempt in range(1, _SINK_ATTEMPTS + 1):
             try:
-                sink(
-                    self._store,
-                    doc,
-                    GATEWAY_EVENT,
-                    data,
-                    delivery_id=f"{session.actor_id}:{data['message_id']}",
-                    author=author,
-                )
+                sink(self._store, doc, event_type, data, delivery_id=delivery_id, author=author)
                 return
             except Exception as exc:  # noqa: BLE001 - retried then dropped (type logged)
                 log.warning(
-                    "discord gateway %s: writing a message failed (%s), attempt %d",
+                    "discord gateway %s: writing an event failed (%s), attempt %d",
                     session.actor_id,
                     type(exc).__name__,
                     attempt,
