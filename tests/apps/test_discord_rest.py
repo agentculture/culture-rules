@@ -436,7 +436,8 @@ def test_edit_interaction_response_cuts_long_text():
     t = PutTransport((200, {}, {}))
     DiscordClient(TOKEN, transport=t).edit_interaction_response("9001", "itok", "x" * 3000)
     content = json.loads(t.calls[0]["data"])["content"]
-    assert len(content) == 2000 and content.endswith("…")
+    assert len(content) == 2000
+    assert content.endswith("…")
 
 
 @pytest.mark.parametrize(

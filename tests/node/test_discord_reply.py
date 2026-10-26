@@ -70,7 +70,8 @@ def test_long_text_is_cut_with_an_ellipsis():
     t = FakeTransport()
     action(make_store(), t).invoke({**INPUT, "text": "y" * 2500}, "k", NOW, context=ctx())
     content = json.loads(t.calls[0]["data"])["content"]
-    assert len(content) == 2000 and content.endswith("…")
+    assert len(content) == 2000
+    assert content.endswith("…")
 
 
 def test_missing_or_expired_token_is_a_non_retryable_interaction_expired():
@@ -78,7 +79,8 @@ def test_missing_or_expired_token_is_a_non_retryable_interaction_expired():
     past = NOW - timedelta(minutes=1)
     for store in (MemoryStore(), make_store(expires=past)):
         res = action(store, t).invoke(INPUT, "k", NOW, context=ctx())
-        assert res.outcome == FAILED and res.retryable is False
+        assert res.outcome == FAILED
+        assert res.retryable is False
         assert "interaction_expired" in res.error
     assert t.calls == []
 
@@ -102,7 +104,8 @@ def test_discord_401_404_mean_interaction_expired_and_5xx_429_retry():
 def test_actor_must_match_the_stored_token_actor():
     t = FakeTransport()
     res = action(make_store(actor="other-bot"), t).invoke(INPUT, "k", NOW, context=ctx())
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert "actor" in res.error
     assert t.calls == []
 
@@ -117,7 +120,8 @@ def test_input_refusals_never_call_discord():
     ]
     for c, inp, text in cases:
         res = action(make_store(), t).invoke(inp, "k", NOW, context=c)
-        assert res.outcome == FAILED and res.retryable is False
+        assert res.outcome == FAILED
+        assert res.retryable is False
         assert text in res.error
     assert t.calls == []
 
@@ -193,4 +197,5 @@ def test_the_token_is_judged_by_the_ports_clock():
     res = DiscordReplyAction(store, transport=FakeTransport(), clock=later).invoke(
         {"event_id": EVENT, "text": "Saved"}, "k", NOW, context=ctx()
     )
-    assert res.outcome == FAILED and res.error.startswith("interaction_expired")
+    assert res.outcome == FAILED
+    assert res.error.startswith("interaction_expired")

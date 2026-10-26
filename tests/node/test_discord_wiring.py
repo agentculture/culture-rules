@@ -96,7 +96,8 @@ def test_discord_reply_sweep_and_cursor_advance_have_words():
         {"kind": "discord.reply", "params": {"actor": "discord-bot", "text": "Saved"}}
     )
     words = action_text({"kind": "discord.sweep", "params": {"actor": "b", "channel": "42"}})
-    assert "discord.sweep" in words and "42" in words
+    assert "discord.sweep" in words
+    assert "42" in words
 
 
 def test_the_node_registers_discord_reply_sweep_and_cursor_advance():

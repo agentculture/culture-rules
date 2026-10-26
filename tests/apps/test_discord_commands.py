@@ -52,7 +52,8 @@ def test_the_definitions_are_save_and_a_save_to_library_message_command():
     assert by_type[dc.CHAT_INPUT]["name"] == "save" == dc.SAVE_COMMAND
     assert by_type[dc.MESSAGE]["name"] == "Save to library" == dc.SAVE_MESSAGE_COMMAND
     (option,) = by_type[dc.CHAT_INPUT]["options"]
-    assert option["name"] == "message" and option["required"] is False
+    assert option["name"] == "message"
+    assert option["required"] is False
 
 
 def test_the_definition_hash_is_stable_and_covers_the_application_id():
@@ -83,7 +84,8 @@ def test_a_message_option_is_a_link_or_an_id(value, want):
 def test_command_data_never_carries_the_token():
     raw = interaction(1)
     data = dc.command_data(raw)
-    assert "token" not in data and "application_id" not in data
+    assert "token" not in data
+    assert "application_id" not in data
     assert set(data) == {
         "command",
         "command_type",
@@ -112,7 +114,8 @@ def test_the_token_is_kept_by_event_id_and_expires():
     secret = "itok-" + uuid.uuid4().hex
     dc.remember_interaction(store, "hook_discord_x", secret, APP_ID, "bot", now=now)
     doc = store.get(dc.INTERACTIONS_COLLECTION, "hook_discord_x")
-    assert doc["token"] == secret and doc["application_id"] == APP_ID
+    assert doc["token"] == secret
+    assert doc["application_id"] == APP_ID
     assert doc["actor"] == "bot"
     assert doc["expires_at"] == now + dc.INTERACTION_TOKEN_TTL
     assert dc.INTERACTION_TOKEN_TTL == timedelta(minutes=15)
@@ -244,7 +247,8 @@ def test_an_invocation_is_sunk_and_its_token_kept_apart(rig):
     assert secret not in repr(event)
     assert event["id"] == event_id_for("discord", "bot:interaction:5001")
     kept = r.store.get(dc.INTERACTIONS_COLLECTION, event["id"])
-    assert kept["token"] == secret and kept["application_id"] == APP_ID
+    assert kept["token"] == secret
+    assert kept["application_id"] == APP_ID
 
 
 def test_a_slash_invocation_carries_its_options(rig):
@@ -367,8 +371,10 @@ def test_a_message_command_defers_ephemerally_before_the_event_is_written():
     assert order[0] == ("defer", {"ephemeral": True, "thinking": True})
     kind, raw = order[1]
     assert kind == "invoke"
-    assert raw["token"] == secret and raw["application_id"] == APP_ID
-    assert raw["command"] == "Save to library" and raw["command_type"] == "message"
+    assert raw["token"] == secret
+    assert raw["application_id"] == APP_ID
+    assert raw["command"] == "Save to library"
+    assert raw["command_type"] == "message"
     assert (raw["target_message_id"], raw["target_channel_id"]) == ("9001", "100")
     assert (raw["interaction_id"], raw["user_id"], raw["username"]) == ("5001", "42", "alice")
     assert (raw["user_roles"], raw["channel_id"], raw["guild_id"]) == (["7"], "100", "1")
@@ -397,7 +403,8 @@ def test_a_slash_command_defers_then_passes_its_option():
     order.clear()
     asyncio.run(cmd.callback(_fake_interaction(order, token="t"), message=None))
     raw = order[1][1]
-    assert raw["options"] == {} and raw["target_message_id"] is None
+    assert raw["options"] == {}
+    assert raw["target_message_id"] is None
 
 
 def test_sync_only_the_guilds_that_need_it_and_a_failure_is_not_recorded(caplog):
@@ -413,7 +420,8 @@ def test_sync_only_the_guilds_that_need_it_and_a_failure_is_not_recorded(caplog)
 
     tree.sync = fake_sync
     asyncio.run(dg.sync_commands(tree, reg))
-    assert calls == [2] and synced == ["2"]
+    assert calls == [2]
+    assert synced == ["2"]
 
     async def failing_sync(*, guild=None):
         raise discord.HTTPException(types.SimpleNamespace(status=403, reason="x"), "secret-ish")
@@ -422,7 +430,8 @@ def test_sync_only_the_guilds_that_need_it_and_a_failure_is_not_recorded(caplog)
     synced.clear()
     asyncio.run(dg.sync_commands(tree, reg))  # logged, not raised
     assert synced == []
-    assert "HTTPException" in caplog.text and "secret-ish" not in caplog.text
+    assert "HTTPException" in caplog.text
+    assert "secret-ish" not in caplog.text
 
 
 def _answering_interaction(order, *, token):

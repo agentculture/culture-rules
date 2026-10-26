@@ -93,7 +93,8 @@ def test_a_loop_body_builtin_reads_the_items_fields_through_with():
         ("Message 102", "second", "dana"),
     ]
     pages = step_state(doc, "each")["outputs"]["markdown"]
-    assert pages[0].startswith("# Message 101") and "second" in pages[1]
+    assert pages[0].startswith("# Message 101")
+    assert "second" in pages[1]
 
 
 def test_an_edge_value_for_the_same_port_wins_over_with():

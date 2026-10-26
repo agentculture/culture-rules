@@ -335,7 +335,8 @@ def test_save_command_files_the_message_and_answers_privately():
     assert len(world.library.files) == 1
     assert world.discord.replies == ["Saved"]
     patch = [h for m, p, h in world.discord.calls if m == "PATCH"]
-    assert patch and "Authorization" not in patch[0]  # the interaction token authorises
+    assert patch
+    assert "Authorization" not in patch[0]
     assert TOKEN not in repr(run)
 
 
