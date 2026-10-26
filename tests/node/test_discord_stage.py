@@ -185,9 +185,13 @@ class _BotGateways:
     def available(self) -> bool:
         return True
 
-    def connect(self, token, on_message, should_stop, on_reaction=None, commands=None) -> None:
+    def connect(
+        self, token, on_message, should_stop, on_reaction=None, commands=None, events=()
+    ) -> None:
         name = token.split(":", 1)[0]  # the per-bot token below starts with its grant name
-        self._by_name[name].connect(token, on_message, should_stop, on_reaction, commands)
+        self._by_name[name].connect(
+            token, on_message, should_stop, on_reaction, commands=commands, events=events
+        )
 
 
 def test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing():

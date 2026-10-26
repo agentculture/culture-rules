@@ -364,12 +364,12 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
           aria-labelledby={`${name}-event`}
           value={eventType}
           disabled={!surfaceActor}
-          onChange={(e) =>
-            onChange({
-              kind: "event",
-              params: { ...t.params, type: e.target.value },
-            })
-          }
+          onChange={(e) => {
+            // an emoji filter belongs to reactions: never carry it hidden onto another type
+            const { emoji: _emoji, ...rest } = t.params;
+            const keep = e.target.value === "discord.reaction.added" ? t.params : rest;
+            onChange({ kind: "event", params: { ...keep, type: e.target.value } });
+          }}
         >
           <option value="">Choose an event…</option>
           {eventType &&

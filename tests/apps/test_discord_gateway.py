@@ -81,6 +81,7 @@ class Rig:
         self.store = store or MemoryStore(clock=self.clock)
         if rule:  # the gateway sinks only channels an enabled discord.* rule selects
             self.store.put("rules", discord_rule())
+            self.store.put("rules", discord_rule("every-reaction", type=REACTION))
         self.hub = FakeHub()
         self.grant = Grant()
         self.sup = dg.GatewaySupervisor(
@@ -455,13 +456,43 @@ def test_a_rule_with_no_channels_or_all_selects_every_channel(rig, channels):
     r = rig(rule=False)
     r.store.put("rules", discord_rule("narrow", channels=["100"]))
     wide = {} if channels is None else {"channels": channels}
-    r.store.put("rules", discord_rule("wide", type="discord.reaction.added", **wide))
+    r.store.put("rules", discord_rule("wide", **wide))
     r.store.put("actors", discord_actor())
     r.sup.tick()
     assert eventually(lambda: r.hub.live_now() == ["spark"])
     r.hub.post(message(1, channel="200"))
     r.hub.post(message(2, channel="100"))
     assert eventually(lambda: len(r.events()) == 2)
+
+
+def test_a_wide_reaction_rule_does_not_widen_the_message_selection(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("narrow", channels=["100"]))
+    r.store.put("rules", discord_rule("wide", type=REACTION))
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1, channel="200"))
+    r.hub.post(message(2, channel="100"))
+    r.hub.react(reaction(3, channel="200"))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    assert eventually(lambda: len(r.events()) == 1)
+    time.sleep(0.1)
+    assert [e["envelope"]["data"]["channel_id"] for e in r.events()] == ["100"]
+
+
+def test_a_message_rule_does_not_select_reaction_channels(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("msgs"))
+    r.store.put("rules", discord_rule("narrow", type=REACTION, channels=["100"]))
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1, channel="200"))
+    r.hub.react(reaction(2, channel="100"))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    time.sleep(0.1)
+    assert [e["envelope"]["data"]["channel_id"] for e in r.events(REACTION)] == ["100"]
 
 
 def test_the_actor_allow_list_still_applies_inside_the_selection(rig):
@@ -503,14 +534,14 @@ def test_a_failed_rules_read_keeps_the_last_selection(rig):
     r = rig(rule=False)
     r.store.put("rules", discord_rule(channels=["20"]))
     r.sup._refresh_selection()
-    assert r.sup._selection == frozenset({"20"})
+    assert r.sup._selection[EVENT] == frozenset({"20"})
 
     def broken(*_a, **_k):
         raise OSError("mongo down")
 
     r.store.find = broken
     r.sup._refresh_selection()
-    assert r.sup._selection == frozenset({"20"})
+    assert r.sup._selection[EVENT] == frozenset({"20"})
 
 
 def test_a_failing_ttl_index_does_not_stop_the_supervisor(monkeypatch, caplog):
@@ -608,7 +639,7 @@ def test_a_repeated_reaction_is_a_duplicate_but_another_emoji_or_user_is_not(rig
 def test_a_reaction_goes_through_channel_selection(rig):
     r = rig(rule=False)
     r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
-    r.store.put("rules", discord_rule(channels=["100"]))
+    r.store.put("rules", discord_rule(type=REACTION, channels=["100"]))
     r.sup.tick()
     assert eventually(lambda: r.hub.live_now() == ["spark"])
     r.hub.react(reaction(1, channel="999"))  # unselected: never written
@@ -616,6 +647,67 @@ def test_a_reaction_goes_through_channel_selection(rig):
     assert eventually(lambda: len(r.events(REACTION)) == 1)
     time.sleep(0.1)
     assert [e["envelope"]["data"]["channel_id"] for e in r.events(REACTION)] == ["100"]
+
+
+def test_selected_channels_for_one_event_type_ignores_other_types():
+    docs = [discord_rule("m", channels=["1"]), discord_rule("r", type=REACTION)]
+    assert dg.selected_channels(docs, EVENT) == frozenset({"1"})
+    assert dg.selected_channels(docs, REACTION) is None
+    assert dg.selected_channels(docs[:1], REACTION) == frozenset()
+
+
+def test_an_undeclared_event_type_is_dropped_before_the_stats_and_the_sink(rig, monkeypatch):
+    r = rig()  # the Release 1 actor: declares only message.created
+    sunk = []
+    monkeypatch.setattr(dg, "sink", lambda *a, **k: sunk.append(a))
+    r.store.put("actors", discord_actor(events=(EVENT,)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1))
+    r.hub.post(message(1))
+    assert eventually(lambda: len(sunk) == 1)
+    assert sunk[0][2] == EVENT
+    r.hub.react(reaction(2))
+    time.sleep(0.1)
+    assert len(sunk) == 1
+
+
+def test_a_reaction_only_actor_drops_messages_without_a_stats_write(rig, monkeypatch):
+    r = rig()
+    sunk = []
+    monkeypatch.setattr(dg, "sink", lambda *a, **k: sunk.append(a))
+    r.store.put("actors", discord_actor(events=(REACTION,)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(message(1))
+    r.hub.react(reaction(1))
+    assert eventually(lambda: len(sunk) == 1)
+    assert sunk[0][2] == REACTION
+
+
+def test_the_gateway_is_told_the_declared_events(rig):
+    r = rig()
+    seen = []
+    real = r.sup._gateway.connect  # noqa: SLF001
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("events"))
+        return real(*args, **kwargs)
+
+    r.sup._gateway.connect = spy  # noqa: SLF001
+    r.store.put("actors", discord_actor(events=(REACTION,)))
+    r.sup.tick()
+    assert eventually(lambda: len(seen) == 1)
+    assert list(seen[0]) == [REACTION]
+
+
+def test_message_content_is_requested_only_for_message_actors():
+    pytest.importorskip("discord")
+    reaction_only = dg.gateway_intents([REACTION])
+    assert reaction_only.message_content is False
+    assert reaction_only.guild_reactions is True
+    assert dg.gateway_intents([EVENT, REACTION]).message_content is True
+    assert dg.gateway_intents([EVENT]).message_content is True
 
 
 def test_the_reactions_intent_is_on():

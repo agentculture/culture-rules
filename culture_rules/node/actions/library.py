@@ -3,15 +3,23 @@ the library has a device queue, or replace an existing item by id (#53, culture-
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (falls back to ``context.actor``),
 ``content_base64`` (the file bytes, base64) or, instead (exactly one of the two),
-``content_path`` with ``content_root`` (d7: absolute paths; the file must be a regular file
-under the root with no symlink below the root (the root itself is trusted), else
-``path_refused``; at most 50 MiB, else ``too_large``; the bytes are read here, so they
-never enter run state), ``title``, ``kind`` (one of the actor's
+``content_path`` with ``content_root`` (d7: absolute paths; at most 50 MiB, else
+``too_large``; the bytes are read here, so they never enter run state), ``title``, ``kind``
+(one of the actor's
 ``kinds``), optional ``visibility`` (one of the actor's ``visibilities``), optional
 ``author`` (default ``culture-rules``) and optional ``device_id`` (overrides the actor's;
 used, and checked, only when the actor has a ``queue_path``: a library without a device
 queue ignores it, so a leftover value never blocks a push), optional ``format`` and optional
 ``item_id``. A kind or visibility the actor does not list fails ``invalid_request``.
+
+Reading a file: the library actor, not the step, decides which directories a push may read.
+A ``content_path`` push is refused ``path_refused`` unless the actor lists ``content_roots``
+and the step's ``content_root``, resolved (``os.path.realpath``), is one of them or under
+one of them (each listed root resolved too). The ``content_path`` may be given under the
+root as written or under its resolved form (``attachment.fetch`` reports resolved paths);
+either way the file must be a regular file below the resolved root with no symlink between
+that root and the file (the file is opened ``O_NOFOLLOW``), else ``path_refused``. A
+``content_base64`` push never reads a file and ignores ``content_roots``.
 
 Formats: the actor's optional ``formats`` is a non-empty list of the words ``md``, ``txt``,
 ``json``, ``epub``, ``pdf`` (types ``text/markdown``, ``text/plain``, ``application/json``,
@@ -44,14 +52,17 @@ is built into this module::
      "api_key": "grant:LIBRARY_PUSH_API_KEY"}
 
 and, for a library with a device queue (xteink's), also
-``"queue_path": "/api/devices/{device_id}/queue"`` and an optional ``device_id``.
+``"queue_path": "/api/devices/{device_id}/queue"`` and an optional ``device_id``; for
+``content_path`` pushes, ``"content_roots"``, e.g. the node's attachments root
+``["/home/<user>/.local/share/culture-rules/attachments"]``.
 
 ``base_url`` is http or https with a host and no credentials, query or fragment (a path
 prefix is kept). ``upload_path`` (required), ``queue_path`` and ``replace_path`` (optional)
 are absolute paths of plain segments; ``queue_path`` holds ``{device_id}`` as exactly one
 whole segment, ``replace_path`` holds ``{item_id}`` likewise.
 ``kinds`` (required) and ``visibilities`` (optional; without it no visibility may be sent)
-are non-empty lists of lowercase words. ``api_key`` must be a ``grant:<NAME>`` reference to
+are non-empty lists of lowercase words. ``content_roots`` (optional) is a non-empty list of
+absolute directory paths. ``api_key`` must be a ``grant:<NAME>`` reference to
 a dedicated, revocable key; a literal key is refused and never echoed. The reference is
 resolved at call time on the executing host (:mod:`culture_rules.actors.secrets`).
 ``device_id`` is a positive integer, or its decimal string. Everything is checked before
@@ -330,25 +341,57 @@ def _content(value: Any) -> bytes:
     return data
 
 
-def _read_under(path_value: Any, root_value: Any) -> bytes:
+def _content_roots(value: Any) -> tuple[str, ...] | None:
+    """The actor's ``content_roots`` (absolute directory paths), ``None`` when unset."""
+    if value is None:
+        return None
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(v, str) and os.path.isabs(v) for v in value)
+    ):
+        raise _Refused(_INVALID_ACTOR, "content_roots must be a non-empty list of absolute paths")
+    return tuple(value)
+
+
+def _allowed_root(root_value: str, allowed: tuple[str, ...] | None) -> Path:
+    """``root_value`` resolved, if it is one of the actor's ``allowed`` roots or under one
+    (all compared resolved), else ``path_refused``."""
+    if allowed is None:
+        raise _Refused(_PATH_REFUSED, "the library actor lists no content_roots")
+    root = Path(os.path.realpath(root_value))
+    for listed in allowed:
+        if root.is_relative_to(os.path.realpath(listed)):
+            return root
+    raise _Refused(_PATH_REFUSED, "content_root is not under the library actor's content_roots")
+
+
+def _relative(path_value: str, root_value: str, root: Path) -> Path:
+    """``path_value`` relative to the root, given under the root as written or resolved."""
+    path = Path(os.path.normpath(path_value))
+    for base in (Path(os.path.normpath(root_value)), root):
+        if path != base and path.is_relative_to(base):
+            return path.relative_to(base)
+    raise _Refused(_PATH_REFUSED, "content_path is not a file under content_root")
+
+
+def _read_under(path_value: Any, root_value: Any, allowed: tuple[str, ...] | None) -> bytes:
     """The bytes of the regular file at ``path_value``, which must lie under ``root_value``
-    (both absolute). A symlink anywhere from the root down (the file or a parent) is refused
-    ``path_refused``; the file is capped at ``MAX_BYTES`` (``too_large``)."""
+    (both absolute), itself within the actor's ``allowed`` roots. A symlink anywhere below the
+    resolved root (the file or a parent) is refused ``path_refused``; the file is capped at
+    ``MAX_BYTES`` (``too_large``)."""
     for value, label in ((root_value, "content_root"), (path_value, "content_path")):
         if not isinstance(value, str) or not os.path.isabs(value):
             raise _Refused(_PATH_REFUSED, f"{label} must be an absolute path")
     try:
-        root = Path(os.path.normpath(root_value))
-        path = Path(os.path.normpath(path_value))
-        if not path.is_relative_to(root) or path == root:
-            raise _Refused(_PATH_REFUSED, "content_path is not a file under content_root")
+        root = _allowed_root(root_value, allowed)
         current = root
-        for part in path.relative_to(root).parts:
+        for part in _relative(path_value, root_value, root).parts:
             current = current / part
             if current.is_symlink():
                 raise _Refused(_PATH_REFUSED, "content_path must not contain a symlink")
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(path, flags)
+        fd = os.open(current, flags)
         with os.fdopen(fd, "rb") as handle:
             if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
                 raise _Refused(_PATH_REFUSED, "content_path is not a regular file")
@@ -362,8 +405,9 @@ def _read_under(path_value: Any, root_value: Any) -> bytes:
     return data
 
 
-def _source(input: Mapping[str, Any]) -> bytes:
-    """The file bytes: ``content_base64`` or, instead, ``content_path`` with ``content_root``."""
+def _source(input: Mapping[str, Any], allowed: tuple[str, ...] | None) -> bytes:
+    """The file bytes: ``content_base64`` or, instead, ``content_path`` with ``content_root``
+    (a root within the actor's ``allowed`` content roots)."""
     b64, path, root = (input.get(n) for n in ("content_base64", "content_path", "content_root"))
     if path is None:
         if root is not None:
@@ -373,7 +417,7 @@ def _source(input: Mapping[str, Any]) -> bytes:
         raise _Refused(_INVALID_REQUEST, "give content_base64 or content_path, not both")
     if root is None:
         raise _Refused(_INVALID_REQUEST, "content_path needs content_root")
-    return _read_under(path, root)
+    return _read_under(path, root, allowed)
 
 
 def _text(input: Mapping[str, Any], name: str, default: str | None = None) -> str:
@@ -606,7 +650,8 @@ class LibraryPushPort:
         visibilities = (
             None if raw_visibilities is None else _words(raw_visibilities, "visibilities")
         )
-        data = _source(input)
+        roots = _content_roots(params.get("content_roots"))
+        data = _source(input, roots)
         title = _text(input, "title")
         author = _text(input, "author", DEFAULT_AUTHOR)
         fields = [

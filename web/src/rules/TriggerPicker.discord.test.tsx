@@ -155,3 +155,23 @@ describe("discord.reaction.added", () => {
     expect(screen.queryByLabelText("Emoji")).not.toBeInTheDocument();
   });
 });
+
+describe("switching the event type", () => {
+  it("drops a hidden emoji filter when the trigger leaves reactions (review of PR #102)", async () => {
+    const REACTOR: Actor = { ...BOT, params: { ...BOT.params, events: ["discord.message.created", "discord.reaction.added"] } };
+    const start: Trigger = { kind: "event", params: { type: "discord.reaction.added", emoji: ["📚"], users: ["ori"] } };
+    function SwitchHarness() {
+      const [value, setValue] = useState<Trigger>(start);
+      return (
+        <>
+          <TriggerPicker value={value} actors={[REACTOR]} onChange={setValue} loadDiscordTargets={async () => TARGETS} />
+          <output data-testid="saved">{JSON.stringify(value)}</output>
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<SwitchHarness />);
+    await user.selectOptions(screen.getByLabelText("Event"), "discord.message.created");
+    expect(saved()).toEqual({ kind: "event", params: { type: "discord.message.created", users: ["ori"] } });
+  });
+});

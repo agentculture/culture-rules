@@ -151,6 +151,7 @@ class FakeGateway:
         should_stop: Callable[[], bool],
         on_reaction: Callable[[Mapping[str, Any]], None] | None = None,
         commands: Any = None,
+        events: Any = (),
     ) -> None:
         replayed = self.hub.enter(self.name, token)
         self.hub.registrations.append(commands)

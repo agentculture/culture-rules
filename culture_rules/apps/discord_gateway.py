@@ -45,11 +45,12 @@ over at once.
 Channel selection and retention
 ===============================
 A message is sunk only from a channel some enabled rule with a ``discord.*`` event trigger
-selects (:func:`selected_channels`, recomputed from the ``rules`` collection on every
-:meth:`GatewaySupervisor.tick`): a rule's ``channels`` param is read exactly as the trigger
-matcher reads it (:func:`~culture_rules.model.discord_filters.discord_channels`), so a rule with no
-channels or ``"all"`` selects every channel, and with no such rule nothing is sunk. A
-trigger names no actor, so the selection is one union shared by every Discord actor (a
+selects for that event type (:func:`selected_channels`, recomputed from the ``rules``
+collection on every :meth:`GatewaySupervisor.tick`): a rule's ``channels`` param is read
+exactly as the trigger matcher reads it
+(:func:`~culture_rules.model.discord_filters.discord_channels`), so a rule with no channels
+or ``"all"`` selects every channel, and with no such rule nothing is sunk. A trigger names
+no actor, so the selection is one union per event type shared by every Discord actor (a
 channel any rule selects is kept for each bot); the actor's own ``connection.channels``
 allow-list and ``guild_id`` filter still apply on top. Sunk events expire
 (:func:`~culture_rules.events.hook_sink.ensure_discord_event_ttl`, ensured by the supervisor).
@@ -151,8 +152,10 @@ class Gateway(Protocol):
         should_stop: Callable[[], bool],
         on_reaction: OnReaction | None = None,
         commands: commands_mod.CommandRegistration | None = None,
+        events: Iterable[str] = LISTENED_EVENTS,
     ) -> None:
-        """Connect and call ``on_message`` with each created message (a mapping with ``id``,
+        """Connect (asking Discord only for the intents ``events`` need) and call
+        ``on_message`` with each created message (a mapping with ``id``,
         ``guild_id``, ``channel_id``, ``author_id``, ``author_name``, ``bot``, ``content``,
         ``created_at``, ``url``, ``user_roles``) and ``on_reaction`` with each added reaction
         (``message_id``, ``guild_id``, ``channel_id``, ``user_id``, ``username``,
@@ -164,16 +167,18 @@ class Gateway(Protocol):
         connection is lost for good; the supervisor reconnects."""
 
 
-def gateway_intents() -> Any:
-    """discord.py intents: the defaults (guilds, guild messages and reactions) plus message
-    content."""
+def gateway_intents(events: Iterable[str] = LISTENED_EVENTS) -> Any:
+    """discord.py intents: guilds, guild messages and reactions, plus the privileged message
+    content only when ``events`` declares ``discord.message.created`` (a reaction-only bot
+    must connect without it)."""
     import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
 
     intents = discord.Intents.default()
     intents.guilds = True
     intents.guild_messages = True
     intents.guild_reactions = True  # raw reaction add events (not message-cache dependent)
-    intents.message_content = True  # privileged: enable it for the bot in the dev portal
+    # privileged: enable it for the bot in the dev portal, needed for message events only
+    intents.message_content = GATEWAY_EVENT in set(events)
     return intents
 
 
@@ -394,12 +399,13 @@ class DiscordPyGateway:
         should_stop: Callable[[], bool],
         on_reaction: OnReaction | None = None,
         commands: commands_mod.CommandRegistration | None = None,
+        events: Iterable[str] = LISTENED_EVENTS,
     ) -> None:
         import asyncio  # noqa: PLC0415
 
         import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
 
-        intents = gateway_intents()
+        intents = gateway_intents(events)
         poll = self._poll
 
         async def main() -> None:
@@ -493,10 +499,13 @@ def reaction_data(reaction: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def selected_channels(rule_docs: Iterable[Mapping[str, Any]]) -> frozenset[str] | None:
+def selected_channels(
+    rule_docs: Iterable[Mapping[str, Any]], event_type: str | None = None
+) -> frozenset[str] | None:
     """The channels the enabled ``discord.*`` event rules select, as one union: ``None`` when
-    any of them selects every channel, an empty set when there is no such rule. Deleted,
-    disabled and unparseable rules select nothing (they never fire)."""
+    any of them selects every channel, an empty set when there is no such rule. With
+    ``event_type`` only the rules on that exact type count (a reaction rule never selects
+    channels for messages). Deleted, disabled and unparseable rules select nothing."""
     union: set[str] = set()
     for doc in rule_docs:
         if doc.get("deleted_at"):
@@ -513,6 +522,8 @@ def selected_channels(rule_docs: Iterable[Mapping[str, Any]]) -> frozenset[str] 
         if not rule.enabled or rule.trigger.kind != "event":
             continue
         if not isinstance(wanted, str) or not wanted.startswith(DISCORD_TYPE_PREFIX):
+            continue
+        if event_type is not None and wanted != event_type:
             continue
         channels = discord_channels(rule.trigger.params)
         if channels is None:
@@ -597,7 +608,8 @@ class GatewaySupervisor:
         self._warned: set[str] = set()
         self._command_warned: set[tuple[str, str]] = set()
         self._unavailable_logged = False
-        self._selection: frozenset[str] | None = frozenset()  # nothing until the first tick
+        # per event type; a type absent here selects nothing (until the first tick)
+        self._selection: dict[str, frozenset[str] | None] = {}
         for ensure in (ensure_discord_event_ttl, commands_mod.ensure_interaction_ttl):
             try:
                 ensure(store)
@@ -650,12 +662,13 @@ class GatewaySupervisor:
     def _refresh_selection(self) -> None:
         """Recompute the channel selection; a failed read keeps the last one."""
         try:
-            self._selection = selected_channels(self._store.find(RULES_COLLECTION))
+            rules = list(self._store.find(RULES_COLLECTION))
+            self._selection = {t: selected_channels(rules, t) for t in LISTENED_EVENTS}
         except Exception as exc:  # noqa: BLE001 - the listeners keep the last selection
             log.warning("discord gateway: reading the rules failed (%s)", type(exc).__name__)
 
-    def _selected(self, channel_id: str | None) -> bool:
-        selection = self._selection  # one read: the tick thread replaces it whole
+    def _selected(self, event_type: str, channel_id: str | None) -> bool:
+        selection = self._selection.get(event_type, frozenset())  # tick replaces the dict whole
         return selection is None or channel_id in selection
 
     def _listens_here(self, doc: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
@@ -821,6 +834,7 @@ class GatewaySupervisor:
                         should_stop,
                         lambda rx: self._on_reaction(session, rx),
                         commands=self._registration(session),
+                        events=self._declared(session),
                     )
                     failures = 0
                 except Exception as exc:  # noqa: BLE001 - reconnect; the type only is logged
@@ -879,7 +893,15 @@ class GatewaySupervisor:
         opts = self._options
         return min(opts.max_backoff, opts.backoff * (2 ** max(0, failures - 1)))
 
+    @staticmethod
+    def _declared(session: _Session) -> list[str]:
+        """The gateway events the session's actor declares in ``params.events``."""
+        params, _ = _view(session.snapshot())
+        return [e for e in LISTENED_EVENTS if e in (params.get("events") or ())]
+
     def _on_message(self, session: _Session, msg: Mapping[str, Any]) -> None:
+        if GATEWAY_EVENT not in self._declared(session):
+            return  # undeclared: no stamp, no sink
         data = message_data(msg)
         if data["message_id"]:
             self._deliver(
@@ -890,6 +912,8 @@ class GatewaySupervisor:
             )
 
     def _on_reaction(self, session: _Session, reaction: Mapping[str, Any]) -> None:
+        if REACTION_EVENT not in self._declared(session):
+            return  # undeclared: no stamp, no sink
         data = reaction_data(reaction)
         emoji = data["emoji_id"] or data["emoji_name"]
         if data["message_id"] and data["user_id"] and emoji:
@@ -948,9 +972,12 @@ class GatewaySupervisor:
             return True
         return False if outcome in (NOT_ADMITTED, IGNORED, DISABLED) else None
 
-    def _admitted(self, connection: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
-        """Whether the channel is selected and the actor's channel and guild filters admit it."""
-        if not self._selected(data["channel_id"]):
+    def _admitted(
+        self, connection: Mapping[str, Any], event_type: str, data: Mapping[str, Any]
+    ) -> bool:
+        """Whether the event type's rules select the channel and the actor's channel and guild
+        filters admit it."""
+        if not self._selected(event_type, data["channel_id"]):
             return False  # no enabled discord.* rule selects this channel: never written
         channels = filter_values(connection.get("channels"))  # a bare id is one channel
         if channels and data["channel_id"] not in channels:
@@ -973,7 +1000,7 @@ class GatewaySupervisor:
         ``before_sink`` runs once, after admission and before the first write."""
         doc = session.snapshot()
         _, connection = _view(doc)
-        if not self._admitted(connection, data):
+        if not self._admitted(connection, event_type, data):
             return NOT_ADMITTED
         if before_sink is not None:
             before_sink()

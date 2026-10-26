@@ -1,30 +1,40 @@
 """Built-in ``attachment.fetch``: download pdf and epub attachments, vetted (discord-surfaces R2).
 
 A code-step built-in (``config.builtin: attachment.fetch``), like ``markdown.render``: it
-fetches public CDN URLs and needs no secret, so no actor is involved. The connection policy
-is ``http.call``'s, reused from :mod:`culture_rules.node.actions.http` (not copied): the URL
-checks, DNS resolution with every address vetted against the refused (private, loopback,
-link-local, CGNAT, ...) ranges, a connection pinned to the vetted address, no proxies and no
-redirects.
+fetches public CDN URLs and needs no secret, so no actor is involved. Because anyone who can
+edit a workflow writes its steps, nothing a step supplies widens what the node touches. The
+connection policy reuses ``http.call``'s pieces from :mod:`culture_rules.node.actions.http`
+(not copied): the URL checks, DNS resolution with every address vetted against the refused
+(private, loopback, link-local, CGNAT, ...) ranges - with no allow-list exception, unlike
+``http.call`` - a connection pinned to the vetted address, no proxies and no redirects.
 
 The bytes never enter run state (deviation d7: a run document is capped at 16 MiB). Each
-fetched file is streamed in :data:`READ_CHUNK` pieces to a temporary file in ``output_root``
+fetched file is streamed in :data:`READ_CHUNK` pieces to a temporary file in the output root
 (the cap enforced while reading), hashed on the way, then renamed to
-``<output_root>/<sha256>.<pdf|epub>`` - an atomic write. The same bytes again find that file
+``<output root>/<sha256>.<pdf|epub>`` - an atomic write. The same bytes again find that file
 and reuse it (its age is refreshed); a symlink or non-file at that name is ``path_refused``.
-A later step (``library.push`` with ``content_path`` + ``content_root``) reads the file.
+A later step (``library.push`` with ``content_path`` + ``content_root``) reads the file; its
+library actor must list the attachments root in its ``content_roots``.
+
+The node's attachments root (the base) is the environment variable
+:data:`ATTACHMENTS_ROOT_ENV` (``CULTURE_RULES_ATTACHMENTS_ROOT``), else
+:data:`DEFAULT_ATTACHMENTS_ROOT` (``~/.local/share/culture-rules/attachments``); ``~`` is
+expanded, the path must be absolute, and a missing base is created with mode ``0o700``.
+The port's ``base_root=`` argument replaces both (tests pass a temporary directory).
 
 Inputs (each may instead sit in ``config``; the input wins):
 
-* ``output_root`` (required): an absolute path to an existing directory on the node, else
-  the step fails ``path_refused`` before anything is fetched; symlinks in it are followed
-  once, and every file is written directly inside the resolved directory;
+* ``output_root`` (optional; absent means the base itself): an absolute path to an existing
+  directory that resolves (symlinks followed, ``os.path.realpath``) to the base or a
+  directory under it, else the step fails ``path_refused`` before anything is fetched or
+  deleted; every file is written directly inside the resolved directory;
 * ``retention_days`` (optional, an integer 1-365, default 7): on each call, before fetching,
-  files in ``output_root`` named ``<64 lowercase hex>.pdf`` or ``.epub`` that are regular
+  files in the output root named ``<64 lowercase hex>.pdf`` or ``.epub`` that are regular
   files (never symlinks) and older than this are deleted; nothing else there is touched;
 * ``attachments``: a list of ``{url, filename, content_type}`` items - the shape
   ``discord.read`` outputs per attachment (its ``id`` and ``size`` are read when present);
-* ``allowed_hosts`` (optional): exact hostnames to fetch from; it replaces the default
+* ``allowed_hosts`` (optional): exact hostnames to fetch from (an IP literal is refused
+  ``bad_params``; every address a host resolves to is still vetted); it replaces the default
   :data:`DEFAULT_ALLOWED_HOSTS` (Discord's CDN hosts).
 
 The format comes from ``content_type`` (``application/pdf``, ``application/epub+zip``) or,
@@ -48,9 +58,10 @@ a skipped one is ``{filename, skipped: true, reason}``, the reason one of:
 
 A 5xx or 429 answer, a network error and a resolution failure fail the whole step,
 retryable, so a retry fetches again (files already stored are reused). Non-list
-``attachments`` or ``allowed_hosts``, or a ``retention_days`` out of range, fail
-``bad_params``; a bad ``output_root`` or a symlink at a target name fails ``path_refused``
-(neither retryable). Nothing is logged. Standard library only.
+``attachments`` or ``allowed_hosts``, an IP literal in ``allowed_hosts``, or a
+``retention_days`` out of range, fail ``bad_params``; a bad base, an ``output_root`` outside
+the base, or a symlink at a target name fails ``path_refused`` (neither retryable). Nothing
+is logged. Standard library only.
 """
 
 from __future__ import annotations
@@ -85,7 +96,9 @@ from culture_rules.node.actions.http import (
 )
 
 __all__ = [
+    "ATTACHMENTS_ROOT_ENV",
     "ATTACHMENT_FETCH_BUILTIN",
+    "DEFAULT_ATTACHMENTS_ROOT",
     "DEFAULT_ALLOWED_HOSTS",
     "MAX_ATTACHMENT_BYTES",
     "READ_CHUNK",
@@ -93,6 +106,8 @@ __all__ = [
 ]
 
 ATTACHMENT_FETCH_BUILTIN = "attachment.fetch"
+ATTACHMENTS_ROOT_ENV = "CULTURE_RULES_ATTACHMENTS_ROOT"
+DEFAULT_ATTACHMENTS_ROOT = "~/.local/share/culture-rules/attachments"
 DEFAULT_ALLOWED_HOSTS = ("cdn.discordapp.com", "media.discordapp.net")
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 READ_CHUNK = 1024 * 1024
@@ -130,14 +145,34 @@ class _PathRefused(Exception):
         super().__init__(f"{_PATH_REFUSED}: {message}")
 
 
-def _output_root(value: Any) -> Path:
-    """The resolved, existing ``output_root`` directory, else :class:`_PathRefused`."""
+def _base_root(value: str) -> Path:
+    """The resolved base (the node's attachments root), created ``0o700`` when missing."""
+    expanded = os.path.expanduser(value)
+    if not os.path.isabs(expanded):
+        raise _PathRefused("the attachments root must be an absolute path")
+    try:
+        os.makedirs(expanded, mode=0o700, exist_ok=True)
+        base = Path(expanded).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise _PathRefused("the attachments root cannot be created") from exc
+    if not base.is_dir():
+        raise _PathRefused("the attachments root is not a directory")
+    return base
+
+
+def _output_root(value: Any, base: Path) -> Path:
+    """The resolved ``output_root`` (the base when absent): an existing directory at or under
+    the base, else :class:`_PathRefused`."""
+    if value is None:
+        return base
     if not isinstance(value, str) or not os.path.isabs(value):
         raise _PathRefused("output_root must be an absolute path")
     try:
         root = Path(value).resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise _PathRefused("output_root does not exist") from exc
+    if not root.is_relative_to(base):
+        raise _PathRefused("output_root must be the attachments root or under it")
     if not root.is_dir():
         raise _PathRefused("output_root is not a directory")
     return root
@@ -197,7 +232,11 @@ class AttachmentFetchPort:
         opener_factory: OpenerFactory | None = None,
         max_bytes: int = MAX_ATTACHMENT_BYTES,
         clock: Callable[[], datetime] | None = None,
+        base_root: str | os.PathLike[str] | None = None,
     ) -> None:
+        if base_root is None:
+            base_root = os.environ.get(ATTACHMENTS_ROOT_ENV) or DEFAULT_ATTACHMENTS_ROOT
+        self._base_root = os.fspath(base_root)
         self._resolver = resolver or resolve_host
         self._opener_factory = opener_factory or pinned_opener
         self._max_bytes = max_bytes
@@ -215,7 +254,8 @@ class AttachmentFetchPort:
         try:
             attachments, allow = self._params(input, config)
             days = _retention_days(_param(input, config, "retention_days"))
-            root = _output_root(_param(input, config, "output_root"))
+            base = _base_root(self._base_root)
+            root = _output_root(_param(input, config, "output_root"), base)
             self._sweep(root, days)
             items = [self._item(att, allow, deadline, root) for att in attachments]
         except (_BadParams, _PathRefused) as exc:
@@ -238,6 +278,8 @@ class AttachmentFetchPort:
         if not isinstance(hosts, list | tuple):
             raise _BadParams("allowed_hosts must be a list of hostnames")
         allow = {_norm_host(h) for h in hosts if isinstance(h, str) and h.strip()}
+        if any(_is_ip(h) for h in allow):
+            raise _BadParams("allowed_hosts must be hostnames, not IP addresses")
         return attachments, allow
 
     def _sweep(self, root: Path, days: int) -> None:
@@ -288,20 +330,17 @@ class AttachmentFetchPort:
         except _Refused as exc:
             reason = "host_refused" if exc.code == "destination_refused" else "invalid_item"
             raise _Skip(reason) from exc
-        if scheme != "https" or host not in allow:
+        if scheme != "https" or host not in allow or _is_ip(host):
             raise _Skip("host_refused")
-        if _is_ip(host):
-            addresses = [host]
-        else:
-            try:
-                addresses = [_norm_host(a) for a in self._resolver(host, port or _HTTPS_PORT)]
-            except OSError as exc:
-                raise _StepFailed("network_error: cannot resolve host") from exc
-            if not addresses:
-                raise _StepFailed("network_error: host resolved to no address")
+        try:
+            addresses = [_norm_host(a) for a in self._resolver(host, port or _HTTPS_PORT)]
+        except OSError as exc:
+            raise _StepFailed("network_error: cannot resolve host") from exc
+        if not addresses:
+            raise _StepFailed("network_error: host resolved to no address")
         for address in addresses:
             try:
-                _vet_address(host, address, allow)
+                _vet_address(host, address, set())  # no allow-list exception, ever
             except _Refused as exc:
                 raise _Skip("private_address") from exc
         return host, addresses[0]
