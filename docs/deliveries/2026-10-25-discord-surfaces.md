@@ -159,27 +159,27 @@ the kind (#19), the `#spark-tests` rule was re-enabled, and #100 moved the bundl
 
 | Claim | Confidence | Evidence |
 |-------|------------|----------|
-| `c3` — a second Discord app actor (jetson-bot) works with no engine change | high | `e36` · live run `run-2c77aee79f2c472da6493d372d69876d` |
+| `c3` — a second Discord app actor (jetson-bot) works with no engine change | medium | `e36` · live run `run-2c77aee79f2c472da6493d372d69876d` proves jetson-bot posting with its own token; per-actor gateway sessions and leases are proven on doubles only (`e18`), since jetson-bot does not listen live (`events: []`) |
 | `c4` — each bot records its own event for the same message | high | `e1`–`e2` · `tests/apps/test_discord_gateway.py::test_two_actors_sinking_the_same_message_record_two_events` |
 | `c5` — another bot's messages are skipped unless a rule opts in (`include_bots`) | high | `e4`–`e5` · `tests/engine/test_discord_trigger_filters.py::test_bot_blocked_unless_include_bots` |
-| `c6` — a Discord message can become a library item | high | `e19`–`e24` · `tests/rules/test_discord_library_bundle.py::test_a_message_becomes_one_private_discord_message_item` · live item 72 |
+| `c6` — a Discord message can become a library item | high | `e19`–`e21` · `tests/rules/test_discord_library_bundle.py::test_a_message_becomes_one_private_discord_message_item` · live item 72 |
 | `c11` — tests cover two Discord actors together | high | `e18` · `tests/node/test_discord_stage.py::test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing` |
 | `c12` — library automations are configured live; only a disabled example bundle is committed | high | `e35` · `tests/rules/test_discord_library_bundle.py::test_it_imports_disabled_with_the_placeholder_channel` |
 | `c17` — a flow chooses its channels (a list or "all") | high | `e6`–`e9` · `tests/engine/test_discord_trigger_filters.py::test_channels_filter` |
 | `c19` — one actor per bot; `guild_id` is one id or a list | high | `e13`–`e14` · `tests/apps/test_discord_gateway.py::test_a_guild_id_list_takes_messages_from_each_listed_guild` |
-| `c26` — saving is idempotent (one item per message) | high | `e19`–`e24` · `tests/node/test_markdown_render.py::test_same_inputs_are_byte_identical` · live item 72 `created: false` |
-| `c27` — Discord content lands private by default | high | `e33`–`e34` · `tests/node/test_library_push.py::test_without_visibilities_a_push_without_visibility_still_works` |
+| `c26` — saving is idempotent (one item per message) | medium | `e22`–`e24` · `tests/node/test_markdown_render.py::test_same_inputs_are_byte_identical` (never shown red, `l1`) · `tests/rules/test_discord_library_bundle.py::test_the_same_message_again_files_no_second_item` · live item 72 `created: false` |
+| `c27` — Discord content lands private by default | medium | a push that names no visibility sends none: `tests/node/test_library_push.py::test_upload_carries_file_title_author_and_kind` (`e33` cites a test that only checks the push completes, `l5`); the bundle sets `private` explicitly (`e34`); culture-library's own private default is not tested in this repo |
 | `c28` — both bots invited with the scopes and intents the gestures need | low | `o17` unchecked: Culture.dev reads full messages live (item 72); jetson-bot's MESSAGE CONTENT intent is unverified, and the command and reaction scopes belong to Releases 2–3 |
 | `c29` — the new kind and builtin are first-class everywhere a kind lives | high | `e29`–`e32` · `tests/node/test_discord_wiring.py::test_discord_read_is_a_catalogued_action_kind` |
 | `c31` — Discord events expire after 30 days; unselected channels are not stored | high | `e15`–`e17` · `tests/events/test_hook_sink.py::test_a_discord_event_carries_an_expiry_date_30_days_on` |
 | `c32` — the per-actor event id changes only Discord's ids | high | `e3` · `tests/apps/test_discord_gateway.py::test_one_actors_redelivery_of_a_message_is_a_duplicate` |
-| `c36` — the live library actor and key accept what Discord flows push | high | `e37` · library key 10 and actor `newspaper-library` (kind `discord-message`), live item 72 |
+| `c36` — the live library actor and key accept what Discord flows push | high | `e37` · library key 10 and actor `newspaper-library` (kinds include `discord-message`; formats `epub`, `md`, `pdf`, read back 2026-10-26 — `e37`'s text names only md), live item 72 |
 | `c38` — REST reads honour 429 and are bounded; long messages are saved whole | high | `e25`–`e28` · `tests/apps/test_discord_rest.py::test_get_retries_429_after_retry_after_then_succeeds` |
 | `c39` — a saved item is not removed when its message is edited or deleted | unverified | `o18` unchecked: no test asserts it; it holds today only because the gateway listens for new messages alone |
 | `c42` — a save flow carries a who filter (users by id or name, roles, either one admits) | high | `e10`–`e12` · `tests/engine/test_discord_trigger_filters.py::test_users_filter_ids_or_names_case_insensitive` |
 | `c13` — reactions save a message | unverified | Release 2, not built (`t12`–`t15`) |
 
-Lapse ledger evidence (all approved):
+Lapse ledger evidence (`l1`–`l4` approved; `l5` proposed, pending approval — not yet evidence):
 
 | Lapse | Code | What |
 |-------|------|------|
@@ -187,10 +187,13 @@ Lapse ledger evidence (all approved):
 | `l2` | `provenance-missing` | t2 task agent handed back the literal text 'placeholder' instead of a report: no test command, pass summary or shortcut list was reported for commit 9d23356 |
 | `l3` | `control-absent` | main agent merged t10 (a new committed docs/rules workflow) on tests/rules alone and deferred the full suite to after t4; 12 corpus tests (paragraph fixtures, fold parity, workflow count guards) failed and were caught only at the wave-3 full run |
 | `l4` | `grader-unverified` | main agent ran 'grant set `LIBRARY_PUSH_API_KEY` --hidden < file' without the '-' value, which grant treats as a metadata-only update, so key 6 stayed sealed and key 7's only copy was shredded; the follow-up check fetched a public item, which any valid key passes, so it could not tell key 6 from key 7. Found only when the push failed `forbidden_kind` and the sealed token's hash matched key 6 in /data/library.db |
+| `l5` | `grader-unverified` | proposed: evidence `e33` (`o13`, `c27`) says its test asserts a push with no visibility sends none, but `test_without_visibilities_a_push_without_visibility_still_works` only checks the push completes; the absence is asserted by `test_upload_carries_file_title_author_and_kind` |
 
-How the lapses bear on the claims: `l1` (`c6`, `c26`) and `l2` (`c42`) leave those claims at
-high, because the tests were later run red on the old code (the #100 bundle test) or re-run
-whole in the validate-delivery run. `l3` was caught by the full suite before merge. `l4` is
+How the lapses bear on the claims: `l1` caps `c26` at medium, because its render tests were
+never shown red; the #100 bundle tests (red on the old bundle) and live item 72 back the
+dedupe end to end. `c6` stays high on those bundle tests. `l2` (`c42`) is covered by the
+validate-delivery re-run of the filter tests. `l3` was caught by the full suite before merge.
+`l5` (proposed) caps `c27` at medium. `l4` is
 closed: key 10 was hash-verified against grant, the node env and `api_keys` row 10 (`b2`).
 
 ## Remaining Work / Follow-up
@@ -211,4 +214,3 @@ closed: key 10 was hash-verified against grant, the node env and `api_keys` row 
 - `workflows migrate-notes` moves any description whose notes are empty, so it would blank
   plain-language descriptions written after the phrases change; make it tell old text from new,
   or retire it.
-- The `pyproject.toml` description still mentions a Rules tab, which the editor no longer has.

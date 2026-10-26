@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-26T17:03:47Z",
+  "updated": "2026-10-26T17:53:25Z",
   "claims": [
     {
       "id": "c1",
@@ -1132,6 +1132,17 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l5",
+      "code": "grader-unverified",
+      "what": "evidence e33 (o13, c27) says its test asserts a push with no visibility sends none, but tests/node/test_library_push.py::test_without_visibilities_a_push_without_visibility_still_works only checks the push completes; the absence is asserted by test_upload_carries_file_title_author_and_kind. Found by /code-review of PR #101",
+      "skipped_check": "",
+      "refs": [
+        "o13 / e33"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [
