@@ -67,7 +67,7 @@ test("a channel message goes through markdown.render and library.push", async ({
   await channels.getByRole("checkbox", { name: "#general" }).check();
   await form.getByLabel("Users").fill("ori");
   await form.getByRole("checkbox", { name: "Include messages from bots" }).check();
-  await expect(form.getByText(/Roles apply from Release 2/)).toBeVisible();
+  await expect(form.getByText(/matched against the roles of whoever posted or reacted/)).toBeVisible();
   await noSeriousAxe(page, "discord trigger filters");
   await form.getByRole("button", { name: "Create rule" }).click();
   await expect(page).toHaveURL(/\/workflows\?id=discord-to-library/);

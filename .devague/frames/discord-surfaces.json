@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-26T19:34:32Z",
+  "updated": "2026-10-26T19:48:25Z",
   "claims": [
     {
       "id": "c1",
@@ -1179,6 +1179,17 @@
     },
     {
       "id": "l9",
+      "code": "control-absent",
+      "what": "main agent opened PR #102 without running the Playwright e2e suite after rewording the trigger picker's roles hint in t15; e2e/discord-flow.spec.ts still asserted the old text and CI's web job failed. Also the pre-PR gate never checked SonarCloud's issue list, and CI's test job gates on zero unresolved issues (23 test-code smells, mostly composite assertions)",
+      "skipped_check": "playwright e2e and the Sonar issue list before the PR",
+      "refs": [
+        "PR #102 / adc9854"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l10",
       "code": "grader-unverified",
       "what": "t17 task agent reported scripts/scan-secrets.py clean, but tests/node/test_discord_reply.py:19 (SECRET = a literal) was flagged; found by the main agent's full gate before the Release 3 PR",
       "skipped_check": "",
