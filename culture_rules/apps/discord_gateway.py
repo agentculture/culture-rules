@@ -499,6 +499,23 @@ def reaction_data(reaction: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _discord_rule(doc: Mapping[str, Any], event_type: str | None) -> Rule | None:
+    """The enabled ``discord.*`` event rule ``doc`` holds (of ``event_type`` when given), or
+    None for a deleted, disabled, unparseable or other rule (one that never fires here)."""
+    if doc.get("deleted_at"):
+        return None
+    try:
+        rule = Rule.from_dict(doc, strict=False)
+    except (ValueError, TypeError, AttributeError):  # unparseable (or trigger: null)
+        return None
+    wanted = rule.trigger.params.get("type")
+    if not rule.enabled or rule.trigger.kind != "event":
+        return None
+    if not isinstance(wanted, str) or not wanted.startswith(DISCORD_TYPE_PREFIX):
+        return None
+    return rule if event_type is None or wanted == event_type else None
+
+
 def selected_channels(
     rule_docs: Iterable[Mapping[str, Any]], event_type: str | None = None
 ) -> frozenset[str] | None:
@@ -508,22 +525,8 @@ def selected_channels(
     channels for messages). Deleted, disabled and unparseable rules select nothing."""
     union: set[str] = set()
     for doc in rule_docs:
-        if doc.get("deleted_at"):
-            continue
-        try:
-            rule = Rule.from_dict(doc, strict=False)
-        except (
-            ValueError,
-            TypeError,
-            AttributeError,
-        ):  # unparseable (or trigger: null): never fires
-            continue
-        wanted = rule.trigger.params.get("type")
-        if not rule.enabled or rule.trigger.kind != "event":
-            continue
-        if not isinstance(wanted, str) or not wanted.startswith(DISCORD_TYPE_PREFIX):
-            continue
-        if event_type is not None and wanted != event_type:
+        rule = _discord_rule(doc, event_type)
+        if rule is None:
             continue
         channels = discord_channels(rule.trigger.params)
         if channels is None:
