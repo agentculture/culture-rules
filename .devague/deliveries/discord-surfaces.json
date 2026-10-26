@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-26T19:25:59Z",
+  "updated": "2026-10-26T20:30:15Z",
   "deviations": [
     {
       "id": "d1",
@@ -110,6 +110,19 @@
       "status": "approved",
       "classification": null,
       "seq": 45
+    },
+    {
+      "id": "d9",
+      "what": "jetson-bot joins JetsonBot Experiments (1413999242648748195) for testing: t20's gesture checks run there for both bots (reaction, /save and Save to library, a channel message, a schedule tick, pdf/epub attachments, no cross-bot firing). jetson-bot's connection.guild_id becomes a list (the public Jetson AI Lab Research Group 1326246312072581160 and Experiments); in the public server it stays as it is (posting the newspaper), and no save flow is enabled there",
+      "task_ref": "t20",
+      "reason": "operator decision 2026-10-26: d2 kept jetson-bot out of Experiments, but t20 needs a private test channel on each bot; the operator chose to test jetson-bot in Experiments over a reduced check or Culture.dev only",
+      "affects": [
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 46
     }
   ],
   "evidence": [
