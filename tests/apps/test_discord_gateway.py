@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
 import sys
+import time
+import types
 import uuid
 from datetime import timedelta
 from functools import partial
@@ -22,11 +25,12 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.store.memory import MemoryStore
 from culture_rules.store.port import TransientStoreError
-from tests.apps.discord_fakes import FakeGateway, FakeHub, eventually, message
+from tests.apps.discord_fakes import FakeGateway, FakeHub, eventually, message, reaction
 from tests.engine.run_helpers import Clock
 
 ROOT = Path(__file__).resolve().parents[2]
 EVENT = "discord.message.created"
+REACTION = "discord.reaction.added"
 TTL = timedelta(seconds=30)
 SECRET_TEXT = "the-secret-plan-" + uuid.uuid4().hex
 
@@ -89,8 +93,8 @@ class Rig:
             host=host,
         )
 
-    def events(self):
-        return [e for e in self.store.find(EVENTS_COLLECTION) if e["envelope"].get("type") == EVENT]
+    def events(self, type=EVENT):
+        return [e for e in self.store.find(EVENTS_COLLECTION) if e["envelope"].get("type") == type]
 
 
 @pytest.fixture
@@ -122,6 +126,7 @@ def test_message_data_is_a_compact_truncated_subset():
         "content",
         "created_at",
         "url",
+        "user_roles",
     }
     assert len(data["content"]) == dg.MAX_CONTENT
     assert data["message_id"] == "9001"
@@ -532,3 +537,121 @@ def test_a_bare_string_connection_channels_is_one_channel(rig):
     r.sup._on_message(session, message(1, channel="20"))
     r.sup._on_message(session, message(2, channel="2"))
     assert _ids(r) == ["9001"]
+
+
+# ------------------------------------------------------------------ reactions (R2)
+
+
+def test_message_events_carry_user_roles(rig):
+    r = rig()
+    r.store.put("actors", discord_actor())
+    msg = message(1)
+    msg["user_roles"] = ["7", 8]
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.post(msg)
+    assert eventually(lambda: len(r.events()) == 1)
+    assert r.events()[0]["envelope"]["data"]["user_roles"] == ["7", "8"]
+    assert dg.message_data(message(2))["user_roles"] == []
+
+
+def test_a_reaction_is_sunk_as_discord_reaction_added(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    env = r.events(REACTION)[0]["envelope"]
+    assert env["type"] == "discord.reaction.added"
+    d = env["data"]
+    assert d["delivery_id"] == "bot:9001:42:\N{THUMBS UP SIGN}"
+    assert (d["guild_id"], d["channel_id"], d["message_id"]) == ("1", "100", "9001")
+    assert (d["emoji_name"], d["emoji_id"]) == ("\N{THUMBS UP SIGN}", None)
+    assert (d["user_id"], d["username"], d["bot"]) == ("42", "alice", False)
+    assert d["user_roles"] == ["7", "8"]
+    # the users filter reads author_id / author_name: the reactor fills them
+    assert (d["author_id"], d["author_name"]) == ("42", "alice")
+
+
+def test_a_custom_emoji_is_keyed_by_its_id(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1, emoji="party", emoji_id="555"))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    d = r.events(REACTION)[0]["envelope"]["data"]
+    assert (d["emoji_name"], d["emoji_id"]) == ("party", "555")
+    assert d["delivery_id"] == "bot:9001:42:555"
+
+
+def test_a_repeated_reaction_is_a_duplicate_but_another_emoji_or_user_is_not(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    for rx in (reaction(1), reaction(1), reaction(1, emoji="x"), reaction(1, user="43")):
+        r.hub.react(rx)
+    assert eventually(lambda: len(r.events(REACTION)) == 3)
+    time.sleep(0.1)
+    assert len(r.events(REACTION)) == 3
+
+
+def test_a_reaction_goes_through_channel_selection(rig):
+    r = rig(rule=False)
+    r.store.put("actors", discord_actor(events=(EVENT, REACTION)))
+    r.store.put("rules", discord_rule(channels=["100"]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.react(reaction(1, channel="999"))  # unselected: never written
+    r.hub.react(reaction(2, channel="100"))
+    assert eventually(lambda: len(r.events(REACTION)) == 1)
+    time.sleep(0.1)
+    assert [e["envelope"]["data"]["channel_id"] for e in r.events(REACTION)] == ["100"]
+
+
+def test_the_reactions_intent_is_on():
+    pytest.importorskip("discord")
+    intents = dg.gateway_intents()
+    assert intents.reactions
+    assert intents.guild_reactions
+
+
+def test_raw_reaction_payload_not_in_cache_raises_the_event():
+    pytest.importorskip("discord")
+    import discord
+
+    got = []
+    gw = dg.DiscordPyGateway()
+    handler = gw._raw_reaction_handler(got.append)  # noqa: SLF001
+    payload = types.SimpleNamespace(
+        message_id=9001,
+        channel_id=100,
+        guild_id=1,
+        user_id=42,
+        member=types.SimpleNamespace(
+            name="alice",
+            bot=False,
+            roles=[types.SimpleNamespace(id=1), types.SimpleNamespace(id=7)],
+        ),
+        emoji=discord.PartialEmoji(name="party", id=555),
+    )
+    asyncio.run(handler(payload))
+    assert got == [
+        {
+            "message_id": "9001",
+            "channel_id": "100",
+            "guild_id": "1",
+            "user_id": "42",
+            "username": "alice",
+            "user_roles": ["1", "7"],
+            "bot": False,
+            "emoji_name": "party",
+            "emoji_id": "555",
+        }
+    ]
+    payload.member = None  # no member (DM, or a member not resolved): still raised
+    payload.emoji = discord.PartialEmoji(name="\N{THUMBS UP SIGN}")
+    asyncio.run(handler(payload))
+    assert got[1]["user_id"] == "42" and got[1]["user_roles"] == [] and got[1]["emoji_id"] is None
