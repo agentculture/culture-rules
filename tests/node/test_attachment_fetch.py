@@ -96,7 +96,7 @@ def _root(tmp_path):
     root = tmp_path / "attachments"
     root.mkdir()
     ROOT = str(root)
-    yield root
+    return root
 
 
 def _invoke(port, input, config=None, seconds=30):
@@ -158,7 +158,8 @@ def test_pdf_and_epub_are_fetched_as_base64_with_their_format() -> None:
     assert "content_base64" not in json.dumps(res.output)
     assert sorted(os.listdir(ROOT)) == sorted([_sha(PDF) + ".pdf", _sha(EPUB) + ".epub"])
     assert all(i["skipped"] is False for i in items)
-    assert res.output["fetched"] == 2 and res.output["skipped"] == 0
+    assert res.output["fetched"] == 2
+    assert res.output["skipped"] == 0
     # dialled the vetted address, not the hostname
     assert [c["pinned"] for c in calls] == [PUBLIC, PUBLIC]
     assert lookups == [("cdn.discordapp.com", 443), ("media.discordapp.net", 443)]
@@ -198,7 +199,8 @@ def test_images_and_other_types_are_skipped_unsupported_without_a_request(name, 
     assert res.outcome == COMPLETED
     item = res.output["items"][0]
     assert item == {"filename": name, "skipped": True, "reason": "unsupported_format"}
-    assert calls == [] and lookups == []
+    assert calls == []
+    assert lookups == []
 
 
 def test_default_hosts_refuse_any_other_host() -> None:
@@ -206,9 +208,11 @@ def test_default_hosts_refuse_any_other_host() -> None:
     res = _invoke(port, {"attachments": [_att(host="evil.example.com")]})
     assert res.outcome == COMPLETED
     item = res.output["items"][0]
-    assert item["skipped"] is True and item["reason"] == "host_refused"
+    assert item["skipped"] is True
+    assert item["reason"] == "host_refused"
     assert "path" not in item
-    assert calls == [] and lookups == []
+    assert calls == []
+    assert lookups == []
 
 
 def test_allowed_hosts_input_replaces_the_default() -> None:
@@ -246,7 +250,8 @@ def test_host_resolving_to_a_private_address_is_refused(address) -> None:
     res = _invoke(port, {"attachments": [_att()]})
     assert res.outcome == COMPLETED
     item = res.output["items"][0]
-    assert item["skipped"] is True and item["reason"] == "private_address"
+    assert item["skipped"] is True
+    assert item["reason"] == "private_address"
     assert calls == []  # no connection made
 
 
@@ -254,7 +259,8 @@ def test_redirect_is_refused() -> None:
     port, calls, _ = _port(lambda url: http_mod.RedirectRefused(302))
     res = _invoke(port, {"attachments": [_att()]})
     item = res.output["items"][0]
-    assert item["skipped"] is True and item["reason"] == "redirect_refused"
+    assert item["skipped"] is True
+    assert item["reason"] == "redirect_refused"
     assert len(calls) == 1
 
 
@@ -268,8 +274,10 @@ def test_declared_size_over_50_mib_is_refused_without_a_request() -> None:
     port, calls, lookups = _port()
     res = _invoke(port, {"attachments": [_att(size=MAX_ATTACHMENT_BYTES + 1)]})
     item = res.output["items"][0]
-    assert item["skipped"] is True and item["reason"] == "too_large"
-    assert calls == [] and lookups == []
+    assert item["skipped"] is True
+    assert item["reason"] == "too_large"
+    assert calls == []
+    assert lookups == []
 
 
 def test_content_length_over_50_mib_is_refused_before_reading() -> None:
@@ -300,10 +308,12 @@ def test_client_error_skips_the_item_with_http_status() -> None:
 def test_server_and_network_errors_fail_the_step_retryable() -> None:
     port, _, _ = _port(lambda url: FakeResponse(status=503, body=b"down"))
     res = _invoke(port, {"attachments": [_att()]})
-    assert res.outcome == FAILED and res.retryable is True
+    assert res.outcome == FAILED
+    assert res.retryable is True
     port, _, _ = _port(lambda url: urllib.error.URLError("boom"))
     res = _invoke(port, {"attachments": [_att()]})
-    assert res.outcome == FAILED and res.retryable is True
+    assert res.outcome == FAILED
+    assert res.retryable is True
     assert res.error.startswith("network_error")
 
 
@@ -322,7 +332,8 @@ def test_mixed_list_keeps_order_and_counts() -> None:
     items = res.output["items"]
     assert [i["filename"] for i in items] == ["cat.png", "paper.pdf", "paper.pdf"]
     assert [i["skipped"] for i in items] == [True, False, True]
-    assert res.output["fetched"] == 1 and res.output["skipped"] == 2
+    assert res.output["fetched"] == 1
+    assert res.output["skipped"] == 2
     assert len(calls) == 1
 
 
@@ -337,7 +348,8 @@ def test_bad_params_fail_non_retryable() -> None:
     port, _, _ = _port()
     for bad in ({}, {"attachments": "x"}, {"attachments": [], "allowed_hosts": "cdn"}):
         res = _invoke(port, bad)
-        assert res.outcome == FAILED and res.retryable is False
+        assert res.outcome == FAILED
+        assert res.retryable is False
         assert res.error.startswith("bad_params")
 
 
@@ -363,7 +375,8 @@ def test_download_is_streamed_in_chunks_and_capped_while_reading() -> None:
     port, _, _ = _port(lambda url: response)
     res = _invoke(port, {"attachments": [_att(size=None)]})
     item = res.output["items"][0]
-    assert item["size"] == len(body) and item["sha256"] == _sha(body)
+    assert item["size"] == len(body)
+    assert item["sha256"] == _sha(body)
     assert all(0 < n <= READ_CHUNK for n in response.reads)
     assert len(response.reads) >= 3
     big = FakeResponse(body=b"x" * (READ_CHUNK * 4))
@@ -379,7 +392,8 @@ def test_same_bytes_again_reuse_the_file_and_refresh_its_age() -> None:
     first = _invoke(port, {"attachments": [_att()]}).output["items"][0]
     os.utime(first["path"], (1_000_000, 1_000_000))
     again = _invoke(port, {"attachments": [_att("copy.pdf")]}).output["items"][0]
-    assert again["path"] == first["path"] and again["sha256"] == first["sha256"]
+    assert again["path"] == first["path"]
+    assert again["sha256"] == first["sha256"]
     assert again["filename"] == "copy.pdf"
     assert os.listdir(ROOT) == [_sha(PDF) + ".pdf"]
     assert os.stat(first["path"]).st_mtime > 1_000_000
@@ -389,7 +403,8 @@ def test_same_bytes_again_reuse_the_file_and_refresh_its_age() -> None:
 def test_output_root_must_be_an_absolute_path(value) -> None:
     port, calls, _ = _port()
     res = _invoke(port, {"attachments": [_att()]}, config={"output_root": value})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("path_refused")
     assert calls == []
 
@@ -410,7 +425,8 @@ def test_a_symlink_at_the_target_name_is_refused(tmp_path) -> None:
     os.symlink(elsewhere, os.path.join(ROOT, _sha(PDF) + ".pdf"))
     port, _, _ = _port()
     res = _invoke(port, {"attachments": [_att()]})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("path_refused")
     assert elsewhere.read_bytes() == b"other"
     assert [n for n in os.listdir(ROOT) if n.startswith(".")] == []
@@ -445,7 +461,8 @@ def test_retention_deletes_only_old_fetched_files(tmp_path) -> None:
     res = _invoke(port, {"attachments": []})
     assert res.outcome == COMPLETED
     left = set(os.listdir(root))
-    assert os.path.basename(old_pdf) not in left and os.path.basename(old_epub) not in left
+    assert os.path.basename(old_pdf) not in left
+    assert os.path.basename(old_epub) not in left
     for p in (young, other, upper, txt, link, adir):
         assert os.path.basename(p) in left
     assert target.read_bytes() == b"keep"
@@ -463,7 +480,8 @@ def test_retention_days_is_configurable_and_bounded() -> None:
     assert not os.path.exists(old)
     for bad in (0, 366, "7", True, 1.5):
         res = _invoke(port, {"attachments": [], "retention_days": bad})
-        assert res.outcome == FAILED and res.error.startswith("bad_params")
+        assert res.outcome == FAILED
+        assert res.error.startswith("bad_params")
 
 
 def test_the_file_just_fetched_survives_its_own_retention_pass() -> None:
@@ -499,6 +517,7 @@ def test_a_write_error_fails_the_step_retryable_and_leaves_no_temp_file(monkeypa
 
     monkeypatch.setattr(os, "replace", full)
     res = _invoke(port, {"attachments": [_att()]})
-    assert res.outcome == FAILED and res.retryable is True
+    assert res.outcome == FAILED
+    assert res.retryable is True
     assert res.error.startswith("write_failed")
     assert os.listdir(ROOT) == []

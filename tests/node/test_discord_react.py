@@ -191,7 +191,8 @@ def test_a_channel_outside_the_actors_guilds_is_refused_before_reacting():
     # review of the R2 diff: discord.react keeps to connection.guild_id as discord.read does
     t = FakeTransport((200, {"id": "42", "guild_id": "999"}, {}))
     res = action(store_with(guild_id=["11"]), t).invoke(INPUT, "k", NOW, context=ctx())
-    assert res.outcome == FAILED and not res.retryable
+    assert res.outcome == FAILED
+    assert not res.retryable
     assert "guild" in res.error
     assert [m for m, *_ in t.calls] == [None]  # the guild lookup only; no PUT
 

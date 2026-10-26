@@ -366,8 +366,9 @@ def test_add_reaction_takes_a_custom_emoji_as_name_and_id():
 @pytest.mark.parametrize("emoji", ["", "   ", "a/b", "name:notanid", 3, None])
 def test_add_reaction_refuses_a_malformed_emoji(emoji):
     t = PutTransport()
+    client = DiscordClient(TOKEN, transport=t)
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(TOKEN, transport=t).add_reaction("123", "55", emoji)
+        client.add_reaction("123", "55", emoji)
     assert not ei.value.retryable
     assert t.calls == []
 

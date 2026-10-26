@@ -661,4 +661,6 @@ def test_raw_reaction_payload_not_in_cache_raises_the_event():
     payload.member = None  # no member (DM, or a member not resolved): still raised
     payload.emoji = discord.PartialEmoji(name="\N{THUMBS UP SIGN}")
     asyncio.run(handler(payload))
-    assert got[1]["user_id"] == "42" and got[1]["user_roles"] == [] and got[1]["emoji_id"] is None
+    assert got[1]["user_id"] == "42"
+    assert got[1]["user_roles"] == []
+    assert got[1]["emoji_id"] is None
