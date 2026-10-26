@@ -98,7 +98,7 @@ describe("Discord trigger filters", () => {
       kind: "event",
       params: { type: "discord.message.created", users: ["ori", "77"], roles: ["900"], include_bots: true },
     });
-    expect(screen.getByText(/Roles apply from Release 2/)).toBeInTheDocument();
+    expect(screen.getByText(/matched against the roles of whoever posted or reacted/)).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Users"));
     await user.clear(screen.getByLabelText("Roles"));
     await user.click(screen.getByRole("checkbox", { name: "Include messages from bots" }));
@@ -123,5 +123,35 @@ describe("Discord trigger filters", () => {
     expect(general).not.toBeRequired();
     expect((screen.getByRole("form", { name: "rule" }) as HTMLFormElement).checkValidity()).toBe(true);
     expect(saved()).toEqual({ kind: "event", params: { type: "discord.message.created", channels: ["101"] } });
+  });
+});
+
+describe("discord.reaction.added", () => {
+  const REACTOR: Actor = { ...BOT, params: { ...BOT.params, events: ["discord.message.created", "discord.reaction.added"] } };
+  const REACTION: Trigger = { kind: "event", params: { type: "discord.reaction.added" } };
+
+  function ReactionHarness() {
+    const [value, setValue] = useState<Trigger>(REACTION);
+    return (
+      <>
+        <TriggerPicker value={value} actors={[REACTOR]} onChange={setValue} loadDiscordTargets={async () => TARGETS} />
+        <output data-testid="saved">{JSON.stringify(value)}</output>
+      </>
+    );
+  }
+
+  it("offers an emoji field (unicode or a custom name:id) and saves it as a list", async () => {
+    const user = userEvent.setup();
+    render(<ReactionHarness />);
+    await user.type(await screen.findByLabelText("Emoji"), "📚, save:99");
+    expect(saved()).toEqual({ kind: "event", params: { type: "discord.reaction.added", emoji: ["📚", "save:99"] } });
+    await user.clear(screen.getByLabelText("Emoji"));
+    expect(saved()).toEqual(REACTION);
+  });
+
+  it("shows no emoji field on a message trigger", async () => {
+    render(<Harness />);
+    await screen.findByRole("group", { name: "Channels" });
+    expect(screen.queryByLabelText("Emoji")).not.toBeInTheDocument();
   });
 });

@@ -37,6 +37,7 @@ from culture_rules.model.action_step import (
 from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
+from culture_rules.model.discord_filters import CUSTOM_EMOJI_RE
 from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine, MachineInstall
 from culture_rules.model.placement import PLACEMENT_FORMS, Placement
@@ -505,7 +506,8 @@ def _filter_item(value: Any) -> bool:
 
 def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
     """A ``discord.*`` trigger's filters (engine.matching): ``include_bots`` a bool;
-    ``channels``, ``users`` and ``roles`` an id/name or a list of them."""
+    ``channels``, ``users`` and ``roles`` an id/name or a list of them; ``emoji`` a unicode
+    emoji, a custom ``name:id``, an id or a name, or a list of them."""
     if "include_bots" in params and not isinstance(params["include_bots"], bool):
         _err(
             errors,
@@ -530,6 +532,26 @@ def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
                 "trigger_param_invalid",
                 'params.channels holds numeric Discord channel ids, or "all"',
             )
+
+    if "emoji" in params and not _emoji_ok(params["emoji"]):
+        _err(
+            errors,
+            _join(pp, "emoji"),
+            "trigger_param_invalid",
+            "params.emoji is an emoji (unicode, or a custom name:id), or a list of them",
+        )
+
+
+def _emoji_ok(value: Any) -> bool:
+    items = value if isinstance(value, (list, tuple)) else [value]
+    if not items:
+        return False
+    for item in items:
+        if not isinstance(item, str) or not item.strip():
+            return False
+        if ":" in item and not CUSTOM_EMOJI_RE.match(item):
+            return False
+    return True
 
 
 def _filter_value_ok(value: Any) -> bool:

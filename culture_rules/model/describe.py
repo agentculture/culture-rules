@@ -87,6 +87,7 @@ BUILTIN_WORDS: dict[str, str] = {
     "markdown.render": "markdown.render: fields as one Markdown page, the same bytes each time",
     "markdown.from_html": "markdown.from_html: HTML as Markdown, whole and in chunks",
     "run.read": "run.read: a step's outputs from the run that started this one",
+    "attachment.fetch": "attachment.fetch: pdf and epub attachments saved as files on the node",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
@@ -104,6 +105,7 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "mesh.message": _TO_CHANNEL,
     "discord.message": _TO_CHANNEL,
     "discord.read": (("channel", "in {}"), ("message", "message {}")),
+    "discord.react": (("emoji", "with {}"), ("channel", "in {}"), ("message", "on message {}")),
     "github.comment": (),
     "github.push": (),
     "github.review_reply": (),
@@ -406,6 +408,9 @@ def _discord_filter_words(params: Mapping[str, Any]) -> list[str]:
     channels = discord_channels(params)
     if channels is not None:
         parts.append("in channels " + ", ".join(sorted(channels)))
+    emoji = filter_values(params.get("emoji"))
+    if emoji:
+        parts.append("with " + " or ".join(emoji))
     who = [*filter_values(params.get("users"))]
     who += [f"role {r}" for r in filter_values(params.get("roles"))]
     if who:

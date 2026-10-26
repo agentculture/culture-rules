@@ -112,3 +112,60 @@ def test_include_self_still_applies_the_channel_and_user_filters():
     # include_self admits the bot's own post without also needing include_bots
     assert trigger_matches(trig(include_self=True), own)
     assert not trigger_matches(trig(channels=["22"]), own)
+
+
+# --------------------------------------------------------------------------- emoji (t15)
+
+REACTION = "discord.reaction.added"
+
+
+def react(**data) -> dict:
+    base = {
+        "message_id": "1",
+        "guild_id": "10",
+        "channel_id": "20",
+        "user_id": "30",
+        "author_id": "30",
+        "author_name": "Alice",
+        "username": "Alice",
+        "bot": False,
+        "emoji_name": "📚",
+        "emoji_id": None,
+    }
+    base.update(data)
+    return {"kind": "event", "type": REACTION, "data": base}
+
+
+def rtrig(**params) -> Trigger:
+    return Trigger(kind="event", params={"type": REACTION, **params})
+
+
+def test_a_reaction_with_no_emoji_filter_matches_any_emoji():
+    assert trigger_matches(rtrig(), react())
+    assert trigger_matches(rtrig(), react(emoji_name="save", emoji_id="99"))
+
+
+def test_a_unicode_emoji_filter_matches_that_emoji_only():
+    assert trigger_matches(rtrig(emoji="📚"), react())
+    assert not trigger_matches(rtrig(emoji="👍"), react())
+    assert trigger_matches(rtrig(emoji=["👍", "📚"]), react())
+
+
+def test_a_custom_emoji_filter_matches_by_id_or_name():
+    custom = react(emoji_name="save", emoji_id="99")
+    assert trigger_matches(rtrig(emoji="save:99"), custom)
+    assert trigger_matches(rtrig(emoji="99"), custom)
+    assert trigger_matches(rtrig(emoji="save"), custom)
+    # name:id needs the id: another server's emoji of the same name is not this one
+    assert not trigger_matches(rtrig(emoji="save:100"), custom)
+    assert not trigger_matches(rtrig(emoji="save"), react())
+
+
+def test_an_emoji_filter_admits_no_event_without_an_emoji():
+    assert not trigger_matches(trig(emoji="📚"), ev())
+
+
+def test_the_emoji_filter_combines_with_who_and_channels():
+    assert trigger_matches(rtrig(emoji="📚", users=["alice"], channels=["20"]), react())
+    assert not trigger_matches(rtrig(emoji="📚", users=["bob"]), react())
+    assert not trigger_matches(rtrig(emoji="📚", channels=["21"]), react())

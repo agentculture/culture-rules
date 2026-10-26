@@ -84,6 +84,7 @@ __all__ = [
     "ACTORS_COLLECTION",
     "GATEWAY_EVENT",
     "LEASE_PREFIX",
+    "LISTENED_EVENTS",
     "MAX_CONTENT",
     "DiscordPyGateway",
     "Gateway",
@@ -102,6 +103,8 @@ RULES_COLLECTION = "rules"
 DISCORD_TYPE_PREFIX = "discord."
 GATEWAY_EVENT = "discord.message.created"
 REACTION_EVENT = "discord.reaction.added"
+LISTENED_EVENTS = (GATEWAY_EVENT, REACTION_EVENT)
+"""Declaring either in ``params.events`` makes an app actor listen over the Gateway."""
 LEASE_PREFIX = "discord-gateway:"
 MAX_CONTENT = 2000
 """Longest ``data.content`` carried on an event (Discord's own message limit)."""
@@ -479,11 +482,11 @@ class GatewaySupervisor:
         return selection is None or channel_id in selection
 
     def _listens_here(self, doc: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
-        """An enabled Discord app declaring the gateway event, on this node's machine (its
-        bot token is injected on its own machine only)."""
+        """An enabled Discord app declaring a gateway event (a message or a reaction), on this
+        node's machine (its bot token is injected on its own machine only)."""
         if (doc.get("surface") or params.get("surface")) != "discord":
             return False
-        if GATEWAY_EVENT not in (params.get("events") or ()):
+        if not set(LISTENED_EVENTS) & set(params.get("events") or ()):
             return False
         if doc.get("enabled", True) is False:
             return False

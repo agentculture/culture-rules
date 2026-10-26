@@ -71,3 +71,23 @@ def test_trigger_text_spells_out_the_discord_filters():
     for word in ("1, 2", "alice", "r1", "bots"):
         assert word in text
     assert trigger_text(Trigger(kind="event", params={"type": TYPE, "channels": "all"})) == TYPE
+
+
+@pytest.mark.parametrize("emoji", ["📚", ["📚", "save:99"], "99"])
+def test_an_emoji_filter_is_an_emoji_or_a_list_of_them(emoji):
+    assert codes({"emoji": emoji}, "discord.reaction.added") == set()
+
+
+@pytest.mark.parametrize("emoji", [7, ["📚", 7], {"name": "save"}, "", [""], "save:abc"])
+def test_a_badly_typed_emoji_filter_is_refused(emoji):
+    assert codes({"emoji": emoji}, "discord.reaction.added") == {"trigger_param_invalid"}
+
+
+def test_trigger_text_names_the_emoji():
+    trig = Trigger(
+        kind="event",
+        params={"type": "discord.reaction.added", "emoji": ["📚", "save:99"], "users": "alice"},
+    )
+    text = trigger_text(trig)
+    assert "with 📚 or save:99" in text
+    assert "from alice" in text

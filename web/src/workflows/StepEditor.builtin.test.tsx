@@ -56,3 +56,19 @@ describe("markdown.render built-in", () => {
     expect(last().inputs).toEqual([{ name: "text", type: "string" }]);
   });
 });
+
+describe("attachment.fetch built-in", () => {
+  it("sets config.builtin and its typed ports: attachments in, items out (files, d7)", async () => {
+    const user = userEvent.setup();
+    const last = setup({ id: "fetch", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), "attachment.fetch");
+    const s = last();
+    expect(s.config).toEqual({ builtin: "attachment.fetch" });
+    expect(s.inputs?.map((p) => [p.name, p.type, p.required !== false])).toEqual([
+      ["attachments", "array", true],
+      ["output_root", "string", false],
+      ["retention_days", "integer", false],
+    ]);
+    expect(s.outputs?.map((p) => p.name)).toEqual(["items", "fetched", "skipped"]);
+  });
+});

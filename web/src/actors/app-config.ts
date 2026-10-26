@@ -19,6 +19,8 @@ export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
   { name: "noop", summary: "Do nothing" },
   { name: "message", summary: "Send a message on the mesh" },
   { name: "discord.message", summary: "Post a message on Discord" },
+  { name: "discord.read", summary: "Read one Discord message in full (text and attachments)" },
+  { name: "discord.react", summary: "React to a Discord message" },
   { name: "github.comment", summary: "Comment on a GitHub issue or PR" },
   { name: "github.push", summary: "Fast-forward a same-repo PR's head branch (never force)" },
   { name: "github.review_reply", summary: "Reply in a PR review thread, optionally resolving it" },
@@ -28,7 +30,7 @@ export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
   { name: "email.send", summary: "Send an email through an email app" },
   { name: "search.web", summary: "Search the web through a search app" },
   { name: "llm.complete", summary: "Complete a locked brief with an OpenAI-compatible model (no tools)" },
-  { name: "library.push", summary: "Upload an EPUB to a library (and queue it when the library has a device queue)" },
+  { name: "library.push", summary: "Upload a file (EPUB, Markdown, PDF, …) to a library (and queue it when the library has a device queue)" },
 ];
 
 /** Lowercase dotted event types, at least two segments (app_actor.py `EVENT_TYPE_RE`). */

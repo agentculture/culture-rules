@@ -247,5 +247,8 @@ describe("library.push", () => {
     expect(actionProblem({ kind: "library.push", params: { ...full, title: undefined } })).toBe("empty");
     expect(actionProblem({ kind: "library.push", params: { ...full, kind: undefined } })).toBe("empty");
     expect(actionProblem({ kind: "library.push", params: full })).toBeNull();
+    // a file on the node (attachment.fetch, d7) is the other source
+    const path = { ...full, content_base64: undefined, content_path: "/srv/a/x.pdf", content_root: "/srv/a" };
+    expect(actionProblem({ kind: "library.push", params: path })).toBeNull();
   });
 });

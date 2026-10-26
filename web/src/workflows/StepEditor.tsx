@@ -332,6 +332,19 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
     inputs: [PORT("run_id", false)],
     outputs: [PORT("run_id", true)],
   },
+  "attachment.fetch": {
+    label: "attachment.fetch: pdf and epub attachments saved as files on the node",
+    inputs: [
+      { name: "attachments", type: "array", required: true },
+      PORT("output_root", false),
+      { name: "retention_days", type: "integer", required: false },
+    ],
+    outputs: [
+      { name: "items", type: "array", required: true },
+      { name: "fetched", type: "integer", required: true },
+      { name: "skipped", type: "integer", required: true },
+    ],
+  },
 };
 
 /**

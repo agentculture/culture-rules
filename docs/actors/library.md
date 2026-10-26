@@ -114,7 +114,9 @@ The `library.push` action takes:
 | Param | Required | Meaning |
 |---|---|---|
 | `actor` | yes | the library actor's id |
-| `content_base64` | yes | the file, base64; at most 50 MiB decoded |
+| `content_base64` | one of the two | the file, base64; at most 50 MiB decoded |
+| `content_path` | one of the two | instead of `content_base64`: an absolute path to the file on the node, at most 50 MiB (`attachment.fetch` writes these, d7) |
+| `content_root` | with `content_path` | an absolute directory the file must sit under; a symlink between the root and the file is refused (`path_refused`) |
 | `title` | yes | the item's title; the file is named after it |
 | `format` | no | one of the actor's `formats`; unset, `epub`. It sets the file's extension and content type (`md` is `text/markdown`) |
 | `item_id` | no | replace this item's file instead of uploading a new item; needs the actor's `replace_path` |
@@ -163,10 +165,10 @@ library actor to list:
 
 - the **kind** `discord-message` (culture-library 0.17.0 and later;
   culture-library#19), and a `visibilities` entry such as `private` if the step
-  sends one. `discord-react` is reserved for reactions (planned, Release 2);
-- the **format** `md` for a rendered message, and `pdf` for the attachments the
-  flow will file later (planned, Release 2). `pdf` is in the allowed set but is
-  not in `formats` unless you add it.
+  sends one. `discord-react` is reserved (not yet used);
+- the **format** `md` for a rendered message, and `pdf` and `epub` for the
+  attachments `attachment.fetch` saves. `pdf` is in the allowed set but is not
+  in `formats` unless you add it.
 
 Mint the key with `--kind discord-message` as well, e.g. add it to the
 `culture-library keys mint` command above.
@@ -177,7 +179,8 @@ Mint the key with `--kind discord-message` as well, e.g. add it to the
 |---|---|---|
 | `actor_kind_mismatch` | the actor is not a `service` | no |
 | `invalid_actor` | an actor param above is missing or malformed (`upload_path`, `queue_path`, `kinds`, `visibilities`, `formats`, `replace_path` without `replace_method`, `base_url`, a literal `api_key`), or `item_id` with no `replace_path` | no |
-| `invalid_request` | a kind, visibility or format the actor does not list, or bad content, title, device id or item id | no |
+| `invalid_request` | a kind, visibility or format the actor does not list, or bad content, title, device id or item id; both or neither of `content_base64` and `content_path` | no |
+| `path_refused` | `content_path` is not a regular file under `content_root`, or passes through a symlink | no |
 | `device_missing` | a `queue_path` but no `device_id` on the action or the actor | no |
 | `too_large` | the file is over 50 MiB | no |
 | `bad_response` | a replace reply that does not name the same item id | no |

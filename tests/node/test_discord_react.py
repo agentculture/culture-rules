@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import dataclasses
 from datetime import UTC, datetime
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
 from culture_rules.engine.runs import Executor, step_state
-from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.model.action_step import ACTION_BUILTIN
 from culture_rules.node.actions.discord_react import DiscordReactAction
 from culture_rules.store.memory import MemoryStore
@@ -176,14 +174,7 @@ def run_for(emoji, transport):
     return ex.run(started["id"])
 
 
-def test_the_when_step_reacts_for_one_emoji_and_stays_silent_for_another(monkeypatch):
-    # discord.react is not catalogued yet (a later task does that): borrow discord.read's
-    # entry, which takes the same params, so the workflow validates
-    monkeypatch.setitem(
-        ACTION_KINDS,
-        "discord.react",
-        dataclasses.replace(ACTION_KINDS["discord.read"], name="discord.react"),
-    )
+def test_the_when_step_reacts_for_one_emoji_and_stays_silent_for_another():
     yes, no = FakeTransport(), FakeTransport()
     doc = run_for(THUMBS, yes)
     assert doc["status"] == "succeeded", doc["steps"]

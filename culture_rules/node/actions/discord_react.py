@@ -69,8 +69,9 @@ class DiscordReactAction(DiscordReadAction):
         connection = self._connection(actor_id, channel)
         if isinstance(connection, InvocationResult):
             return connection
+        ref = connection.get("bot_token")
         try:
-            token = self._resolve(connection.get("bot_token"))
+            token = self._resolve(ref)
         except secrets.SecretError as exc:
             return InvocationResult.failed(str(exc), retryable=True)
         kwargs: dict[str, Any] = {"transport": self._transport, "sleep": self._sleep}

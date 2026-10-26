@@ -28,7 +28,8 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    comment (:mod:`culture_rules.node.reaction_watch`, d34);
    then **discord gateway** - reconciles the Discord Gateway listeners
    (:class:`~culture_rules.apps.discord_gateway.GatewaySupervisor`): for each enabled
-   Discord app actor declaring ``discord.message.created`` it acquires/renews the mesh-wide
+   Discord app actor declaring ``discord.message.created`` or ``discord.reaction.added`` it
+   acquires/renews the mesh-wide
    lease ``discord-gateway:<actor id>`` and keeps a listener thread connected while this
    node holds it (one connection mesh-wide); messages land through the webhook sink. The
    listeners stop when :meth:`Node.run` returns (:meth:`Node.close`). Off with

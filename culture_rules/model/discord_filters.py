@@ -1,16 +1,20 @@
 """Discord trigger filter params, read one way everywhere (discord-surfaces t2, d1, t4).
 
 The engine's matcher, the gateway's channel selection and the describe words all read a
-``discord.*`` trigger's ``channels``, ``users`` and ``roles`` through these helpers.
+``discord.*`` trigger's ``channels``, ``users``, ``roles`` and ``emoji`` through these helpers.
 Standard library only.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
-__all__ = ["discord_channels", "filter_values"]
+CUSTOM_EMOJI_RE = re.compile(r"^[^:\s]+:[0-9]+$")
+"""A custom emoji written ``name:id`` (an ``emoji`` filter value holding a colon)."""
+
+__all__ = ["CUSTOM_EMOJI_RE", "discord_channels", "emoji_admits", "filter_values"]
 
 
 def filter_values(value: Any) -> list[str]:
@@ -32,3 +36,19 @@ def discord_channels(params: Mapping[str, Any]) -> frozenset[str] | None:
     if not channels or any(c.casefold() == "all" for c in channels):
         return None
     return frozenset(channels)
+
+
+def emoji_admits(wanted: list[str], data: Mapping[str, Any]) -> bool:
+    """Whether a reaction's emoji is one of ``wanted`` (an ``emoji`` filter, discord-surfaces
+    t15): a unicode emoji matches ``emoji_name``; a custom one matches by ``name:id`` (the id
+    decides, so another server's emoji of the same name is not it), by its id alone, or by its
+    name. An event with no emoji never matches."""
+    name = str(data.get("emoji_name") or "")
+    emoji_id = str(data.get("emoji_id") or "")
+    for value in wanted:
+        if CUSTOM_EMOJI_RE.match(value):
+            if emoji_id and value.rpartition(":")[2] == emoji_id:
+                return True
+        elif value in {name, emoji_id} - {""}:
+            return True
+    return False

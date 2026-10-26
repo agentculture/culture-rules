@@ -306,14 +306,21 @@ def test_deleting_the_actor_disconnects(rig):
     assert r.hub.live_now() == []
 
 
-def test_only_discord_apps_declaring_the_event_are_listened_for(rig):
+def test_only_discord_apps_declaring_a_gateway_event_are_listened_for(rig):
     r = rig()
-    r.store.put("actors", discord_actor(events=("discord.reaction.added",)))
+    r.store.put("actors", discord_actor(events=("discord.thread.created",)))
     other = discord_actor("gh")
     other["params"]["surface"] = "github"
     r.store.put("actors", other)
     assert r.sup.tick() == []
     assert r.hub.connects == []
+
+
+def test_an_actor_declaring_only_reactions_is_listened_for(rig):
+    r = rig()
+    r.store.put("actors", discord_actor(events=("discord.reaction.added",)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
 
 
 def test_fence_disconnects_before_the_lease_can_lapse(rig):
