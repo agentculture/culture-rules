@@ -5,6 +5,14 @@ A Discord ``app`` actor (``params.surface == "discord"``) that declares
 Added reactions are raised from the raw event as ``discord.reaction.added`` (delivery id
 ``actor:message:user:emoji``) and sunk only when the actor declares that type too; they go
 through the same channel selection as messages.
+An actor that declares ``discord.command.invoked`` also gets the ``/save`` and ``Save to
+library`` guild commands (:mod:`culture_rules.apps.discord_commands`), registered by the lease
+holder through a discord.py ``CommandTree`` (synced only when the definition hash changes, so
+a reconnect does not sync again). An invocation is acknowledged with an ephemeral deferral
+first, then its token is kept apart (``discord_interactions``, keyed by the event id) and the
+event - without the token - is sunk (delivery id ``actor:interaction:<interaction id>``),
+through the same channel selection. An invocation whose event is not written (an unselected
+channel) gets no reply: the deferral stays "thinking" until Discord times it out.
 Every engine node runs a :class:`GatewaySupervisor` from a stage of its cycle
 (:meth:`~culture_rules.node.daemon.Node.run_once`, right after the probe stage); the
 supervisors coordinate through a mesh-wide :class:`~culture_rules.engine.named_lease.NamedLease`
@@ -73,15 +81,23 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from culture_rules.actors import secrets
+from culture_rules.apps import discord_commands as commands_mod
 from culture_rules.apps.discord_rest import guild_ids
 from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, LeaseKeeper
 from culture_rules.engine.named_lease import NamedLease
-from culture_rules.events.hook_sink import ensure_discord_event_ttl, sink
+from culture_rules.events.hook_sink import (
+    ACCEPTED,
+    DUPLICATE,
+    ensure_discord_event_ttl,
+    event_id_for,
+    sink,
+)
 from culture_rules.model.discord_filters import discord_channels, filter_values
 from culture_rules.model.rule import Rule
 
 __all__ = [
     "ACTORS_COLLECTION",
+    "COMMAND_EVENT",
     "GATEWAY_EVENT",
     "LEASE_PREFIX",
     "LISTENED_EVENTS",
@@ -90,10 +106,12 @@ __all__ = [
     "Gateway",
     "GatewayOptions",
     "GatewaySupervisor",
+    "build_command_tree",
     "gateway_intents",
     "message_data",
     "reaction_data",
     "selected_channels",
+    "sync_commands",
 ]
 
 log = logging.getLogger("culture_rules.apps.discord_gateway")
@@ -103,8 +121,9 @@ RULES_COLLECTION = "rules"
 DISCORD_TYPE_PREFIX = "discord."
 GATEWAY_EVENT = "discord.message.created"
 REACTION_EVENT = "discord.reaction.added"
-LISTENED_EVENTS = (GATEWAY_EVENT, REACTION_EVENT)
-"""Declaring either in ``params.events`` makes an app actor listen over the Gateway."""
+COMMAND_EVENT = "discord.command.invoked"
+LISTENED_EVENTS = (GATEWAY_EVENT, REACTION_EVENT, COMMAND_EVENT)
+"""Declaring any of them in ``params.events`` makes an app actor listen over the Gateway."""
 LEASE_PREFIX = "discord-gateway:"
 MAX_CONTENT = 2000
 """Longest ``data.content`` carried on an event (Discord's own message limit)."""
@@ -126,6 +145,7 @@ class Gateway(Protocol):
         on_message: OnMessage,
         should_stop: Callable[[], bool],
         on_reaction: OnReaction | None = None,
+        commands: commands_mod.CommandRegistration | None = None,
     ) -> None:
         """Connect and call ``on_message`` with each created message (a mapping with ``id``,
         ``guild_id``, ``channel_id``, ``author_id``, ``author_name``, ``bot``, ``content``,
@@ -133,8 +153,10 @@ class Gateway(Protocol):
         (``message_id``, ``guild_id``, ``channel_id``, ``user_id``, ``username``,
         ``user_roles``, ``bot``, ``emoji_name``, ``emoji_id``; raised from the raw event, so
         the message need not be cached) until ``should_stop()`` is true - then disconnect and
-        return. Raise (or return) when the connection is lost for good; the supervisor
-        reconnects."""
+        return. With ``commands``, register the commands in each of its guilds whose
+        ``needs_sync`` is true (then call ``synced``) once per connect, and hand each invocation
+        to ``commands.invoke`` after deferring it ephemerally. Raise (or return) when the
+        connection is lost for good; the supervisor reconnects."""
 
 
 def gateway_intents() -> Any:
@@ -192,6 +214,132 @@ def _reaction_dict(payload: Any) -> dict[str, Any]:
     }
 
 
+def _interaction_dict(
+    interaction: Any,
+    registration: commands_mod.CommandRegistration,
+    *,
+    command: str,
+    command_type: str,
+    options: Mapping[str, Any],
+    target_message_id: str | None,
+    target_channel_id: str | None,
+) -> dict[str, Any]:
+    """One invocation as a plain mapping (token included: the supervisor keeps it apart)."""
+    user = getattr(interaction, "user", None)
+    guild_id = getattr(interaction, "guild_id", None)
+    channel_id = getattr(interaction, "channel_id", None)
+    app_id = getattr(interaction, "application_id", None)
+    return {
+        "interaction_id": str(interaction.id),
+        "application_id": str(app_id) if app_id is not None else registration.application_id,
+        "token": interaction.token,
+        "command": command,
+        "command_type": command_type,
+        "options": dict(options),
+        "target_message_id": target_message_id,
+        "target_channel_id": target_channel_id,
+        "user_id": None if user is None else str(user.id),
+        "username": str(getattr(user, "name", "") or ""),
+        "user_roles": _role_ids(user),
+        "bot": bool(getattr(user, "bot", False)),
+        "channel_id": None if channel_id is None else str(channel_id),
+        "guild_id": None if guild_id is None else str(guild_id),
+    }
+
+
+def _definition(registration: commands_mod.CommandRegistration, type_: int) -> Mapping[str, Any]:
+    return next(d for d in registration.definitions if d["type"] == type_)
+
+
+def build_command_tree(client: Any, registration: commands_mod.CommandRegistration) -> Any:
+    """A discord.py ``CommandTree`` on ``client`` holding the ``/save`` and ``Save to library``
+    commands in each guild of ``registration``. Each callback defers the interaction
+    (ephemeral, "thinking") *before* handing it to ``registration.invoke``."""
+    import asyncio  # noqa: PLC0415
+    from typing import Optional  # noqa: PLC0415
+
+    import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
+    from discord import app_commands  # noqa: PLC0415
+
+    slash = _definition(registration, commands_mod.CHAT_INPUT)
+    menu = _definition(registration, commands_mod.MESSAGE)
+    (option,) = slash["options"]
+    if option["name"] != "message":  # the callback's parameter is the option's name
+        raise ValueError("the /save option must be named 'message'")
+
+    async def hand_over(interaction: Any, raw: dict[str, Any]) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)  # within Discord's 3 s
+        await asyncio.to_thread(registration.invoke, raw)
+
+    async def save(interaction, message=None):  # annotated below, for discord.py
+        channel, target = commands_mod.parse_message_ref(message)
+        raw = _interaction_dict(
+            interaction,
+            registration,
+            command=slash["name"],
+            command_type="slash",
+            options={} if message is None else {option["name"]: message},
+            target_message_id=target,
+            target_channel_id=channel or (None if target is None else _channel(interaction)),
+        )
+        await hand_over(interaction, raw)
+
+    async def save_message(interaction, message):  # annotated below, for discord.py
+        raw = _interaction_dict(
+            interaction,
+            registration,
+            command=menu["name"],
+            command_type="message",
+            options={},
+            target_message_id=str(message.id),
+            target_channel_id=str(message.channel.id),
+        )
+        await hand_over(interaction, raw)
+
+    # real classes, not strings: discord.py introspects the callbacks' annotations
+    save.__annotations__ = {"interaction": discord.Interaction, "message": Optional[str]}
+    save_message.__annotations__ = {"interaction": discord.Interaction, "message": discord.Message}
+    save = app_commands.describe(message=option["description"])(save)
+
+    tree = app_commands.CommandTree(client)
+    guilds = [discord.Object(int(g)) for g in registration.guild_ids]
+    tree.add_command(
+        app_commands.Command(name=slash["name"], description=slash["description"], callback=save),
+        guilds=guilds,
+    )
+    tree.add_command(
+        app_commands.ContextMenu(name=menu["name"], callback=save_message), guilds=guilds
+    )
+    return tree
+
+
+def _channel(interaction: Any) -> str | None:
+    channel_id = getattr(interaction, "channel_id", None)
+    return None if channel_id is None else str(channel_id)
+
+
+async def sync_commands(tree: Any, registration: commands_mod.CommandRegistration) -> None:
+    """Sync the tree to each guild whose definition hash changed; a failure is logged (by
+    exception type) and not recorded, so the next connect tries again."""
+    import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
+
+    actor_id = registration.actor_id
+    for guild in registration.guild_ids:
+        try:
+            if not registration.needs_sync(guild):
+                continue
+            await tree.sync(guild=discord.Object(int(guild)))
+            registration.synced(guild)
+            log.info("discord gateway %s: commands synced to guild %s", actor_id, guild)
+        except Exception as exc:  # noqa: BLE001 - the listener keeps running without commands
+            log.warning(
+                "discord gateway %s: syncing commands to guild %s failed (%s)",
+                actor_id,
+                guild,
+                type(exc).__name__,
+            )
+
+
 class DiscordPyGateway:
     """The production :class:`Gateway`: a discord.py ``Client`` on its own event loop.
 
@@ -228,6 +376,7 @@ class DiscordPyGateway:
         on_message: OnMessage,
         should_stop: Callable[[], bool],
         on_reaction: OnReaction | None = None,
+        commands: commands_mod.CommandRegistration | None = None,
     ) -> None:
         import asyncio  # noqa: PLC0415
 
@@ -237,7 +386,18 @@ class DiscordPyGateway:
         poll = self._poll
 
         async def main() -> None:
-            client = discord.Client(intents=intents)
+            if commands is None:
+                client = discord.Client(intents=intents)
+            else:
+                client = discord.Client(
+                    intents=intents, application_id=int(commands.application_id)
+                )
+                tree = build_command_tree(client, commands)
+
+                async def setup_hook() -> None:  # once per connect, after login
+                    await sync_commands(tree, commands)
+
+                client.setup_hook = setup_hook
 
             async def on_message_event(msg: Any) -> None:
                 await asyncio.to_thread(on_message, _message_dict(msg))
@@ -418,14 +578,14 @@ class GatewaySupervisor:
         self._sessions: dict[str, _Session] = {}
         self._stragglers: list[threading.Thread] = []
         self._warned: set[str] = set()
+        self._command_warned: set[tuple[str, str]] = set()
         self._unavailable_logged = False
         self._selection: frozenset[str] | None = frozenset()  # nothing until the first tick
-        try:
-            ensure_discord_event_ttl(store)
-        except Exception as exc:  # noqa: BLE001 - a missing index must not stop the node
-            log.warning(
-                "discord gateway: ensuring the event TTL index failed (%s)", type(exc).__name__
-            )
+        for ensure in (ensure_discord_event_ttl, commands_mod.ensure_interaction_ttl):
+            try:
+                ensure(store)
+            except Exception as exc:  # noqa: BLE001 - a missing index must not stop the node
+                log.warning("discord gateway: ensuring a TTL index failed (%s)", type(exc).__name__)
 
     # ------------------------------------------------------------------ cycle
 
@@ -643,6 +803,7 @@ class GatewaySupervisor:
                         lambda msg: self._on_message(session, msg),
                         should_stop,
                         lambda rx: self._on_reaction(session, rx),
+                        commands=self._registration(session),
                     )
                     failures = 0
                 except Exception as exc:  # noqa: BLE001 - reconnect; the type only is logged
@@ -658,6 +819,44 @@ class GatewaySupervisor:
             if should_stop():
                 break
             stop.wait(self._backoff(failures))
+
+    def _warn_commands_once(self, actor_id: str, missing: str) -> None:
+        if (actor_id, missing) not in self._command_warned:
+            self._command_warned.add((actor_id, missing))
+            log.warning(
+                "discord gateway %s: discord.command.invoked is declared but "
+                "connection.%s is unset or not an id; commands are not registered",
+                actor_id,
+                missing,
+            )
+
+    def _registration(self, session: _Session) -> commands_mod.CommandRegistration | None:
+        """The commands to register on this connect: only for an actor declaring
+        ``discord.command.invoked`` with ``connection.application_id`` and ``guild_id`` set
+        (a missing or non-numeric one is logged once)."""
+        params, connection = _view(session.snapshot())
+        if COMMAND_EVENT not in (params.get("events") or ()):
+            return None
+        app_id = str(connection.get("application_id") or "").strip()
+        if not app_id.isdigit():  # unset, or not an id discord.py can take
+            self._warn_commands_once(session.actor_id, "application_id")
+            return None
+        guilds = frozenset(g for g in guild_ids(connection.get("guild_id")) or () if g.isdigit())
+        if not guilds:
+            self._warn_commands_once(session.actor_id, "guild_id")
+            return None
+        actor_id = session.actor_id
+        digest = commands_mod.definition_hash(app_id)
+        return commands_mod.CommandRegistration(
+            actor_id=actor_id,
+            application_id=app_id,
+            guild_ids=tuple(sorted(guilds)),
+            invoke=lambda raw: self._on_command(session, raw),
+            needs_sync=lambda g: commands_mod.sync_needed(self._store, actor_id, g, digest),
+            synced=lambda g: commands_mod.record_sync(
+                self._store, actor_id, g, digest, now=self._clock()
+            ),
+        )
 
     def _backoff(self, failures: int) -> float:
         opts = self._options
@@ -680,20 +879,79 @@ class GatewaySupervisor:
             delivery = f"{session.actor_id}:{data['message_id']}:{data['user_id']}:{emoji}"
             self._deliver(session, REACTION_EVENT, data, delivery)
 
-    def _deliver(
-        self, session: _Session, event_type: str, data: dict[str, Any], delivery_id: str
-    ) -> None:
-        """Sink one event if its channel is selected and the actor's filters admit it."""
-        doc = session.snapshot()
-        _, connection = _view(doc)
+    def _on_command(self, session: _Session, raw: Mapping[str, Any]) -> None:
+        """Keep the invocation's token apart (keyed by the event id), then sink the event
+        without it; the token is dropped again when the event is not written."""
+        raw = dict(raw)
+        token = raw.pop("token", None)
+        app_id = raw.pop("application_id", None)
+        data = commands_mod.command_data(raw)
+        if not data["interaction_id"]:
+            return
+        delivery = f"{session.actor_id}:interaction:{data['interaction_id']}"
+        event_id = event_id_for("discord", delivery)
+        kept = False
+
+        def keep() -> None:
+            nonlocal kept
+            if not isinstance(token, str) or not token:
+                return
+            try:
+                commands_mod.remember_interaction(
+                    self._store,
+                    event_id,
+                    token,
+                    str(app_id or ""),
+                    session.actor_id,
+                    now=self._clock(),
+                )
+                kept = True
+            except Exception as exc:  # noqa: BLE001 - the event still lands; no reply then
+                log.warning(
+                    "discord gateway %s: keeping an interaction token failed (%s)",
+                    session.actor_id,
+                    type(exc).__name__,
+                )
+
+        outcome = self._deliver(session, COMMAND_EVENT, data, delivery, before_sink=keep)
+        if kept and outcome not in (ACCEPTED, DUPLICATE):
+            try:
+                commands_mod.forget_interaction(self._store, event_id)
+            except Exception as exc:  # noqa: BLE001 - the TTL index deletes it anyway
+                log.warning(
+                    "discord gateway %s: dropping an interaction token failed (%s)",
+                    session.actor_id,
+                    type(exc).__name__,
+                )
+
+    def _admitted(self, connection: Mapping[str, Any], data: Mapping[str, Any]) -> bool:
+        """Whether the channel is selected and the actor's channel and guild filters admit it."""
         if not self._selected(data["channel_id"]):
-            return  # no enabled discord.* rule selects this channel: never written
+            return False  # no enabled discord.* rule selects this channel: never written
         channels = filter_values(connection.get("channels"))  # a bare id is one channel
         if channels and data["channel_id"] not in channels:
-            return
+            return False
         guilds = guild_ids(connection.get("guild_id"))
-        if guilds is not None and data["guild_id"] is not None and data["guild_id"] not in guilds:
-            return
+        return guilds is None or data["guild_id"] is None or data["guild_id"] in guilds
+
+    def _deliver(
+        self,
+        session: _Session,
+        event_type: str,
+        data: dict[str, Any],
+        delivery_id: str,
+        *,
+        before_sink: Callable[[], None] | None = None,
+    ) -> str | None:
+        """Sink one event if its channel is selected and the actor's filters admit it; the
+        sink's outcome, or ``None`` when it was not admitted or every attempt failed.
+        ``before_sink`` runs once, after admission and before the first write."""
+        doc = session.snapshot()
+        _, connection = _view(doc)
+        if not self._admitted(connection, data):
+            return None
+        if before_sink is not None:
+            before_sink()
         author = data["author_name"] or data["author_id"]
         now = time.monotonic()
         if session.stamped_at is None or now - session.stamped_at >= _EVENT_STAMP_EVERY_S:
@@ -701,8 +959,9 @@ class GatewaySupervisor:
             self._state(session, last_event_at=self._clock().isoformat())
         for attempt in range(1, _SINK_ATTEMPTS + 1):
             try:
-                sink(self._store, doc, event_type, data, delivery_id=delivery_id, author=author)
-                return
+                return sink(
+                    self._store, doc, event_type, data, delivery_id=delivery_id, author=author
+                )
             except Exception as exc:  # noqa: BLE001 - retried then dropped (type logged)
                 log.warning(
                     "discord gateway %s: writing an event failed (%s), attempt %d",
@@ -711,3 +970,4 @@ class GatewaySupervisor:
                     attempt,
                 )
                 time.sleep(0.05 * attempt)
+        return None
