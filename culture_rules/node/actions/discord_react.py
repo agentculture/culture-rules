@@ -5,7 +5,8 @@ actor's own bot token (``connection.bot_token``, a ``grant:NAME`` reference reso
 time). The input is ``channel`` and ``message`` (numeric ids) and ``emoji``: a unicode emoji
 as is, or a custom one as ``name:id``. ``connection.channels`` restricts the channels as
 :class:`~culture_rules.node.actions.discord_read.DiscordReadAction` does (unset or empty means
-every channel). A 429 is waited out by :class:`DiscordClient`. Reacting twice with the same
+every channel), and ``connection.guild_id`` (one id or a list) confines it to those servers:
+the channel's server is looked up first and a channel elsewhere is refused. A 429 is waited out by :class:`DiscordClient`. Reacting twice with the same
 emoji changes nothing, so the action is safe to retry. The token is never logged or echoed.
 """
 
@@ -18,7 +19,7 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport
+from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport, guild_ids
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.actions.discord_read import DiscordReadAction, _fail, _nonempty
 
@@ -77,8 +78,13 @@ class DiscordReactAction(DiscordReadAction):
         kwargs: dict[str, Any] = {"transport": self._transport, "sleep": self._sleep}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        guilds = guild_ids(connection.get("guild_id"))
         try:
-            out = DiscordClient(token, **kwargs).add_reaction(channel, message, emoji)
+            client = DiscordClient(token, **kwargs)
+            if guilds is not None and client.channel_guild(channel) not in guilds:
+                # guild_id confines reactions as it does reads and the gateway
+                return _fail(f"channel {channel!r} is not in actor {actor_id!r} guilds (guild_id)")
+            out = client.add_reaction(channel, message, emoji)
         except DiscordError as exc:
             log.warning("discord react on %s/%s failed: %s", channel, message, exc)
             return InvocationResult.failed(str(exc), retryable=exc.retryable)

@@ -11,8 +11,9 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-CUSTOM_EMOJI_RE = re.compile(r"^[^:\s]+:[0-9]+$")
-"""A custom emoji written ``name:id`` (an ``emoji`` filter value holding a colon)."""
+CUSTOM_EMOJI_RE = re.compile(r"^\w{2,32}:\d{1,25}$")
+"""A server's custom emoji written ``name:id`` (Discord's 2-32 character name and its id): one
+grammar for the ``emoji`` trigger filter and ``discord.react``."""
 
 __all__ = ["CUSTOM_EMOJI_RE", "discord_channels", "emoji_admits", "filter_values"]
 

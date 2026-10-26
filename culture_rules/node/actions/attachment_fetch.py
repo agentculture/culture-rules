@@ -348,9 +348,12 @@ class AttachmentFetchPort:
             raise _Skip("too_large")
         fd, tmp = tempfile.mkstemp(dir=root, prefix=".attachment.", suffix=".part")
         try:
-            with os.fdopen(fd, "wb") as out:
-                sha256, size = self._stream(response, out)
-            return sha256, size, _place(tmp, root / f"{sha256}.{fmt}")
+            try:
+                with os.fdopen(fd, "wb") as out:
+                    sha256, size = self._stream(response, out)
+                return sha256, size, _place(tmp, root / f"{sha256}.{fmt}")
+            except OSError as exc:  # a full disk, a file racing away: transient, classified
+                raise _StepFailed(f"write_failed: {type(exc).__name__}") from exc
         except BaseException:
             with contextlib.suppress(OSError):
                 os.unlink(tmp)
@@ -379,8 +382,12 @@ def _place(tmp: str, target: Path) -> Path:
     if os.path.lexists(target):
         if target.is_symlink() or not target.is_file():
             raise _PathRefused(f"{target.name} exists and is not a regular file")
+        try:
+            os.utime(target)
+        except FileNotFoundError:  # removed meanwhile (retention): place ours instead
+            os.replace(tmp, target)
+            return target
         os.unlink(tmp)
-        os.utime(target)
         return target
     os.replace(tmp, target)
     return target
