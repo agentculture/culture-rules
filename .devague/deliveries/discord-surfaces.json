@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-25T23:25:19Z",
+  "updated": "2026-10-26T17:03:49Z",
   "deviations": [
     {
       "id": "d1",
@@ -84,7 +84,711 @@
       "seq": 6
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/apps/test_discord_gateway.py::test_two_actors_sinking_the_same_message_record_two_events",
+      "behavior_text": "asserts the same message sunk by two actors gives two events, one per actor",
+      "contract_text": "Each bot records its own event for the same message: event_id_for(surface, delivery_id) in events/hook_sink.py:99 hashes only the message id, so when both bots sit in one server the second sink is a duplicate and the event is owned by whichever bot wrote first (source, data.actor and self_authored become order-dependent); the event id must include the actor id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_discord_stage.py::test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing",
+      "behavior_text": "asserts two actors hold two leases and record two events for one message",
+      "contract_text": "Each bot records its own event for the same message: event_id_for(surface, delivery_id) in events/hook_sink.py:99 hashes only the message id, so when both bots sit in one server the second sink is a duplicate and the event is owned by whichever bot wrote first (source, data.actor and self_authored become order-dependent); the event id must include the actor id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o2",
+      "test_ref": "tests/apps/test_discord_gateway.py::test_one_actors_redelivery_of_a_message_is_a_duplicate",
+      "behavior_text": "asserts a redelivery by the same actor is a duplicate",
+      "contract_text": "The per-actor event id changes only Discord's ids: github.py:363 checks redelivery with event_id_for(SURFACE, delivery), so the gateway passes an actor-scoped delivery id (e.g. `<actor>:<message id>`) instead of changing event_id_for; old Discord events keep their ids, and at most a message redelivered across the upgrade lands twice",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o3",
+      "test_ref": "tests/engine/test_discord_trigger_filters.py::test_bot_blocked_unless_include_bots",
+      "behavior_text": "asserts a bot-authored event matches only with include_bots true",
+      "contract_text": "Bot-to-bot loops are prevented: the gateway records data.bot but never filters it, and self_authored only matches the actor's own self_identity, so Culture.dev's posts fire jetson-bot rules and vice versa; another bot's messages are skipped by default unless a rule opts in (like include_self)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_discord_stage.py::test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing",
+      "behavior_text": "asserts one bot's posts do not fire the other bot's rule",
+      "contract_text": "Bot-to-bot loops are prevented: the gateway records data.bot but never filters it, and self_authored only matches the actor's own self_identity, so Culture.dev's posts fire jetson-bot rules and vice versa; another bot's messages are skipped by default unless a rule opts in (like include_self)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o4",
+      "test_ref": "tests/engine/test_discord_trigger_filters.py::test_channels_filter",
+      "behavior_text": "asserts the channels filter admits only listed channel ids",
+      "contract_text": "A flow chooses its channels: opt-in channels or 'all' the bot can see, per flow (a trigger/step setting picked from /actors/{id}/discord/targets), independent of the actor-level connection.channels allow-list, which also limits posting",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o4",
+      "test_ref": "tests/engine/test_discord_trigger_filters.py::test_channels_all_and_empty_still_admit_every_channel",
+      "behavior_text": "asserts channels all or empty admits every channel",
+      "contract_text": "A flow chooses its channels: opt-in channels or 'all' the bot can see, per flow (a trigger/step setting picked from /actors/{id}/discord/targets), independent of the actor-level connection.channels allow-list, which also limits posting",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o4",
+      "test_ref": "tests/apps/test_discord_gateway.py::test_a_channel_no_rule_selects_is_never_written",
+      "behavior_text": "asserts a channel no enabled rule selects is never written",
+      "contract_text": "A flow chooses its channels: opt-in channels or 'all' the bot can see, per flow (a trigger/step setting picked from /actors/{id}/discord/targets), independent of the actor-level connection.channels allow-list, which also limits posting",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o4",
+      "test_ref": "tests/apps/test_discord_gateway.py::test_the_actor_allow_list_still_applies_inside_the_selection",
+      "behavior_text": "asserts the actor's connection.channels still limits inside the selection",
+      "contract_text": "A flow chooses its channels: opt-in channels or 'all' the bot can see, per flow (a trigger/step setting picked from /actors/{id}/discord/targets), independent of the actor-level connection.channels allow-list, which also limits posting",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o5",
+      "test_ref": "tests/engine/test_discord_trigger_filters.py::test_users_filter_ids_or_names_case_insensitive",
+      "behavior_text": "asserts users matches ids or usernames case-insensitively",
+      "contract_text": "A save flow carries a who filter: unset means anyone; users lists Discord user ids or usernames; roles lists role ids, and a role the server lets members self-assign is the opt-in; reaction and command events carry the acting user's id, username and role ids so the condition can check them. Discord does not expose members' emails to bots, so users are matched by id or username, not email",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o5",
+      "test_ref": "tests/engine/test_discord_trigger_filters.py::test_users_or_roles_either_admits",
+      "behavior_text": "asserts users and roles together admit either",
+      "contract_text": "A save flow carries a who filter: unset means anyone; users lists Discord user ids or usernames; roles lists role ids, and a role the server lets members self-assign is the opt-in; reaction and command events carry the acting user's id, username and role ids so the condition can check them. Discord does not expose members' emails to bots, so users are matched by id or username, not email",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o5",
+      "test_ref": "tests/engine/test_discord_trigger_filters.py::test_roles_filter",
+      "behavior_text": "asserts roles match data.user_roles (message events carry none yet: Release 2)",
+      "contract_text": "A save flow carries a who filter: unset means anyone; users lists Discord user ids or usernames; roles lists role ids, and a role the server lets members self-assign is the opt-in; reaction and command events carry the acting user's id, username and role ids so the condition can check them. Discord does not expose members' emails to bots, so users are matched by id or username, not email",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o6",
+      "test_ref": "tests/apps/test_discord_gateway.py::test_a_guild_id_list_takes_messages_from_each_listed_guild",
+      "behavior_text": "asserts a guild id list takes messages from each listed guild",
+      "contract_text": "One actor per bot, not per server: jetson-bot is one actor spanning both servers, because two actors on one token would open two gateway sessions that each receive every message; connection.guild_id becomes a list (or stays unset for every server the bot is in) in the gateway filter, server/app.py:1007, discord_rest.list_targets and web app-config.ts:86",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o6",
+      "test_ref": "tests/apps/test_discord_rest.py::test_list_targets_accepts_a_list_of_guild_ids",
+      "behavior_text": "asserts targets lists channels for each listed guild",
+      "contract_text": "One actor per bot, not per server: jetson-bot is one actor spanning both servers, because two actors on one token would open two gateway sessions that each receive every message; connection.guild_id becomes a list (or stays unset for every server the bot is in) in the gateway filter, server/app.py:1007, discord_rest.list_targets and web app-config.ts:86",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o7",
+      "test_ref": "tests/events/test_hook_sink.py::test_a_discord_event_carries_an_expiry_date_30_days_on",
+      "behavior_text": "asserts a Discord event carries expires_at 30 days on",
+      "contract_text": "Discord message content stored in the events collection expires: today every gateway message is sunk as a plaintext event with no TTL (only handoffs and quarantine carry TTL indexes), and jetson-bot would add every message of a ~120-channel community server; Discord events get a retention (TTL on a date field, e.g. 30 days) and channels outside every flow's selection are not sunk at all",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o7",
+      "test_ref": "tests/events/test_hook_sink.py::test_non_discord_events_never_expire",
+      "behavior_text": "asserts non-Discord events carry no expiry",
+      "contract_text": "Discord message content stored in the events collection expires: today every gateway message is sunk as a plaintext event with no TTL (only handoffs and quarantine carry TTL indexes), and jetson-bot would add every message of a ~120-channel community server; Discord events get a retention (TTL on a date field, e.g. 30 days) and channels outside every flow's selection are not sunk at all",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o7",
+      "test_ref": "tests/events/test_hook_sink_mongo.py::test_discord_events_get_a_ttl_index_and_a_date_others_do_not",
+      "behavior_text": "asserts on a real mongod that the TTL index exists and only Discord events are dated",
+      "contract_text": "Discord message content stored in the events collection expires: today every gateway message is sunk as a plaintext event with no TTL (only handoffs and quarantine carry TTL indexes), and jetson-bot would add every message of a ~120-channel community server; Discord events get a retention (TTL on a date field, e.g. 30 days) and channels outside every flow's selection are not sunk at all",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o8",
+      "test_ref": "tests/node/test_discord_stage.py::test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing",
+      "behavior_text": "asserts two sessions, two leases, two events and no cross-bot firing",
+      "contract_text": "Tests cover two Discord actors: two sessions and two leases, both bots seeing one message (two events), and one bot not firing on the other's posts; today every gateway test uses a single discord_actor()",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o9",
+      "test_ref": "tests/node/test_markdown_render.py::test_discord_event_through_render_into_library_push_dedupes",
+      "behavior_text": "asserts a Discord event renders and pushes one library item",
+      "contract_text": "A Discord message can become a library item: library.push takes only content_base64 (action_kinds.py library.push) and no builtin turns trigger text into base64, so a step composes Markdown from the message (content, author_name, channel, url, message id) and outputs content_base64 for library.push with format md",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o9",
+      "test_ref": "tests/rules/test_discord_library_bundle.py::test_a_message_becomes_one_private_discord_message_item",
+      "behavior_text": "asserts the shipped bundle files a message as one private discord-message item",
+      "contract_text": "A Discord message can become a library item: library.push takes only content_base64 (action_kinds.py library.push) and no builtin turns trigger text into base64, so a step composes Markdown from the message (content, author_name, channel, url, message id) and outputs content_base64 for library.push with format md",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o9",
+      "test_ref": "live: run-3f447a9aac568caa6b12ee3ba1235a60",
+      "behavior_text": "observed the operator's #spark-tests message filed as library item 72 (kind discord-message, private, md, created true) on 0.30.0 with the live config (delta b2)",
+      "contract_text": "A Discord message can become a library item: library.push takes only content_base64 (action_kinds.py library.push) and no builtin turns trigger text into base64, so a step composes Markdown from the message (content, author_name, channel, url, message id) and outputs content_base64 for library.push with format md",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live run on the production mesh; item read back from culture-library's api_keys/items tables",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "a2fc8b1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o10",
+      "test_ref": "tests/node/test_markdown_render.py::test_same_inputs_are_byte_identical",
+      "behavior_text": "asserts the same inputs render byte-identical Markdown",
+      "contract_text": "Saving is idempotent: the rendered Markdown is deterministic from the message (message id and url in the body, no save time), so the same message saved by two gestures, two users or a rerun produces one item (library sha256 dedupe, created: false); attachments dedupe by their bytes",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o10",
+      "test_ref": "tests/rules/test_discord_library_bundle.py::test_the_same_message_again_files_no_second_item",
+      "behavior_text": "asserts the bundle's second run of one message reports created false on the same item",
+      "contract_text": "Saving is idempotent: the rendered Markdown is deterministic from the message (message id and url in the body, no save time), so the same message saved by two gestures, two users or a rerun produces one item (library sha256 dedupe, created: false); attachments dedupe by their bytes",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o10",
+      "test_ref": "live: run-095cdaa3be5c4d4aa04ec1060c21028e",
+      "behavior_text": "observed a hand re-run of message 1564044927053340744 return item 72 created false (delta b2)",
+      "contract_text": "Saving is idempotent: the rendered Markdown is deterministic from the message (message id and url in the body, no save time), so the same message saved by two gestures, two users or a rerun produces one item (library sha256 dedupe, created: false); attachments dedupe by their bytes",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live re-run on the production mesh",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "a2fc8b1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o11",
+      "test_ref": "tests/apps/test_discord_rest.py::test_get_retries_429_after_retry_after_then_succeeds",
+      "behavior_text": "asserts a 429 is retried after retry_after",
+      "contract_text": "REST reads (message fetch, history sweep, targets) honour Discord 429 retry_after and are bounded per run (pages and channels), and the saved text comes from the REST message, so a message longer than the event's 2000-character cut (Nitro allows 4000) is saved whole",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o11",
+      "test_ref": "tests/apps/test_discord_rest.py::test_get_429_exhausted_raises_retryable_and_caps_wait",
+      "behavior_text": "asserts retries are capped and the wait bounded",
+      "contract_text": "REST reads (message fetch, history sweep, targets) honour Discord 429 retry_after and are bounded per run (pages and channels), and the saved text comes from the REST message, so a message longer than the event's 2000-character cut (Nitro allows 4000) is saved whole",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o11",
+      "test_ref": "tests/apps/test_discord_rest.py::test_history_respects_limit_and_page_cap",
+      "behavior_text": "asserts history reads are bounded by limit and pages",
+      "contract_text": "REST reads (message fetch, history sweep, targets) honour Discord 429 retry_after and are bounded per run (pages and channels), and the saved text comes from the REST message, so a message longer than the event's 2000-character cut (Nitro allows 4000) is saved whole",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o11",
+      "test_ref": "tests/node/test_discord_read.py::test_reads_message_fields_and_attachments_with_the_actors_token",
+      "behavior_text": "asserts a 5000-character message is read whole",
+      "contract_text": "REST reads (message fetch, history sweep, targets) honour Discord 429 retry_after and are bounded per run (pages and channels), and the saved text comes from the REST message, so a message longer than the event's 2000-character cut (Nitro allows 4000) is saved whole",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o12",
+      "test_ref": "tests/node/test_discord_wiring.py::test_discord_read_is_a_catalogued_action_kind",
+      "behavior_text": "asserts discord.read is catalogued",
+      "contract_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o12",
+      "test_ref": "tests/node/test_discord_wiring.py::test_discord_read_and_markdown_render_have_words",
+      "behavior_text": "asserts describe phrases exist for both",
+      "contract_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 36
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o12",
+      "test_ref": "tests/node/test_discord_wiring.py::test_the_node_registers_discord_read_and_markdown_render",
+      "behavior_text": "asserts the node registers both",
+      "contract_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o12",
+      "test_ref": "web/src/rules/TriggerPicker.discord.test.tsx + ActionPicker.discord.test.tsx",
+      "behavior_text": "asserts the editor's channel picker and the discord.read action picker (vitest, 48 passed)",
+      "contract_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e33",
+      "obligation_ref": "o13",
+      "test_ref": "tests/node/test_library_push.py::test_without_visibilities_a_push_without_visibility_still_works",
+      "behavior_text": "asserts a push with no visibility sends none (the library defaults private)",
+      "contract_text": "Discord content lands private by default: when a library.push step names no visibility none is sent and culture-library stores the item private (library.py sends visibility only when given; library core defaults private); no Discord flow, example bundle or editor default sets public, since the Jetson AI Lab server is community content",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 39
+    },
+    {
+      "id": "e34",
+      "obligation_ref": "o13",
+      "test_ref": "tests/rules/test_discord_library_bundle.py::test_the_push_files_a_private_markdown_discord_message",
+      "behavior_text": "asserts the shipped bundle pushes visibility private",
+      "contract_text": "Discord content lands private by default: when a library.push step names no visibility none is sent and culture-library stores the item private (library.py sends visibility only when given; library core defaults private); no Discord flow, example bundle or editor default sets public, since the Jetson AI Lab server is community content",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 40
+    },
+    {
+      "id": "e35",
+      "obligation_ref": "o14",
+      "test_ref": "tests/rules/test_discord_library_bundle.py::test_it_imports_disabled_with_the_placeholder_channel",
+      "behavior_text": "asserts the committed bundle imports disabled with a placeholder channel",
+      "contract_text": "The library automations themselves (which channel, which kind and visibility) are configured live in the store, not committed; only the generic step and, at most, a disabled example bundle are committed",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "632a822"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 41
+    },
+    {
+      "id": "e36",
+      "obligation_ref": "o15",
+      "test_ref": "live: run-2c77aee79f2c472da6493d372d69876d",
+      "behavior_text": "observed jetson-bot post the 2026-10-25 newspaper as 4 messages to #bot-experimentations (delta b1); posting only, listening not enabled",
+      "contract_text": "A second Discord app actor (jetson-bot) works with no engine change: GatewaySupervisor keys sessions by actor id with lease `discord-gateway:<actor id>`, each actor resolves its own `grant:<NAME>` bot token, discord.message resolves params.actor, and /actors/{id}/discord/targets and ops/health gateways() are per actor; the work is a new grant secret, its injection on the listening node and API, th",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live run read back from the channel; operator confirmed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "a2fc8b1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 42
+    },
+    {
+      "id": "e37",
+      "obligation_ref": "o16",
+      "test_ref": "live: library key 10 + actor newspaper-library",
+      "behavior_text": "observed key 10 (kinds newspaper,transcript,todo,discord-message, private) hash-matched across grant, the spark node env and api_keys; the actor lists discord-message and md; item 72 accepted (delta b2)",
+      "contract_text": "The live library actor and key accept what Discord flows push: newspaper-library's kinds are newspaper, transcript, todo and formats epub, md, so the kind for Discord items (document or article) and the format pdf are added to the actor and to the culture-library key's kind list (config, at rollout)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "hash comparison and live push on the production mesh",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T23:34:15",
+        "commit": "a2fc8b1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 43
+    }
+  ],
   "deltas": [
     {
       "id": "b1",
