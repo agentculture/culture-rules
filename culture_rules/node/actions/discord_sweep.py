@@ -174,7 +174,7 @@ class DiscordSweepAction(DiscordReadAction):
             return InvocationResult.failed(str(exc), retryable=True)
         try:
             return InvocationResult.completed(
-                self._read(token, connection, actor_id, sweep, cursor)
+                self._sweep(token, connection, actor_id, sweep, cursor)
             )
         except _Refused as exc:
             return _fail(str(exc))
@@ -188,7 +188,7 @@ class DiscordSweepAction(DiscordReadAction):
             raise _Refused(f"bad_cursor: stored cursor {key!r} is not a message id")
         return cursor
 
-    def _read(
+    def _sweep(
         self,
         token: str,
         connection: Mapping[str, Any],
