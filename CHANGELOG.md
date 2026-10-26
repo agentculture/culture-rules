@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.2] - 2026-10-26
+
+### Added
+
+- Delivery summary for discord-surfaces Release 1 (docs/deliveries/2026-10-25-discord-surfaces.md): t1-t10 delivered, t11 and t20 partial, Releases 2-3 awaiting go/no-go; validate-delivery records o1-o18 and e1-e37, approved
+
 ## [0.30.1] - 2026-10-26
 
 ### Added
