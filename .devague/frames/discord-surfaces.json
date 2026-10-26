@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-26T19:09:32Z",
+  "updated": "2026-10-26T19:12:08Z",
   "claims": [
     {
       "id": "c1",
@@ -1165,6 +1165,17 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l8",
+      "code": "control-absent",
+      "what": "main agent edited the discord_react.py docstring after its last flake8 run and opened PR #102 on a gate (full suite, bandit, teken, scan-secrets, markdownlint) that left flake8 out; the 151-character line failed CI's lint job",
+      "skipped_check": "flake8 after the final edit, before the PR",
+      "refs": [
+        "PR #102 / 65036a7"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [
