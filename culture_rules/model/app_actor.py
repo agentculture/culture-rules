@@ -21,6 +21,8 @@ literal is refused on save with ``secret_literal`` by ``assert_refs_only``)::
     discord: {bot_token: "grant:N", guild_id: one id or [ids] (unset = every guild),
               channels: [...], application_id (for slash and message commands),
               command_guild_id: one id or [ids] within guild_id (unset = all of them)}
+    commands:      [{name, type: slash|message, ...}, ...]   discord only, optional: the
+                   application commands it offers (model/discord_command_config.py)
     email:   {api_key: "grant:N", domain: one of EMAIL_DOMAINS (default culture.dev),
               local_part (default no-reply), recipients: [allow-list of addresses]}
     search:  {api_key: "grant:N"}
@@ -42,6 +44,7 @@ from typing import Any
 
 from culture_rules.actors.secrets import is_secret_ref
 from culture_rules.model.action_kinds import resolve_kind
+from culture_rules.model.discord_command_config import command_problems
 
 __all__ = [
     "APP_SURFACES",
@@ -209,6 +212,10 @@ def app_param_errors(params: Any) -> list[Problem]:
     _str_list(params, "events", _check_event, out)
     _str_list(params, "actions", _check_action, out)
     _check_probes(params, out)
+    if "commands" in params and surface != "discord":
+        out.append(("commands", "not_allowed", "commands are for a discord app actor"))
+    elif surface == "discord":
+        out.extend(command_problems(params.get("commands")))
     _check_connection(surface, params.get("connection"), out)
     identity = params.get("self_identity")
     if identity is not None and not isinstance(identity, str):

@@ -417,6 +417,9 @@ def _discord_filter_words(params: Mapping[str, Any]) -> list[str]:
     emoji = filter_values(params.get("emoji"))
     if emoji:
         parts.append("with " + " or ".join(emoji))
+    commands = filter_values(params.get("command"))
+    if commands:
+        parts.append("for command " + " or ".join(commands))
     who = [*filter_values(params.get("users"))]
     who += [f"role {r}" for r in filter_values(params.get("roles"))]
     if who:

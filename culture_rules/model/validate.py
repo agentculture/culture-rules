@@ -500,6 +500,7 @@ def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
         _check_probe_params(params, pp, errors)
     if obj.kind == "event" and str(params.get("type", "")).startswith("discord."):
         _check_discord_filters(params, pp, errors)
+        _check_command_filter(params, pp, errors)
 
 
 def _filter_item(value: Any) -> bool:
@@ -548,6 +549,29 @@ def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
             _join(pp, "emoji"),
             "trigger_param_invalid",
             "params.emoji is an emoji (unicode, or a custom name:id), or a list of them",
+        )
+
+
+def _check_command_filter(params: dict, pp: str, errors: Errors) -> None:
+    """``command`` (d12): one command name or a list, on a discord.command.invoked trigger."""
+    if "command" not in params:
+        return
+    if params.get("type") != "discord.command.invoked":
+        _err(
+            errors,
+            _join(pp, "command"),
+            "trigger_param_invalid",
+            "params.command picks a command: only a discord.command.invoked trigger takes it",
+        )
+        return
+    value = params["command"]
+    items = value if isinstance(value, (list, tuple)) else [value]
+    if not items or not all(isinstance(i, str) and i.strip() for i in items):
+        _err(
+            errors,
+            _join(pp, "command"),
+            "trigger_param_invalid",
+            "params.command is a command name, or a list of them",
         )
 
 

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-10-27
+
+### Added
+
+- Discord application commands are actor configuration (d12): a Discord app actor's `params.commands` lists its slash and message commands (options of kind string or message, an optional `not_here` answer), validated on save; the gateway builds and syncs exactly those, and a command removed from the list disappears from Discord. A rule picks its command with the trigger filter `command` (on `discord.command.invoked`)
+
+### Changed
+
+- No command is built in any more: `/save` and Save to library are an example in `docs/rules/discord-library/README.md`. The default answer for a command no rule takes is "This command is not set up here.", and a failed write answers "Could not take this right now"
+
 ## [0.33.0] - 2026-10-27
 
 ### Added

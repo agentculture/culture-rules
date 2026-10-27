@@ -104,8 +104,8 @@ On disk today:
   builtin `markdown.render`; the bundle `docs/rules/discord-library` (disabled);
   Release 2: `discord.reaction.added` with an `emoji` filter, `discord.react`,
   `user_roles` on events, and `attachment.fetch` (pdf/epub/Markdown saved as files on the
-  node, read by `library.push`'s `content_path`, d7); Release 3: `/save` and the
-  Save to library command, `discord.reply`, `discord.sweep` with the generic
+  node, read by `library.push`'s `content_path`, d7); Release 3: application
+  commands configured per actor (`params.commands`, d12), `discord.reply`, `discord.sweep` with the generic
   `cursor.advance`, and a builtin's `config.with` (d8).
 - the workflow phrases (#69, spec
   `docs/specs/2026-10-17-workflow-connecting-phrases.md`): plain-language

@@ -159,7 +159,8 @@ and the builtin `markdown.render` take a message into `library.push`; the bundle
 `discord.reaction.added` with an `emoji` filter, the action kind `discord.react`,
 `user_roles` on events, and the builtin `attachment.fetch`, which saves pdf/epub/Markdown
 attachments as files on the node for `library.push`'s `content_path` (d7).
-Release 3 adds `/save` and the message command Save to library (the interaction
+Release 3 adds application commands, configured per actor in `params.commands`
+(d12; none built in, a rule picks one with the `command` filter; the interaction
 token kept apart, answered privately by `discord.reply`), and `discord.sweep`
 with the generic `cursor.advance`; a builtin's `config.with` reads
 `inputs.item.*` in a loop (d8).
