@@ -61,6 +61,37 @@ def reaction(
     }
 
 
+def interaction(
+    n: int,
+    *,
+    channel: str = "100",
+    guild: str = "1",
+    token: str | None = None,
+    command: str = "Save to library",
+    command_type: str = "message",
+    options: Mapping[str, Any] | None = None,
+    target_message_id: str | None = None,
+    target_channel_id: str | None = None,
+) -> dict:
+    """A raw command invocation as a gateway hands it over (token included)."""
+    return {
+        "interaction_id": str(5000 + n),
+        "application_id": "777000",
+        "token": token if token is not None else "itok-" + str(n),
+        "command": command,
+        "command_type": command_type,
+        "options": dict(options or {}),
+        "target_message_id": target_message_id or str(9000 + n),
+        "target_channel_id": target_channel_id or channel,
+        "user_id": "42",
+        "username": "alice",
+        "user_roles": ["7", "8"],
+        "bot": False,
+        "channel_id": channel,
+        "guild_id": guild,
+    }
+
+
 class FakeHub:
     def __init__(self, *, replay: int = 3) -> None:
         self._lock = threading.Lock()
@@ -70,6 +101,8 @@ class FakeHub:
         self.replay = replay
         self.history: list[dict] = []
         self.inbox: queue.Queue[tuple[str, Any]] = queue.Queue()
+        self.syncs: list[tuple[str, str]] = []
+        self.registrations: list[Any] = []
 
     def enter(self, name: str, token: str) -> list[dict]:
         with self._lock:
@@ -85,6 +118,9 @@ class FakeHub:
     def live_now(self) -> list[str]:
         with self._lock:
             return list(self.live)
+
+    def command(self, raw: Mapping[str, Any]) -> None:
+        self.inbox.put(("command", dict(raw)))
 
     def react(self, reaction: Mapping[str, Any]) -> None:
         self.inbox.put(("reaction", dict(reaction)))
@@ -114,10 +150,17 @@ class FakeGateway:
         on_message: Callable[[Mapping[str, Any]], None],
         should_stop: Callable[[], bool],
         on_reaction: Callable[[Mapping[str, Any]], None] | None = None,
+        commands: Any = None,
         events: Any = (),
     ) -> None:
         replayed = self.hub.enter(self.name, token)
+        self.hub.registrations.append(commands)
         try:
+            if commands is not None:  # like setup_hook: sync each guild whose hash changed
+                for guild in commands.guild_ids:
+                    if commands.needs_sync(guild):
+                        self.hub.syncs.append((self.name, guild))
+                        commands.synced(guild)
             for msg in replayed:
                 on_message(msg)
             while not should_stop():
@@ -127,6 +170,10 @@ class FakeGateway:
                     continue
                 if kind == "drop":
                     raise ConnectionResetError("gateway closed")
+                if kind == "command":
+                    if commands is not None:
+                        commands.invoke(payload)
+                    continue
                 if kind == "reaction":
                     if on_reaction is not None:
                         on_reaction(payload)

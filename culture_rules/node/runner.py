@@ -279,9 +279,15 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         ATTACHMENT_FETCH_BUILTIN,
         AttachmentFetchPort,
     )
+    from culture_rules.node.actions.cursor import (  # noqa: PLC0415
+        CURSOR_ADVANCE_BUILTIN,
+        CursorAdvancePort,
+    )
     from culture_rules.node.actions.decider import DeciderAssessPort  # noqa: PLC0415
     from culture_rules.node.actions.discord_react import DiscordReactAction  # noqa: PLC0415
     from culture_rules.node.actions.discord_read import DiscordReadAction  # noqa: PLC0415
+    from culture_rules.node.actions.discord_reply import DiscordReplyAction  # noqa: PLC0415
+    from culture_rules.node.actions.discord_sweep import DiscordSweepAction  # noqa: PLC0415
     from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
     from culture_rules.node.actions.fixer_cooldown import (  # noqa: PLC0415
         FIXER_COOLDOWN_BUILTIN,
@@ -369,6 +375,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:discord.message": DiscordMessageAction(store),
         "action:discord.read": DiscordReadAction(store),  # one message in full + attachments
         "action:discord.react": DiscordReactAction(store),  # the bot's reaction on a message
+        "action:discord.reply": DiscordReplyAction(store),  # a command's private answer
+        "action:discord.sweep": DiscordSweepAction(store),  # a channel since its cursor
         "action:github.comment": github,
         "action:github.push": push,
         "action:github.review_reply": reply,
@@ -408,7 +416,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 MARKDOWN_RENDER_BUILTIN: MarkdownRenderPort(),  # fields as one Markdown page
                 FROM_HTML_BUILTIN: MarkdownFromHtmlPort(),  # HTML as Markdown, in chunks
                 RUN_READ_BUILTIN: RunReadPort(store),  # a step's outputs from an earlier run
-                ATTACHMENT_FETCH_BUILTIN: AttachmentFetchPort(),  # pdf/epub to files (d7)
+                ATTACHMENT_FETCH_BUILTIN: AttachmentFetchPort(),  # pdf/epub/md to files (d7, d10)
+                CURSOR_ADVANCE_BUILTIN: CursorAdvancePort(store),  # compare-and-set a cursor
                 checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
                     store
                 ),  # stored lists, stable ids

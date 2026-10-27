@@ -163,12 +163,19 @@ def test_two_actors_sinking_the_same_message_record_two_events(rig):
         assert eventually(lambda: other.hub.live_now() == ["spark"])
         r.store.put("actors", discord_actor("bot-a"))
         r.sup.tick()
-        # the same Discord message (author "rulesbot") is seen by both bots
+        # the same Discord message (author "rulesbot") is seen by both bots; post it until
+        # both listeners are ready (under CI load one could still be starting) - a repeat is
+        # the same delivery id, a duplicate, so exactly two events prove one per bot
         same = message(1)
         same["author_name"] = "rulesbot"
-        r.hub.post(same)
-        other.hub.post(same)
-        assert eventually(lambda: len(r.events()) == 2)
+
+        def both_seen() -> bool:
+            r.hub.post(same)
+            other.hub.post(same)
+            return len(r.events()) >= 2
+
+        assert eventually(both_seen)
+        assert len(r.events()) == 2
         by_actor = {e["envelope"]["data"]["actor"]: e for e in r.events()}
         assert set(by_actor) == {"bot-a", "bot-b"}
         for actor_id, ev in by_actor.items():

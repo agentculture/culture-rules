@@ -236,7 +236,7 @@ from culture_rules.machines.heartbeat import (
 )
 from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
-from culture_rules.model.action_step import action_spec, spec_idempotent
+from culture_rules.model.action_step import BUILTIN_WITH, action_spec, spec_idempotent
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
 from culture_rules.model.placement import Placement
@@ -1561,7 +1561,7 @@ class Executor:
         spec = _step_action(plan, st)
         if spec is not None:  # an action step runs with its params resolved, as the action
             return _action_step_params(spec, resolved["inputs"])
-        return resolved["inputs"]
+        return _with_inputs(plan.step(st), resolved["inputs"])
 
     def _placement_failed(
         self, doc: Document, st: dict, target: PlacementError, now: datetime
@@ -1963,6 +1963,17 @@ def _step_action(plan: _Plan, st: Mapping) -> Mapping[str, Any] | None:
         return None
     step = plan.step(st)
     return action_spec(step) if step is not None else None
+
+
+def _with_inputs(step: Step | None, inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """A builtin code step's inputs with its ``config.with`` resolved onto them (d8): each
+    entry resolves as an action step's params do, against the step's input ports only, so a
+    loop body reads ``inputs.item.<field>``; a port an edge gave a value keeps it."""
+    config = getattr(step, "config", None)
+    extra = config.get(BUILTIN_WITH) if isinstance(config, Mapping) else None
+    if not isinstance(extra, Mapping) or not extra:
+        return dict(inputs)
+    return {**resolve_refs(dict(extra), {"inputs": dict(inputs)}), **inputs}
 
 
 def _action_step_params(spec: Mapping[str, Any], inputs: Mapping[str, Any]) -> dict[str, Any]:

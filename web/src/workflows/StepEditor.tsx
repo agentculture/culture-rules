@@ -333,7 +333,7 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
     outputs: [PORT("run_id", true)],
   },
   "attachment.fetch": {
-    label: "attachment.fetch: pdf and epub attachments saved as files on the node",
+    label: "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node",
     inputs: [
       { name: "attachments", type: "array", required: true },
       PORT("output_root", false),
@@ -344,6 +344,11 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
       { name: "fetched", type: "integer", required: true },
       { name: "skipped", type: "integer", required: true },
     ],
+  },
+  "cursor.advance": {
+    label: "cursor.advance: move a stored cursor on, only from the value read",
+    inputs: [PORT("key", true), PORT("expected", false), PORT("value", true)],
+    outputs: [PORT("key", true), PORT("value", true), PORT("previous", false), { name: "advanced", type: "boolean", required: true }],
   },
 };
 

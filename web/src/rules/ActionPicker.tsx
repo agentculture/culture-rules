@@ -73,6 +73,22 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     label: "React to a Discord message",
     params: { actor: RS, guild: S, channel: RS, message: RS, emoji: RS },
   },
+  "discord.reply": {
+    label: "Answer a Discord command privately",
+    params: { actor: RS, event_id: RS, text: RS },
+  },
+  "discord.sweep": {
+    label: "Read a Discord channel since the last run",
+    params: {
+      actor: RS,
+      guild: S,
+      channel: RS,
+      cursor_key: RS,
+      limit: I,
+      include_bots: { type: "bool" },
+      backfill: { type: "bool" },
+    },
+  },
   "github.comment": {
     label: "Comment on GitHub",
     params: { actor: RS, repo: RS, number: RI, body: RS },
@@ -317,7 +333,7 @@ export function actorsFor(kind: string, actors: Actor[]): Actor[] {
 }
 
 /** Discord kinds whose server and channel are picked from what the bot can see. */
-const DISCORD_TARGET_KINDS = new Set(["discord.message", "discord.read", "discord.react"]);
+const DISCORD_TARGET_KINDS = new Set(["discord.message", "discord.read", "discord.react", "discord.sweep"]);
 
 /** The mesh message, noop and transcript.render need no actor; every other kind needs one enabled actor that supports it. */
 const offered = (kind: string, actors: Actor[]) =>

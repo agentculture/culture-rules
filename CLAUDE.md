@@ -192,8 +192,8 @@ plan. What exists today:
     across re-extraction, a flip applied only when newer, Markdown with a
     revision, a bound library item and stale-push detection);
   - `audio.transcribe` hashes the audio itself when no `audio_sha256` is given.
-- **Discord surfaces, Releases 1-2** (spec `docs/specs/2026-10-25-discord-surfaces.md`,
-  guide `docs/actors/discord.md`; Release 3 planned):
+- **Discord surfaces, Releases 1-3** (spec `docs/specs/2026-10-25-discord-surfaces.md`,
+  guide `docs/actors/discord.md`):
   - any number of Discord bots, one app actor each (Culture.dev as `discord-bot`,
     `jetson-bot`); the gateway's delivery id is per actor, and `connection.guild_id`
     is one id or a list (upgrade every node and the API before switching to a list);
@@ -206,11 +206,19 @@ plan. What exists today:
   - Release 2: the event `discord.reaction.added` (an actor declaring it listens; it
     carries the emoji, the reactor and `user_roles`, which message events now carry
     too), the trigger filter `emoji` (unicode, or a custom `name:id`), the action kind
-    `discord.react`, and the builtin `attachment.fetch` (pdf/epub over https from
+    `discord.react`, and the builtin `attachment.fetch` (pdf, epub and Markdown over https from
     Discord's CDN, through http.call's vetted opener, at most 50 MiB) which writes each
     file under an `output_root` on the node (deviation d7: file bytes never enter run
     state, a MongoDB document); `library.push` reads it by `content_path` +
-    `content_root`.
+    `content_root`;
+  - Release 3: `/save` and the message command **Save to library**, registered per guild
+    when the actor declares `discord.command.invoked` and has `connection.application_id`;
+    the event never holds the interaction token (a 15-minute collection keyed by the event
+    id), and `discord.reply` answers the invoker privately with it; `discord.sweep` reads a
+    channel since a stored cursor (bots skipped unless `include_bots`; a first run starts
+    now unless `backfill`) and the generic builtin `cursor.advance` moves the cursor by
+    compare-and-set after the saves; a builtin code step's `config.with` maps
+    `inputs.item.*` references onto its inputs (deviation d8).
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

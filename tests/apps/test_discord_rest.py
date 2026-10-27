@@ -415,3 +415,56 @@ def test_add_reaction_network_failure_is_retryable():
     with pytest.raises(DiscordError) as ei:
         client.add_reaction("123", "55", "\N{THUMBS UP SIGN}")
     assert ei.value.retryable
+
+
+# ------------------------------------------------------------ edit_interaction_response
+
+
+def test_edit_interaction_response_patches_original_without_a_bot_token():
+    t = PutTransport((200, {"id": "1"}, {}))
+    client = DiscordClient(TOKEN, transport=t)
+    out = client.edit_interaction_response("9001", "itok", "Saved")
+    assert out == {"edited": True}
+    (call,) = t.calls
+    assert call["method"] == "PATCH"
+    assert call["url"].endswith("/webhooks/9001/itok/messages/@original")
+    assert json.loads(call["data"]) == {"content": "Saved", "allowed_mentions": {"parse": []}}
+    assert "Authorization" not in call["headers"]
+
+
+def test_edit_interaction_response_cuts_long_text():
+    t = PutTransport((200, {}, {}))
+    DiscordClient(TOKEN, transport=t).edit_interaction_response("9001", "itok", "x" * 3000)
+    content = json.loads(t.calls[0]["data"])["content"]
+    assert len(content) == 2000
+    assert content.endswith("…")
+
+
+@pytest.mark.parametrize(
+    ("status", "retryable", "expired"),
+    [
+        (401, False, True),
+        (404, False, True),
+        (429, True, False),
+        (503, True, False),
+        (400, False, False),
+    ],
+)
+def test_edit_interaction_response_errors(status, retryable, expired):
+    t = PutTransport((status, {"retry_after": 0}, {}))
+    client = DiscordClient(TOKEN, transport=t, sleep=lambda s: None)
+    with pytest.raises(DiscordError) as err:
+        client.edit_interaction_response("9001", "itok", "hi")
+    assert err.value.retryable is retryable
+    assert getattr(err.value, "expired", False) is expired
+    assert "itok" not in str(err.value)
+
+
+def test_edit_interaction_response_refuses_bad_ids():
+    t = PutTransport()
+    client = DiscordClient(TOKEN, transport=t)
+    with pytest.raises(DiscordError):
+        client.edit_interaction_response("90/01", "itok", "hi")
+    with pytest.raises(DiscordError):
+        client.edit_interaction_response("9", "bad/tok", "hi")
+    assert t.calls == []

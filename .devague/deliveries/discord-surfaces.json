@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-26T18:32:45Z",
+  "updated": "2026-10-26T22:22:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -96,6 +96,47 @@
       "status": "approved",
       "classification": null,
       "seq": 44
+    },
+    {
+      "id": "d8",
+      "what": "a builtin code step's config.with maps references onto its inputs (e.g. {\"text\": \"inputs.item.content\"}), resolved as an action step's params are (whole strings, {{ }} templates, $ref/$literal) against the step's input ports only, and validated the same way (only inputs.<declared port>); an edge's value for the same port wins. Every builtin gains it, so a for_each body can render each swept message and the sweep flow is configuration only",
+      "task_ref": "t19",
+      "reason": "operator decision 2026-10-26: edges carry whole ports and only action steps resolved inputs.item.* references, so no loop body could hand a swept message's fields to markdown.render; config.with chosen over a rendering sweep (against the generic-steps rule) and dotted edge ports (engine, validation and editor wiring)",
+      "affects": [
+        "t18",
+        "t19"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 45
+    },
+    {
+      "id": "d9",
+      "what": "jetson-bot joins JetsonBot Experiments (1413999242648748195) for testing: t20's gesture checks run there for both bots (reaction, /save and Save to library, a channel message, a schedule tick, pdf/epub attachments, no cross-bot firing). jetson-bot's connection.guild_id becomes a list (the public Jetson AI Lab Research Group 1326246312072581160 and Experiments); in the public server it stays as it is (posting the newspaper), and no save flow is enabled there",
+      "task_ref": "t20",
+      "reason": "operator decision 2026-10-26: d2 kept jetson-bot out of Experiments, but t20 needs a private test channel on each bot; the operator chose to test jetson-bot in Experiments over a reduced check or Culture.dev only",
+      "affects": [
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 46
+    },
+    {
+      "id": "d10",
+      "what": "attachment.fetch also saves Markdown attachments: content type text/markdown (or a .md file name when the type is missing or octet-stream) as format md, under the same rules as pdf and epub (https from Discord's CDN, no redirects, no private addresses, at most 50 MiB, a file under the attachments root, sha256-named); images and other types stay unsupported_format",
+      "task_ref": "t13",
+      "reason": "operator decision 2026-10-27 during the live Release 2 check: the operator's test upload was a Markdown runbook (mjolnir-orin-runbook.md), which the pdf/epub-only fetch would skip; the library actor already lists the md format",
+      "affects": [
+        "t13",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 47
     }
   ],
   "evidence": [

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-26T20:28:33Z",
+  "updated": "2026-10-26T20:28:44Z",
   "claims": [
     {
       "id": "c1",
@@ -1184,6 +1184,17 @@
       "skipped_check": "playwright e2e and the Sonar issue list before the PR",
       "refs": [
         "PR #102 / adc9854"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l10",
+      "code": "grader-unverified",
+      "what": "t17 task agent reported scripts/scan-secrets.py clean, but tests/node/test_discord_reply.py:19 (SECRET = a literal) was flagged; found by the main agent's full gate before the Release 3 PR",
+      "skipped_check": "",
+      "refs": [
+        "t17 / rules/dr-t17 00a629f"
       ],
       "origin": "llm",
       "status": "approved"
