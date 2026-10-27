@@ -71,7 +71,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t17` | delivered | the action kind `discord.reply`, a private answer through the kept interaction token (#103) |
 | `t18` | delivered | `discord.sweep` (a channel since a stored cursor) and the generic builtin `cursor.advance` (compare-and-set) (#103); a loop body reads each message through a builtin's `config.with` (`d8`) |
 | `t19` | delivered | the node, catalogue, describe words and editor for commands, reply and sweep (#103); the editor's Commands rows and Command filter (#106) |
-| `t20` | delivered | every gesture ran live on both bots in JetsonBot Experiments (`d9`) on 2026-10-27: messages, 📚 with ⏳⌛✅, `/save` and Save to library, the 10-minute sweep, pdf/epub/md attachments, one item per message, 26 human-triggered runs and none from bot posts (`e57`); discord-bot-cli's live suite passed while jetson-bot's gateway was held (`e62`, proposed). Three live problems were fixed on the way: the CDN User-Agent (#104, `l11`), unplaced attachment steps (`l14`) and a shared concurrency key (`l15`) |
+| `t20` | delivered | every gesture ran live on both bots in JetsonBot Experiments (`d9`) on 2026-10-27: messages, 📚 with ⏳⌛✅, `/save` and Save to library, the 10-minute sweep, pdf/epub/md attachments, one item per message, 26 human-triggered runs and none from bot posts (`e57`); discord-bot-cli's live suite passed while jetson-bot's gateway was held (`e62`). Three live problems were fixed on the way: the CDN User-Agent (#104, `l11`), unplaced attachment steps (`l14`) and a shared concurrency key (`l15`) |
 
 ## Mid-work Decisions
 
@@ -246,8 +246,8 @@ Releases 2–3:
   `test_discord_trigger_filters.py`, `tests/model/test_builtin_with_validation.py`,
   `test_discord_command_config.py`, `test_discord_trigger_params.py`): 510 tests, all pass,
   with discord.py installed (since #105 the command-tree tests run in CI too).
-- evidence records: `e38`–`e61` against obligations `o19`–`o31` and `o17`, all `pass`,
-  approved by the operator 2026-10-27; `e62` (`o32`, `c8`) is filed and **proposed**.
+- evidence records: `e38`–`e62` against obligations `o19`–`o32` and `o17`, all `pass`,
+  approved by the operator 2026-10-27.
 - CI: #102–#107 merged with every check green and SonarCloud at 0 open issues.
 - live (2026-10-27, on 0.32.1–0.35.0): 26 gesture runs on both bots, each triggered by a
   person (`e57`); pdf item 92, epub item 67, Markdown item 85, a png skipped with ⛔;
@@ -295,7 +295,7 @@ Releases 2–3:
 | `c24` — the after-state: two actors, four gestures, Markdown plus files | medium | `e58` · all four gestures live in Experiments; jetson-bot listens in the public server with no save flow there (`d9`), and Culture.dev is not yet in the operator's private server (`t11`) |
 | `c41` — acknowledgement is per-flow configuration | high | `e59` · ✅/⛔ and ⏳⌛✅ set live without code |
 | `c7` — culture-library unchanged | medium | `e60` · no culture-library commit for Releases 2–3; Release 1 needed the `discord-message` kind (`d6`, culture-library#19) |
-| `c8` — discord-bot-cli and jetson-ai-lab-cli unchanged and not in conflict | unverified | `e62` (discord-bot-cli live suite passed with the gateway held) is **proposed**, not yet evidence; jetson-ai-lab-cli was not run |
+| `c8` — discord-bot-cli and jetson-ai-lab-cli unchanged and not in conflict | medium | `e62` · discord-bot-cli `6cd4970` `tests/test_live_discord.py`: 6 passed while jetson-bot's gateway was held, no disconnect, no rule run; neither CLI changed; jetson-ai-lab-cli's own run was not exercised |
 
 Lapse ledger evidence (all approved):
 
@@ -338,8 +338,8 @@ CI before merge; no claim rests on the steps they skipped.
 
 - `t11` — Culture.dev in the operator's private server: needs the server id and an invite,
   then `guild_id` as a list (every node runs 0.35.0, so a list is safe).
-- `c8` / `o32` — confirm or reject `e62` (discord-bot-cli's live suite with the gateway held);
-  jetson-ai-lab-cli was not exercised.
+- `c8` — jetson-ai-lab-cli's own live run with jetson-bot's gateway held was not exercised
+  (discord-bot-cli's was, `e62`).
 - `c39` — add a test that an edit or delete event leaves the item (or keep it documented as
   manual archive only).
 - `d11` — jetson-bot's commands stay in Experiments until the public server's admins agree;
