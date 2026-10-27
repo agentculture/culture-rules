@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-27T10:43:03Z",
+  "updated": "2026-10-27T10:48:29Z",
   "claims": [
     {
       "id": "c1",
@@ -1257,7 +1257,7 @@
         "culture_rules/node/firing.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
@@ -1430,7 +1430,7 @@
       "behavior": "a \ud83d\udcda reaction on a message saves it to the library, filtered by emoji",
       "source_text": "A reaction saves a message: the gateway raises discord.reaction.added (guild, channel, message id, emoji name/id incl. custom emoji, reacting user, bot flag) with the reactions intent, and a rule filters on the emoji; the workflow fetches the reacted message (text, author, url, attachments) over REST since the reaction event carries no content",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o20",
@@ -1439,7 +1439,7 @@
       "behavior": "reactions arrive through the raw event, so a message not in the client cache still saves",
       "source_text": "Reactions are received with discord.py's raw reaction event (on_raw_reaction_add), not on_reaction_add, which fires only for messages in the client cache; a reaction on an old message still saves it",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o21",
@@ -1448,7 +1448,7 @@
       "behavior": "pdf, epub and Markdown (d10) attachments each become one library item",
       "source_text": "Attachments reach the library: the message events and the REST read carry attachments (id, filename, content_type, size, url); a step downloads pdf/epub only from Discord's CDN (urls expire about 24 h), at most 50 MiB, and hands content_base64 and format to library.push; other types are skipped with a reason",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o22",
@@ -1457,7 +1457,7 @@
       "behavior": "the fetch reuses http.call's vetted pinned connection and names itself to the CDN",
       "source_text": "The attachment fetch reuses http.call's vetted connection (exact-host allowlist of Discord's CDN hosts, every resolved address vetted, pinned connect, redirects refused, no proxies) rather than a new HTTP path",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o23",
@@ -1466,7 +1466,7 @@
       "behavior": "a save is acknowledged by a reaction or a private reply, as the flow configures",
       "source_text": "Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o24",
@@ -1475,7 +1475,7 @@
       "behavior": "/save and Save to library are registered per bot and each invocation becomes an event the flow answers",
       "source_text": "A slash command (e.g. /save) is registered per bot and handled; the interaction is answered within Discord's 3-second window and becomes an event (discord.command.invoked: command, options, user, channel, guild, target message when it is a message command) that rules trigger on",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o25",
@@ -1484,7 +1484,7 @@
       "behavior": "commands sync per guild only when their definition changes, and only where command_guild_id allows (d11)",
       "source_text": "Commands are synced by the lease holder only when their definition changes (per guild, so they appear at once, not after global propagation), and an interaction is acknowledged (ephemeral deferral) before the event is written; during a lease handover gap Discord shows the interaction failed, and the user retries",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o26",
@@ -1493,7 +1493,7 @@
       "behavior": "a schedule sweeps a channel since a stored cursor and saves its new messages",
       "source_text": "A time-based flow saves on a schedule: a schedule trigger runs a step that reads a channel's messages since the last run over REST (GET /channels/{id}/messages?after=), with a stored cursor per flow and channel so a rerun neither misses nor repeats a message",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o27",
@@ -1502,7 +1502,7 @@
       "behavior": "Release 2-3 kinds and builtins are first-class where kinds live",
       "source_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o28",
@@ -1511,7 +1511,7 @@
       "behavior": "each gesture saves within 60 s (the sweep within a period), pdf and epub are one item each, a re-save is one item, and no bot's post fires a rule",
       "source_text": "On the live mesh, each of the 4 gestures (reaction, command, channel message, schedule) saves a test message to the library within 60 s of the gesture (the schedule within one period), a pdf and an epub attachment each become 1 item, saving the same message twice yields 1 item (created: false), and 0 events fire from one bot's posts on the other's rules",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o29",
@@ -1520,7 +1520,7 @@
       "behavior": "both actors listen; a message saves by reaction, command, channel message or sweep, as Markdown plus its files",
       "source_text": "Two Discord app actors (discord-bot = Culture.dev, jetson-bot) listen across both servers; a message saves to the library by a reaction, by a slash or message command, by being posted in a chosen channel (or any channel), or by a scheduled sweep; its text and links land as a Markdown item and its pdf/epub attachments as their own items",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o30",
@@ -1529,7 +1529,7 @@
       "behavior": "how a save is acknowledged is set per flow",
       "source_text": "Acknowledging a save in Discord is configurable per flow (e.g. only for opt-in users and specific reactions)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o31",
@@ -1538,7 +1538,7 @@
       "behavior": "no culture-library change was needed for Releases 2-3",
       "source_text": "culture-library is unchanged in the first slice: a .md upload with an existing kind (document or article), title and author from the message, and the message URL and id in the body (which also avoids sha256 dedupe of identical text) already works; there is no link/bookmark/note kind, no source or tag metadata, no server-side URL fetch, and images are refused (415)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o32",
@@ -1547,7 +1547,7 @@
       "behavior": "both CLIs stay unchanged and their live test passes while culture-rules holds jetson-bot's gateway",
       "source_text": "discord-bot-cli and jetson-ai-lab-cli stay unchanged and do not conflict: both use the jetson-bot token over REST with Intents.none() and a login-act-close run, so culture-rules holding jetson-bot's gateway session duplicates nothing",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }
