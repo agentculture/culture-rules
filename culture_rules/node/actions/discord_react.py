@@ -39,6 +39,24 @@ __all__ = ["DiscordReactAction"]
 log = logging.getLogger("culture_rules.node")
 
 
+def _marks(emoji: Any, remove: Any) -> tuple[str | None, list[str]] | InvocationResult:
+    """The emoji to add (None for none) and those to take back, checked: at least one of them,
+    each a unicode emoji or ``name:id``; the one added is never also taken back."""
+    taken = [e.strip() for e in filter_values(remove)]
+    if emoji is not None:
+        emoji = emoji.strip() if isinstance(emoji, str) else emoji
+        if not _nonempty(emoji) or not emoji_ok(emoji):
+            return _fail("discord.react emoji is a unicode emoji or name:id")
+    if emoji is None and not taken:
+        return _fail("discord.react needs an emoji to add or emoji to remove")
+    if not all(emoji_ok(e) for e in taken):
+        return _fail("discord.react remove holds unicode emoji or name:id")
+    if emoji is not None:  # never take back the mark this step places
+        plain = emoji.replace(VARIATION_SELECTOR, "")
+        taken = [e for e in taken if e.replace(VARIATION_SELECTOR, "") != plain]
+    return emoji, taken
+
+
 class DiscordReactAction(DiscordReadAction):
     """Action port for ``discord.react``; resolves its actor as ``discord.read`` does."""
 
@@ -83,18 +101,10 @@ class DiscordReactAction(DiscordReadAction):
         channel, message, emoji = input.get("channel"), input.get("message"), input.get("emoji")
         if not _nonempty(channel) or not _nonempty(message):
             return _fail("discord.react needs a channel and a message id")
-        remove = [e.strip() for e in filter_values(input.get("remove"))]
-        if emoji is not None:
-            emoji = emoji.strip() if isinstance(emoji, str) else emoji
-            if not _nonempty(emoji) or not emoji_ok(emoji):
-                return _fail("discord.react emoji is a unicode emoji or name:id")
-        if emoji is None and not remove:
-            return _fail("discord.react needs an emoji to add or emoji to remove")
-        if not all(emoji_ok(e) for e in remove):
-            return _fail("discord.react remove holds unicode emoji or name:id")
-        if emoji is not None:  # never take back the mark this step places
-            plain = emoji.replace(VARIATION_SELECTOR, "")
-            remove = [e for e in remove if e.replace(VARIATION_SELECTOR, "") != plain]
+        marks = _marks(emoji, input.get("remove"))
+        if isinstance(marks, InvocationResult):
+            return marks
+        emoji, remove = marks
         connection = self._connection(actor_id, channel)
         if isinstance(connection, InvocationResult):
             return connection
