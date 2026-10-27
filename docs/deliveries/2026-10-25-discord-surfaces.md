@@ -71,7 +71,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t17` | delivered | the action kind `discord.reply`, a private answer through the kept interaction token (#103) |
 | `t18` | delivered | `discord.sweep` (a channel since a stored cursor) and the generic builtin `cursor.advance` (compare-and-set) (#103); a loop body reads each message through a builtin's `config.with` (`d8`) |
 | `t19` | delivered | the node, catalogue, describe words and editor for commands, reply and sweep (#103); the editor's Commands rows and Command filter (#106) |
-| `t20` | delivered | every gesture ran live on both bots in JetsonBot Experiments (`d9`) on 2026-10-27: messages, 📚 with ⏳⌛✅, `/save` and Save to library, the 10-minute sweep, pdf/epub/md attachments, one item per message, 26 human-triggered runs and none from bot posts (`e57`); discord-bot-cli's live suite passed while jetson-bot's gateway was held (`e62`). Three live problems were fixed on the way: the CDN User-Agent (#104, `l11`), unplaced attachment steps (`l14`) and a shared concurrency key (`l15`) |
+| `t20` | delivered | every gesture ran live on both bots in JetsonBot Experiments (`d9`) on 2026-10-27: messages, 📚 with ⏳⌛✅, `/save` and Save to library, the 10-minute sweep, pdf/epub/md attachments, one item per message, 26 human-triggered runs and none from bot posts (`e66`); discord-bot-cli's live suite passed while jetson-bot's gateway was held, jetson-ai-lab-cli was not run (`e69`). Three live problems were fixed on the way: the CDN User-Agent (#104, `l11`), unplaced attachment steps (`l14`) and a shared concurrency key (`l15`) |
 
 ## Mid-work Decisions
 
@@ -246,16 +246,20 @@ Releases 2–3:
   `test_discord_trigger_filters.py`, `tests/model/test_builtin_with_validation.py`,
   `test_discord_command_config.py`, `test_discord_trigger_params.py`): 510 tests, all pass,
   with discord.py installed (since #105 the command-tree tests run in CI too).
-- evidence records: `e38`–`e62` against obligations `o19`–`o32` and `o17`, all `pass`,
-  approved by the operator 2026-10-27.
+- evidence records: `e38`–`e62` against obligations `o19`–`o32` and `o17`, approved by the
+  operator 2026-10-27; after the `/code-review` of #108, seventeen of them are superseded by
+  `e63`–`e79` (run times and commits per run, the epub's existing item, culture-library's one
+  commit, whole-file test refs). `e67` (`c24`) and `e69` (`c8`) record **fail**: not every
+  server the claim names, and one of the two CLIs.
 - CI: #102–#107 merged with every check green and SonarCloud at 0 open issues.
 - live (2026-10-27, on 0.32.1–0.35.0): 26 gesture runs on both bots, each triggered by a
-  person (`e57`); pdf item 92, epub item 67, Markdown item 85, a png skipped with ⛔;
+  person (`e66`); pdf new item 92, Markdown new item 85, the epub matching item 67 that the
+  library already held, a png skipped with ⛔;
   ⏳ → ⌛ → ✅ on both bots (`run-ec9bfd743757dd4f9e7ac62359ec1ace`,
   `run-51dc505850b54aee54a46e71d784a1fc`); `/save` and Save to library on both bots
-  (`e49`); both sweeps filing items 87–89 (`e54`); Discord's command listing per app and
+  (`e49`); both sweeps filing items 87–89 (`e65`); Discord's command listing per app and
   server (`e51`); discord-bot-cli `6cd4970` live suite, 6 passed, while jetson-bot's gateway
-  was held (`e62`); `rollout verify` for 0.35.0 (4 nodes and the API, 17 rules).
+  was held, jetson-ai-lab-cli not run (`e69`); `rollout verify` for 0.35.0 (4 nodes and the API, 17 rules).
 - commits: `632a822..feddca1` (`6e83664`, `73e1d29`, `2e9a855`, `e63d160`, `494ed46`,
   `9c5f7a6`, `feddca1`)
 - PRs: #101, #102, #103, #104, #105, #106, #107
@@ -264,7 +268,7 @@ Releases 2–3:
 
 | Claim | Confidence | Evidence |
 |-------|------------|----------|
-| `c3` — a second Discord app actor (jetson-bot) works with no engine change | high | `e36` · live run `run-2c77aee79f2c472da6493d372d69876d` (posting) · since Release 2–3 both bots hold their own gateway lease and save live side by side (`e57`, `e58`) |
+| `c3` — a second Discord app actor (jetson-bot) works with no engine change | high | `e36` · live run `run-2c77aee79f2c472da6493d372d69876d` (posting) · since Release 2–3 both bots hold their own gateway lease and save live side by side (`e66`) |
 | `c4` — each bot records its own event for the same message | high | `e1`–`e2` · `tests/apps/test_discord_gateway.py::test_two_actors_sinking_the_same_message_record_two_events` |
 | `c5` — another bot's messages are skipped unless a rule opts in (`include_bots`) | high | `e4`–`e5` · `tests/engine/test_discord_trigger_filters.py::test_bot_blocked_unless_include_bots` |
 | `c6` — a Discord message can become a library item | high | `e19`–`e21` · `tests/rules/test_discord_library_bundle.py::test_a_message_becomes_one_private_discord_message_item` · live item 72 |
@@ -275,27 +279,26 @@ Releases 2–3:
 | `c26` — saving is idempotent (one item per message) | medium | `e22`–`e24` · `tests/node/test_markdown_render.py::test_same_inputs_are_byte_identical` (never shown red, `l1`) · `tests/rules/test_discord_library_bundle.py::test_the_same_message_again_files_no_second_item` · live item 72 `created: false` |
 | `c27` — Discord content lands private by default | medium | a push that names no visibility sends none: `tests/node/test_library_push.py::test_upload_carries_file_title_author_and_kind` (`e33` cites a test that only checks the push completes, `l5`); the bundle sets `private` explicitly (`e34`); culture-library's own private default is not tested in this repo |
 | `c28` — both bots invited with the scopes and intents the gestures need | high | `e61` · jetson-bot read a message in full live (`run-3946312e1c30bd678bb897bcdd943783`) and both apps registered their guild commands; both bots reacted live (`e47`); Culture.dev read full messages since item 72 |
-| `c29` — the new kind and builtin are first-class everywhere a kind lives | high | `e29`–`e32` · `tests/node/test_discord_wiring.py::test_discord_read_is_a_catalogued_action_kind` |
+| `c29` — the new kinds, events and builtins are first-class everywhere a kind lives (Releases 1–3) | medium | Release 1: `e29`–`e32` · `tests/node/test_discord_wiring.py::test_discord_read_is_a_catalogued_action_kind`; Releases 2–3: `e79`, `e56` · `tests/node/test_discord_wiring.py` · the editor's vitest suites, six of whose d12 cases were never shown red (`l13`) |
 | `c31` — Discord events expire after 30 days; unselected channels are not stored | high | `e15`–`e17` · `tests/events/test_hook_sink.py::test_a_discord_event_carries_an_expiry_date_30_days_on` |
 | `c32` — the per-actor event id changes only Discord's ids | high | `e3` · `tests/apps/test_discord_gateway.py::test_one_actors_redelivery_of_a_message_is_a_duplicate` |
 | `c36` — the live library actor and key accept what Discord flows push | high | `e37` · library key 10 and actor `newspaper-library` (kinds include `discord-message`; formats `epub`, `md`, `pdf`, read back 2026-10-26 — `e37`'s text names only md), live item 72 |
 | `c38` — REST reads honour 429 and are bounded; long messages are saved whole | high | `e25`–`e28` · `tests/apps/test_discord_rest.py::test_get_retries_429_after_retry_after_then_succeeds` |
 | `c39` — a saved item is not removed when its message is edited or deleted | unverified | `o18` unchecked: no test asserts it; it holds today only because the gateway listens for new messages alone |
 | `c42` — a save flow carries a who filter (users by id or name, roles, either one admits) | high | `e10`–`e12` · `tests/engine/test_discord_trigger_filters.py::test_users_filter_ids_or_names_case_insensitive` |
-| `c13` — a reaction saves a message | high | `e38`, `e39` · `tests/rules/test_discord_reaction_flow.py` · live pdf item 92 saved by 📚 on both bots |
-| `c33` — reactions arrive through the raw event | medium | `e40` · `tests/apps/test_discord_gateway.py`; never shown red (`l6`), and no live reaction on an uncached message was observed |
-| `c18` — pdf, epub and Markdown attachments each become one item | medium | `e41`, `e42` · `tests/node/test_attachment_fetch.py` · live items 92, 67, 85; shipped unable to fetch real attachments (`l11`, fixed in #104) and needs its steps placed on one node (`l14`) |
-| `c37` — the fetch reuses http.call's vetted connection | high | `e43`, `e44` · `tests/node/test_attachment_fetch.py` · `tests/node/test_http_call.py::test_real_transport_names_culture_rules_as_its_user_agent` |
-| `c43` — acknowledgement by reaction or private reply | high | `e45`–`e47` · `tests/node/test_discord_react.py` · `tests/node/test_discord_reply.py` · live ⏳⌛✅ and replies |
-| `c14` — slash and message commands per bot, answered in Discord's window | high | `e48`, `e49` · `tests/apps/test_discord_commands.py` · live, all four bot/command pairs; the tree tests were skipped until #105 (`l12`), the live runs carry it |
+| `c13` — a reaction saves a message | high | `e70`, `e63` · `tests/rules/test_discord_reaction_flow.py` · live pdf item 92 saved by 📚 on both bots |
+| `c33` — reactions arrive through the raw event | medium | `e71` · `tests/apps/test_discord_gateway.py`; never shown red (`l6`), and no live reaction on an uncached message was observed |
+| `c18` — pdf, epub and Markdown attachments each become one item | medium | `e72`, `e64` · `tests/node/test_attachment_fetch.py` · live: pdf created item 92 and Markdown item 85; the epub matched item 67, already in the library (`created: false`), so the epub path never created a new item live; the claim's text predates `d7`/`d10` (files on the node, Markdown), recorded by `b7`/`b9`; shipped unable to fetch real attachments (`l11`, fixed in #104) and needs its steps placed on one node (`l14`) |
+| `c37` — the fetch reuses http.call's vetted connection | high | `e73`, `e44` · `tests/node/test_attachment_fetch.py` · `tests/node/test_http_call.py::test_real_transport_names_culture_rules_as_its_user_agent` |
+| `c43` — acknowledgement by reaction or private reply | high | `e74`, `e75`, `e47` · `tests/node/test_discord_react.py` · `tests/node/test_discord_reply.py` · live ⏳⌛✅ and replies |
+| `c14` — slash and message commands per bot, answered in Discord's window | high | `e76`, `e49` · `tests/apps/test_discord_commands.py` · live, all four bot/command pairs; the tree tests were skipped until #105 (`l12`), the live runs carry it |
 | `c34` — commands sync per guild only on change, only where allowed | high | `e50`, `e51` · `tests/apps/test_discord_commands.py::test_the_holder_registers_per_guild_and_reconnects_do_not_resync` · Discord's command listing |
-| `c16` — a scheduled sweep saves a channel's new messages | high | `e52`–`e54` · `tests/node/test_discord_sweep.py` · `tests/rules/test_discord_command_and_sweep_flows.py` · live items 87–89 |
-| `c29` (Releases 2–3) — the new kinds and builtins are first-class | high | `e55`, `e56` · `tests/node/test_discord_wiring.py` · the editor's vitest suites |
-| `c25` — the success signal on the live mesh | high | `e57` · 26 runs in 1–13 s, sweeps within their period, pdf and epub one item each, re-saves `created: false`, no run from a bot's post |
-| `c24` — the after-state: two actors, four gestures, Markdown plus files | medium | `e58` · all four gestures live in Experiments; jetson-bot listens in the public server with no save flow there (`d9`), and Culture.dev is not yet in the operator's private server (`t11`) |
+| `c16` — a scheduled sweep saves a channel's new messages | high | `e77`, `e78`, `e65` · `tests/node/test_discord_sweep.py` · `tests/rules/test_discord_command_and_sweep_flows.py` · live items 87–89 |
+| `c25` — the success signal on the live mesh | high | `e66` · 26 runs in 1–13 s, sweeps within their period, the pdf one new item and the epub one item (67, already held), re-saves `created: false`, no run from a bot's post |
+| `c24` — the after-state: two actors, four gestures, Markdown plus files | low | `e67` (**fail**: not every server the claim names) · all four gestures live in Experiments; jetson-bot listens in the public server with no save flow there (`d9`), and Culture.dev is not yet in the operator's private server (`t11`) |
 | `c41` — acknowledgement is per-flow configuration | high | `e59` · ✅/⛔ and ⏳⌛✅ set live without code |
-| `c7` — culture-library unchanged | medium | `e60` · no culture-library commit for Releases 2–3; Release 1 needed the `discord-message` kind (`d6`, culture-library#19) |
-| `c8` — discord-bot-cli and jetson-ai-lab-cli unchanged and not in conflict | medium | `e62` · discord-bot-cli `6cd4970` `tests/test_live_discord.py`: 6 passed while jetson-bot's gateway was held, no disconnect, no rule run; neither CLI changed; jetson-ai-lab-cli's own run was not exercised |
+| `c7` — culture-library unchanged | medium | `e68` · one culture-library commit in the window, `bb981c0` (0.17.1, status docs and eval generator), none for Discord; Release 1 needed the `discord-message` kind (`d6`, culture-library#19) |
+| `c8` — discord-bot-cli and jetson-ai-lab-cli unchanged and not in conflict | low | `e69` (**fail**: half checked) · discord-bot-cli `6cd4970` `tests/test_live_discord.py`: 6 passed while jetson-bot's gateway was held, no disconnect, no rule run; jetson-ai-lab-cli has no live suite and was not run; neither CLI changed |
 
 Lapse ledger evidence (all approved):
 
@@ -331,15 +334,17 @@ node holding the files; both are fixed and the live items back the claim. `l12` 
 command-tree tests skipped until #105; `c14` and `c34` stay high on the live runs of all four
 commands and Discord's own command listing. `l15` was a live configuration error (a shared
 concurrency key) with no claim of its own; it cost one message run in t20 and is fixed in the
-live rules and the template. `l7`–`l10` and `l13` are process lapses caught by the gate or
-CI before merge; no claim rests on the steps they skipped.
+live rules and the template. `l8`–`l10` are process lapses caught by the gate or CI before merge.
+`l7` and `l13` are tests never shown red that nothing caught: `l7`'s any-of test backs no
+claim on its own, and `l13`'s editor cases cap `c29` at medium, as `l1` and `l6` cap theirs.
 
 ## Remaining Work / Follow-up
 
 - `t11` — Culture.dev in the operator's private server: needs the server id and an invite,
   then `guild_id` as a list (every node runs 0.35.0, so a list is safe).
-- `c8` — jetson-ai-lab-cli's own live run with jetson-bot's gateway held was not exercised
-  (discord-bot-cli's was, `e62`).
+- `c8` — jetson-ai-lab-cli has no live suite; checking it while jetson-bot's gateway is held
+  needs a read of the public server, which needs the operator's go (`e69`).
+- `c24` — Culture.dev in the operator's private server closes `e67`'s gap (`t11`).
 - `c39` — add a test that an edit or delete event leaves the item (or keep it documented as
   manual archive only).
 - `d11` — jetson-bot's commands stay in Experiments until the public server's admins agree;
