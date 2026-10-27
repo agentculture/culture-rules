@@ -22,6 +22,7 @@ secrets, no webhook, no actor.
 | OpenAI-compatible speech-to-text (`agent` actor) | [stt.md](stt.md) | nothing | `audio.transcribe` |
 | A library: culture-library, or xteink's (`service` actor) | [library.md](library.md) | nothing | `library.push` |
 | The mesh decider (`agent` actor) | [decider.md](decider.md) | nothing | `decider.assess` |
+| Any HTTP endpoint (the `params.http` policy of any actor) | [http.md](http.md) | nothing | `http.call` |
 
 Email, web search, the model and the library are what the daily newspaper
 uses ([docs/operations/newspaper.md](../operations/newspaper.md)). The

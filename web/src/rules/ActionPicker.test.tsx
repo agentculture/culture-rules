@@ -4,7 +4,7 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { ACTORS, WORKFLOWS } from "../fixtures/rules-fixture";
 import type { Action } from "../api/types";
-import ActionPicker, { actionProblem, blankAction } from "./ActionPicker";
+import ActionPicker, { ACTION_KINDS, actionProblem, blankAction } from "./ActionPicker";
 
 function Harness({
   start,
@@ -387,5 +387,11 @@ describe("only where its chain ends (d21)", () => {
       />,
     );
     expect(screen.getByRole("checkbox", { name: "Only where its chain ends" })).toBeChecked();
+  });
+});
+
+describe("http.call params", () => {
+  it("offers save_to as an optional string", () => {
+    expect(ACTION_KINDS["http.call"].params.save_to).toEqual({ type: "str" });
   });
 });

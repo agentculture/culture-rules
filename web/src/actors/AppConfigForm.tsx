@@ -390,7 +390,7 @@ export function HttpPolicyForm({ value, onChange, errors = {} }: Readonly<HttpPo
             />
             <TextField
               ariaLabel={`Header ${i + 1} value (grant reference)`}
-              placeholder="grant:NAME"
+              placeholder="Bearer grant:NAME"
               value={header.value}
               error={errors[`http.${i}.value`]}
               mono
@@ -409,6 +409,22 @@ export function HttpPolicyForm({ value, onChange, errors = {} }: Readonly<HttpPo
           Add header
         </button>
       </fieldset>
+      <TextField
+        label="Save roots"
+        value={value.saveRoots}
+        error={errors["http.save_roots"]}
+        mono
+        onChange={(saveRoots) => onChange({ ...value, saveRoots })}
+        hint="Absolute directories a call's save_to may name, separated by commas. Empty refuses save_to."
+      />
+      <TextField
+        label="Largest saved body (bytes)"
+        value={value.saveMaxBytes}
+        error={errors["http.save_max_bytes"]}
+        mono
+        onChange={(saveMaxBytes) => onChange({ ...value, saveMaxBytes })}
+        hint="Leave blank for 50 MiB (52428800)."
+      />
     </Section>
   );
 }

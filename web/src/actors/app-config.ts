@@ -440,23 +440,39 @@ export function validateApp(draft: AppDraft): FormErrors {
 export interface HttpDraft {
   allow: string;
   headers: { name: string; value: string }[];
+  /** Absolute directories `save_to` may name, separated by commas. */
+  saveRoots: string;
+  /** Bytes, as text; blank means the default (50 MiB). */
+  saveMaxBytes: string;
 }
 
 export const httpDraftFrom = (http: HttpPolicy | undefined): HttpDraft => ({
   allow: (http?.allow ?? []).join(", "),
   headers: Object.entries(http?.headers ?? {}).map(([name, value]) => ({ name, value })),
+  saveRoots: (http?.save_roots ?? []).join(", "),
+  saveMaxBytes: http?.save_max_bytes === undefined ? "" : String(http.save_max_bytes),
 });
+
+/** A header value that is a reference: `grant:NAME`, or `<word> grant:NAME` (e.g. `Bearer grant:TOKEN`). */
+export const HEADER_GRANT_RE = /^(?:[A-Za-z][A-Za-z0-9._-]* )?grant:[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 export function validateHttp(draft: HttpDraft): FormErrors {
   const errors: FormErrors = {};
   draft.headers.forEach((h, i) => {
     if (h.name.trim() === "") errors[`http.${i}.name`] = "A header needs a name.";
     else if (isSecretKey(h.name) || /^authorization$|^x-api-key$|^cookie$/i.test(h.name.trim())) {
-      if (!GRANT_REF_RE.test(h.value.trim())) {
-        errors[`http.${i}.value`] = "Credentials are never typed here. Enter a reference, like grant:NAME.";
+      if (!HEADER_GRANT_RE.test(h.value.trim())) {
+        errors[`http.${i}.value`] = "Credentials are never typed here. Enter a reference, like grant:NAME or Bearer grant:NAME.";
       }
     }
   });
+  if (splitList(draft.saveRoots).some((root) => !root.startsWith("/"))) {
+    errors["http.save_roots"] = "Each save root is an absolute path, starting with /.";
+  }
+  const cap = draft.saveMaxBytes.trim();
+  if (cap !== "" && !/^[1-9][0-9]*$/.test(cap)) {
+    errors["http.save_max_bytes"] = "Use a whole number of bytes above zero, or leave it blank.";
+  }
   return errors;
 }
 
@@ -466,8 +482,15 @@ export function httpParamsFrom(draft: HttpDraft): HttpPolicy | undefined {
   const headers = Object.fromEntries(
     draft.headers.filter((h) => h.name.trim() !== "").map((h) => [h.name.trim(), h.value.trim()]),
   );
-  if (!allow.length && !Object.keys(headers).length) return undefined;
-  return { ...(allow.length ? { allow } : {}), ...(Object.keys(headers).length ? { headers } : {}) };
+  const saveRoots = splitList(draft.saveRoots);
+  const cap = draft.saveMaxBytes.trim();
+  const policy: HttpPolicy = {
+    ...(allow.length ? { allow } : {}),
+    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(saveRoots.length ? { save_roots: saveRoots } : {}),
+    ...(cap === "" ? {} : { save_max_bytes: Number(cap) }),
+  };
+  return Object.keys(policy).length ? policy : undefined;
 }
 
 /* ---------------- runner commands ---------------- */
