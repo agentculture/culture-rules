@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-27T10:48:29Z",
+  "updated": "2026-10-27T10:50:18Z",
   "deviations": [
     {
       "id": "d1",
@@ -1339,6 +1339,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 74
+    },
+    {
+      "id": "e62",
+      "obligation_ref": "o32",
+      "test_ref": "discord-bot-cli 6cd4970: tests/test_live_discord.py (pytest -m live, jetson-bot token, Experiments #spark-tests)",
+      "behavior_text": "6 live tests passed (user get, channel list, messages, write chain post-reply-react-thread, unknown guild, file upload; paging skipped) while culture-rules held jetson-bot's gateway session: no disconnect logged, both bots recorded the CLI's 3 posts and its reaction, and no rule ran (0 runs since 10:49:16)",
+      "contract_text": "discord-bot-cli and jetson-ai-lab-cli stay unchanged and do not conflict: both use the jetson-bot token over REST with Intents.none() and a login-act-close run, so culture-rules holding jetson-bot's gateway session duplicates nothing",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "the CLI's own live suite ran against real Discord with the gateway session held; the node log and the runs list were read back",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:49:16",
+        "commit": "6cd4970"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 75
     }
   ],
   "deltas": [
