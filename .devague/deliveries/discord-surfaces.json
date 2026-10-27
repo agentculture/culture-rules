@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-27T07:27:18Z",
+  "updated": "2026-10-27T09:02:49Z",
   "deviations": [
     {
       "id": "d1",
@@ -164,6 +164,20 @@
       "status": "approved",
       "classification": null,
       "seq": 49
+    },
+    {
+      "id": "d13",
+      "what": "discord.react takes remove (a list of emoji): the bot takes back its own earlier reactions after adding emoji (either alone allowed), via a new DiscordClient.remove_reaction (DELETE .../@me); the progress marks themselves (\u23f3 at start, \u231b after a middle step, \u2705 or \u26d4 at the end, each switch removing the old) are the reaction flows' live configuration",
+      "task_ref": "t15",
+      "reason": "operator 2026-10-27 during t20: the workflow should add \u23f3 as it starts, \u231b at a meaningful middle step, then \u2705, removing the old emoji at every switch; removing a reaction needs a generic ability, the marks are configuration",
+      "affects": [
+        "t15",
+        "t20"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": null,
+      "seq": 50
     }
   ],
   "evidence": [

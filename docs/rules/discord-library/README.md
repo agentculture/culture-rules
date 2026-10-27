@@ -72,4 +72,12 @@ Then a rule with the trigger `discord.command.invoked`, `command` set to those
 names, maps `trigger.data.target_message_id` and `target_channel_id` to the
 workflow's message and channel, and ends with `discord.reply` (`event_id` from
 `trigger.id`) to answer the person privately. Its `concurrency_key` must
-resolve for command events, e.g. `discord:{trigger.data.target_message_id}`.
+resolve for command events, e.g.
+`discord-command:<bot>:{trigger.data.target_message_id}`.
+
+A concurrency key is global: rules whose keys resolve to the same string share
+one run at a time and one waiting slot, and a newer waiting event replaces an
+older one. Give each flow (and each bot) its own prefix, e.g.
+`discord-message:<bot>:{trigger.data.message_id}` and
+`discord-reaction:<bot>:{trigger.data.message_id}`, or a message's 📚 can
+displace its own message event while another run holds the key.

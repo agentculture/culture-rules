@@ -532,10 +532,10 @@
               "discord-to-library"
             ],
             "sentence": 5,
-            "text": "It runs one at a time per discord:{message_id}."
+            "text": "It runs one at a time per discord-message:discord-bot:{message_id}."
           }
         ],
-        "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, if actor is discord-bot, on spark.\nFirst reads the whole message with the bot that saw it; then writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord:{message_id}."
+        "text": "It starts when discord.message.created (in channels 000000000000000000) arrives, if actor is discord-bot, on spark.\nFirst reads the whole message with the bot that saw it; then writes the message as a Markdown page.\nThen adds the page to the library as a private document, trying up to 3 times.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per discord-message:discord-bot:{message_id}."
       }
     },
     "pr-fix": {
@@ -2534,7 +2534,7 @@
         "retry": null,
         "timeout_s": null
       },
-      "concurrency_key": "discord:{trigger.data.message_id}",
+      "concurrency_key": "discord-message:discord-bot:{trigger.data.message_id}",
       "condition": {
         "cmp": "==",
         "left": {

@@ -305,8 +305,22 @@ being false. The library actor must list the attachments root in its
 `content_roots` ([library.md](library.md)); without it the push fails
 `path_refused`.
 
+The files live on one node's disk, so give the fetch step, the `for_each` and
+its push a `placement` on the node that holds the attachments root (and whose
+path the library actor lists). A step without one may run on any node: there
+the root does not exist and the fetch fails `path_refused: output_root does
+not exist`, or a push looks for a file another node wrote.
+
 `discord.react` adds the bot's reaction (a unicode emoji, or a custom
-`name:id`) to a message: a flow can answer a saving reaction with ✅.
+`name:id`) to a message, and `remove` (a list of emoji) takes back the bot's
+own earlier reactions after adding the new one; either may be given alone. The
+emoji a step adds is never taken back by the same step, and a take-back Discord
+refuses (the message or a custom emoji is gone) is listed in `not_removed`
+without failing the step. List only the marks earlier steps placed: each one
+is a request to Discord. A
+flow can so show its progress on the message: ⏳ when it starts, ⌛ (removing ⏳)
+after a meaningful middle step, then ✅ (removing ⌛ and ⏳) when it is done.
+Which marks, and at which steps, is the flow's configuration.
 
 ## Commands
 

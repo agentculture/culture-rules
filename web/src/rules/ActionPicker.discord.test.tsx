@@ -69,11 +69,16 @@ describe("discord.react", () => {
     );
   }
 
-  it("is catalogued with actor, channel, message and emoji required", () => {
+  it("is catalogued with actor, channel and message required, and an emoji to add or remove", () => {
     const p = ACTION_KINDS["discord.react"].params;
-    expect([p.actor, p.channel, p.message, p.emoji].every((s) => s.required)).toBe(true);
+    expect([p.actor, p.channel, p.message].every((s) => s.required)).toBe(true);
     expect(p.guild.required).toBeFalsy();
+    expect(p.remove.type).toBe("list");
+    expect(ACTION_KINDS["discord.react"].anyOf).toEqual([["emoji", "remove"]]);
     expect(actionProblem({ kind: "discord.react", params: { actor: "a", channel: "1", message: "2" } })).toBe("empty");
+    expect(
+      actionProblem({ kind: "discord.react", params: { actor: "a", channel: "1", message: "2", remove: ["⏳"] } }),
+    ).toBeNull();
   });
 
   it("picks the channel from what the bot sees and takes an emoji", async () => {

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-27T07:49:32Z",
+  "updated": "2026-10-27T09:05:52Z",
   "claims": [
     {
       "id": "c1",
@@ -1234,6 +1234,30 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l14",
+      "code": "assumption-for-measurement",
+      "what": "Release 2's attachment flow (d7: files on the node) assumed every step runs on the node holding the attachments root: the docs and the live reaction flow left fetch and the file pushes unplaced, and no test runs a flow across two nodes. Live on 2026-10-27, save-on-reaction-jetson's fetch ran on spark2 and failed path_refused (run-001693e4b4f2824843d132cea01ffa0b); fixed by placing fetch, files and the push on spark in the four live flows",
+      "skipped_check": "placing the file-producing and file-reading steps on one node, and a multi-node check of the flow",
+      "refs": [
+        "run-001693e4b4f2824843d132cea01ffa0b",
+        "docs/actors/discord.md"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l15",
+      "code": "assumption-for-measurement",
+      "what": "t20 live configuration gave every Discord rule (message, reaction, command, for both bots) the same concurrency key template discord:{message_id}, copied from the committed bundle, without checking that keys are global and coalesce: Culture.dev's message event for the epub post (1564565129729941696) was deduplicated behind jetson-bot's run, then displaced by the \ud83d\udcda events, so its message flow never ran; fixed by a per-flow, per-bot key prefix",
+      "skipped_check": "reading the concurrency-key contract (node/firing.py: global keys, one coalescing slot) before sharing a key across rules",
+      "refs": [
+        "docs/rules/discord-library/rules/discord-to-library.json",
+        "culture_rules/node/firing.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [
