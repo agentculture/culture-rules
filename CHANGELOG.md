@@ -13,6 +13,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `discord.react`: the emoji a step adds is never taken back by the same step; a take-back Discord refuses (4xx) is listed in `not_removed` instead of failing the step; `reacted` says whether a reaction was added; a blank or non-string `emoji` is refused up front, and `remove` items are trimmed like `emoji`
+- An `any_of` check treats an empty list as unset (`remove: []` no longer satisfies emoji-or-remove), as the editor does
+- Action words join a list param ("removing ⌛ and ⏳"); `add_reaction` and `remove_reaction` share one request helper
+- The discord-library template's concurrency key carries a flow and bot prefix (`discord-message:discord-bot:…`): keys are global and coalesce
 - `docs/actors/discord.md`: place `attachment.fetch` and the pushes that read its files on the node holding the attachments root (a step with no placement may run elsewhere and fail `path_refused`)
 
 ## [0.34.0] - 2026-10-27

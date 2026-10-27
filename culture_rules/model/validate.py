@@ -456,6 +456,8 @@ def _check_any_of(
 
 
 def _unset(value: Any) -> bool:
+    if isinstance(value, (list, tuple, dict)):
+        return not value  # an empty list sets nothing (the editor reads it the same way)
     return value is None or (isinstance(value, str) and not value.strip())
 
 

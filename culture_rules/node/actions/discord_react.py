@@ -4,9 +4,14 @@ its own earlier ones.
 ``params.actor`` is an app actor with surface ``discord``; the reaction is added with that
 actor's own bot token (``connection.bot_token``, a ``grant:NAME`` reference resolved at call
 time). The input is ``channel`` and ``message`` (numeric ids), ``emoji`` (a unicode emoji as
-is, or a custom one as ``name:id``) and ``remove`` (one emoji or a list: the bot's own
-reactions to take back, after adding ``emoji``, so a progress mark like ⏳ then ✅ never leaves
-the message without one); at least one of ``emoji`` and ``remove``.
+is, or a custom one as ``name:id``) and ``remove`` (a list of emoji: the bot's own reactions
+to take back, after adding ``emoji``, so a progress mark like ⏳ then ✅ never leaves the
+message without one); at least one of ``emoji`` and ``remove``. The emoji just added is
+never taken back in the same step (U+FE0F ignored), and a take-back Discord refuses (the
+message or a custom emoji is gone: 4xx) is logged and listed in ``not_removed`` without
+failing the step, since the new mark is already placed; a 429 or 5xx still fails it,
+retryably. The output is ``emoji`` (what was added, or None), ``removed``, ``not_removed``
+and ``reacted`` (whether a reaction was added).
 ``connection.channels`` restricts the channels as
 :class:`~culture_rules.node.actions.discord_read.DiscordReadAction` does (unset or empty means
 every channel), and ``connection.guild_id`` (one id or a list) confines it to those servers:
@@ -26,7 +31,7 @@ from typing import Any
 from culture_rules.actors import secrets
 from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport, guild_ids
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.model.discord_filters import emoji_ok, filter_values
+from culture_rules.model.discord_filters import VARIATION_SELECTOR, emoji_ok, filter_values
 from culture_rules.node.actions.discord_read import DiscordReadAction, _fail, _nonempty
 
 __all__ = ["DiscordReactAction"]
@@ -78,11 +83,18 @@ class DiscordReactAction(DiscordReadAction):
         channel, message, emoji = input.get("channel"), input.get("message"), input.get("emoji")
         if not _nonempty(channel) or not _nonempty(message):
             return _fail("discord.react needs a channel and a message id")
-        remove = filter_values(input.get("remove"))
-        if not _nonempty(emoji) and not remove:
+        remove = [e.strip() for e in filter_values(input.get("remove"))]
+        if emoji is not None:
+            emoji = emoji.strip() if isinstance(emoji, str) else emoji
+            if not _nonempty(emoji) or not emoji_ok(emoji):
+                return _fail("discord.react emoji is a unicode emoji or name:id")
+        if emoji is None and not remove:
             return _fail("discord.react needs an emoji to add or emoji to remove")
         if not all(emoji_ok(e) for e in remove):
             return _fail("discord.react remove holds unicode emoji or name:id")
+        if emoji is not None:  # never take back the mark this step places
+            plain = emoji.replace(VARIATION_SELECTOR, "")
+            remove = [e for e in remove if e.replace(VARIATION_SELECTOR, "") != plain]
         connection = self._connection(actor_id, channel)
         if isinstance(connection, InvocationResult):
             return connection
@@ -101,7 +113,7 @@ class DiscordReactAction(DiscordReadAction):
                 # guild_id confines reactions as it does reads and the gateway
                 return _fail(f"channel {channel!r} is not in actor {actor_id!r} guilds (guild_id)")
             added = client.add_reaction(channel, message, emoji)["emoji"] if emoji else None
-            removed = [client.remove_reaction(channel, message, e)["emoji"] for e in remove]
+            removed, not_removed = self._take_back(client, channel, message, remove)
         except DiscordError as exc:
             log.warning("discord react on %s/%s failed: %s", channel, message, exc)
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
@@ -111,6 +123,27 @@ class DiscordReactAction(DiscordReadAction):
                 "message": message,
                 "emoji": added,
                 "removed": removed,
-                "reacted": True,
+                "not_removed": not_removed,
+                "reacted": added is not None,
             }
         )
+
+    @staticmethod
+    def _take_back(
+        client: DiscordClient, channel: str, message: str, remove: list[str]
+    ) -> tuple[list[str], list[str]]:
+        """Take back each emoji; one Discord refuses (4xx) is listed, not raised: the new mark
+        is already placed and an old one left behind is cosmetic. 429 and 5xx raise."""
+        removed: list[str] = []
+        not_removed: list[str] = []
+        for emoji in remove:
+            try:
+                removed.append(client.remove_reaction(channel, message, emoji)["emoji"])
+            except DiscordError as exc:
+                if exc.retryable:
+                    raise
+                log.warning(
+                    "discord react on %s/%s: %s not taken back: %s", channel, message, emoji, exc
+                )
+                not_removed.append(emoji)
+        return removed, not_removed

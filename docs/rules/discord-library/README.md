@@ -73,7 +73,7 @@ names, maps `trigger.data.target_message_id` and `target_channel_id` to the
 workflow's message and channel, and ends with `discord.reply` (`event_id` from
 `trigger.id`) to answer the person privately. Its `concurrency_key` must
 resolve for command events, e.g.
-`discord-command:{trigger.data.target_message_id}`.
+`discord-command:<bot>:{trigger.data.target_message_id}`.
 
 A concurrency key is global: rules whose keys resolve to the same string share
 one run at a time and one waiting slot, and a newer waiting event replaces an

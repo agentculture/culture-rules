@@ -109,7 +109,12 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "mesh.message": _TO_CHANNEL,
     "discord.message": _TO_CHANNEL,
     "discord.read": (_IN_CHANNEL, ("message", "message {}")),
-    "discord.react": (("emoji", "with {}"), _IN_CHANNEL, ("message", "on message {}")),
+    "discord.react": (
+        ("emoji", "with {}"),
+        ("remove", "removing {}"),
+        _IN_CHANNEL,
+        ("message", "on message {}"),
+    ),
     "discord.reply": (("text", '"{}"'),),
     "discord.sweep": (_IN_CHANNEL, ("limit", "up to {} messages")),
     "github.comment": (),
@@ -366,12 +371,10 @@ def action_text(action: Any, where: str = "") -> str:
     words = [kind, _actor_of(params)]
     for param, template in ACTION_WORDS.get(kind, ()):
         value = params.get(param)
+        if isinstance(value, (list, tuple)):  # a list param reads "a and b", its literals only
+            value = " and ".join(str(v) for v in value if not _dynamic(v))
         if value not in (None, "") and not _dynamic(value):
             words.append(template.format(value))
-    if kind == "discord.react":
-        taken = [e for e in filter_values(params.get("remove")) if not _dynamic(e)]
-        if taken:
-            words.append("removing " + " and ".join(taken))
     words.append(where)
     if kind == "github.push":  # the push port always requires an approving review (d20)
         gate = "a passing gate and " if params.get("gate_verdict") else ""

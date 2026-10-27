@@ -279,30 +279,17 @@ class DiscordClient:
         """React to a message as the bot. ``emoji`` is a unicode emoji as is, or a custom one
         as ``name:id``; it is percent-encoded into the URL. A 429 is retried like a GET
         (reacting twice with the same emoji is a no-op, so a retry is safe)."""
-        _check_id(channel_id, "channel")
-        _check_id(message_id, "message")
-        emoji = emoji.strip() if isinstance(emoji, str) else ""
-        if not emoji_ok(emoji):
-            raise DiscordError("emoji must be a unicode emoji or name:id", retryable=False)
-        path = (
-            f"/channels/{channel_id}/messages/{message_id}/reactions/"
-            f"{urllib.parse.quote(emoji, safe='')}/@me"
-        )
-        status, payload = self._send(path, "PUT")
-        if 200 <= status < 300:
-            return {"channel_id": channel_id, "message_id": message_id, "emoji": emoji}
-        if status == 429:
-            retry_after = _retry_after(payload)
-            raise DiscordError(
-                f"discord rate limited (retry_after={retry_after})",
-                retryable=True,
-                retry_after=retry_after,
-            )
-        raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
+        return self._reaction("PUT", channel_id, message_id, emoji)
 
     def remove_reaction(self, channel_id: str, message_id: str, emoji: str) -> dict[str, str]:
         """Take back the bot's own reaction ``emoji`` (as :meth:`add_reaction` takes it). Taking
         back one the bot never added changes nothing, so a retry is safe."""
+        return self._reaction("DELETE", channel_id, message_id, emoji)
+
+    def _reaction(
+        self, method: str, channel_id: str, message_id: str, emoji: str
+    ) -> dict[str, str]:
+        """``PUT`` or ``DELETE`` the bot's own reaction ``emoji`` on a message."""
         _check_id(channel_id, "channel")
         _check_id(message_id, "message")
         emoji = emoji.strip() if isinstance(emoji, str) else ""
@@ -312,7 +299,7 @@ class DiscordClient:
             f"/channels/{channel_id}/messages/{message_id}/reactions/"
             f"{urllib.parse.quote(emoji, safe='')}/@me"
         )
-        status, payload = self._send(path, "DELETE")
+        status, payload = self._send(path, method)
         if 200 <= status < 300:
             return {"channel_id": channel_id, "message_id": message_id, "emoji": emoji}
         if status == 429:

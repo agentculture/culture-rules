@@ -14,7 +14,8 @@ a Discord app actor (the form before ``discord.message`` existed) keeps posting 
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
 the server the channel was picked from. ``discord.read`` reads one message in full (its
 text untruncated and its attachments) with the same actor's token, within its allow-list;
-``discord.react`` adds the bot's reaction (a unicode emoji or a custom ``name:id``) to one.
+``discord.react`` adds the bot's reaction (a unicode emoji or a custom ``name:id``) to one
+and takes back its own earlier ones (``remove``, a list); it needs ``emoji`` or ``remove``.
 ``discord.reply`` answers a slash or message command privately (``event_id`` names the
 ``discord.command.invoked`` event); ``discord.sweep`` reads a channel's messages newer than a
 stored cursor, which the ``cursor.advance`` step moves once the run's saves succeed.

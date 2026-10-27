@@ -110,3 +110,23 @@ def test_the_node_registers_discord_reply_sweep_and_cursor_advance():
     assert isinstance(ports["action:discord.reply"], DiscordReplyAction)
     assert isinstance(ports["action:discord.sweep"], DiscordSweepAction)
     assert isinstance(ports["code"]._builtins[CURSOR_ADVANCE_BUILTIN], CursorAdvancePort)
+
+
+def test_an_empty_remove_list_does_not_satisfy_emoji_or_remove():
+    # review of #107: the editor treats [] as unset; so must the API's any_of check
+    from culture_rules.model.rule import Action
+    from culture_rules.model.validate import validate
+
+    def codes(params):
+        return {e.code for e in validate(Action(kind="discord.react", params=params))}
+
+    base = {"actor": "a", "channel": "1", "message": "2"}
+    assert "action_param_required" in codes({**base, "remove": []})
+    assert "action_param_required" not in codes({**base, "remove": ["⏳"]})
+
+
+def test_action_words_join_a_list_param():
+    words = action_text(
+        {"kind": "discord.react", "params": {"actor": "b", "emoji": "✅", "remove": ["⌛", "⏳"]}}
+    )
+    assert "removing ⌛ and ⏳" in words

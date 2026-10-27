@@ -62,6 +62,7 @@ def test_reacts_with_the_actors_token_and_reports_it():
         "message": "900",
         "emoji": THUMBS,
         "removed": [],
+        "not_removed": [],
         "reacted": True,
     }
     ((method, url, headers),) = t.calls
@@ -241,7 +242,7 @@ def test_remove_takes_back_the_listed_emoji_after_adding_the_new_one():
 def test_remove_alone_only_takes_back():
     t = FakeTransport()
     res = action(store_with(), t).invoke(
-        {"channel": "42", "message": "900", "remove": HOURGLASS}, "k", NOW, context=ctx()
+        {"channel": "42", "message": "900", "remove": [HOURGLASS]}, "k", NOW, context=ctx()
     )
     assert res.outcome == COMPLETED
     assert [m for m, _, _ in t.calls] == ["DELETE"]
@@ -281,3 +282,61 @@ def test_describe_names_what_is_added_and_taken_back():
     assert f"with {DONE}" in text
     assert f"removing {FLOWING} and {HOURGLASS}" in text
     assert "[" not in text
+
+
+# --- review of #107 ---------------------------------------------------------------------
+
+
+def test_reacted_says_whether_a_reaction_was_added():
+    only_remove = {"channel": "42", "message": "900", "remove": [HOURGLASS]}
+    res = action(store_with(), FakeTransport()).invoke(only_remove, "k", NOW, context=ctx())
+    assert res.output["reacted"] is False
+
+
+def test_the_added_emoji_is_never_taken_back_in_the_same_step():
+    t = FakeTransport()
+    move = {**INPUT, "emoji": DONE, "remove": [FLOWING, DONE, DONE + "\ufe0f"]}
+    res = action(store_with(), t).invoke(move, "k", NOW, context=ctx())
+    assert [m for m, _, _ in t.calls] == ["PUT", "DELETE"]
+    assert res.output["removed"] == [FLOWING]
+
+
+def test_a_failed_take_back_does_not_fail_the_step():
+    # the new mark is placed; a gone message or emoji only leaves the old mark behind
+    t = FakeTransport((204, {}, {}), (404, {"message": "Unknown Emoji"}, {}), (204, {}, {}))
+    move = {**INPUT, "emoji": DONE, "remove": ["gone:123", HOURGLASS]}
+    res = action(store_with(), t).invoke(move, "k", NOW, context=ctx())
+    assert res.outcome == COMPLETED
+    assert res.output["removed"] == [HOURGLASS]
+    assert res.output["not_removed"] == ["gone:123"]
+
+
+def test_a_rate_limited_take_back_is_retried_by_the_step():
+    t = FakeTransport((204, {}, {}), (500, {}, {}))
+    res = action(store_with(), t).invoke(
+        {**INPUT, "emoji": DONE, "remove": [HOURGLASS]}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == FAILED
+    assert res.retryable is True
+
+
+def test_remove_items_are_stripped_like_emoji():
+    t = FakeTransport()
+    res = action(store_with(), t).invoke(
+        {"channel": "42", "message": "900", "remove": [" " + HOURGLASS + " "]},
+        "k",
+        NOW,
+        context=ctx(),
+    )
+    assert res.outcome == COMPLETED
+    assert res.output["removed"] == [HOURGLASS]
+
+
+def test_a_blank_or_non_string_emoji_is_refused_up_front():
+    for bad in (" ", ["x"], 3):
+        t = FakeTransport()
+        res = action(store_with(), t).invoke(
+            {**INPUT, "emoji": bad, "remove": [HOURGLASS]}, "k", NOW, context=ctx()
+        )
+        assert res.outcome == FAILED
+        assert t.calls == []
