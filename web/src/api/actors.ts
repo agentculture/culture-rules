@@ -44,6 +44,35 @@ export interface DiscordConnection {
   /** One guild id, or several; unset or empty means every guild the bot is in. */
   guild_id?: string | string[];
   channels?: string[];
+  /** The bot's application id (needed to register commands). */
+  application_id?: string;
+  /** The guilds commands are registered in: one id or several; unset means every guild id. */
+  command_guild_id?: string | string[];
+}
+
+/** One option of a Discord slash command (culture_rules/model/app_actor.py, deviation d12). */
+export interface DiscordCommandOption {
+  /** `^[a-z_][a-z0-9_]{0,31}$`, never `interaction`, unique in its command. */
+  name: string;
+  /** 1–100 characters. */
+  description: string;
+  /** `string` (the default) or `message` (a message link or id; at most one per command). */
+  kind?: "string" | "message";
+  /** Default false; required options come before optional ones. */
+  required?: boolean;
+}
+
+/** One Discord application command an app actor registers (`params.commands`, d12). */
+export interface DiscordCommand {
+  type: "slash" | "message";
+  /** slash: `^[a-z0-9_-]{1,32}$`; message: 1–32 characters. Unique per type. */
+  name: string;
+  /** slash only, 1–100 characters. */
+  description?: string;
+  /** slash only, at most 5. */
+  options?: DiscordCommandOption[];
+  /** The private answer when no rule handles the command there, 1–200 characters. */
+  not_here?: string;
 }
 /** The sender domains an `email` actor may send from (app_actor.py `EMAIL_DOMAINS`). */
 export type EmailDomain = "culture.dev" | "jetson-ai-lab.org";
@@ -71,6 +100,8 @@ export interface AppActorParams {
   connection: GithubConnection | JiraConnection | DiscordConnection | EmailConnection | SearchConnection;
   /** Login of the App/bot/service account, used to tag self-authored events. */
   self_identity?: string;
+  /** discord: the application commands this bot registers (at most 10, at most 5 `message`). */
+  commands?: DiscordCommand[];
 }
 
 /** One registered command of a runner actor (`params.commands[name]`). */
@@ -95,8 +126,11 @@ export interface HttpPolicy {
 }
 
 /** `Actor.params` keys known to the editor; other keys ride along. */
-export type ActorParams = Partial<AppActorParams> &
-  RunnerActorParams & { http?: HttpPolicy } & Record<string, unknown>;
+export type ActorParams = Omit<Partial<AppActorParams>, "commands"> & {
+  /** A runner's registered commands (by name), or a Discord app's application commands (a list). */
+  commands?: RunnerActorParams["commands"] | AppActorParams["commands"];
+  http?: HttpPolicy;
+} & Record<string, unknown>;
 
 export interface Actor {
   id: string;

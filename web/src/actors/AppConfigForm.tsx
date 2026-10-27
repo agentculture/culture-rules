@@ -4,10 +4,16 @@ import {
   ACTION_KINDS,
   APP_SURFACES,
   CONNECTION_FIELDS,
+  DISCORD_COMMAND_TYPES,
+  DISCORD_OPTION_KINDS,
   connectionDefaults,
+  emptyDiscordCommand,
+  emptyDiscordOption,
   isSecretKey,
   type AppDraft,
   type ConnectionField,
+  type DiscordCommandDraft,
+  type DiscordOptionDraft,
   type FormErrors,
   type HttpDraft,
 } from "./app-config";
@@ -17,7 +23,10 @@ import { useRowKeys } from "./useRowKeys";
 export interface AppConfigFormProps {
   value: AppDraft;
   onChange: (next: AppDraft) => void;
-  /** Field errors keyed by path (`surface`, `connection.<key>`, `events.<i>`, `probes.<i>.name`). */
+  /**
+   * Field errors keyed by path (`surface`, `connection.<key>`, `events.<i>`, `probes.<i>.name`,
+   * `commands`, `commands.<i>.<field>`, `commands.<i>.options.<j>.<field>`).
+   */
   errors?: FormErrors;
 }
 
@@ -53,6 +62,149 @@ function ConnectionInput({ field, value, error, onChange }: Readonly<ConnectionI
       placeholder={isSecret ? "grant:NAME" : field.placeholder}
       mono={isSecret}
     />
+  );
+}
+
+/** A checkbox in a row, named for its row, with its error announced. */
+function RowCheck({ ariaLabel, text, checked, error, onChange }: Readonly<{
+  ariaLabel: string;
+  text: string;
+  checked: boolean;
+  error?: string;
+  onChange: (checked: boolean) => void;
+}>) {
+  const uid = useId();
+  return (
+    <div className="actor-form__field">
+      <label className="actor-check">
+        <input
+          type="checkbox"
+          aria-label={ariaLabel}
+          checked={checked}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${uid}-err` : undefined}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span>{text}</span>
+      </label>
+      {error ? (
+        <p id={`${uid}-err`} className="actor-form__error">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+interface DiscordCommandsProps {
+  value: DiscordCommandDraft[];
+  onChange: (next: DiscordCommandDraft[]) => void;
+  errors: FormErrors;
+}
+
+/**
+ * A Discord app's application commands (`params.commands`, d12): each a slash command (a name,
+ * a description and options) or a message command (a name only), with the private answer
+ * given where no rule handles it. A rule picks one with its trigger's `command` filter.
+ */
+function DiscordCommands({ value, onChange, errors }: Readonly<DiscordCommandsProps>) {
+  const rows = useRowKeys();
+  const commandKeys = rows.keys("commands", value.length);
+  const patch = (i: number, next: Partial<DiscordCommandDraft>) => onChange(value.map((c, j) => (j === i ? { ...c, ...next } : c)));
+  const patchOption = (i: number, j: number, next: Partial<DiscordOptionDraft>) =>
+    patch(i, { options: value[i].options.map((o, k) => (k === j ? { ...o, ...next } : o)) });
+  return (
+    <fieldset className="actor-list plain-group" aria-label="Commands">
+      <span className="actor-list__title">Commands it registers</span>
+      {errors.commands ? <p className="actor-form__error">{errors.commands}</p> : null}
+      {value.map((command, i) => {
+        const n = i + 1;
+        const at = `commands.${i}`;
+        const optionList = `${commandKeys[i]}:options`;
+        const optionKeys = rows.keys(optionList, command.options.length);
+        return (
+          <fieldset key={commandKeys[i]} className="actor-command plain-group" aria-label={`Command ${n}`}>
+            <div className="actor-list__row actor-list__row--command">
+              <SelectField
+                ariaLabel={`Command ${n} type`}
+                value={command.type}
+                options={DISCORD_COMMAND_TYPES}
+                onChange={(type) => patch(i, { type: type as DiscordCommandDraft["type"] })}
+                error={errors[`${at}.type`]}
+              />
+              <TextField
+                ariaLabel={`Command ${n} name`}
+                placeholder={command.type === "slash" ? "save" : "Save to library"}
+                value={command.name}
+                onChange={(name) => patch(i, { name })}
+                error={errors[`${at}.name`]}
+              />
+              <RemoveButton
+                label={`Remove command ${n}`}
+                onClick={() => {
+                  rows.drop("commands", i);
+                  onChange(value.filter((_, j) => j !== i));
+                }}
+              />
+            </div>
+            {command.type === "slash" ? (
+              <TextField
+                ariaLabel={`Command ${n} description`}
+                placeholder="description"
+                value={command.description}
+                onChange={(description) => patch(i, { description })}
+                error={errors[`${at}.description`]}
+              />
+            ) : null}
+            <TextField
+              ariaLabel={`Command ${n} answer when not set up here`}
+              placeholder="Not set up here (optional)"
+              value={command.notHere}
+              onChange={(notHere) => patch(i, { notHere })}
+              error={errors[`${at}.not_here`]}
+              hint="Answered privately where no rule handles this command."
+            />
+            {command.type === "slash" ? (
+              <>
+                {errors[`${at}.options`] ? <p className="actor-form__error">{errors[`${at}.options`]}</p> : null}
+                {command.options.map((option, j) => {
+                  const m = j + 1;
+                  const name = `Command ${n} option ${m}`;
+                  const oat = `${at}.options.${j}`;
+                  return (
+                    <div className="actor-list__row actor-list__row--option" key={optionKeys[j]}>
+                      <TextField ariaLabel={`${name} name`} placeholder="name" value={option.name} onChange={(v) => patchOption(i, j, { name: v })} error={errors[`${oat}.name`]} mono />
+                      <TextField ariaLabel={`${name} description`} placeholder="description" value={option.description} onChange={(v) => patchOption(i, j, { description: v })} error={errors[`${oat}.description`]} />
+                      <SelectField
+                        ariaLabel={`${name} kind`}
+                        value={option.kind}
+                        options={DISCORD_OPTION_KINDS}
+                        onChange={(v) => patchOption(i, j, { kind: v as DiscordOptionDraft["kind"] })}
+                        error={errors[`${oat}.kind`]}
+                      />
+                      <RowCheck ariaLabel={`${name} required`} text="Required" checked={option.required} onChange={(v) => patchOption(i, j, { required: v })} error={errors[`${oat}.required`]} />
+                      <RemoveButton
+                        label={`Remove command ${n} option ${m}`}
+                        onClick={() => {
+                          rows.drop(optionList, j);
+                          patch(i, { options: command.options.filter((_, k) => k !== j) });
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+                <button type="button" className="btn actor-add" aria-label={`Add option to command ${n}`} onClick={() => patch(i, { options: [...command.options, emptyDiscordOption()] })}>
+                  Add option
+                </button>
+              </>
+            ) : null}
+          </fieldset>
+        );
+      })}
+      <button type="button" className="btn actor-add" onClick={() => onChange([...value, emptyDiscordCommand()])}>
+        Add command
+      </button>
+    </fieldset>
   );
 }
 
@@ -189,6 +341,10 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
                 Add probe
               </button>
             </fieldset>
+
+            {surface === "discord" ? (
+              <DiscordCommands value={value.commands} onChange={(commands) => set({ commands })} errors={errors} />
+            ) : null}
 
             <TextField
               label="Self identity"

@@ -194,6 +194,12 @@ const idList = (text: string) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
+/** A stored command filter (one name or a list) as a list. */
+const commandNames = (command: string | string[] | undefined): string[] => {
+  if (command === undefined) return [];
+  return Array.isArray(command) ? command : [command];
+};
+
 /** A comma-separated list field; the text is kept as typed and the parsed list is what is saved. */
 function ListField({
   label,
@@ -312,6 +318,14 @@ function DiscordFilters({ name, actorId, t, load, onChange }: Readonly<DiscordFi
           onList={(l) => set({ emoji: l })}
         />
       ) : null}
+      {params.type === "discord.command.invoked" ? (
+        <ListField
+          label="Command"
+          hint="The command's name (save, or Save to library), or several separated by commas. Empty means any of the bot's commands."
+          value={commandNames(params.command)}
+          onList={(l) => set({ command: l.length > 1 ? l : l[0] })}
+        />
+      ) : null}
       <ListField label="Users" hint="Ids or usernames, separated by commas. Empty means anyone." value={params.users ?? []} onList={(l) => set({ users: l })} />
       <ListField label="Roles" hint="Role ids, matched against the roles of whoever posted or reacted." value={params.roles ?? []} onList={(l) => set({ roles: l })} />
       <label className="trigger-kind">
@@ -365,10 +379,15 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
           value={eventType}
           disabled={!surfaceActor}
           onChange={(e) => {
-            // an emoji filter belongs to reactions: never carry it hidden onto another type
-            const { emoji: _emoji, ...rest } = t.params;
-            const keep = e.target.value === "discord.reaction.added" ? t.params : rest;
-            onChange({ kind: "event", params: { ...keep, type: e.target.value } });
+            // emoji belongs to reactions and command to commands: never carry either hidden onto another type
+            const { emoji, command, ...rest } = t.params;
+            const next = e.target.value;
+            const keep = {
+              ...rest,
+              ...(next === "discord.reaction.added" && emoji !== undefined ? { emoji } : {}),
+              ...(next === "discord.command.invoked" && command !== undefined ? { command } : {}),
+            };
+            onChange({ kind: "event", params: { ...keep, type: next } });
           }}
         >
           <option value="">Choose an event…</option>
