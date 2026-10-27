@@ -48,6 +48,7 @@ __all__ = [
     "resolve",
     "resolve_or_literal",
     "run_with_secrets",
+    "split_word_ref",
 ]
 
 GRANT_SCHEME = "grant"
@@ -87,6 +88,28 @@ class SecretError(Exception):
 def is_secret_ref(value: object) -> bool:
     """True for a well-formed ``grant:<NAME>`` reference."""
     return isinstance(value, str) and _REF_RE.fullmatch(value) is not None
+
+
+# ``<word> grant:<NAME>`` (e.g. ``Bearer grant:TOKEN``): one word, one space, one reference.
+_WORD_REF_RE = re.compile(r"([A-Za-z][A-Za-z0-9._-]*) (grant:\S*)")
+
+
+def split_word_ref(value: object) -> tuple[str, str] | None:
+    """``(word, reference)`` for a header value ``<word> grant:<NAME>``, else None.
+
+    The reference part is returned as written; :func:`is_secret_ref` says whether it is
+    well-formed. ``http.call`` resolves it and sends ``<word> <value>``.
+    """
+    match = _WORD_REF_RE.fullmatch(value) if isinstance(value, str) else None
+    return (match.group(1), match.group(2)) if match else None
+
+
+def _is_header_ref(value: object, path: str) -> bool:
+    """A ``<word> grant:<NAME>`` value under a ``headers`` mapping (where http.call reads it)."""
+    if not (path == "headers" or path.endswith(".headers")):
+        return False
+    split = split_word_ref(value)
+    return split is not None and is_secret_ref(split[1])
 
 
 def parse_ref(ref: str) -> tuple[str, str]:
@@ -227,7 +250,7 @@ def _assert_mapping_refs_only(params: Mapping, path: str) -> None:
         here = f"{path}.{key}" if path else str(key)
         if not _is_secret_key(str(key)):
             assert_refs_only(value, here)
-        elif not (_is_unset(value) or is_secret_ref(value)):
+        elif not (_is_unset(value) or is_secret_ref(value) or _is_header_ref(value, path)):
             # any other value - a literal string, list, number, object - is refused
             raise SecretError(f"{here}: secret must be a 'grant:<NAME>' reference")
 
@@ -236,7 +259,9 @@ def assert_refs_only(params: Any, path: str = "") -> None:
     """Raise :class:`SecretError` if a secret-looking key holds a literal instead of a reference.
 
     A secret-looking key may hold only a ``grant:<NAME>`` reference (or be unset: ``None`` or
-    ``""``); a string, list, number or object literal is refused. Walks nested mappings and
+    ``""``); under a ``headers`` mapping it may also hold ``<word> grant:<NAME>`` (e.g.
+    ``Bearer grant:TOKEN``, as ``http.call`` sends it). A string, list, number or object
+    literal is refused. Walks nested mappings and
     lists under other keys; the error names the offending path, never the value.
     """
     if isinstance(params, Mapping):

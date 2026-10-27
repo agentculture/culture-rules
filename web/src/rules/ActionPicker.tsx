@@ -127,6 +127,7 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
       url: RS,
       headers: { type: "dict" },
       body: { type: "any" },
+      save_to: S,
     },
   },
   "machine.command": {

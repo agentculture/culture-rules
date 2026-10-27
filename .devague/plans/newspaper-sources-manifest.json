@@ -1,0 +1,541 @@
+{
+  "slug": "newspaper-sources-manifest",
+  "title": "newspaper sources manifest",
+  "frame_slug": "newspaper-sources-manifest",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-27T18:08:54Z",
+  "updated": "2026-10-27T20:51:31Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Every daily newspaper issue in culture-library carries a sources manifest (each article's title, the URLs it links and a verbatim excerpt), pushed right after the issue, and the issues already in the library have one too",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "After rollout, GET /api/library/`<id>`/sources answers a manifest for the newest newspaper item and for every older one except the listed skips (c18, c19 hold)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "culture-library's RAG eval harness (newspaper evals refuse an issue with no manifest, culture-library eval/generate.py _sidecar_articles) and the operator, who reads the eval scores",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "culture-library's newspaper eval generation (generate_newspaper_set) runs on an issue with a manifest instead of refusing it with 'has no sources sidecar'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Newspaper items in culture-library have no source URLs: the library's EPUB text extraction drops href attributes (culture-library core/ingest.py _TextParser.handle_starttag ignores attrs) and items have no source field, so evals cannot ground questions in an article's sources",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "Before the change, GET /api/library/`<id>`/sources for a live newspaper item answers 404 no_sources (checked once, read-only, and recorded as evidence)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "why_it_matters",
+      "text": "Passage-level RAG (POST /api/rag/retrieve) is scored on returning the article a question came from; without a manifest the newspaper cannot be evaluated at all (culture-rules#97)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "The eval run that follows the backfill produces samples whose source_urls come from the manifest, scored by retrieval of the article's chunks",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "After each daily push of a newspaper, the live daily-newspaper workflow (configured in the store through the CLI, not in the PR) runs the sections step on the rendered EPUB and http.call PUTs the result to culture-library's PUT /api/library/{item_id}/sources (shipped: culture-library server/routes_sources.py), for the item id the record step returns",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "The live daily-newspaper workflow (read back with workflows describe after the change) shows the sections step and the PUT after record, fed record's item_id and render's EPUB; the next 05:00 run's PUT step answers 200",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "Every article (section) of the issue that has at least one link gets exactly one manifest entry, and a section with no link ('No results.') gets none. This is the sections step's configured require_links option, not code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "In the real-issue test (c27's), the entry count equals the number of sections with at least one result; a section rendered 'No results.' has no entry",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The manifest is built in configuration from the issue's EPUB, not from run state. A generic sections step splits the document at a configured heading tag (h2 for the newspaper) and outputs each section's heading text, its http(s) link hrefs (in order, duplicates dropped) and an excerpt; the workflow's config names the output fields as the library wants them (article_title, source_urls, excerpt). The same configuration serves the daily push and the backfill, whatever renderer version made the book",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "The live config holds the field renames (heading to article_title, links to source_urls, excerpt to excerpt); the same step config is used by the daily workflow and the backfill",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "The excerpt rule is step configuration: the newspaper configures paragraphs 1 and max_chars 300 (cut at a word boundary), so the excerpt never crosses a paragraph and the library's 120-character probe stays inside one chunk. The step's generic part is only the text extraction: block tags become paragraph breaks, entities are unescaped and whitespace is collapsed, the same rules as culture-library's extractor",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "A contract test runs culture-library's chunking and matching rules (copied as test fixtures: block tags to breaks, collapse, chunk at 1000 on blank lines, first 120 normalised chars as a substring of one chunk) on a rendered issue and its manifest, and every entry matches",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Before any change to the live config, a dry-run on one real stored issue shows its manifest; the operator checks it, and after the PUT, culture-library's eval generator reports unmatched = 0 for that item",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "A failed manifest PUT is recorded on the run and does not fail it: the newspaper's email and library push are already done, and the step is on_error skip (culture-rules#97 acceptance 3)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "With the PUT step's actor answering 500, the daily workflow run still succeeds: email sent, push recorded, the PUT step skipped with its error on the run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "A one-off backfill PUTs manifests for the newspaper issues already in culture-library (15 per #97). It is a workflow configured live from the same generic steps: item_ids in, then for each id http.call GET the file (saved to a file), the sections step, and http.call PUT. A failed item is skipped (on_error skip) and the run lists the skipped ids; it runs once with workflows run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The backfill's run lists every item id it was given with its outcome (pushed with an entry count, or skipped with the error), so a skip is never silent",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The PUT and the fetch are http.call requests through the library actor's http policy (allow 127.0.0.1; Authorization from grant LIBRARY_PUSH_API_KEY). The URL is a {{ }} template in the workflow's config over a variable for the library's base and the item id; no library route is in code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "No URL, route or key is in code: the new code has no culture-library path; the live config holds the base URL in a variable and the key as a grant reference; scan-secrets stays clean",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "The issue's EPUB and email bytes stay byte-identical: newspaper.render's output does not change, and its determinism tests stay green (culture_rules/node/actions/newspaper_render.py module doc)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The pinned newspaper bytes (tests/node/test_epub_bytes_pinned.py, from #112) still pass unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "boundary",
+      "text": "The field names are the library's as shipped: article_title, source_urls, excerpt (culture-library server/routes_sources.py validate_manifest); no alias is asked for",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "A manifest the sections step produces with the newspaper config passes culture-library's validate_manifest rules (copied as a test fixture), and the live PUT answers 200, not 422",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "boundary",
+      "text": "No library-specific or newspaper-specific step is added. The code adds three generic capabilities (a sections step, http.call saving a response to a file, http.call resolving a grant after a scheme word); the manifest's shape, the daily wiring and the backfill are configuration",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "The diff adds no module, builtin or action kind whose name or logic names the newspaper or culture-library (grep the diff for newspaper and library in new code); the catalog lists only the three generic capabilities",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "boundary",
+      "text": "The EPUB bytes never enter run state on the fetch path (d7): http.call saves the response body to a file under a root its actor lists, and the sections step reads it by content_path and content_root; only scalars and the manifest list are outputs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "No run document on the backfill path holds EPUB bytes or base64: a test reads the stored run and asserts its outputs are scalars and the manifest list only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "success_signal",
+      "text": "culture-library's newspaper eval generator (generate_newspaper_set) matches every manifest entry of a fresh issue to at least one chunk, with unmatched = 0",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Validated live, not only in tests: after the first daily issue with the new step, culture-library's newspaper eval generation for that item succeeds with unmatched = 0",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "success_signal",
+      "text": "After the backfill, GET /api/library/{id}/sources answers a manifest for every newspaper item except the listed skips",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "After the backfill run, a read-only loop over the newspaper items' GET /sources answers 200 for each item the run reports pushed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "after_state",
+      "text": "Each new newspaper issue in culture-library has a sources manifest within the same run that pushed it, the earlier issues have one from the backfill (skips listed), and newspaper evals can be generated for every issue",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "Evidence filed after rollout: the first daily run's PUT result, the backfill run's per-item list, and one eval generation with unmatched = 0",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "Generic: http.call resolves a header value of the form `<word> grant:<NAME>` (e.g. `Bearer grant:LIBRARY_PUSH_API_KEY`) by resolving the reference and keeping the word; the value is registered with the redactor like a bare `grant:` value. Today only a whole-value `grant:` is resolved (`culture_rules/node/actions/http.py` `_header_value`)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A test sends a header `Bearer grant:<NAME>` through http.call with a fake secret runner and asserts the request carried `Bearer <value>`, and that the value is scrubbed from the step's output",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A value that only contains `grant:` elsewhere (e.g. `x grant:A grant:B`, or two words before the reference) is sent unchanged or refused, never half-resolved; the accepted shape is exactly one word, one space, one reference",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Generic: http.call can save the response body to a file instead of returning it: a save_to option names a root the actor's http policy lists (save_roots); the body is streamed under a cap to `<root>/<sha256>.<ext>` atomically, and the outputs are status, path, sha256 and size, never the body (d7, as attachment.fetch does)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "A test saves a response with save_to and asserts the file `<root>/<sha256>.<ext>` holds the exact bytes, the outputs are status, path, sha256 and size, and no output carries the body",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "save_to under a root the actor's policy does not list fails path_refused before any request; a symlinked root or file is refused; a body over the cap fails and leaves no file behind",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "A response whose Content-Type is outside the known set (epub, pdf, md, json, txt) is refused before anything is written; the saved extension always comes from the Content-Type",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "Generic: a builtin sections step reads an EPUB (its xhtml files in name order), an HTML string or a Markdown document, given as content_base64, html, markdown, or content_path under content_root, and splits it at a configured heading (a tag such as h2 for EPUB/HTML, a heading level for Markdown). For each section it outputs the heading text, the http(s) links and an excerpt shaped by configured paragraphs and max_chars; config also sets require_links and renames the output fields. No I/O beyond reading the given file; standard library only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A test renders a real newspaper issue with newspaper.render, runs the sections step on its EPUB with the newspaper's config, and asserts one entry per section with results, none for 'No results.', the h2 text as the title and only that section's hrefs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Every rule the step applies (heading tag, paragraphs, max_chars, require_links, field names) comes from config or input; a test runs the same EPUB with two different configs and gets two different outputs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "A test splits a Markdown document at a configured heading level and gets the same section shape (heading, links from [label](url) and bare http(s) URLs, excerpt) as for HTML",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "boundary",
+      "text": "The PR adds framework only: the three generic capabilities (c25, c26, c27), their catalog, describe phrases, editor picker and docs. The daily wiring and the backfill workflow are live configuration set through the CLI after an approved rollout; docs/rules/newspaper changes only as a disabled example template (or a docs page shows the config), never as the live behaviour",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "The PR's changed files are code, tests, catalog, describe phrases, editor picker and docs only; any change under docs/rules is a disabled example template; the live config changes are recorded as rollout steps, not commits",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "http.call resolves a header `<word> grant:<NAME>` (generic)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/node/test_http_grant_scheme.py: a header `Bearer grant:<NAME>` on the actor policy or the step is sent as `Bearer <value>` (fake secret runner), and the value never appears in the step's output",
+        "Values with grant: anywhere else (`x grant:A grant:B`, two words before the reference, a trailing space) are sent unchanged, never half-resolved; a bare `grant:<NAME>` behaves exactly as before (existing http.call tests pass unchanged)",
+        "An unresolvable reference after a word fails secret_unresolved naming the header, as a bare one does"
+      ],
+      "deps": [],
+      "covers": [
+        "c25",
+        "h1",
+        "h2"
+      ],
+      "instruction": "Change only HttpCallPort._header_value in culture_rules/node/actions/http.py: accept exactly one word of [A-Za-z][A-Za-z0-9._-]*, one space, then a grant: reference; resolve the reference with resolve(..., redactor=redactor) and return the word, a space and the value. Update the module docstring's headers paragraph. One assert per condition in tests (CI's Sonar gate)."
+    },
+    {
+      "id": "t2",
+      "summary": "http.call save_to: stream the response body to a file under a root the actor lists (generic)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/node/test_http_save_to.py: with save_to set to a root in the actor's params.http.save_roots, a 2xx body is written to `<root>/<sha256>.<ext>` (atomic rename from a temp file in the root) and the outputs are status, path, sha256, size and content_type; no output holds the body",
+        "save_to outside save_roots, a symlinked root, an existing symlink at the target name, or no save_roots fails path_refused before any request is sent",
+        "The extension comes from the response Content-Type mapped onto {application/epub+zip: epub, application/pdf: pdf, text/markdown: md, application/json: json, text/plain: txt} (parameters such as charset ignored); any other type fails unsupported_type and writes nothing",
+        "A body over the cap (save_max_bytes, default 50 MiB, set on the policy) fails too_large and leaves no file or temp file behind; a 4xx/5xx is not saved and fails as http.call does today"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c26",
+        "h3",
+        "h4",
+        "h17"
+      ],
+      "instruction": "Extend culture_rules/node/actions/http.py only (t1 lands first in the same file). Reuse attachment_fetch's streaming-to-temp-then-rename pattern and its O_NOFOLLOW/realpath checks; do not import attachment_fetch's Discord defaults. save_to is a step param (an absolute path); the policy decides what is allowed. Keep everything else in http.call unchanged."
+    },
+    {
+      "id": "t3",
+      "summary": "Generic sections builtin: split an EPUB, HTML or Markdown document at a configured heading",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "New culture_rules/node/actions/sections.py (port + pure function) and tests/node/test_sections.py: input content_base64 (EPUB), html, markdown, or content_path under content_root (a path outside the root or through a symlink fails path_refused); config split_on (an h1-h6 tag, or a Markdown heading level), paragraphs, max_chars, require_links, fields (output-name renames)",
+        "Each section: the heading text, its http(s) links in order without duplicates (hrefs in EPUB/HTML; [label](url) and bare URLs in Markdown), and an excerpt of the first N paragraphs as text (block tags to paragraph breaks, entities unescaped, whitespace collapsed), cut at a word boundary to max_chars; require_links drops sections with no link",
+        "Real-issue test: render an issue with newspaper.render (some sections with results, one with none), run sections on its EPUB with split_on h2, paragraphs 1, max_chars 300, require_links, fields {heading: article_title, links: source_urls, excerpt: excerpt}; entry count = sections with results, titles = h2 texts, each entry's links are only its section's",
+        "Contract test: culture-library's extraction, chunking (1000 chars on blank lines) and matching (first 120 normalised chars inside one chunk) rules, copied as test fixtures with a citation, match every entry of that manifest; the manifest passes a copy of validate_manifest's rules",
+        "Two different configs on the same EPUB give two different outputs; the newspaper byte pins (tests/node/test_epub_bytes_pinned.py) still pass"
+      ],
+      "deps": [],
+      "covers": [
+        "c27",
+        "h5",
+        "h6",
+        "h16",
+        "c6",
+        "h23",
+        "c8",
+        "h7",
+        "c13",
+        "h25",
+        "c12",
+        "h11"
+      ],
+      "instruction": "The builtin is generic: no newspaper, library or field name in code; every rule is config or input (c21: links are the hrefs the section cites). Pick a generic builtin name (e.g. document.sections) and keep run-state outputs to the section list and counts. Standard library only (html.parser, zipfile). Do not touch runner.py, describe.py or the editor (t4 wires them)."
+    },
+    {
+      "id": "t4",
+      "summary": "Wire the three capabilities: runner, catalog, describe, editor, docs, version",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The sections builtin is registered in culture_rules/node/runner.py, phrased in culture_rules/model/describe.py, listed in the explain catalog, and offered in web/src/workflows/StepEditor.tsx with its ports; http.call's save_to param is in culture_rules/model/action_kinds.py and the editor's http.call params, and save_roots/save_max_bytes in the actor http-policy form (web/src/actors/app-config.ts)",
+        "A grep of the diff's new code finds no newspaper or culture-library name and no library URL or route; scan-secrets is clean; the catalog test, describe tests, vitest and Playwright pass",
+        "docs: docs/actors/http.md (or the existing http.call guide) documents the header shape, save_to and save_roots; a docs/operations page shows the newspaper manifest configuration as an example (no change to the committed newspaper bundle, or only as a disabled example)",
+        "Version bumped (minor) in pyproject.toml, uv.lock, docs/rules/pr-fixer/release.json and CHANGELOG.md"
+      ],
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c14",
+        "h26",
+        "c29",
+        "h29",
+        "c11",
+        "h10"
+      ],
+      "instruction": "Follow how markdown.from_html is wired (runner.py, describe.py, StepEditor.tsx) and how http.call params and the http policy form are defined. Regenerate any describe or openapi fixture the tests compare against. Business logic stays out: the docs page shows config, the PR does not apply it."
+    },
+    {
+      "id": "t5",
+      "summary": "Flow test: the manifest flow end to end against a fake library",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/rules/test_sources_manifest_flow.py runs, on MemoryStore and a local fake HTTP library, (a) a daily-shaped workflow: newspaper.render, the sections step on its EPUB, http.call PUT with `Bearer grant:<NAME>`; the fake library receives the manifest; (b) the same with the library answering 500: the run succeeds and the PUT step is skipped with its error",
+        "(c) a backfill-shaped workflow: item_ids in, for each: http.call GET with save_to, the sections step by content_path and content_root, http.call PUT, on_error skip; the run's outputs list every id with pushed and an entry count or skipped and the error",
+        "The stored run documents on the backfill path hold no EPUB bytes or base64 (assert on the run read back from the store); both workflows use one identical sections config"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c9",
+        "h9",
+        "c10",
+        "h13",
+        "c15",
+        "h12",
+        "c7",
+        "h24"
+      ],
+      "instruction": "Workflows are test fixtures in the test file, not committed bundles. Use the real ports (runner registration from t4) and a fake grant runner; the fake library is a local http.server on 127.0.0.1 whose IP is on the actor's allow list."
+    },
+    {
+      "id": "t6",
+      "summary": "Live: rollout, before-evidence, key check, dry run, live config, backfill, validation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Before the rollout: GET /sources for a live newspaper item answers 404 no_sources (evidence); after merge, an operator-approved rollout via culture-rules rollout, rollout verify passes",
+        "Key check: one GET of an issue's file and one PUT of its manifest with the live key (Bearer grant:LIBRARY_PUSH_API_KEY) answer 200; a 403 stops here and goes back to the operator",
+        "Dry run on one stored issue: its manifest is shown to the operator before any PUT; after the operator's go, the PUT answers 200 and culture-library's newspaper eval generation for that item reports unmatched = 0",
+        "Live config through the CLI: the newspaper-library actor's http policy and save_roots, a variable for the library base, the daily-newspaper steps after record (read back with workflows describe), and a backfill workflow; the backfill runs once with the live item ids and lists every id; GET /sources answers 200 for each pushed id",
+        "After the next 05:00 issue: its PUT step answered 200 and eval generation for it reports unmatched = 0; evidence filed for each check (devague evidence)"
+      ],
+      "deps": [
+        "t5",
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "h18",
+        "c2",
+        "h19",
+        "c3",
+        "h20",
+        "c4",
+        "h21",
+        "c5",
+        "h22",
+        "h8",
+        "c18",
+        "h15",
+        "c19",
+        "h27",
+        "c24",
+        "h28"
+      ],
+      "instruction": "Every live write needs the operator's go-ahead; stop at the first refusal (memory: rollout steps stop on error). Business logic lives in the store: nothing here is committed except devague records. Ask the operator for the newspaper item ids if the library listing is not readable with the push key."
+    },
+    {
+      "id": "t7",
+      "summary": "for_each outcomes: each iteration's status, errors and collected outputs as a loop output (generic engine)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/engine/test_for_each_outcomes.py: a for_each loop that declares an output port named outcomes gets one entry per item, in order: {index, item, status, errors}; status is succeeded when every body step succeeded, skipped when any body step was skipped (by on_error skip or input_missing), and errors maps each such step id to its error message",
+        "config.collect (`{name: \"<body step>.<output>\"}`) copies those body-step outputs into each entry (null when the step did not output it); an unknown step id or a malformed path is refused by validate before the run starts",
+        "A for_each loop without an outcomes port behaves exactly as before (existing loop tests pass unchanged); retry_until loops are unchanged; a failed body step still fails the loop",
+        "tests/rules/test_sources_manifest_flow.py's backfill asserts on the run's outputs: the outcomes list holds every id given, pushed ones with their entry count via collect, the skipped one with its error; docs/operations/sources-manifest.md shows outcomes and collect in the backfill example; the engine docstring and CHANGELOG (0.36.0) describe the port"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "h13",
+        "c10"
+      ],
+      "instruction": "Change culture_rules/engine/runs.py (_progress_loop records each iteration's body states into the outcome; _loop_outputs emits outcomes when the port is declared) and culture_rules/model/validate.py (check collect). Keep the outcome small: scalars and error messages only, never a body step's whole outputs. Then update the t5 flow test and the docs page. Test-first: see the new tests fail before the engine change."
+    }
+  ],
+  "risks": [],
+  "obligations": []
+}

@@ -1,0 +1,66 @@
+{
+  "plan_slug": "newspaper-sources-manifest",
+  "schema_version": 2,
+  "created": "2026-10-27T18:43:01Z",
+  "updated": "2026-10-27T20:45:45Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t2's criterion 'an existing symlink at the target name fails path_refused before any request is sent' is met after the read instead: the target name (sha256 plus extension) is known only once the body is read, so the request is sent and the body streamed to a temp file in the root; then path_refused fires, nothing is written through the symlink, and the temp file is removed (tested, including that the symlink's destination is never created). The other three refusals (outside save_roots, a symlinked root, no save_roots) still happen before any request",
+      "task_ref": "t2",
+      "reason": "the file is named by the sha256 of its body, which does not exist before the request",
+      "affects": [
+        "h4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t4's criterion 'listed in the explain catalog' is not met: culture_rules/explain/catalog.py documents CLI verbs only and lists no builtin or action kind (markdown.from_html and http.call are absent too), and no verb was added. document.sections is documented instead where builtins live: the describe phrase (BUILTIN_WORDS), the editor's builtin list, the module docstring and docs/operations/sources-manifest.md; save_to is in the action-kinds catalog (action_kinds.py) and docs/actors/http.md",
+      "task_ref": "t4",
+      "reason": "the plan assumed the explain catalog lists builtins; it lists CLI verbs only",
+      "affects": [
+        "c29"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t5 criterion (c) and h13 say the backfill run's OUTPUTS list every id with its outcome; the engine cannot express that: a for_each result is the last succeeded body step's outputs, and a skipped step's error cannot be wired onward. The per-id outcome (pushed with the manifest's entry count, or skipped with the error) is in the run's stored step states instead, read with culture-rules runs show ID --json; the flow test derives the table from the stored run and asserts all three ids (11 pushed with 2 entries, 99 skipped with http_status 404, 12 pushed). Item ids are given as objects ({id: N}) so inputs.item.id resolves; the docs page says both",
+      "task_ref": "t5",
+      "reason": "for_each loop results carry no per-iteration status or error; changing that is an engine change outside this plan",
+      "affects": [
+        "h13",
+        "c10"
+      ],
+      "origin": "llm",
+      "status": "rejected",
+      "classification": "needs-follow-up",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "The plan gains task t7 (operator's decision on d3): for_each loop results carry each iteration's status, errors and collected outputs (a generic engine change, opt-in through an outcomes output port and config.collect), so a backfill-shaped run's outputs list every id with its outcome",
+      "task_ref": "t7",
+      "reason": "a for_each result held only the last succeeded body step's outputs, so a skipped iteration's error could not reach the run's outputs; the operator chose the engine change in this plan over a follow-up issue",
+      "affects": [
+        "t5",
+        "h13",
+        "c10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

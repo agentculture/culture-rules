@@ -848,6 +848,62 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
     if isinstance(obj.config, dict) and BUILTIN_WITH in obj.config:
         _check_builtin_with(obj, _join(path, f"config.{BUILTIN_WITH}"), errors)
     _check_when_explain(obj, _join(path, "config"), errors)
+    if obj.kind == "for_each" and isinstance(obj.config, dict) and "collect" in obj.config:
+        _check_collect(obj, _join(path, "config.collect"), errors)
+
+
+OUTCOMES_PORT = "outcomes"
+"""A ``for_each`` loop's output port listing each iteration's outcome (#97 t7)."""
+OUTCOME_KEYS = ("index", "item", "status", "errors")
+"""The keys every outcome entry holds; a ``collect`` name may not shadow one."""
+
+
+def _declares_outcomes(obj: Step) -> bool:
+    return any(p.name == OUTCOMES_PORT for _i, p in _items(obj.outputs, Port))
+
+
+def _check_outcomes_port(obj: Step, path: str, errors: Errors) -> None:
+    """A ``for_each`` loop's ``outcomes`` port is a list (``array``, or ``any``)."""
+    for _i, p in _items(obj.outputs, Port):
+        if p.name == OUTCOMES_PORT and p.type not in ("array", "any"):
+            _err(errors, path, "outcomes_type", "a for_each loop's outcomes port is an array")
+
+
+def _check_collect(obj: Step, path: str, errors: Errors) -> None:
+    """A ``for_each`` loop's ``config.collect`` (#97 t7): only with an ``outcomes`` port, an
+    object of entry name -> ``"<body step id>.<output name>"``; the step is one of the loop's
+    body steps and, when it declares output ports, the output is one of them. Other steps'
+    configs are not checked here: a ``collect`` key there is theirs (a builtin's own option)."""
+    if not _declares_outcomes(obj):
+        _err(errors, path, "not_allowed", "collect belongs to a for_each loop with outcomes")
+        return
+    collect = obj.config["collect"]
+    if not isinstance(collect, dict):
+        _err(errors, path, "collect_invalid", "collect must be an object of name -> step.output")
+        return
+    body = {b.id: b for _i, b in _items(obj.body, Step)}
+    for name, ref in collect.items():
+        if not isinstance(name, str) or not name.strip():
+            _err(errors, path, "collect_invalid", "a collect name must be a non-empty string")
+            continue
+        if name in OUTCOME_KEYS:
+            _err(errors, _join(path, name), "collect_invalid", f"{name!r} is an outcome key")
+            continue
+        _check_collect_ref(body, ref, _join(path, name), errors)
+
+
+def _check_collect_ref(body: dict[str, Step], ref: Any, path: str, errors: Errors) -> None:
+    parts = ref.split(".") if isinstance(ref, str) else []
+    if len(parts) != 2 or not all(parts):
+        _err(errors, path, "collect_invalid", 'a collect path is "<body step id>.<output>"')
+        return
+    source, output = parts
+    if source not in body:
+        _err(errors, path, "collect_unknown_step", f"{source!r} is not a body step of the loop")
+        return
+    declared = {p.name for _i, p in _items(body[source].outputs, Port)}
+    if declared and output not in declared:
+        _err(errors, path, "collect_unknown_output", f"{source!r} declares no output {output!r}")
 
 
 def _check_loop_step(obj: Step, path: str, errors: Errors) -> None:
@@ -856,6 +912,8 @@ def _check_loop_step(obj: Step, path: str, errors: Errors) -> None:
         _err(errors, max_path, "loop_max_required", f"{obj.kind} loop needs max_iterations")
     elif isinstance(obj.max_iterations, int) and obj.max_iterations < 1:
         _err(errors, max_path, "range", "max_iterations must be >= 1")
+    if obj.kind == "for_each":
+        _check_outcomes_port(obj, _join(path, "outputs"), errors)
 
 
 def _check_plain_step(obj: Step, path: str, errors: Errors) -> None:

@@ -86,6 +86,9 @@ BUILTIN_WORDS: dict[str, str] = {
     "checklist.bind": "checklist.bind: record the pushed library item and revision",
     "markdown.render": "markdown.render: fields as one Markdown page, the same bytes each time",
     "markdown.from_html": "markdown.from_html: HTML as Markdown, whole and in chunks",
+    "document.sections": (
+        "document.sections: a document split at a heading, as headings, links and excerpts"
+    ),
     "run.read": "run.read: a step's outputs from the run that started this one",
     "attachment.fetch": (
         "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node"

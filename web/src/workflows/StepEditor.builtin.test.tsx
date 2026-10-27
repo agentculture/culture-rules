@@ -88,3 +88,33 @@ describe("cursor.advance built-in", () => {
     expect(s.outputs?.map((p) => p.name)).toEqual(["key", "value", "previous", "advanced"]);
   });
 });
+
+describe("document.sections built-in", () => {
+  it("sets config.builtin", async () => {
+    const user = userEvent.setup();
+    const last = setup({ id: "split", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), "document.sections");
+    expect(last().config).toEqual({ builtin: "document.sections" });
+  });
+
+  it("gives every source an optional input port", async () => {
+    const user = userEvent.setup();
+    const last = setup({ id: "split", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), "document.sections");
+    expect(last().inputs?.map((p) => [p.name, p.required !== false])).toEqual([
+      ["content_base64", false],
+      ["html", false],
+      ["markdown", false],
+      ["content_path", false],
+      ["content_root", false],
+      ["format", false],
+    ]);
+  });
+
+  it("gives the sections, count and found outputs", async () => {
+    const user = userEvent.setup();
+    const last = setup({ id: "split", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), "document.sections");
+    expect(last().outputs?.map((p) => p.name)).toEqual(["sections", "count", "found"]);
+  });
+});
