@@ -23,6 +23,8 @@ from culture_rules.node.actions.sections import SECTIONS_BUILTIN, DocumentSectio
 from tests.node import culture_library_rules as library
 
 DEADLINE = datetime(2030, 1, 1, tzinfo=UTC)
+EXCERPT = {"paragraphs": 1, "max_chars": 2000}
+"""The two excerpt settings every config must name (neither has a default)."""
 MANIFEST_CONFIG = {
     "split_on": "h2",
     "paragraphs": 1,
@@ -177,20 +179,20 @@ def test_each_probe_falls_inside_one_library_paragraph():
 
 def test_two_configs_on_one_epub_give_two_outputs():
     rendered, _, first = manifest()
-    other = {"split_on": "h2", "paragraphs": 2, "max_chars": 80}
+    other = {**EXCERPT, "split_on": "h2", "paragraphs": 2, "max_chars": 80}
     second = completed({"content_base64": rendered["epub_base64"]}, other)
     assert second["sections"] != first["sections"]
 
 
 def test_without_require_links_the_empty_section_is_kept():
     rendered, _ = issue()
-    out = completed({"content_base64": rendered["epub_base64"]}, {"split_on": "h2"})
+    out = completed({"content_base64": rendered["epub_base64"]}, {**EXCERPT, "split_on": "h2"})
     assert out["sections"][2] == {"heading": "Quiet day", "links": [], "excerpt": "No results."}
 
 
 def test_split_on_h1_gives_the_masthead_not_the_nav():
     rendered, _ = issue()
-    out = completed({"content_base64": rendered["epub_base64"]}, {"split_on": "h1"})
+    out = completed({"content_base64": rendered["epub_base64"]}, {**EXCERPT, "split_on": "h1"})
     assert [s["heading"] for s in out["sections"]] == ["Daily newspaper"]
 
 
@@ -219,7 +221,7 @@ PAGE = (
 
 
 def html_sections(**config):
-    return completed({"html": PAGE}, {"split_on": "h2", **config})["sections"]
+    return completed({"html": PAGE}, {**EXCERPT, "split_on": "h2", **config})["sections"]
 
 
 def test_html_headings_are_text_with_entities_unescaped():
@@ -248,7 +250,9 @@ def test_html_excerpt_cut_at_a_word_boundary():
 
 
 def test_html_excerpt_without_a_space_is_cut_hard():
-    out = completed({"html": "<h2>H</h2><p>abcdefghij</p>"}, {"split_on": "h2", "max_chars": 4})
+    out = completed(
+        {"html": "<h2>H</h2><p>abcdefghij</p>"}, {**EXCERPT, "split_on": "h2", "max_chars": 4}
+    )
     assert out["sections"][0]["excerpt"] == "abcd"
 
 
@@ -265,22 +269,22 @@ def test_html_lower_heading_stays_in_the_section():
 
 
 def test_require_links_drops_sections_without_one():
-    out = completed({"html": PAGE}, {"split_on": "h2", "require_links": True})
+    out = completed({"html": PAGE}, {**EXCERPT, "split_on": "h2", "require_links": True})
     assert [s["heading"] for s in out["sections"]] == ["First & best"]
 
 
 def test_require_links_reports_what_it_found():
-    out = completed({"html": PAGE}, {"split_on": "h2", "require_links": True})
+    out = completed({"html": PAGE}, {**EXCERPT, "split_on": "h2", "require_links": True})
     assert out["found"] == 2
 
 
 def test_input_overrides_config():
-    out = completed({"html": PAGE, "split_on": "h1"}, {"split_on": "h2"})
+    out = completed({"html": PAGE, "split_on": "h1"}, {**EXCERPT, "split_on": "h2"})
     assert [s["heading"] for s in out["sections"]] == ["Top", "Back to top"]
 
 
 def test_split_on_takes_a_level_number():
-    out = completed({"html": PAGE}, {"split_on": 2})
+    out = completed({"html": PAGE}, {**EXCERPT, "split_on": 2})
     assert out["count"] == 2
 
 
@@ -311,7 +315,7 @@ Plain text only.
 
 
 def md_sections(**config):
-    return completed({"markdown": MARKDOWN}, {"split_on": 2, **config})["sections"]
+    return completed({"markdown": MARKDOWN}, {**EXCERPT, "split_on": 2, **config})["sections"]
 
 
 def test_markdown_headings_at_the_configured_level():
@@ -344,21 +348,21 @@ def test_markdown_fenced_heading_does_not_split():
 
 
 def test_markdown_split_on_a_tag_name_too():
-    out = completed({"markdown": MARKDOWN}, {"split_on": "h1"})
+    out = completed({"markdown": MARKDOWN}, {**EXCERPT, "split_on": "h1"})
     assert [s["heading"] for s in out["sections"]] == ["Title"]
 
 
 def test_markdown_and_html_give_the_same_section_shape():
     html = "<h2>A</h2><p>See <a href='https://x.example/'>x</a> and https://y.example/</p>"
     md = "## A\n\nSee [x](https://x.example/) and https://y.example/\n"
-    from_md = completed({"markdown": md}, {"split_on": 2})["sections"]
-    from_html = completed({"html": html}, {"split_on": 2})["sections"]
+    from_md = completed({"markdown": md}, {**EXCERPT, "split_on": 2})["sections"]
+    from_html = completed({"html": html}, {**EXCERPT, "split_on": 2})["sections"]
     assert sorted(from_md[0]) == sorted(from_html[0])
 
 
 def test_markdown_links_match_the_equivalent_html_page():
     md = "## A\n\nSee [x](https://x.example/) and https://y.example/\n"
-    out = completed({"markdown": md}, {"split_on": 2})
+    out = completed({"markdown": md}, {**EXCERPT, "split_on": 2})
     assert out["sections"][0]["links"] == ["https://x.example/", "https://y.example/"]
 
 
@@ -388,26 +392,30 @@ def test_content_path_relative_to_the_root(tmp_path):
 
 def test_content_path_markdown_by_extension(tmp_path):
     (tmp_path / "doc.md").write_text(MARKDOWN, encoding="utf-8")
-    out = completed({"content_path": "doc.md", "content_root": str(tmp_path)}, {"split_on": 2})
+    out = completed(
+        {"content_path": "doc.md", "content_root": str(tmp_path)}, {**EXCERPT, "split_on": 2}
+    )
     assert out["count"] == 2
 
 
 def test_content_path_html_by_extension(tmp_path):
     (tmp_path / "page.html").write_text(PAGE, encoding="utf-8")
-    out = completed({"content_path": "page.html", "content_root": str(tmp_path)}, {"split_on": 2})
+    out = completed(
+        {"content_path": "page.html", "content_root": str(tmp_path)}, {**EXCERPT, "split_on": 2}
+    )
     assert out["count"] == 2
 
 
 def test_format_overrides_the_extension(tmp_path):
     (tmp_path / "page.txt").write_text(MARKDOWN, encoding="utf-8")
     inputs = {"content_path": "page.txt", "content_root": str(tmp_path), "format": "markdown"}
-    assert completed(inputs, {"split_on": 2})["count"] == 2
+    assert completed(inputs, {**EXCERPT, "split_on": 2})["count"] == 2
 
 
 def test_unknown_extension_without_format_is_refused(tmp_path):
     (tmp_path / "page.txt").write_text(MARKDOWN, encoding="utf-8")
     inputs = {"content_path": "page.txt", "content_root": str(tmp_path)}
-    failed(invoke(inputs, {"split_on": 2}), "bad_params")
+    failed(invoke(inputs, {**EXCERPT, "split_on": 2}), "bad_params")
 
 
 def test_content_path_outside_the_root_is_refused(tmp_path):
@@ -416,7 +424,9 @@ def test_content_path_outside_the_root_is_refused(tmp_path):
     outside.mkdir()
     path = write_epub(outside)
     failed(
-        invoke({"content_path": str(path), "content_root": str(inside)}, {"split_on": 2}),
+        invoke(
+            {"content_path": str(path), "content_root": str(inside)}, {**EXCERPT, "split_on": 2}
+        ),
         "path_refused",
     )
 
@@ -426,14 +436,14 @@ def test_dot_dot_out_of_the_root_is_refused(tmp_path):
     inside.mkdir()
     write_epub(tmp_path)
     inputs = {"content_path": "../issue.epub", "content_root": str(inside)}
-    failed(invoke(inputs, {"split_on": 2}), "path_refused")
+    failed(invoke(inputs, {**EXCERPT, "split_on": 2}), "path_refused")
 
 
 def test_symlinked_file_is_refused(tmp_path):
     path = write_epub(tmp_path)
     (tmp_path / "link.epub").symlink_to(path)
     inputs = {"content_path": "link.epub", "content_root": str(tmp_path)}
-    failed(invoke(inputs, {"split_on": 2}), "path_refused")
+    failed(invoke(inputs, {**EXCERPT, "split_on": 2}), "path_refused")
 
 
 def test_symlinked_directory_is_refused(tmp_path):
@@ -442,30 +452,30 @@ def test_symlinked_directory_is_refused(tmp_path):
     write_epub(real)
     (tmp_path / "via").symlink_to(real, target_is_directory=True)
     inputs = {"content_path": "via/issue.epub", "content_root": str(tmp_path)}
-    failed(invoke(inputs, {"split_on": 2}), "path_refused")
+    failed(invoke(inputs, {**EXCERPT, "split_on": 2}), "path_refused")
 
 
 def test_missing_file_is_refused(tmp_path):
     inputs = {"content_path": "gone.epub", "content_root": str(tmp_path)}
-    failed(invoke(inputs, {"split_on": 2}), "path_refused")
+    failed(invoke(inputs, {**EXCERPT, "split_on": 2}), "path_refused")
 
 
 def test_relative_root_is_refused(tmp_path):
     write_epub(tmp_path)
     inputs = {"content_path": "issue.epub", "content_root": "relative/dir"}
-    failed(invoke(inputs, {"split_on": 2}), "path_refused")
+    failed(invoke(inputs, {**EXCERPT, "split_on": 2}), "path_refused")
 
 
 def test_content_path_needs_a_root(tmp_path):
     path = write_epub(tmp_path)
-    failed(invoke({"content_path": str(path)}, {"split_on": 2}), "bad_params")
+    failed(invoke({"content_path": str(path)}, {**EXCERPT, "split_on": 2}), "bad_params")
 
 
 def test_oversized_file_is_refused(tmp_path, monkeypatch):
     path = write_epub(tmp_path)
     monkeypatch.setattr(sections, "MAX_INPUT_BYTES", os.path.getsize(path) - 1)
     inputs = {"content_path": str(path), "content_root": str(tmp_path)}
-    failed(invoke(inputs, {"split_on": 2}), "too_large")
+    failed(invoke(inputs, {**EXCERPT, "split_on": 2}), "too_large")
 
 
 # ------------------------------------------------------------------ EPUB limits and refusals
@@ -474,16 +484,18 @@ def test_oversized_file_is_refused(tmp_path, monkeypatch):
 def test_epub_text_over_the_cap_is_refused(monkeypatch):
     rendered, _ = issue()
     monkeypatch.setattr(sections, "MAX_EPUB_TEXT_BYTES", 100)
-    failed(invoke({"content_base64": rendered["epub_base64"]}, {"split_on": 2}), "too_large")
+    failed(
+        invoke({"content_base64": rendered["epub_base64"]}, {**EXCERPT, "split_on": 2}), "too_large"
+    )
 
 
 def test_not_a_zip_is_refused():
     data = base64.b64encode(b"not a zip at all").decode()
-    failed(invoke({"content_base64": data}, {"split_on": 2}), "not_epub")
+    failed(invoke({"content_base64": data}, {**EXCERPT, "split_on": 2}), "not_epub")
 
 
 def test_bad_base64_is_refused():
-    failed(invoke({"content_base64": "***"}, {"split_on": 2}), "bad_params")
+    failed(invoke({"content_base64": "***"}, {**EXCERPT, "split_on": 2}), "bad_params")
 
 
 def test_epub_without_a_package_reads_every_page():
@@ -493,7 +505,7 @@ def test_epub_without_a_package_reads_every_page():
         book.writestr("a.xhtml", "<h2>A</h2><p>a</p>")
         book.writestr("style.css", "h2{}")
     data = base64.b64encode(buffer.getvalue()).decode()
-    out = completed({"content_base64": data}, {"split_on": 2})
+    out = completed({"content_base64": data}, {**EXCERPT, "split_on": 2})
     assert [s["heading"] for s in out["sections"]] == ["A", "B"]
 
 
@@ -502,7 +514,7 @@ def test_epub_without_a_package_reads_every_page():
 
 @pytest.mark.parametrize("split_on", [None, "h7", "p", 0, 7, True, "##"])
 def test_bad_split_on_is_refused(split_on):
-    failed(invoke({"html": PAGE}, {"split_on": split_on}), "bad_params")
+    failed(invoke({"html": PAGE}, {**EXCERPT, "split_on": split_on}), "bad_params")
 
 
 @pytest.mark.parametrize(
@@ -522,21 +534,28 @@ def test_bad_split_on_is_refused(split_on):
     ],
 )
 def test_bad_config_is_refused(config):
-    failed(invoke({"html": PAGE}, {"split_on": 2, **config}), "bad_params")
+    failed(invoke({"html": PAGE}, {**EXCERPT, "split_on": 2, **config}), "bad_params")
 
 
 def test_no_source_is_refused():
-    failed(invoke({}, {"split_on": 2}), "bad_params")
+    failed(invoke({}, {**EXCERPT, "split_on": 2}), "bad_params")
 
 
 def test_two_sources_are_refused():
-    failed(invoke({"html": PAGE, "markdown": MARKDOWN}, {"split_on": 2}), "bad_params")
+    failed(invoke({"html": PAGE, "markdown": MARKDOWN}, {**EXCERPT, "split_on": 2}), "bad_params")
 
 
 def test_html_must_be_a_string():
-    failed(invoke({"html": 3}, {"split_on": 2}), "bad_params")
+    failed(invoke({"html": 3}, {**EXCERPT, "split_on": 2}), "bad_params")
 
 
 def test_oversized_html_is_refused(monkeypatch):
     monkeypatch.setattr(sections, "MAX_INPUT_BYTES", 10)
-    failed(invoke({"html": PAGE}, {"split_on": 2}), "too_large")
+    failed(invoke({"html": PAGE}, {**EXCERPT, "split_on": 2}), "too_large")
+
+
+@pytest.mark.parametrize("missing", ["paragraphs", "max_chars"])
+def test_each_excerpt_setting_is_required(missing):
+    config = {**EXCERPT, "split_on": "h2"}
+    del config[missing]
+    failed(invoke({"html": PAGE}, config), "bad_params")

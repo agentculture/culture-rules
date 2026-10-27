@@ -24,9 +24,9 @@ Config:
   section runs from its heading to the next heading of the same or a higher rank (a smaller
   number) or the end of the document; text before the first such heading, or after a higher
   heading, belongs to no section. Lower headings are part of the section's text;
-* ``paragraphs`` - the excerpt holds the section's first N paragraphs, 0 to 50, default 1;
+* ``paragraphs`` (required) - the excerpt holds the section's first N paragraphs, 0 to 50;
 * ``max_chars`` - the excerpt is cut to at most this many characters at the last space or
-  line break (cut hard when there is none), 1 to 20000, default 2000;
+  line break (cut hard when there is none), 1 to 20000 (required);
 * ``require_links`` - drop sections that cite no link (default false);
 * ``fields`` - output names for ``heading``, ``links`` and ``excerpt``, e.g.
   ``{"heading": "title"}``; an unnamed field keeps its name. Names are short identifiers and
@@ -81,8 +81,6 @@ from urllib.parse import unquote, urlsplit
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 
 __all__ = [
-    "DEFAULT_MAX_CHARS",
-    "DEFAULT_PARAGRAPHS",
     "DocumentSectionsPort",
     "MAX_EPUB_TEXT_BYTES",
     "MAX_INPUT_BYTES",
@@ -95,8 +93,6 @@ __all__ = [
 SECTIONS_BUILTIN = "document.sections"
 MAX_INPUT_BYTES = 50 * 1024 * 1024  # a file, an EPUB's bytes, or an html/markdown string
 MAX_EPUB_TEXT_BYTES = 64 * 1024 * 1024  # an EPUB's pages, uncompressed, in total
-DEFAULT_PARAGRAPHS = 1
-DEFAULT_MAX_CHARS = 2000
 _MAX_PARAGRAPHS, _MAX_EXCERPT = 50, 20000
 _CANONICAL = ("heading", "links", "excerpt")
 _FORMATS = ("epub", "html", "markdown")
@@ -492,9 +488,7 @@ def _level(value: Any) -> int:
     raise _Refused(_BAD_PARAMS, "split_on must be a heading tag h1-h6 or a level 1-6")
 
 
-def _whole(value: Any, name: str, default: int, low: int, high: int) -> int:
-    if value is None:
-        return default
+def _whole(value: Any, name: str, low: int, high: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise _Refused(_BAD_PARAMS, f"{name} must be a whole number from {low} to {high}")
     return value
@@ -603,8 +597,8 @@ def document_sections(input: Mapping[str, Any], config: Mapping[str, Any]) -> di
     """The step's outputs (module doc), else :class:`_Refused`."""
     get = lambda key: _param(input, config, key)  # noqa: E731
     level = _level(get("split_on"))
-    paragraphs = _whole(get("paragraphs"), "paragraphs", DEFAULT_PARAGRAPHS, 0, _MAX_PARAGRAPHS)
-    max_chars = _whole(get("max_chars"), "max_chars", DEFAULT_MAX_CHARS, 1, _MAX_EXCERPT)
+    paragraphs = _whole(get("paragraphs"), "paragraphs", 0, _MAX_PARAGRAPHS)
+    max_chars = _whole(get("max_chars"), "max_chars", 1, _MAX_EXCERPT)
     require_links = get("require_links")
     if require_links is not None and not isinstance(require_links, bool):
         raise _Refused(_BAD_PARAMS, "require_links must be true or false")
