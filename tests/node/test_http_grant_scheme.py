@@ -90,3 +90,10 @@ def test_unresolvable_reference_after_a_word_fails_naming_the_header() -> None:
     assert res.error.startswith("secret_unresolved")
     assert "Authorization" in res.error
     assert calls == []
+
+
+def test_a_word_then_a_malformed_reference_is_sent_unchanged() -> None:
+    port, calls, _ = _port(_store())
+    res = _invoke(port, _call(headers={"X-Note": "token grant:bad!name"}))
+    assert res.outcome != FAILED
+    assert calls[0]["request"].get_header("X-note") == "token grant:bad!name"

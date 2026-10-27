@@ -616,3 +616,49 @@ def test_http_call_catalogues_save_to():
     from culture_rules.model.action_kinds import ACTION_KINDS
 
     assert "save_to" in ACTION_KINDS["http.call"].params
+
+
+# ------------------------------------------------------------------ /code-review of #115
+
+
+def test_a_malformed_href_is_skipped_not_raised():
+    page = "<h2>A</h2><p><a href='http://[x'>bad</a> <a href='https://ok.example/'>ok</a></p>"
+    out = completed({"html": page}, {**EXCERPT, "split_on": "h2"})
+    assert out["sections"][0]["links"] == ["https://ok.example/"]
+
+
+def test_a_markdown_link_keeps_one_level_of_parentheses():
+    md = "## A\nsee [w](https://en.wikipedia.org/wiki/Foo_(bar))\n"
+    out = completed({"markdown": md}, {**EXCERPT, "split_on": 2})
+    assert out["sections"][0]["links"] == ["https://en.wikipedia.org/wiki/Foo_(bar)"]
+
+
+def test_a_fenced_block_is_one_paragraph():
+    md = "## A\n```\ncode1\ncode2\n```\ntext\n"
+    out = completed({"markdown": md}, {"paragraphs": 2, "max_chars": 2000, "split_on": 2})
+    assert out["sections"][0]["excerpt"] == "code1 code2\n\ntext"
+
+
+def _prefixed_book():
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as book:
+        book.writestr(
+            "META-INF/container.xml",
+            '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>',
+        )
+        book.writestr(
+            "content.opf",
+            '<opf:package><opf:manifest><opf:item id="nav" href="nav.xhtml" properties="nav"/>'
+            '<opf:item id="c2" href="ch2.xhtml"/><opf:item id="c10" href="ch10.xhtml"/>'
+            '</opf:manifest><opf:spine><opf:itemref idref="c2"/><opf:itemref idref="c10"/>'
+            "</opf:spine></opf:package>",
+        )
+        book.writestr("nav.xhtml", "<h1>Contents</h1>")
+        book.writestr("ch2.xhtml", "<h1>Two</h1><p>t</p>")
+        book.writestr("ch10.xhtml", "<h1>Ten</h1><p>t</p>")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+def test_a_prefixed_package_gives_the_spine_order_and_drops_the_nav():
+    out = completed({"content_base64": _prefixed_book()}, {**EXCERPT, "split_on": "h1"})
+    assert [s["heading"] for s in out["sections"]] == ["Two", "Ten"]

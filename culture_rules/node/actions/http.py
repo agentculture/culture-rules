@@ -14,7 +14,7 @@ The bound actor (any kind: service, daemon, runner, an app actor, ...) carries t
 port) and exact IP literals. ``headers`` are sent on every call by this actor and take
 precedence over the action's own headers. A header value of the form ``grant:<NAME>``, or of
 the form ``<word> grant:<NAME>`` (exactly one word of ``[A-Za-z][A-Za-z0-9._-]*``, one space,
-then the reference; e.g. ``Bearer grant:TOKEN``), is resolved at call time on this host
+then a well-formed reference; e.g. ``Bearer grant:TOKEN``), is resolved at call time on this host
 (:mod:`culture_rules.actors.secrets`), sent as the value or as ``<word> <value>``, and scrubbed
 from the response output. Any other value holding ``grant:`` is sent unchanged.
 No allowlist means every call is refused.
@@ -101,6 +101,7 @@ from culture_rules.actors.secrets import (
     GRANT_SCHEME,
     Redactor,
     SecretError,
+    is_secret_ref,
     resolve,
     split_word_ref,
 )
@@ -438,7 +439,7 @@ class HttpCallPort:
         word = ""
         ref = value
         split = split_word_ref(value)
-        if split is not None:
+        if split is not None and is_secret_ref(split[1]):  # else sent unchanged, as before
             word, ref = split[0] + " ", split[1]
         if not ref.startswith(GRANT_SCHEME + ":"):
             return value
@@ -647,6 +648,11 @@ def _place(tmp: str, target: str) -> str:
     if os.path.lexists(target):
         if os.path.islink(target) or not os.path.isfile(target):
             raise _Refused(_PATH_REFUSED, "the target name exists and is not a regular file")
+        try:
+            os.utime(target)
+        except FileNotFoundError:  # removed meanwhile: place ours instead
+            os.replace(tmp, target)
+            return target
         os.unlink(tmp)
         return target
     os.replace(tmp, target)

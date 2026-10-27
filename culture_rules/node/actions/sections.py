@@ -43,13 +43,13 @@ its package marks ``properties="nav"`` (nor the NCX, which is not HTML);
 the members' uncompressed bytes may total :data:`MAX_EPUB_TEXT_BYTES` at most.
 
 Markdown (kept simple): ATX headings only (``## Title``, an optional closing ``##``), no
-headings inside a fenced code block (fence lines are dropped, code lines kept as text and
-never linked). A blank line, a list item, a quote line or a heading starts a paragraph and a
-thematic break ends one; other lines join with a space. Links are ``[label](url)``,
-``[label](<url>)``, ``<url>`` and bare ``http(s)://`` URLs (trailing punctuation left out),
-in order; an image ``![alt](src)`` is its alt text, not a link. The text keeps a link's label,
-a bare URL as written, and drops list and quote markers, ``**``, ``__``, ``~~``, ``*`` and
-backticks; entities are unescaped; inline HTML is left as written.
+headings inside a fenced code block (fence lines are dropped; the block's code lines are one
+paragraph of text, never linked). A blank line, a list item, a quote line or a heading starts a
+paragraph and a thematic break ends one; other lines join with a space. Links are
+``[label](url)``, ``[label](<url>)``, ``<url>`` and bare ``http(s)://`` URLs (trailing
+punctuation left out), in order; an image ``![alt](src)`` is its alt text, not a link. The text
+keeps a link's label, a bare URL as written, and drops list and quote markers, ``**``, ``__``,
+``~~``, ``*`` and backticks; entities are unescaped; inline HTML is left as written.
 
 Outputs: ``sections`` (in document order, each ``{heading, links, excerpt}`` under the
 configured names), ``count`` (sections returned) and ``found`` (sections before
@@ -117,7 +117,9 @@ _BLOCK = frozenset(
 _SPACES = re.compile(r"[ \t\r\f\v]+")
 _LINE_EDGE = re.compile(r" ?\n ?")
 _BREAKS = re.compile(r"\n{3,}")
-_MD_LINK = re.compile(r"\[([^\]\n]*)\]\((?:<([^>\n]*)>|([^\s()<>]*))\)")
+# The URL may hold one level of parentheses (``.../Foo_(bar)``); the two alternatives
+# cannot both match a character, so the match stays linear.
+_MD_LINK = re.compile(r"\[([^\]\n]*)\]\((?:<([^>\n]*)>|((?:[^\s()<>]|\([^\s()<>]*\)){0,2048}))\)")
 _AUTOLINK = re.compile(r"<(https?://[^\s<>]+)>")
 _BARE_URL = re.compile(r"https?://[^\s<>()\[\]\"'`]+")
 _URL_TAIL = ".,;:!?*_~"
@@ -141,7 +143,10 @@ class _Section:
 
     def link(self, url: str | None) -> None:
         url = (url or "").strip()
-        parts = urlsplit(url)
+        try:
+            parts = urlsplit(url)
+        except ValueError:  # a malformed URL (e.g. "http://[x") is not a link
+            return
         if parts.scheme in ("http", "https") and parts.netloc and url not in self.links:
             self.links.append(url)
 
@@ -272,7 +277,7 @@ class _Attrs(HTMLParser):
         self.found: list[dict[str, str]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == self._tag:
+        if tag.rpartition(":")[2] == self._tag:  # <item> or a prefixed <opf:item>
             self.found.append({k: v or "" for k, v in attrs})
 
 
@@ -480,8 +485,8 @@ def _md_open(heading: tuple[int, str], level: int) -> _Section | None:
 
 def _md_line(section: _Section, line: str, heading: tuple[int, str] | None, fenced: bool) -> None:
     """One body line into ``section``: text with paragraph breaks, and its links."""
-    if fenced:
-        section.body.append(f"\n\n{line}\n\n")
+    if fenced:  # a fenced block is one paragraph; the fence lines break around it
+        section.body.append(f"{line}\n")
         return
     if not line.strip() or _md_rule(line):
         section.body.append("\n\n")
