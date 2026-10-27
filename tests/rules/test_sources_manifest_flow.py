@@ -288,9 +288,9 @@ def backfill_workflow(root: str) -> dict:
                 "name": "each",
                 "kind": "for_each",
                 "max_iterations": 20,
-                "config": {"items": "item_ids"},
+                "config": {"items": "item_ids", "collect": {"count": "manifest.count"}},
                 "inputs": [_port("item_ids", "array"), _port("library_base", "string")],
-                "outputs": [_port("results", "array")],
+                "outputs": [_port("results", "array"), _port("outcomes", "array")],
                 "body": [fetch, manifest, put],
             }
         ],
@@ -300,7 +300,10 @@ def backfill_workflow(root: str) -> dict:
             _edge("fetch", "path", "manifest", "content_path"),
             _edge("manifest", "sections", "put_manifest", "sections"),
         ],
-        "outputs": [{"name": "results", "source": "steps.each.outputs.results", "type": "array"}],
+        "outputs": [
+            {"name": "results", "source": "steps.each.outputs.results", "type": "array"},
+            {"name": "outcomes", "source": "steps.each.outputs.outcomes", "type": "array"},
+        ],
     }
 
 
@@ -534,55 +537,42 @@ def test_the_backfill_and_the_daily_manifest_have_the_same_entry_keys(world):  #
     assert [sorted(e) for e in backfilled] == [sorted(e) for e in daily]
 
 
-def test_the_unknown_id_is_skipped_at_the_fetch_with_its_error(world):  # c7
-    run = backfill_run(world, [11, 99, 12])
-    assert (
-        step_state(run, "each[1]/fetch")["error"]["message"] == "http_status: server answered 404"
-    )
-
-
-def test_the_skipped_fetch_is_listed_as_skipped(world):  # c7
-    run = backfill_run(world, [11, 99, 12])
-    assert step_state(run, "each[1]/fetch")["status"] == "skipped"
-
-
-def test_the_item_after_the_skipped_one_is_still_pushed(world):  # c7
-    run = backfill_run(world, [11, 99, 12])
-    assert step_state(run, "each[2]/put_manifest")["status"] == "succeeded"
-
-
-def outcomes(run: dict, ids: list[int]) -> list[dict]:
-    """Each id the run was given with its outcome, read from the run's loop and step states."""
-    listed = []
-    for i, item in enumerate(ids):
-        put = step_state(run, f"each[{i}]/put_manifest")
-        if put["status"] == "succeeded":
-            count = step_state(run, f"each[{i}]/manifest")["outputs"]["count"]
-            listed.append({"id": item, "pushed": True, "count": count})
-            continue
-        failed = next(
-            s for s in run["steps"] if s["key"].startswith(f"each[{i}]/") and s.get("error")
-        )
-        listed.append({"id": item, "skipped": True, "error": failed["error"]["message"]})
-    return listed
+def outcomes(run: dict) -> list[dict]:
+    """The backfill loop's per-item outcomes, as the run outputs them (t7)."""
+    return run["outputs"]["outcomes"]
 
 
 def test_the_run_lists_every_id_it_was_given(world):  # c7, h24
     run = backfill_run(world, [11, 99, 12])
-    assert [o["id"] for o in outcomes(run, [11, 99, 12])] == [11, 99, 12]
+    assert [o["item"]["id"] for o in outcomes(run)] == [11, 99, 12]
 
 
-def test_the_run_lists_a_pushed_id_with_its_entry_count(world):  # c7, h24
+def test_the_run_lists_the_pushed_ids_as_succeeded(world):  # c7, h24
     run = backfill_run(world, [11, 99, 12])
-    assert outcomes(run, [11, 99, 12])[0] == {"id": 11, "pushed": True, "count": 2}
+    assert [o["status"] for o in outcomes(run)] == ["succeeded", "skipped", "succeeded"]
 
 
-def test_the_run_lists_a_skipped_id_with_the_error(world):  # c7, h24
+def test_the_run_lists_each_pushed_id_with_its_entry_count(world):  # c7, h24
     run = backfill_run(world, [11, 99, 12])
-    assert outcomes(run, [11, 99, 12])[1] == {
-        "id": 99,
-        "skipped": True,
-        "error": "http_status: server answered 404",
+    assert [o["count"] for o in outcomes(run)] == [2, None, 2]
+
+
+def test_a_pushed_id_has_no_errors(world):  # c7, h24
+    run = backfill_run(world, [11, 99, 12])
+    assert outcomes(run)[0]["errors"] == {}
+
+
+def test_the_run_lists_a_skipped_id_with_the_fetch_error(world):  # c7, h24
+    run = backfill_run(world, [11, 99, 12])
+    assert outcomes(run)[1]["errors"]["fetch"] == "http_status: server answered 404"
+
+
+def test_the_skipped_ids_later_steps_are_listed_as_input_missing(world):  # c7, h24
+    run = backfill_run(world, [11, 99, 12])
+    assert outcomes(run)[1]["errors"] == {
+        "fetch": "http_status: server answered 404",
+        "manifest": "input 'content_path' (string) is missing",
+        "put_manifest": "input 'sections' (array) is missing",
     }
 
 

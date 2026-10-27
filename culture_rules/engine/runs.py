@@ -119,6 +119,20 @@ Semantics
   ``p``, the list of each iteration's final body output ``p`` (``results`` = the whole
   output objects); a ``retry_until`` loop's outputs are its last iteration's. Loops do not
   nest.
+* **Loop outcomes** (#97 t7) - a ``for_each`` loop that declares an output port named
+  ``outcomes`` (an ``array``) outputs one entry per item, in order:
+  ``{index, item, status, errors}``. ``item`` is the item as given. ``status`` is
+  ``succeeded`` when every body step of the iteration succeeded and ``skipped`` when any
+  body step was skipped, whatever the cause: a failure ``config.on_error: "skip"``
+  tolerated (an ``input_missing`` behind a skipped step included), a false ``when``, a
+  disabled step. ``errors`` maps the id of each skipped body step that kept an error (the
+  tolerated failures) to its message; a skip without an error (false ``when``, disabled)
+  adds nothing, so a ``skipped`` entry may hold ``errors == {}``. A failed body step still
+  fails the loop. ``config.collect`` (``{name: "<body step id>.<output>"}``, validated
+  against the loop's body when the workflow is saved or a run starts) adds each name to every
+  entry with that body step's output, copied as is (so collect scalars), ``None`` when the
+  step did not output it (a skipped step outputs nothing). An entry never holds a body
+  step's whole outputs. Without an ``outcomes`` port the loop records no outcomes.
 * **Wait steps** - ``config["seconds"]`` parks the step as ``sleeping`` until
   ``deadline``; any engine whose tick finds it due wakes it with a compare-and-set, so it
   completes once however many nodes restart. With ``config["guard"]`` = ``head_unchanged``
@@ -2530,12 +2544,46 @@ def _spawn(new: dict, loop_step: Step, iteration: int) -> None:
         new["steps"].append(state)
 
 
-def _loop_outputs(step: Step, results: list[dict]) -> dict[str, Any]:
+OUTCOMES_PORT = "outcomes"
+"""A ``for_each`` loop's output port that lists each iteration's outcome (#97 t7, d4)."""
+
+
+def _wants_outcomes(step: Step) -> bool:
+    return step.kind == "for_each" and any(p.name == OUTCOMES_PORT for p in step.outputs)
+
+
+def _outcome(step: Step, body: list[dict], index: int, item: Any) -> dict[str, Any]:
+    """One iteration's outcome: its item, ``succeeded`` or ``skipped``, the error message of
+    each skipped body step that kept one, and the ``config.collect`` values (as is)."""
+    errors = {
+        b["def"]: (b.get("error") or {}).get("message")
+        for b in body
+        if b["status"] == "skipped" and b.get("error")
+    }
+    status = "succeeded" if all(b["status"] == "succeeded" for b in body) else "skipped"
+    entry: dict[str, Any] = {"index": index, "item": item, "status": status, "errors": errors}
+    collect = step.config.get("collect") if isinstance(step.config, dict) else None
+    if isinstance(collect, Mapping):
+        outputs = {b["def"]: b.get("outputs") or {} for b in body}
+        for name, path in collect.items():
+            source, _, output = str(path).partition(".")
+            entry[name] = outputs.get(source, {}).get(output)
+    return entry
+
+
+def _loop_outputs(
+    step: Step, results: list[dict], outcomes: list[dict] | None = None
+) -> dict[str, Any]:
     names = [p.name for p in step.outputs]
     if step.kind == "for_each":
         if not names:
             return {"results": results}
-        return {n: (results if n == "results" else [r.get(n) for r in results]) for n in names}
+        out = {n: [r.get(n) for r in results] for n in names}
+        if "results" in names:
+            out["results"] = results
+        if OUTCOMES_PORT in names:
+            out[OUTCOMES_PORT] = list(outcomes or [])
+        return out
     last = results[-1] if results else {}
     out = {n: last.get(n) for n in names if n in last} if names else dict(last)
     if "iterations" in names:
@@ -2586,6 +2634,10 @@ def _progress_loop(plan: _Plan, doc: Mapping, st: Mapping) -> Found:
     result = dict(done[-1].get("outputs") or {}) if done else {}
     results = list(nst.get("results") or []) + [result]
     nst["results"] = results
+    if _wants_outcomes(step):
+        items = nst.get("items") or []
+        outcome = _outcome(step, body, i, items[i] if i < len(items) else None)
+        nst[OUTCOMES_PORT] = list(nst.get(OUTCOMES_PORT) or []) + [outcome]
     if step.kind == "for_each":
         if i + 1 < len(nst.get("items") or []):
             return _next_iteration(new, nst, step, i)
@@ -2609,7 +2661,7 @@ def _next_iteration(new: dict, nst: dict, step: Step, i: int) -> Found:
 
 
 def _loop_done(new: dict, nst: dict, step: Step, results: list[dict]) -> Found:
-    outputs = _loop_outputs(step, results)
+    outputs = _loop_outputs(step, results, nst.get(OUTCOMES_PORT))
     problem = _check_ports(step.outputs, outputs, "output")
     if problem:
         problem["code"] = "output_type_mismatch"

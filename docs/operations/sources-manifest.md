@@ -144,6 +144,25 @@ issues. It takes `item_ids` (a list of objects, each `{"id": 11}`) and
    `{{ inputs.library_base }}/api/library/{{ inputs.item.id }}/sources` with
    `body` set to `inputs.sections`.
 
+The loop declares an `outcomes` output port and collects each pass's entry
+count from the `manifest` step:
+
+```json
+{
+  "id": "each",
+  "kind": "for_each",
+  "max_iterations": 20,
+  "config": {"items": "item_ids", "collect": {"count": "manifest.count"}},
+  "outputs": [
+    {"name": "results", "type": "array"},
+    {"name": "outcomes", "type": "array"}
+  ]
+}
+```
+
+and the workflow exports it with an output
+`{"name": "outcomes", "source": "steps.each.outputs.outcomes", "type": "array"}`.
+
 Run it:
 
 ```bash
@@ -151,14 +170,44 @@ culture-rules workflows run backfill-manifests --inputs-json @inputs.json --appl
 ```
 
 with `inputs.json` holding
-`{"item_ids": [{"id": 11}, {"id": 12}], "library_base": "..."}`. The run's
-per-item outcomes list every id it was given: pushed (with an entry count) or
-skipped (with the error). They are read from the run's step states, one set per
-id (`each[0]/fetch`, `each[0]/manifest`, `each[0]/put_manifest`): a pushed id's
-`put_manifest` is `succeeded` and its `manifest` outputs the entry `count`; a
-failed id's first failing step is `skipped` with its `error`, and the steps after
-it are `skipped` too (`input_missing`). The loop's `results` output holds one
-object per id, `{}` for a skipped one: it does not carry the id or the error.
+`{"item_ids": [{"id": 11}, {"id": 99}, {"id": 12}], "library_base": "..."}`.
+The run's `outcomes` output lists every id it was given, in order, one entry
+per id:
+
+```json
+[
+  {"index": 0, "item": {"id": 11}, "status": "succeeded", "errors": {}, "count": 2},
+  {"index": 1, "item": {"id": 99}, "status": "skipped", "count": null,
+   "errors": {
+     "fetch": "http_status: server answered 404",
+     "manifest": "input 'content_path' (string) is missing",
+     "put_manifest": "input 'sections' (array) is missing"}},
+  {"index": 2, "item": {"id": 12}, "status": "succeeded", "errors": {}, "count": 2}
+]
+```
+
+A pushed id is `succeeded` with its entry `count`; a failed id is `skipped`,
+and `errors` names the step that failed with its error and each step after it
+that was skipped for want of its input (`input_missing`). The rules, for any
+`for_each` loop:
+
+- `status` is `succeeded` when every body step of the pass succeeded, and
+  `skipped` when any was skipped. A failed body step (one without
+  `on_error: "skip"`) still fails the loop and the run.
+- `errors` maps each skipped body step that kept an error to its message. A
+  step skipped by a false `when`, or a disabled one, has no error: the pass is
+  `skipped` with nothing in `errors` for it.
+- `config.collect` (`{name: "<body step id>.<output>"}`) adds each name to
+  every entry with that step's output, copied as is (so collect small
+  values), and `null` when the step did not output it. A name may not be
+  `index`, `item`, `status` or `errors`. Saving the workflow, or starting a
+  run, refuses a collect that is not on a `for_each` loop with an `outcomes`
+  port, a path that is not `<step>.<output>`, a step that is not in the loop's
+  body, or an output the step does not declare.
+
+An entry never holds a body step's whole outputs; the loop's `results`
+output still holds one object per id (`{}` for a skipped one), and the
+run's step states (`each[1]/fetch` and so on) keep each step's own record.
 
 ## What to check
 
