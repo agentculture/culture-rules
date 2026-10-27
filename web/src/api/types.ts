@@ -49,6 +49,8 @@ export interface EventTriggerParams {
   roles?: string[];
   /** discord.reaction.added: the emoji (unicode, or a custom name:id); absent = any emoji. */
   emoji?: string[];
+  /** discord.command.invoked: the command name, or several (any of them matches); absent = any command. */
+  command?: string | string[];
   /** discord.* events: also fire for messages from bots (default off). */
   include_bots?: boolean;
   max_fires_per_hour?: number;
