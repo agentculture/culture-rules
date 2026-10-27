@@ -42,17 +42,52 @@ Outcome: 2xx -> completed with ``{status, headers (subset), body (text, truncate
 truncated}``; 4xx -> failed ``http_status`` (retryable only for 408/425/429); 5xx and
 network errors -> failed, retryable. Error texts never carry a body or a header value, and
 nothing is logged. Standard-library only.
+
+Saving the body to a file (``save_to``; the body never enters run state, deviation d7, as
+``attachment.fetch`` does). The step param ``save_to`` is an absolute path naming a directory
+the actor's policy lists in ``save_roots``; the policy may also set ``save_max_bytes`` (a
+positive integer, default :data:`DEFAULT_SAVE_MAX_BYTES`, 50 MiB)::
+
+    {"http": {"allow": ["127.0.0.1"], "save_roots": ["/srv/culture-rules/fetched"],
+              "save_max_bytes": 52428800}}
+
+Checked before any lookup or request (failure ``path_refused``, never retryable): ``save_to``
+is absolute, ``save_roots`` is a non-empty list of absolute paths, and ``save_to``
+(normalised: ``.``/``..`` and trailing slashes folded) **equals** one listed root (normalised
+the same way) - a directory under a root is not accepted. The root must be an existing
+directory with no symlink anywhere in its path (``os.path.realpath`` must change nothing, and
+it is opened ``O_NOFOLLOW | O_DIRECTORY``). A ``save_to`` that is not a non-empty string is
+``invalid_request``; a bad ``save_max_bytes`` is ``invalid_request``.
+
+The answer's status is handled as above (a 4xx/5xx is never saved). A 2xx is saved only when
+its ``Content-Type`` media type (parameters such as ``charset`` ignored, case-insensitive) is
+one of :data:`SAVE_TYPES` (``application/epub+zip`` -> ``epub``, ``application/pdf`` ->
+``pdf``, ``text/markdown`` -> ``md``, ``application/json`` -> ``json``, ``text/plain`` ->
+``txt``); any other or no type fails ``unsupported_type`` (not retryable) and writes nothing.
+A ``Content-Length`` over the cap fails ``too_large`` before writing. The body is then
+streamed in :data:`SAVE_CHUNK` pieces to a temporary file inside the root, hashed on the way,
+the cap enforced while reading (``too_large``, never more than the cap plus one chunk read),
+and renamed atomically to ``<root>/<sha256>.<ext>``; on any failure the temporary file is
+removed. The same bytes again find that file and reuse it; a symlink or non-file at that name
+is ``path_refused`` (it can only be checked once the body's digest is known). A write error
+fails ``write_failed`` (retryable). Completed output: ``{status, path, sha256, size,
+content_type}`` (``content_type`` is the bare media type); no ``body``, ``truncated`` or
+``headers``.
 """
 
 from __future__ import annotations
 
+import contextlib
 import functools
+import hashlib
 import http.client
 import ipaddress
 import json
+import os
 import re
 import socket
 import ssl
+import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
@@ -65,6 +100,8 @@ from culture_rules.engine.actorport import COMPLETED, InvocationContext, Invocat
 from culture_rules.node.actions.machine import load_bound_actor
 
 __all__ = [
+    "DEFAULT_SAVE_MAX_BYTES",
+    "SAVE_TYPES",
     "USER_AGENT",
     "HttpCallPort",
     "RedirectRefused",
@@ -74,6 +111,16 @@ __all__ = [
 ]
 
 DEFAULT_MAX_BODY = 64 * 1024
+DEFAULT_SAVE_MAX_BYTES = 50 * 1024 * 1024
+SAVE_CHUNK = 1024 * 1024
+SAVE_TYPES = {
+    "application/epub+zip": "epub",
+    "application/pdf": "pdf",
+    "text/markdown": "md",
+    "application/json": "json",
+    "text/plain": "txt",
+}
+_PATH_REFUSED = "path_refused"
 # Sent unless a request names its own: hosts such as Discord's CDN answer 403 to Python's
 # default "Python-urllib/3.x".
 USER_AGENT = "culture-rules"
@@ -418,6 +465,7 @@ class HttpCallPort:
         method = method.upper() if isinstance(method, str) else ""
         if method not in METHODS:
             raise _Refused("invalid_request", f"method {method or '(none)'!r} not allowed")
+        save = _save_target(input.get("save_to"), params)
         host, pinned = self._destination(input.get("url"), _allowlist(params))
         timeout = (deadline - self._clock()).total_seconds()
         if timeout <= 0:
@@ -448,6 +496,8 @@ class HttpCallPort:
         except (http.client.HTTPException, OSError) as exc:  # URLError is an OSError
             raise _Refused("network_error", type(exc).__name__, retryable=True) from exc
         try:
+            if save is not None:
+                return self._saved(response, *save)
             return self._result(response, redactor)
         finally:
             close = getattr(response, "close", None)
@@ -455,15 +505,7 @@ class HttpCallPort:
                 close()
 
     def _result(self, response: Any, redactor: Redactor) -> InvocationResult:
-        status = int(getattr(response, "status", None) or getattr(response, "code", 0))
-        if 300 <= status < 400:
-            raise _Refused("redirect_refused", f"server answered {status}")
-        if status >= 500 or status < 200:
-            raise _Refused("http_status", f"server answered {status}", retryable=True)
-        if status >= 400:
-            raise _Refused(
-                "http_status", f"server answered {status}", retryable=status in _RETRYABLE_4XX
-            )
+        status = _checked_status(response)
         try:
             raw = response.read(self._max_body + 1)
         except (OSError, http.client.HTTPException) as exc:
@@ -479,6 +521,127 @@ class HttpCallPort:
                 "truncated": truncated,
             }
         )
+
+    def _saved(self, response: Any, root: str, cap: int) -> InvocationResult:
+        """Stream a 2xx body to ``<root>/<sha256>.<ext>`` (see the module docstring)."""
+        status = _checked_status(response)
+        headers = _kept_headers(getattr(response, "headers", {}) or {})
+        content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        ext = SAVE_TYPES.get(content_type)
+        if ext is None:
+            raise _Refused("unsupported_type", "the response type is not one save_to writes")
+        if _over(headers.get("content-length"), cap):
+            raise _Refused("too_large", f"the body is over {cap} bytes")
+        fd, tmp = tempfile.mkstemp(dir=root, prefix=".http-call.", suffix=".part")
+        try:
+            try:
+                with os.fdopen(fd, "wb") as out:
+                    sha256, size = _stream(response, out, cap)
+                path = _place(tmp, os.path.join(root, f"{sha256}.{ext}"))
+            except OSError as exc:  # a full disk, a file racing away: transient
+                raise _Refused("write_failed", type(exc).__name__, retryable=True) from exc
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+        return InvocationResult.completed(
+            {
+                "status": status,
+                "path": path,
+                "sha256": sha256,
+                "size": size,
+                "content_type": content_type,
+            }
+        )
+
+
+def _checked_status(response: Any) -> int:
+    """The answer's status; a redirect, 1xx, 4xx or 5xx raises as http.call reports it."""
+    status = int(getattr(response, "status", None) or getattr(response, "code", 0))
+    if 300 <= status < 400:
+        raise _Refused("redirect_refused", f"server answered {status}")
+    if status >= 500 or status < 200:
+        raise _Refused("http_status", f"server answered {status}", retryable=True)
+    if status >= 400:
+        raise _Refused(
+            "http_status", f"server answered {status}", retryable=status in _RETRYABLE_4XX
+        )
+    return status
+
+
+# ------------------------------------------------------------------ save_to
+# A local copy of attachment_fetch's stream-and-place technique: that module imports this one,
+# so importing back from it would be circular, and its helpers raise its own exception types.
+
+
+def _save_target(save_to: Any, params: Mapping[str, Any]) -> tuple[str, int] | None:
+    """(root, cap) for a ``save_to`` the policy allows, None without one; else refused."""
+    if save_to is None:
+        return None
+    if not isinstance(save_to, str) or not save_to:
+        raise _Refused("invalid_request", "save_to must be a non-empty string")
+    policy = params.get("http")
+    policy = policy if isinstance(policy, Mapping) else {}
+    cap = policy.get("save_max_bytes", DEFAULT_SAVE_MAX_BYTES)
+    if isinstance(cap, bool) or not isinstance(cap, int) or cap < 1:
+        raise _Refused("invalid_request", "save_max_bytes must be a positive integer")
+    if not os.path.isabs(save_to):
+        raise _Refused(_PATH_REFUSED, "save_to must be an absolute path")
+    roots = policy.get("save_roots")
+    if (
+        not isinstance(roots, list)
+        or not roots
+        or not all(isinstance(r, str) and os.path.isabs(r) for r in roots)
+    ):
+        raise _Refused(_PATH_REFUSED, "the actor lists no save_roots (absolute paths)")
+    root = os.path.normpath(save_to)
+    if root not in {os.path.normpath(r) for r in roots}:
+        raise _Refused(_PATH_REFUSED, "save_to is not one of the actor's save_roots")
+    if os.path.realpath(root) != root:
+        raise _Refused(_PATH_REFUSED, "save_to has a symlink in its path")
+    try:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise _Refused(_PATH_REFUSED, "save_to is not an existing directory") from exc
+    os.close(fd)
+    return root, cap
+
+
+def _over(value: Any, limit: int) -> bool:
+    """Whether a declared size (a numeric string) exceeds ``limit``."""
+    try:
+        return int(value) > limit
+    except (TypeError, ValueError):
+        return False
+
+
+def _stream(response: Any, out: Any, cap: int) -> tuple[str, int]:
+    """Copy the body to ``out`` in chunks, hashing it and refusing it once past ``cap``."""
+    digest, size = hashlib.sha256(), 0
+    while True:
+        try:
+            block = response.read(SAVE_CHUNK)
+        except (OSError, http.client.HTTPException) as exc:
+            raise _Refused("network_error", type(exc).__name__, retryable=True) from exc
+        if not block:
+            return digest.hexdigest(), size
+        size += len(block)
+        if size > cap:
+            raise _Refused("too_large", f"the body is over {cap} bytes")
+        digest.update(block)
+        out.write(block)
+
+
+def _place(tmp: str, target: str) -> str:
+    """Rename ``tmp`` to ``target`` (atomic); an existing regular file there holds the same
+    bytes and is reused (``tmp`` dropped); anything else there is refused."""
+    if os.path.lexists(target):
+        if os.path.islink(target) or not os.path.isfile(target):
+            raise _Refused(_PATH_REFUSED, "the target name exists and is not a regular file")
+        os.unlink(tmp)
+        return target
+    os.replace(tmp, target)
+    return target
 
 
 def _kept_headers(headers: Any) -> dict[str, str]:
