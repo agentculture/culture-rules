@@ -128,7 +128,7 @@ export interface HttpPolicy {
 /** `Actor.params` keys known to the editor; other keys ride along. */
 export type ActorParams = Omit<Partial<AppActorParams>, "commands"> & {
   /** A runner's registered commands (by name), or a Discord app's application commands (a list). */
-  commands?: RunnerActorParams["commands"] | AppActorParams["commands"];
+  commands?: NonNullable<RunnerActorParams["commands"] | AppActorParams["commands"]>;
   http?: HttpPolicy;
 } & Record<string, unknown>;
 
