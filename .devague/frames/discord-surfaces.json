@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-27T09:03:03Z",
+  "updated": "2026-10-27T09:05:52Z",
   "claims": [
     {
       "id": "c1",
@@ -1246,6 +1246,18 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l15",
+      "code": "assumption-for-measurement",
+      "what": "t20 live configuration gave every Discord rule (message, reaction, command, for both bots) the same concurrency key template discord:{message_id}, copied from the committed bundle, without checking that keys are global and coalesce: Culture.dev's message event for the epub post (1564565129729941696) was deduplicated behind jetson-bot's run, then displaced by the \ud83d\udcda events, so its message flow never ran; fixed by a per-flow, per-bot key prefix",
+      "skipped_check": "reading the concurrency-key contract (node/firing.py: global keys, one coalescing slot) before sharing a key across rules",
+      "refs": [
+        "docs/rules/discord-library/rules/discord-to-library.json",
+        "culture_rules/node/firing.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [

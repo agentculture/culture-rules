@@ -8,7 +8,7 @@
     "retry": null,
     "timeout_s": null
   },
-  "concurrency_key": "discord:{trigger.data.message_id}",
+  "concurrency_key": "discord-message:{trigger.data.message_id}",
   "condition": {
     "cmp": "==",
     "left": {
