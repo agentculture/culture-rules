@@ -357,6 +357,7 @@ def test_an_outcomes_port_on_a_retry_until_loop_keeps_its_meaning():
 def test_a_run_start_refuses_a_bad_collect(store, clock):
     ex = Executor(store, "spark", {"*": FakeActor()}, clock=clock)
     wf = _wf(_collecting({"n": "nope.count"}))
+    started_by = rule()
     with pytest.raises(RunError) as exc:
-        ex.start(rule(), wf)
+        ex.start(started_by, wf)
     assert exc.value.code == "invalid_workflow"

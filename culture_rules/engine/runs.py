@@ -2622,24 +2622,14 @@ def _progress_loop(plan: _Plan, doc: Mapping, st: Mapping) -> Found:
     failed = next((b for b in body if b["status"] == "failed"), None)
     new, nst = _copy_with(doc, st["key"])
     if failed is not None:
-        nst.update(
-            status="failed",
-            error=_error(
-                "loop_body_failed",
-                f"{failed['key']}: {(failed.get('error') or {}).get('message')}",
-            ),
-        )
-        return new, "failed", st["key"]
+        return _body_failed(new, nst, st, failed)
     if not body or any(b["status"] not in STEP_OK for b in body):
         return None
     done = [b for b in body if b["status"] == "succeeded"]
     result = dict(done[-1].get("outputs") or {}) if done else {}
     results = list(nst.get("results") or []) + [result]
     nst["results"] = results
-    if _wants_outcomes(step):
-        items = nst.get("items") or []
-        outcome = _outcome(step, body, i, items[i] if i < len(items) else None)
-        nst[OUTCOMES_PORT] = list(nst.get(OUTCOMES_PORT) or []) + [outcome]
+    _record_outcome(step, nst, body, i)
     if step.kind == "for_each":
         if i + 1 < len(nst.get("items") or []):
             return _next_iteration(new, nst, step, i)
@@ -2654,6 +2644,27 @@ def _progress_loop(plan: _Plan, doc: Mapping, st: Mapping) -> Found:
         )
         return new, "failed", st["key"]
     return _next_iteration(new, nst, step, i)
+
+
+def _body_failed(new: dict, nst: dict, st: Mapping, failed: Mapping) -> Found:
+    """A failed body step fails its loop."""
+    nst.update(
+        status="failed",
+        error=_error(
+            "loop_body_failed",
+            f"{failed['key']}: {(failed.get('error') or {}).get('message')}",
+        ),
+    )
+    return new, "failed", st["key"]
+
+
+def _record_outcome(step: Step, nst: dict, body: list[dict], i: int) -> None:
+    """Append iteration ``i``'s outcome when the loop declares an ``outcomes`` port."""
+    if not _wants_outcomes(step):
+        return
+    items = nst.get("items") or []
+    outcome = _outcome(step, body, i, items[i] if i < len(items) else None)
+    nst[OUTCOMES_PORT] = list(nst.get(OUTCOMES_PORT) or []) + [outcome]
 
 
 def _next_iteration(new: dict, nst: dict, step: Step, i: int) -> Found:

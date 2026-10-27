@@ -470,7 +470,7 @@ export function validateHttp(draft: HttpDraft): FormErrors {
     errors["http.save_roots"] = "Each save root is an absolute path, starting with /.";
   }
   const cap = draft.saveMaxBytes.trim();
-  if (cap !== "" && !/^[1-9][0-9]*$/.test(cap)) {
+  if (cap !== "" && !/^[1-9]\d*$/.test(cap)) {
     errors["http.save_max_bytes"] = "Use a whole number of bytes above zero, or leave it blank.";
   }
   return errors;

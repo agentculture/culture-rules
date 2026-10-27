@@ -61,7 +61,6 @@ always give the same output.
 from __future__ import annotations
 
 import base64
-import binascii
 import html as htmllib
 import io
 import os
@@ -325,8 +324,8 @@ def _epub_pages(data: bytes) -> list[str]:
                 key=lambda i: i.filename,
             )
             return [read(i) for i in members if posixpath.normpath(i.filename) not in navs]
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, NotImplementedError,
-            RuntimeError, zlib.error) as exc:  # fmt: skip
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, RuntimeError,
+            zlib.error) as exc:  # fmt: skip
         raise _Refused("not_epub", "the content is not a readable EPUB") from exc
 
 
@@ -437,17 +436,25 @@ def _md_sections(markdown: str, level: int) -> list[_Section]:
             continue
         heading = None if fenced else _md_heading(line)
         if heading is not None and heading[0] <= level:
-            current = _Section() if heading[0] == level else None
+            current = _md_open(heading, level)
             if current is not None:
                 sections.append(current)
-                text, links = _md_inline(heading[1])
-                current.heading.append(text)
-                for url in links:
-                    current.link(url)
             continue
         if current is not None:
             _md_line(current, line, heading, fenced)
     return sections
+
+
+def _md_open(heading: tuple[int, str], level: int) -> _Section | None:
+    """A new section for a heading at ``level``; None for a higher heading (it ends one)."""
+    if heading[0] != level:
+        return None
+    section = _Section()
+    text, links = _md_inline(heading[1])
+    section.heading.append(text)
+    for url in links:
+        section.link(url)
+    return section
 
 
 def _md_line(section: _Section, line: str, heading: tuple[int, str] | None, fenced: bool) -> None:
@@ -554,7 +561,7 @@ def _epub_bytes(value: Any) -> bytes:
         raise _Refused(_TOO_LARGE, f"content_base64 exceeds {MAX_INPUT_BYTES} bytes")
     try:
         data = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as exc:
+    except ValueError as exc:  # base64 raises binascii.Error, a ValueError
         raise _Refused(_BAD_PARAMS, "content_base64 is not valid base64") from exc
     if len(data) > MAX_INPUT_BYTES:
         raise _Refused(_TOO_LARGE, f"content_base64 exceeds {MAX_INPUT_BYTES} bytes")
