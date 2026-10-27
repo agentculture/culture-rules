@@ -431,18 +431,22 @@ def _md_sections(markdown: str, level: int) -> list[_Section]:
     for line in markdown.splitlines():
         if line.lstrip().startswith(("```", "~~~")):
             fenced = not fenced
-            if current is not None:
-                current.body.append("\n\n")
+            _md_break(current)
             continue
         heading = None if fenced else _md_heading(line)
         if heading is not None and heading[0] <= level:
             current = _md_open(heading, level)
-            if current is not None:
-                sections.append(current)
+            sections.extend([current] if current is not None else [])
             continue
         if current is not None:
             _md_line(current, line, heading, fenced)
     return sections
+
+
+def _md_break(section: _Section | None) -> None:
+    """A code fence line ends the paragraph of the section it sits in, if any."""
+    if section is not None:
+        section.body.append("\n\n")
 
 
 def _md_open(heading: tuple[int, str], level: int) -> _Section | None:

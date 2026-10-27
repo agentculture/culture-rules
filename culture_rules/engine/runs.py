@@ -2662,8 +2662,8 @@ def _record_outcome(step: Step, nst: dict, body: list[dict], i: int) -> None:
     """Append iteration ``i``'s outcome when the loop declares an ``outcomes`` port."""
     if not _wants_outcomes(step):
         return
-    items = nst.get("items") or []
-    outcome = _outcome(step, body, i, items[i] if i < len(items) else None)
+    item = next(iter((nst.get("items") or [])[i : i + 1]), None)  # a slice never raises
+    outcome = _outcome(step, body, i, item)
     nst[OUTCOMES_PORT] = list(nst.get(OUTCOMES_PORT) or []) + [outcome]
 
 
