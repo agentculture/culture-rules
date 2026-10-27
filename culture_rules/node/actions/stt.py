@@ -64,23 +64,20 @@ import json
 import os
 import re
 import tempfile
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from culture_rules.actors.model_rule import senior_holder
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions import audio_split, transcript_file
+from culture_rules.node.actions._endpoint import Refused as _Refused
+from culture_rules.node.actions._endpoint import base_url_problem, model_taken, post, time_left
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.library import encode_multipart
-from culture_rules.node.actions.llm import _base_url_problem, _opener
 from culture_rules.node.actions.machine import load_bound_actor
-from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
     "MAX_RESPONSE_BYTES",
@@ -119,15 +116,6 @@ Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
 ``http.client.HTTPException`` when the server cannot be reached."""
 
 
-class _Refused(Exception):
-    def __init__(self, code: str, detail: str, *, retryable: bool = False) -> None:
-        super().__init__(f"{code}: {detail}")
-        self.retryable = retryable
-
-    def result(self) -> InvocationResult:
-        return InvocationResult.failed(str(self), retryable=self.retryable)
-
-
 # ------------------------------------------------------------------ the default transport
 
 
@@ -135,14 +123,8 @@ def urllib_transport(
     url: str, data: bytes, headers: Mapping[str, str], timeout: float
 ) -> tuple[int, bytes]:
     """POST ``data`` to ``url`` with urllib: no environment proxies, no redirects."""
-    request = urllib.request.Request(url, data=data, headers=dict(headers), method="POST")
-    try:
-        response = _opener().open(request, timeout=timeout)
-    except urllib.error.HTTPError as exc:
-        response = exc  # a non-2xx answer is still an answer
-    with response:
-        status = int(getattr(response, "status", None) or response.code)
-        return status, response.read(MAX_RESPONSE_BYTES + 1)
+    status, _headers, body = post(url, data, headers, timeout, MAX_RESPONSE_BYTES)
+    return status, body
 
 
 # ------------------------------------------------------------------ actor and input checks
@@ -161,7 +143,7 @@ def check_stt_actor(actor: Actor) -> str | None:
     if actor.kind != "agent":
         return f"audio.transcribe needs an agent actor, not {actor.kind!r}"
     params = actor.params
-    problem = _base_url_problem(params.get("base_url"))
+    problem = base_url_problem(params.get("base_url"))
     if problem:
         return problem
     model = params.get(_MODEL) or actor.model
@@ -354,15 +336,6 @@ class AudioTranscribePort:
 
     # -------------------------------------------------------------- checks
 
-    def _model_taken(self, actor: Actor, doc: Mapping[str, Any] | None) -> None:
-        candidate = dict(doc or {})
-        candidate.setdefault("id", actor.id)
-        candidate.setdefault("kind", actor.kind)
-        candidate.setdefault(_MODEL, actor.model)
-        holder = senior_holder(self._store.find(ACTORS_COLLECTION, {"kind": "agent"}), candidate)
-        if holder is not None:
-            raise _Refused("model_taken", str(holder))
-
     def _check_actor(self, actor: Actor, doc: Mapping[str, Any] | None) -> None:
         if actor.kind != "agent":
             raise _Refused(
@@ -372,7 +345,9 @@ class AudioTranscribePort:
         problem = check_stt_actor(actor)
         if problem:
             raise _Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
-        self._model_taken(actor, doc)
+        taken = model_taken(self._store, actor, doc)
+        if taken is not None:
+            raise taken
 
     def _headers(self, params: Mapping[str, Any], content_type: str) -> dict[str, str]:
         headers = {"Content-Type": content_type, "Accept": "application/json"}
@@ -385,10 +360,7 @@ class AudioTranscribePort:
         return headers
 
     def _remaining(self, deadline: datetime) -> float:
-        timeout = (deadline - self._clock()).total_seconds()
-        if timeout <= 0:
-            raise _Refused(UNAVAILABLE, "attempt deadline already passed", retryable=True)
-        return min(timeout, MAX_TIMEOUT)
+        return min(time_left(deadline, self._clock, UNAVAILABLE), MAX_TIMEOUT)
 
     # -------------------------------------------------------------- the work
 

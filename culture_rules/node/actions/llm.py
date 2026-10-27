@@ -87,18 +87,23 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
-from culture_rules.actors.model_rule import senior_holder
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
+from culture_rules.node.actions._endpoint import Refused as _Refused
+from culture_rules.node.actions._endpoint import (
+    base_url_problem,
+    check_not_after,
+    is_number,
+    model_taken,
+    post,
+    time_left,
+)
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.machine import load_bound_actor
 from culture_rules.node.actions.recording_answer import AnswerRefused, parse_recording_answer
@@ -109,7 +114,6 @@ from culture_rules.node.actions.transcript_file import (
     read_excerpt,
     write_bytes_atomic,
 )
-from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
     "DEFAULT_MAX_CONTENT_CHARS",
@@ -198,74 +202,24 @@ Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
 ``http.client.HTTPException`` when the server cannot be reached."""
 
 
-class _Refused(Exception):
-    def __init__(self, code: str, detail: str, *, retryable: bool = False) -> None:
-        super().__init__(f"{code}: {detail}")
-        self.retryable = retryable
-
-    def result(self) -> InvocationResult:
-        return InvocationResult.failed(str(self), retryable=self.retryable)
-
-
 # ------------------------------------------------------------------ the default transport
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *_: Any, **__: Any) -> None:
-        return None  # the 3xx then surfaces as an HTTPError: answered, not followed
-
-
-def _opener() -> urllib.request.OpenerDirector:
-    opener = urllib.request.OpenerDirector()
-    for handler in (
-        urllib.request.HTTPHandler(),
-        urllib.request.HTTPSHandler(),
-        urllib.request.HTTPDefaultErrorHandler(),
-        _NoRedirect(),
-        urllib.request.HTTPErrorProcessor(),
-    ):
-        opener.add_handler(handler)
-    return opener  # no ProxyHandler: environment proxies are ignored
 
 
 def urllib_transport(
     url: str, data: bytes, headers: Mapping[str, str], timeout: float
 ) -> tuple[int, bytes]:
     """POST ``data`` to ``url`` (http/https only, checked by the caller) with urllib."""
-    request = urllib.request.Request(url, data=data, headers=dict(headers), method="POST")
-    try:
-        response = _opener().open(request, timeout=timeout)
-    except urllib.error.HTTPError as exc:
-        response = exc  # a non-2xx answer is still an answer
-    with response:
-        status = int(getattr(response, "status", None) or response.code)
-        return status, response.read(MAX_RESPONSE_BYTES + 1)
+    status, _headers, body = post(url, data, headers, timeout, MAX_RESPONSE_BYTES)
+    return status, body
 
 
 # ------------------------------------------------------------------ actor and input checks
 
 
-def _base_url_problem(base_url: Any) -> str | None:
-    if not isinstance(base_url, str) or not base_url.strip():
-        return "params.base_url must be an http(s) URL"
-    try:
-        parts = urlsplit(base_url.strip())
-        _ = parts.port  # raises on a malformed port
-    except ValueError:
-        return "params.base_url is malformed"
-    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
-        return "params.base_url must be an http(s) URL with a host"
-    if parts.username is not None or parts.password is not None:
-        return "params.base_url must not carry credentials"
-    if parts.query or parts.fragment:
-        return "params.base_url must not carry a query or fragment"
-    return None
-
-
 def check_llm_actor(actor: Actor) -> str | None:
     """Why ``actor`` cannot serve ``llm.complete`` (None when it can)."""
     params = actor.params
-    problem = _base_url_problem(params.get("base_url"))
+    problem = base_url_problem(params.get("base_url"))
     if problem:
         return problem
     model = params.get(_MODEL) or actor.model
@@ -308,10 +262,6 @@ def _brief(input: Mapping[str, Any]) -> str:
     return _BRIEFS[name]
 
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
-
-
 def _max_tokens(value: Any) -> int:
     if value is None:
         return DEFAULT_MAX_TOKENS
@@ -323,23 +273,9 @@ def _max_tokens(value: Any) -> int:
 def _temperature(value: Any) -> float | None:
     if value is None:
         return None
-    if not (_is_number(value) and 0 <= value <= 2):
+    if not (is_number(value) and 0 <= value <= 2):
         raise _Refused(INVALID, "temperature must be a number from 0 to 2")
     return float(value)
-
-
-def _not_after(value: Any) -> datetime | None:
-    if value is None:
-        return None
-    when = None
-    if isinstance(value, str):
-        try:
-            when = datetime.fromisoformat(value)
-        except ValueError:
-            when = None
-    if when is None or when.tzinfo is None:
-        raise _Refused(INVALID, "not_after must be an ISO-8601 time with a UTC offset")
-    return when
 
 
 # ------------------------------------------------------------------ the response
@@ -496,9 +432,9 @@ class LlmCompletePort:
         actor, _doc, failure = load_bound_actor(self._store, input, context)
         if failure is not None or actor is None:
             return failure or InvocationResult.failed("actor_not_found", retryable=False)
-        taken = self._model_taken(actor, _doc)
+        taken = model_taken(self._store, actor, _doc)
         if taken is not None:
-            return taken
+            return taken.result()
         try:
             result = self._complete(input, actor, deadline)
         except _Refused as exc:
@@ -506,19 +442,6 @@ class LlmCompletePort:
         if result.outcome == COMPLETED:
             self._ledger.put(idempotency_key, result)
         return result
-
-    def _model_taken(self, actor: Actor, doc: Mapping[str, Any] | None) -> InvocationResult | None:
-        """``model_taken: <holder>`` when another enabled endpoint actor with a lower id holds
-        the model this request would use (``params.model``, else the actor's own ``model``).
-        Of two actors sharing a model, the lowest id keeps serving."""
-        candidate = dict(doc or {})
-        candidate.setdefault("id", actor.id)
-        candidate.setdefault("kind", actor.kind)
-        candidate.setdefault("model", actor.model)
-        holder = senior_holder(self._store.find(ACTORS_COLLECTION, {"kind": "agent"}), candidate)
-        if holder is None:
-            return None
-        return InvocationResult.failed(f"model_taken: {holder}", retryable=False)
 
     def refuse_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:
         """The failure for work that must not start (``not_after`` passed or malformed).
@@ -532,21 +455,12 @@ class LlmCompletePort:
         return None
 
     def _not_after(self, input: Mapping[str, Any]) -> datetime | None:
-        when = _not_after(input.get("not_after"))
-        if when is not None and self._clock() >= when:
-            raise _Refused(DEADLINE_PASSED, "not_after has passed: the work may no longer start")
-        return when
+        return check_not_after(input, self._clock, DEADLINE_PASSED)
 
     def _remaining(self, input: Mapping[str, Any], deadline: datetime) -> float:
         """Seconds left for the request, read on the clock just before it is sent: a passed
         ``not_after`` fails ``llm_deadline``, a passed attempt deadline ``llm_unavailable``."""
-        not_after = self._not_after(input)
-        if not_after is not None:
-            deadline = min(deadline, not_after)
-        timeout = (deadline - self._clock()).total_seconds()
-        if timeout <= 0:
-            raise _Refused(UNAVAILABLE, "attempt deadline already passed", retryable=True)
-        return timeout
+        return time_left(deadline, self._clock, UNAVAILABLE, self._not_after(input))
 
     def replay(self, idempotency_key: str) -> InvocationResult | None:
         """The completed result already recorded for ``idempotency_key``, else None.
