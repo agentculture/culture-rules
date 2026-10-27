@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-27T08:47:26Z",
+  "updated": "2026-10-27T09:02:49Z",
   "deviations": [
     {
       "id": "d1",
@@ -175,7 +175,7 @@
         "t20"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": null,
       "seq": 50
     }
