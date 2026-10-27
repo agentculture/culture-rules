@@ -58,18 +58,6 @@ slug: `newspaper-sources-manifest` · status: `exported` · from frame: `newspap
   - (c) a backfill-shaped workflow: `item_ids` in, for each: http.call GET with `save_to`, the sections step by `content_path` and `content_root`, http.call PUT, `on_error` skip; the run's outputs list every id with pushed and an entry count or skipped and the error
   - The stored run documents on the backfill path hold no EPUB bytes or base64 (assert on the run read back from the store); both workflows use one identical sections config
 
-### t6 — Live: rollout, before-evidence, key check, dry run, live config, backfill, validation
-
-- instruction: Every live write needs the operator's go-ahead; stop at the first refusal (memory: rollout steps stop on error). Business logic lives in the store: nothing here is committed except devague records. Ask the operator for the newspaper item ids if the library listing is not readable with the push key.
-- depends on: t5
-- covers: c1, h18, c2, h19, c3, h20, c4, h21, c5, h22, h8, c18, h15, c19, h27, c24, h28
-- acceptance:
-  - Before the rollout: GET /sources for a live newspaper item answers 404 `no_sources` (evidence); after merge, an operator-approved rollout via culture-rules rollout, rollout verify passes
-  - Key check: one GET of an issue's file and one PUT of its manifest with the live key (Bearer grant:`LIBRARY_PUSH_API_KEY`) answer 200; a 403 stops here and goes back to the operator
-  - Dry run on one stored issue: its manifest is shown to the operator before any PUT; after the operator's go, the PUT answers 200 and culture-library's newspaper eval generation for that item reports unmatched = 0
-  - Live config through the CLI: the newspaper-library actor's http policy and `save_roots`, a variable for the library base, the daily-newspaper steps after record (read back with workflows describe), and a backfill workflow; the backfill runs once with the live item ids and lists every id; GET /sources answers 200 for each pushed id
-  - After the next 05:00 issue: its PUT step answered 200 and eval generation for it reports unmatched = 0; evidence filed for each check (devague evidence)
-
 ### t7 — `for_each` outcomes: each iteration's status, errors and collected outputs as a loop output (generic engine)
 
 - instruction: Change `culture_rules`/engine/runs.py (`_progress_loop` records each iteration's body states into the outcome; `_loop_outputs` emits outcomes when the port is declared) and `culture_rules`/model/validate.py (check collect). Keep the outcome small: scalars and error messages only, never a body step's whole outputs. Then update the t5 flow test and the docs page. Test-first: see the new tests fail before the engine change.
@@ -80,3 +68,15 @@ slug: `newspaper-sources-manifest` · status: `exported` · from frame: `newspap
   - config.collect (`{name: "<body step>.<output>"}`) copies those body-step outputs into each entry (null when the step did not output it); an unknown step id or a malformed path is refused by validate before the run starts
   - A `for_each` loop without an outcomes port behaves exactly as before (existing loop tests pass unchanged); `retry_until` loops are unchanged; a failed body step still fails the loop
   - tests/rules/`test_sources_manifest_flow.py`'s backfill asserts on the run's outputs: the outcomes list holds every id given, pushed ones with their entry count via collect, the skipped one with its error; docs/operations/sources-manifest.md shows outcomes and collect in the backfill example; the engine docstring and CHANGELOG (0.36.0) describe the port
+
+### t6 — Live: rollout, before-evidence, key check, dry run, live config, backfill, validation
+
+- instruction: Every live write needs the operator's go-ahead; stop at the first refusal (memory: rollout steps stop on error). Business logic lives in the store: nothing here is committed except devague records. Ask the operator for the newspaper item ids if the library listing is not readable with the push key.
+- depends on: t5, t7
+- covers: c1, h18, c2, h19, c3, h20, c4, h21, c5, h22, h8, c18, h15, c19, h27, c24, h28
+- acceptance:
+  - Before the rollout: GET /sources for a live newspaper item answers 404 `no_sources` (evidence); after merge, an operator-approved rollout via culture-rules rollout, rollout verify passes
+  - Key check: one GET of an issue's file and one PUT of its manifest with the live key (Bearer grant:`LIBRARY_PUSH_API_KEY`) answer 200; a 403 stops here and goes back to the operator
+  - Dry run on one stored issue: its manifest is shown to the operator before any PUT; after the operator's go, the PUT answers 200 and culture-library's newspaper eval generation for that item reports unmatched = 0
+  - Live config through the CLI: the newspaper-library actor's http policy and `save_roots`, a variable for the library base, the daily-newspaper steps after record (read back with workflows describe), and a backfill workflow; the backfill runs once with the live item ids and lists every id; GET /sources answers 200 for each pushed id
+  - After the next 05:00 issue: its PUT step answered 200 and eval generation for it reports unmatched = 0; evidence filed for each check (devague evidence)
