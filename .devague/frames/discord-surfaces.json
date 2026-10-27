@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-27T05:45:47Z",
+  "updated": "2026-10-27T07:27:18Z",
   "claims": [
     {
       "id": "c1",
@@ -1207,6 +1207,18 @@
       "refs": [
         "culture_rules/node/actions/attachment_fetch.py",
         "run-bf2d0566ce592105e46d6db670ced7d0"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l12",
+      "code": "control-absent",
+      "what": "the discord.py command-tree tests (build_command_tree, sync_commands, the /save and Save to library callbacks) skip without discord.py, and the dev group never listed it, so they never ran locally or in CI since Release 3 (0.32.0); found while adding the withdrawal test for PR #105",
+      "skipped_check": "a check that importorskip tests actually ran in CI (11 Discord tests skipped every run)",
+      "refs": [
+        "tests/apps/test_discord_commands.py",
+        "pyproject.toml"
       ],
       "origin": "llm",
       "status": "approved"

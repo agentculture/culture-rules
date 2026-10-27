@@ -360,6 +360,18 @@ async def sync_commands(tree: Any, registration: commands_mod.CommandRegistratio
                 guild,
                 type(exc).__name__,
             )
+    for guild in registration.withdrawn:  # the tree holds nothing there: Discord drops them
+        try:
+            await tree.sync(guild=discord.Object(int(guild)))
+            registration.forgotten(guild)
+            log.info("discord gateway %s: commands withdrawn from guild %s", actor_id, guild)
+        except Exception as exc:  # noqa: BLE001 - the record stays and the next connect retries
+            log.warning(
+                "discord gateway %s: withdrawing commands from guild %s failed (%s)",
+                actor_id,
+                guild,
+                type(exc).__name__,
+            )
 
 
 class DiscordPyGateway:
@@ -561,6 +573,22 @@ def _view(doc: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[str, Any]]
     return params, connection if isinstance(connection, Mapping) else {}
 
 
+_NO_COMMANDS: tuple[str, frozenset[str]] = ("", frozenset())
+
+
+def _command_key(doc: Mapping[str, Any]) -> tuple[str, frozenset[str]]:
+    """Where an actor's commands go: (application id, guilds), or :data:`_NO_COMMANDS` when it
+    does not declare ``discord.command.invoked``. The id is ``""`` when unset or not numeric."""
+    params, connection = _view(doc)
+    if COMMAND_EVENT not in (params.get("events") or ()):
+        return _NO_COMMANDS
+    app_id = str(connection.get("application_id") or "").strip()
+    guilds = commands_mod.command_guild_ids(
+        connection.get("guild_id"), connection.get("command_guild_id")
+    )
+    return (app_id if app_id.isdigit() else "", guilds)
+
+
 class _Session:
     """One actor's lease, listener thread and keeper on this node."""
 
@@ -576,6 +604,9 @@ class _Session:
         self.thread: threading.Thread | None = None
         self.keeper: Any = None
         self.stamped_at: float | None = None
+        # where this connection registered commands (set on connect): the one source for
+        # which guilds an invocation is answered from, and what a config edit is compared to
+        self.command_key: tuple[str, frozenset[str]] | None = None
 
     def snapshot(self) -> Mapping[str, Any]:
         with self.lock:
@@ -722,6 +753,10 @@ class GatewaySupervisor:
             due = session.renewed_at is None or self._clock() >= (
                 session.renewed_at + self._options.ttl / 3
             )
+            registered = session.command_key
+        if registered is not None and session.listening() and _command_key(doc) != registered:
+            log.info("discord gateway %s: commands moved; reconnecting", actor_id)
+            self._stop_listener(session)
         held = self._renew(session) if due else not self._fenced(session)
         if held and not session.listening():
             self._start(session)
@@ -867,20 +902,28 @@ class GatewaySupervisor:
     def _registration(self, session: _Session) -> commands_mod.CommandRegistration | None:
         """The commands to register on this connect: only for an actor declaring
         ``discord.command.invoked`` with ``connection.application_id`` and ``guild_id`` set
-        (a missing or non-numeric one is logged once)."""
-        params, connection = _view(session.snapshot())
-        if COMMAND_EVENT not in (params.get("events") or ()):
+        (a missing or non-numeric one is logged once), in the guilds ``command_guild_id``
+        narrows them to."""
+        doc = session.snapshot()
+        key = _command_key(doc)
+        with session.lock:
+            session.command_key = key
+        if key == _NO_COMMANDS:
             return None
-        app_id = str(connection.get("application_id") or "").strip()
-        if not app_id.isdigit():  # unset, or not an id discord.py can take
+        app_id, guilds = key
+        _, connection = _view(doc)
+        if not app_id:  # unset, or not an id discord.py can take
             self._warn_commands_once(session.actor_id, "application_id")
             return None
-        guilds = frozenset(g for g in guild_ids(connection.get("guild_id")) or () if g.isdigit())
         if not guilds:
-            self._warn_commands_once(session.actor_id, "guild_id")
+            narrowed = guild_ids(connection.get("command_guild_id")) is not None
+            self._warn_commands_once(
+                session.actor_id, "command_guild_id" if narrowed else "guild_id"
+            )
             return None
         actor_id = session.actor_id
         digest = commands_mod.definition_hash(app_id)
+        withdrawn = commands_mod.synced_guilds(self._store, actor_id) - guilds
         return commands_mod.CommandRegistration(
             actor_id=actor_id,
             application_id=app_id,
@@ -890,6 +933,8 @@ class GatewaySupervisor:
             synced=lambda g: commands_mod.record_sync(
                 self._store, actor_id, g, digest, now=self._clock()
             ),
+            withdrawn=tuple(sorted(withdrawn)),
+            forgotten=lambda g: commands_mod.forget_sync(self._store, actor_id, g),
         )
 
     def _backoff(self, failures: int) -> float:
@@ -934,6 +979,9 @@ class GatewaySupervisor:
         app_id = raw.pop("application_id", None)
         data = commands_mod.command_data(raw)
         if not data["interaction_id"]:
+            return False
+        key = session.command_key
+        if key is None or not key[0] or data["guild_id"] not in key[1]:  # e.g. not yet dropped
             return False
         delivery = f"{session.actor_id}:interaction:{data['interaction_id']}"
         event_id = event_id_for("discord", delivery)

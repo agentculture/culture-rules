@@ -22,10 +22,12 @@ COMMAND = "discord.command.invoked"
 APP_ID = "777000"
 
 
-def command_actor(*, app_id=APP_ID, guild="1", events=(EVENT, COMMAND), **kw):
+def command_actor(*, app_id=APP_ID, guild="1", events=(EVENT, COMMAND), command_guild=None, **kw):
     doc = discord_actor(events=events, guild=guild, **kw)
     if app_id is not None:
         doc["params"]["connection"]["application_id"] = app_id
+    if command_guild is not None:
+        doc["params"]["connection"]["command_guild_id"] = command_guild
     return doc
 
 
@@ -179,6 +181,107 @@ def test_the_holder_registers_per_guild_and_reconnects_do_not_resync(rig):
     assert sorted(r.hub.syncs) == [("spark", "1"), ("spark", "2")]
     state = r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1")
     assert state["hash"] == dc.definition_hash(APP_ID)
+
+
+@pytest.mark.parametrize(
+    ("guild", "command_guild", "want"),
+    [
+        (["1", "2"], None, {"1", "2"}),  # unset: every guild in guild_id
+        (["1", "2"], "2", {"2"}),
+        (["1", "2"], ["2", "3"], {"2"}),  # a guild outside guild_id is ignored
+        (None, ["2"], {"2"}),  # guild_id unset (every guild): the list stands
+        (None, None, set()),
+        (["1"], [""], {"1"}),  # a list of only blanks is unset
+        (["1", "x"], None, {"1"}),  # not an id
+    ],
+)
+def test_command_guilds_are_command_guild_id_within_guild_id(guild, command_guild, want):
+    assert dc.command_guild_ids(guild, command_guild) == frozenset(want)
+
+
+def test_commands_register_only_in_the_command_guilds(rig):
+    r = rig()
+    r.store.put("actors", command_actor(guild=["1", "2"], command_guild=["2"]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "2")])
+    assert r.hub.registrations[-1].guild_ids == ("2",)
+
+
+def test_an_invocation_outside_the_command_guilds_is_answered_not_here(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule(type=COMMAND))
+    r.store.put("actors", command_actor(guild=["1", "2"], command_guild="2"))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.command(interaction(1, guild="1"))  # e.g. before Discord drops the old commands
+    r.hub.command(interaction(2, guild="2"))
+    assert eventually(lambda: len(r.hub.answers) == 2)
+    assert r.hub.answers == [False, True]  # False is answered NOT_HERE
+    assert [e["envelope"]["data"]["guild_id"] for e in r.events(COMMAND)] == ["2"]
+
+
+def test_a_guild_left_out_has_its_commands_withdrawn_and_its_record_dropped(rig):
+    r = rig()
+    for guild in ("1", "2"):
+        r.store.put(
+            dc.COMMAND_SYNC_COLLECTION,
+            {"id": f"bot:{guild}", "actor": "bot", "guild_id": guild, "hash": "old"},
+        )
+    r.store.put(
+        dc.COMMAND_SYNC_COLLECTION,
+        {"id": "other:1", "actor": "other", "guild_id": "1", "hash": "old"},
+    )
+    r.store.put("actors", command_actor(guild=["1", "2"], command_guild="2"))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.withdrawals == [("spark", "1")])
+    assert r.hub.registrations[-1].withdrawn == ("1",)
+    assert r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1") is None
+    assert r.store.get(dc.COMMAND_SYNC_COLLECTION, "other:1") is not None  # another actor's
+
+
+def test_changing_where_commands_go_reconnects_the_listener(rig):
+    r = rig()
+    r.store.put("actors", command_actor(guild=["1", "2"], command_guild="1"))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "1")])
+    r.store.put("actors", command_actor(guild=["1", "2"], command_guild=["1", "2"]))
+    r.sup.tick()
+    assert eventually(lambda: len(r.hub.connects) == 2 and r.hub.live_now() == ["spark"])
+    assert eventually(lambda: r.hub.registrations[-1].guild_ids == ("1", "2"))
+    assert ("spark", "2") in r.hub.syncs
+
+
+def test_setting_the_application_id_later_reconnects_and_registers(rig):
+    r = rig()
+    r.store.put("actors", command_actor(app_id=None))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.store.put("actors", command_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "1")])
+    assert len(r.hub.connects) == 2
+
+
+def test_an_edit_that_leaves_commands_alone_does_not_reconnect(rig):
+    r = rig()
+    r.store.put("actors", command_actor(guild=["1", "2"], command_guild="1"))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "1")])
+    r.store.put("actors", command_actor(guild=["1", "2", "3"], command_guild="1"))
+    r.sup.tick()
+    r.sup.tick()
+    assert len(r.hub.connects) == 1
+
+
+def test_command_guilds_outside_guild_id_warn_about_command_guild_id(rig, caplog):
+    caplog.set_level(logging.INFO, logger="culture_rules.apps.discord_gateway")
+    r = rig()
+    r.store.put("actors", command_actor(guild=["10"], command_guild="20"))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    assert set(r.hub.registrations) == {None}
+    assert any("connection.command_guild_id" in m for m in caplog.messages)
+    assert not any("connection.guild_id" in m for m in caplog.messages)
 
 
 def test_a_changed_definition_hash_resyncs(rig):
@@ -406,6 +509,32 @@ def test_a_slash_command_defers_then_passes_its_option():
     raw = order[1][1]
     assert raw["options"] == {}
     assert raw["target_message_id"] is None
+
+
+def test_a_withdrawn_guild_is_synced_empty_then_forgotten():
+    pytest.importorskip("discord")
+    forgotten: list[str] = []
+    reg = dc.CommandRegistration(
+        actor_id="bot",
+        application_id=APP_ID,
+        guild_ids=("2",),
+        invoke=lambda _raw: None,
+        needs_sync=lambda g: False,
+        synced=lambda g: None,
+        withdrawn=("1",),
+        forgotten=forgotten.append,
+    )
+    tree = dg.build_command_tree(_client(), reg)
+    sent: list[tuple[int, list]] = []
+
+    async def fake_sync(*, guild=None):
+        sent.append((guild.id, [c.name for c in tree.get_commands(guild=guild)]))
+        return []
+
+    tree.sync = fake_sync
+    asyncio.run(dg.sync_commands(tree, reg))
+    assert sent == [(1, [])]  # nothing registered there: Discord drops the old commands
+    assert forgotten == ["1"]
 
 
 def test_sync_only_the_guilds_that_need_it_and_a_failure_is_not_recorded(caplog):

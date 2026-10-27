@@ -217,6 +217,37 @@ describe("app-config model", () => {
     expect(screen.getByRole("textbox", { name: "Guild ids" })).toHaveAccessibleDescription(/separate with commas/i);
   });
 
+  it("saves the Discord command guilds as one id or a list", () => {
+    const draft: AppDraft = {
+      ...emptyAppDraft(),
+      surface: "discord",
+      connection: { bot_token: "grant:bot", guild_id: "10, 20", command_guild_id: "20" },
+      events: ["discord.command.invoked"],
+    };
+    expect(appParamsFrom(draft, undefined).connection).toEqual({
+      bot_token: "grant:bot",
+      guild_id: ["10", "20"],
+      command_guild_id: "20",
+    });
+  });
+
+  it("refuses command guild ids that are not ids or not among the guild ids", () => {
+    const base = { ...emptyAppDraft(), surface: "discord" as const, events: [] };
+    const conn = (command_guild_id: string, guild_id = "10, 20") => ({ bot_token: "grant:bot", guild_id, command_guild_id });
+    expect(validateApp({ ...base, connection: conn("20") })).toEqual({});
+    expect(validateApp({ ...base, connection: conn("") })).toEqual({});
+    expect(validateApp({ ...base, connection: conn("30") })).toHaveProperty("connection.command_guild_id");
+    expect(validateApp({ ...base, connection: conn("my server") })).toHaveProperty("connection.command_guild_id");
+    expect(validateApp({ ...base, connection: conn("30", "") })).toEqual({}); // every guild: any id
+  });
+
+  it("offers the Discord command guilds field", () => {
+    render(<Harness initial={{ ...emptyAppDraft(), surface: "discord" }} />);
+    expect(screen.getByRole("textbox", { name: "Command guild ids (unset: all guild ids)" })).toHaveAccessibleDescription(
+      /separate with commas/i,
+    );
+  });
+
   it("refuses a literal credential header in the http policy", () => {
     expect(validateHttp({ allow: "", headers: [{ name: "Authorization", value: "Bearer x" }] })).toHaveProperty("http.0.value");
     expect(validateHttp({ allow: "", headers: [{ name: "Authorization", value: "grant:api" }] })).toEqual({});

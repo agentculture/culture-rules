@@ -319,6 +319,20 @@ are registered once and again only when their definition changes; without an
 application id or a `guild_id`, none are registered (the listener still runs)
 and the node logs why once.
 
+`connection.command_guild_id` (one id or a list, optional) narrows where the
+commands are: they are registered only in those servers (ones not also in
+`guild_id` are ignored, and the node logs that none are left), and an
+invocation from any other server is answered "This channel is not set up to
+save messages." without recording an event. Unset, every server of `guild_id`
+gets them. A bot can so post in a public server while its commands stay in a
+test server. A server taken out of the list has its commands removed on the
+next connect, and editing `application_id`, `guild_id` or `command_guild_id`
+in a way that moves the commands reconnects the bot at once.
+
+Upgrade every node and the API to 0.33.0 before setting `command_guild_id`: an
+older node holding the bot's connection ignores it and registers the commands
+in every server of `guild_id`.
+
 A command is acknowledged at once, privately ("thinking…"), then recorded as a
 `discord.command.invoked` event with `command`, `command_type` (`slash` or
 `message`), `options`, `target_message_id`, `target_channel_id`, the invoking

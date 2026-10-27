@@ -102,6 +102,8 @@ class FakeHub:
         self.history: list[dict] = []
         self.inbox: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.syncs: list[tuple[str, str]] = []
+        self.withdrawals: list[tuple[str, str]] = []
+        self.answers: list[Any] = []
         self.registrations: list[Any] = []
 
     def enter(self, name: str, token: str) -> list[dict]:
@@ -161,6 +163,9 @@ class FakeGateway:
                     if commands.needs_sync(guild):
                         self.hub.syncs.append((self.name, guild))
                         commands.synced(guild)
+                for guild in commands.withdrawn:  # synced with no commands: Discord drops them
+                    self.hub.withdrawals.append((self.name, guild))
+                    commands.forgotten(guild)
             for msg in replayed:
                 on_message(msg)
             while not should_stop():
@@ -172,7 +177,7 @@ class FakeGateway:
                     raise ConnectionResetError("gateway closed")
                 if kind == "command":
                     if commands is not None:
-                        commands.invoke(payload)
+                        self.hub.answers.append(commands.invoke(payload))
                     continue
                 if kind == "reaction":
                     if on_reaction is not None:

@@ -9,7 +9,13 @@ by the node holding its gateway lease (:mod:`culture_rules.apps.discord_gateway`
 - the message context-menu command ``Save to library`` (right-click a message, Apps).
 
 Both need ``connection.application_id`` (the bot's application id, a literal) and
-``connection.guild_id`` (one id or a list); without either nothing is registered.
+``connection.guild_id`` (one id or a list); without either nothing is registered. The
+optional ``connection.command_guild_id`` (one id or a list) narrows the guilds commands are
+registered in and answered from (:func:`command_guild_ids`); an invocation from any other
+guild is not sunk and is answered :data:`NOT_HERE`. A guild left out that had them is synced
+with no commands, so Discord removes them there, and its sync record is dropped. Changing
+``application_id``, ``command_guild_id`` or ``guild_id`` in a way that moves the commands
+reconnects the gateway, so the change applies at once.
 
 Sync state
 ==========
@@ -49,6 +55,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from culture_rules.apps.discord_rest import guild_ids
+
 __all__ = [
     "CHAT_INPUT",
     "COMMAND_SYNC_COLLECTION",
@@ -63,7 +71,10 @@ __all__ = [
     "SAVE_MESSAGE_COMMAND",
     "CommandRegistration",
     "command_data",
+    "command_guild_ids",
     "definition_hash",
+    "forget_sync",
+    "synced_guilds",
     "ensure_interaction_ttl",
     "forget_interaction",
     "interaction_token",
@@ -130,7 +141,9 @@ class CommandRegistration:
     ``False`` when no rule or filter admits it (answered at once with :data:`NOT_HERE`), or
     ``None`` when writing it failed (answered with :data:`NOT_SAVED`); ``needs_sync(guild)``
     says whether the guild's commands must be synced, and ``synced(guild)`` records that they
-    were. ``actor_id`` is for logs."""
+    were. ``withdrawn`` are guilds synced before but no longer among ``guild_ids``: each is
+    synced with no commands (Discord drops them there), then ``forgotten(guild)`` deletes its
+    record. ``actor_id`` is for logs."""
 
     actor_id: str
     application_id: str
@@ -139,6 +152,8 @@ class CommandRegistration:
     needs_sync: Callable[[str], bool]
     synced: Callable[[str], None]
     definitions: tuple[Mapping[str, Any], ...] = DEFINITIONS
+    withdrawn: tuple[str, ...] = ()
+    forgotten: Callable[[str], None] = lambda _guild: None
 
 
 def definition_hash(
@@ -155,6 +170,19 @@ def definition_hash(
 
 def _sync_id(actor_id: str, guild_id: str) -> str:
     return f"{actor_id}:{guild_id}"
+
+
+def command_guild_ids(guild_id: Any, command_guild_id: Any) -> frozenset[str]:
+    """The guilds commands are registered in and answered from: ``connection.command_guild_id``
+    (one id or a list) within ``connection.guild_id``; unset, every guild in ``guild_id``. An id
+    outside ``guild_id`` and a non-numeric one are ignored; nothing is a guild when both are
+    unset (commands are guild commands, never global)."""
+    listened, wanted = guild_ids(guild_id), guild_ids(command_guild_id)
+    if wanted is None:
+        chosen = listened or frozenset()
+    else:
+        chosen = wanted if listened is None else wanted & listened
+    return frozenset(g for g in chosen if g.isdigit())
 
 
 def sync_needed(store: Any, actor_id: str, guild_id: str, digest: str) -> bool:
@@ -175,6 +203,17 @@ def record_sync(store: Any, actor_id: str, guild_id: str, digest: str, *, now: d
             "synced_at": now.isoformat(),
         },
     )
+
+
+def synced_guilds(store: Any, actor_id: str) -> frozenset[str]:
+    """The guilds the actor's commands were synced to (one record each)."""
+    docs = store.find(COMMAND_SYNC_COLLECTION, {"actor": actor_id})
+    return frozenset(str(d["guild_id"]) for d in docs if d.get("guild_id"))
+
+
+def forget_sync(store: Any, actor_id: str, guild_id: str) -> None:
+    """Drop the guild's sync record once its commands are withdrawn."""
+    store.delete(COMMAND_SYNC_COLLECTION, _sync_id(actor_id, guild_id))
 
 
 def parse_message_ref(value: Any) -> tuple[str | None, str | None]:
