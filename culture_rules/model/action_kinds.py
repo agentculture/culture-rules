@@ -180,6 +180,7 @@ _KINDS = (
         url=_RS,
         headers=ParamSpec("dict"),
         body=ParamSpec("any"),
+        save_to=_S,  # an absolute dir the actor's http.save_roots lists: stream the body there
     ),
     _k(
         "machine.command",

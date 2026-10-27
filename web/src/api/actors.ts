@@ -123,6 +123,10 @@ export interface HttpPolicy {
   allow?: string[];
   /** Sent on every call; values may be `grant:NAME` references. */
   headers?: Record<string, string>;
+  /** Absolute directories an `http.call` `save_to` may name (a response body is written under one). */
+  save_roots?: string[];
+  /** The largest body saved, in bytes (default 50 MiB). */
+  save_max_bytes?: number;
 }
 
 /** `Actor.params` keys known to the editor; other keys ride along. */

@@ -559,3 +559,23 @@ def test_each_excerpt_setting_is_required(missing):
     config = {**EXCERPT, "split_on": "h2"}
     del config[missing]
     failed(invoke({"html": PAGE}, config), "bad_params")
+
+
+def test_the_node_registers_document_sections():
+    from culture_rules.store.memory import MemoryStore
+    from culture_rules.node.runner import default_ports
+
+    builtins = default_ports(MemoryStore(), "spark")["code"]._builtins
+    assert isinstance(builtins[SECTIONS_BUILTIN], DocumentSectionsPort)
+
+
+def test_document_sections_has_a_phrase():
+    from culture_rules.model.describe import BUILTIN_WORDS
+
+    assert BUILTIN_WORDS[SECTIONS_BUILTIN].startswith("document.sections:")
+
+
+def test_http_call_catalogues_save_to():
+    from culture_rules.model.action_kinds import ACTION_KINDS
+
+    assert "save_to" in ACTION_KINDS["http.call"].params

@@ -351,6 +351,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     )
     from culture_rules.node.actions.run_read import RUN_READ_BUILTIN, RunReadPort  # noqa: PLC0415
     from culture_rules.node.actions.search import SearchWebPort  # noqa: PLC0415
+    from culture_rules.node.actions.sections import (  # noqa: PLC0415
+        SECTIONS_BUILTIN as DOCUMENT_SECTIONS_BUILTIN,
+    )
+    from culture_rules.node.actions.sections import DocumentSectionsPort  # noqa: PLC0415
     from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort  # noqa: PLC0415
     from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
     from culture_rules.node.actions.stt import AudioTranscribePort  # noqa: PLC0415
@@ -415,6 +419,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 JSON_READ_BUILTIN: JsonReadPort(),  # named fields from a JSON file under a root
                 MARKDOWN_RENDER_BUILTIN: MarkdownRenderPort(),  # fields as one Markdown page
                 FROM_HTML_BUILTIN: MarkdownFromHtmlPort(),  # HTML as Markdown, in chunks
+                DOCUMENT_SECTIONS_BUILTIN: DocumentSectionsPort(),  # a document split at a heading
                 RUN_READ_BUILTIN: RunReadPort(store),  # a step's outputs from an earlier run
                 ATTACHMENT_FETCH_BUILTIN: AttachmentFetchPort(),  # pdf/epub/md to files (d7, d10)
                 CURSOR_ADVANCE_BUILTIN: CursorAdvancePort(store),  # compare-and-set a cursor

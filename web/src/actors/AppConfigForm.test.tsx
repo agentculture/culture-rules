@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { AppConfigForm } from "./AppConfigForm";
-import { appDraftFrom, appParamsFrom, emptyAppDraft, validateApp, validateHttp, type AppDraft, type FormErrors } from "./app-config";
+import { appDraftFrom, appParamsFrom, emptyAppDraft, httpDraftFrom, httpParamsFrom, validateApp, validateHttp, type AppDraft, type FormErrors } from "./app-config";
 
 let latest: AppDraft = emptyAppDraft();
 
@@ -12,6 +12,8 @@ function Harness({ initial = emptyAppDraft(), errors }: Readonly<{ initial?: App
   latest = draft;
   return <AppConfigForm value={draft} onChange={setDraft} errors={errors} />;
 }
+
+const NO_SAVE = { allow: "", headers: [], saveRoots: "", saveMaxBytes: "" };
 
 describe("AppConfigForm", () => {
   it("asks for the surface first, then reveals connection and declarations", async () => {
@@ -249,7 +251,38 @@ describe("app-config model", () => {
   });
 
   it("refuses a literal credential header in the http policy", () => {
-    expect(validateHttp({ allow: "", headers: [{ name: "Authorization", value: "Bearer x" }] })).toHaveProperty("http.0.value");
-    expect(validateHttp({ allow: "", headers: [{ name: "Authorization", value: "grant:api" }] })).toEqual({});
+    expect(validateHttp({ ...NO_SAVE, headers: [{ name: "Authorization", value: "Bearer x" }] })).toHaveProperty("http.0.value");
+    expect(validateHttp({ ...NO_SAVE, headers: [{ name: "Authorization", value: "grant:api" }] })).toEqual({});
+  });
+
+  it("accepts a <word> grant:NAME header value", () => {
+    expect(validateHttp({ ...NO_SAVE, headers: [{ name: "Authorization", value: "Bearer grant:LIB_KEY" }] })).toEqual({});
+  });
+
+  it("refuses a <word> followed by a literal secret", () => {
+    expect(validateHttp({ ...NO_SAVE, headers: [{ name: "Authorization", value: "Bearer abc grant:K" }] })).toHaveProperty("http.0.value");
+  });
+
+  it("refuses a relative save root", () => {
+    expect(validateHttp({ ...NO_SAVE, saveRoots: "/srv/a, rel/b" })).toHaveProperty("http.save_roots");
+  });
+
+  it("refuses a save cap that is not a positive whole number", () => {
+    expect(validateHttp({ ...NO_SAVE, saveMaxBytes: "0" })).toHaveProperty("http.save_max_bytes");
+  });
+
+  it("writes save_roots and save_max_bytes into the policy", () => {
+    expect(httpParamsFrom({ ...NO_SAVE, saveRoots: "/srv/a, /srv/b", saveMaxBytes: "1024" })).toEqual({
+      save_roots: ["/srv/a", "/srv/b"],
+      save_max_bytes: 1024,
+    });
+  });
+
+  it("reads save_roots and save_max_bytes back into the draft", () => {
+    expect(httpDraftFrom({ save_roots: ["/srv/a"], save_max_bytes: 9 })).toMatchObject({ saveRoots: "/srv/a", saveMaxBytes: "9" });
+  });
+
+  it("leaves the policy undefined when nothing is set", () => {
+    expect(httpParamsFrom(NO_SAVE)).toBeUndefined();
   });
 });
