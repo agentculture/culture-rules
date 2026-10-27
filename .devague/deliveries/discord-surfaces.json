@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-27T09:02:49Z",
+  "updated": "2026-10-27T11:14:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -883,6 +883,804 @@
       "status": "approved",
       "superseded": false,
       "seq": 43
+    },
+    {
+      "id": "e38",
+      "obligation_ref": "o19",
+      "test_ref": "tests/rules/test_discord_reaction_flow.py",
+      "behavior_text": "a reaction event runs the flow end to end: the page and its files are pushed, then the bot reacts",
+      "contract_text": "A reaction saves a message: the gateway raises discord.reaction.added (guild, channel, message id, emoji name/id incl. custom emoji, reacting user, bot flag) with the reactions intent, and a rule filters on the emoji; the workflow fetches the reacted message (text, author, url, attachments) over REST since the reaction event carries no content",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 51
+    },
+    {
+      "id": "e39",
+      "obligation_ref": "o19",
+      "test_ref": "live: run-ed5badc70c2ad37dfdf2b807f8c99014, run-fa237106c227492444bfab1eddd308e9",
+      "behavior_text": "observed \ud83d\udcda on a pdf message save page 91 and the pdf as item 92 on both bots, each reacting \u2705",
+      "contract_text": "A reaction saves a message: the gateway raises discord.reaction.added (guild, channel, message id, emoji name/id incl. custom emoji, reacting user, bot flag) with the reactions intent, and a rule filters on the emoji; the workflow fetches the reacted message (text, author, url, attachments) over REST since the reaction event carries no content",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "9c5f7a6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 52
+    },
+    {
+      "id": "e40",
+      "obligation_ref": "o20",
+      "test_ref": "tests/apps/test_discord_gateway.py",
+      "behavior_text": "the raw reaction payload is turned into discord.reaction.added for uncached messages",
+      "contract_text": "Reactions are received with discord.py's raw reaction event (on_raw_reaction_add), not on_reaction_add, which fires only for messages in the client cache; a reaction on an old message still saves it",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 53
+    },
+    {
+      "id": "e41",
+      "obligation_ref": "o21",
+      "test_ref": "tests/node/test_attachment_fetch.py",
+      "behavior_text": "pdf, epub and md are fetched to files on the node; images and others are skipped unsupported_format",
+      "contract_text": "Attachments reach the library: the message events and the REST read carry attachments (id, filename, content_type, size, url); a step downloads pdf/epub only from Discord's CDN (urls expire about 24 h), at most 50 MiB, and hands content_base64 and format to library.push; other types are skipped with a reason",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 54
+    },
+    {
+      "id": "e42",
+      "obligation_ref": "o21",
+      "test_ref": "live: run-ed5badc70c2ad37dfdf2b807f8c99014 (pdf), run-5721f9add1b09e614b36b05d5691ef97 (epub), run-da0dd1e19187ea017609cd7801301daa (md)",
+      "behavior_text": "observed the pdf as item 92, the epub as item 67 and a Markdown runbook as item 85; a png was skipped with \u26d4 (run-cf64ee48508383719f4e86dd7423826a)",
+      "contract_text": "Attachments reach the library: the message events and the REST read carry attachments (id, filename, content_type, size, url); a step downloads pdf/epub only from Discord's CDN (urls expire about 24 h), at most 50 MiB, and hands content_base64 and format to library.push; other types are skipped with a reason",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "9c5f7a6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 55
+    },
+    {
+      "id": "e43",
+      "obligation_ref": "o22",
+      "test_ref": "tests/node/test_attachment_fetch.py",
+      "behavior_text": "exact-host allowlist, every resolved address vetted, no redirects, 50 MiB cap, a 4xx skip names its status",
+      "contract_text": "The attachment fetch reuses http.call's vetted connection (exact-host allowlist of Discord's CDN hosts, every resolved address vetted, pinned connect, redirects refused, no proxies) rather than a new HTTP path",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 56
+    },
+    {
+      "id": "e44",
+      "obligation_ref": "o22",
+      "test_ref": "tests/node/test_http_call.py::test_real_transport_names_culture_rules_as_its_user_agent",
+      "behavior_text": "the pinned opener sends User-Agent culture-rules on the real transport (b6)",
+      "contract_text": "The attachment fetch reuses http.call's vetted connection (exact-host allowlist of Discord's CDN hosts, every resolved address vetted, pinned connect, redirects refused, no proxies) rather than a new HTTP path",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 57
+    },
+    {
+      "id": "e45",
+      "obligation_ref": "o23",
+      "test_ref": "tests/node/test_discord_react.py",
+      "behavior_text": "react adds and, with remove (d13), takes back the bot's own marks; a refused take-back does not fail the step",
+      "contract_text": "Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 58
+    },
+    {
+      "id": "e46",
+      "obligation_ref": "o23",
+      "test_ref": "tests/node/test_discord_reply.py",
+      "behavior_text": "reply edits the deferred private answer with the kept interaction token",
+      "contract_text": "Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 59
+    },
+    {
+      "id": "e47",
+      "obligation_ref": "o23",
+      "test_ref": "live: run-ec9bfd743757dd4f9e7ac62359ec1ace, run-51dc505850b54aee54a46e71d784a1fc, run-a040cf2884ce371eb31ceb34d09c9642",
+      "behavior_text": "observed \u23f3 then \u231b then \u2705 on both bots' \ud83d\udcda runs, and a private 'Saved to the library.' reply to /save",
+      "contract_text": "Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 60
+    },
+    {
+      "id": "e48",
+      "obligation_ref": "o24",
+      "test_ref": "tests/apps/test_discord_commands.py",
+      "behavior_text": "the configured commands (d12) are built, deferred within Discord's window, sunk without the token, and answered not_here when no rule takes them",
+      "contract_text": "A slash command (e.g. /save) is registered per bot and handled; the interaction is answered within Discord's 3-second window and becomes an event (discord.command.invoked: command, options, user, channel, guild, target message when it is a message command) that rules trigger on",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 61
+    },
+    {
+      "id": "e49",
+      "obligation_ref": "o24",
+      "test_ref": "live: run-a040cf2884ce371eb31ceb34d09c9642, run-837d9a5d0e48e698021dcc909f9ff09c, run-e386f0d6d4f1fe82f5730ddce5b449a0, run-ce61b63325b44371ec28ef95e9d2624e",
+      "behavior_text": "observed /save and Save to library on both bots each save page 94 and file 95 and reply privately",
+      "contract_text": "A slash command (e.g. /save) is registered per bot and handled; the interaction is answered within Discord's 3-second window and becomes an event (discord.command.invoked: command, options, user, channel, guild, target message when it is a message command) that rules trigger on",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 62
+    },
+    {
+      "id": "e50",
+      "obligation_ref": "o25",
+      "test_ref": "tests/apps/test_discord_commands.py::test_the_holder_registers_per_guild_and_reconnects_do_not_resync",
+      "behavior_text": "a reconnect with unchanged definitions syncs nothing; a changed hash resyncs",
+      "contract_text": "Commands are synced by the lease holder only when their definition changes (per guild, so they appear at once, not after global propagation), and an interaction is acknowledged (ephemeral deferral) before the event is written; during a lease handover gap Discord shows the interaction failed, and the user retries",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 63
+    },
+    {
+      "id": "e51",
+      "obligation_ref": "o25",
+      "test_ref": "live: GET /applications/{app}/guilds/{guild}/commands for both apps",
+      "behavior_text": "observed both apps hold save and Save to library in Experiments, and jetson-bot none in the public server",
+      "contract_text": "Commands are synced by the lease holder only when their definition changes (per guild, so they appear at once, not after global propagation), and an interaction is acknowledged (ephemeral deferral) before the event is written; during a lease handover gap Discord shows the interaction failed, and the user retries",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 64
+    },
+    {
+      "id": "e52",
+      "obligation_ref": "o26",
+      "test_ref": "tests/node/test_discord_sweep.py",
+      "behavior_text": "the sweep reads after the cursor, oldest first, skips bots, and never moves the cursor itself",
+      "contract_text": "A time-based flow saves on a schedule: a schedule trigger runs a step that reads a channel's messages since the last run over REST (GET /channels/{id}/messages?after=), with a stored cursor per flow and channel so a rerun neither misses nor repeats a message",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 65
+    },
+    {
+      "id": "e53",
+      "obligation_ref": "o26",
+      "test_ref": "tests/rules/test_discord_command_and_sweep_flows.py",
+      "behavior_text": "a schedule tick sweeps, renders each message (config.with, d8), pushes it and advances the cursor",
+      "contract_text": "A time-based flow saves on a schedule: a schedule trigger runs a step that reads a channel's messages since the last run over REST (GET /channels/{id}/messages?after=), with a stored cursor per flow and channel so a rerun neither misses nor repeats a message",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 66
+    },
+    {
+      "id": "e54",
+      "obligation_ref": "o26",
+      "test_ref": "live: run-69535a65ac2379b25745dfc7faf7d42c, run-f1b816195ca055bd618a909d7935aff1",
+      "behavior_text": "observed both bots' 08:50 sweeps file the 3 messages since the cursor as items 87-89 and advance it",
+      "contract_text": "A time-based flow saves on a schedule: a schedule trigger runs a step that reads a channel's messages since the last run over REST (GET /channels/{id}/messages?after=), with a stored cursor per flow and channel so a rerun neither misses nor repeats a message",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "9c5f7a6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 67
+    },
+    {
+      "id": "e55",
+      "obligation_ref": "o27",
+      "test_ref": "tests/node/test_discord_wiring.py",
+      "behavior_text": "discord.react/reply/sweep and attachment.fetch/cursor.advance are registered and described",
+      "contract_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 68
+    },
+    {
+      "id": "e56",
+      "obligation_ref": "o27",
+      "test_ref": "web/src/rules/ActionPicker.discord.test.tsx + TriggerPicker.discord.test.tsx + actors/AppConfigForm.commands.test.tsx",
+      "behavior_text": "the editor offers the kinds, the emoji and command filters and the actor's commands",
+      "contract_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit (tests named by node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 69
+    },
+    {
+      "id": "e57",
+      "obligation_ref": "o28",
+      "test_ref": "live: 26 gesture runs 2026-10-27 08:41-10:39 (runs list), sweeps every 10 min",
+      "behavior_text": "observed every gesture on both bots complete in 1-13 s, the sweep within its period, pdf item 92 and epub item 67, re-saves created:false, and all 26 runs triggered by a human (bot: false)",
+      "contract_text": "On the live mesh, each of the 4 gestures (reaction, command, channel message, schedule) saves a test message to the library within 60 s of the gesture (the schedule within one period), a pdf and an epub attachment each become 1 item, saving the same message twice yields 1 item (created: false), and 0 events fire from one bot's posts on the other's rules",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 70
+    },
+    {
+      "id": "e58",
+      "obligation_ref": "o29",
+      "test_ref": "live: actors discord-bot and jetson-bot (events, commands, guild_id) and the runs above",
+      "behavior_text": "observed both actors listening and saving by all four gestures in Experiments; jetson-bot also listens in the public server, where no save flow is enabled (d9)",
+      "contract_text": "Two Discord app actors (discord-bot = Culture.dev, jetson-bot) listen across both servers; a message saves to the library by a reaction, by a slash or message command, by being posted in a chosen channel (or any channel), or by a scheduled sweep; its text and links land as a Markdown item and its pdf/epub attachments as their own items",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 71
+    },
+    {
+      "id": "e59",
+      "obligation_ref": "o30",
+      "test_ref": "live: discord-reaction-to-library rev 2 (\u2705/\u26d4) and the \u23f3\u231b\u2705 marks, configured without code",
+      "behavior_text": "observed the operator's flows switch acknowledgement (\u2705 or \u26d4, then progress marks) by configuration only",
+      "contract_text": "Acknowledging a save in Discord is configurable per flow (e.g. only for opt-in users and specific reactions)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 72
+    },
+    {
+      "id": "e60",
+      "obligation_ref": "o31",
+      "test_ref": "git log ../culture-library --since 2026-10-26 (0 commits)",
+      "behavior_text": "observed no commit in culture-library during Releases 2-3",
+      "contract_text": "culture-library is unchanged in the first slice: a .md upload with an existing kind (document or article), title and author from the message, and the message URL and id in the body (which also avoids sha256 dedupe of identical text) already works; there is no link/bookmark/note kind, no source or tag metadata, no server-side URL fetch, and images are refused (415)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 73
+    },
+    {
+      "id": "e61",
+      "obligation_ref": "o17",
+      "test_ref": "live: run-3946312e1c30bd678bb897bcdd943783 (jetson-bot read 'test message' in full); GET /applications/1405693063539589282/guilds/1413999242648748195/commands",
+      "behavior_text": "observed jetson-bot read a message's full content (MESSAGE CONTENT intent) and register its guild commands (applications.commands scope accepted); Culture.dev registered its commands the same way",
+      "contract_text": "Both bots are re-invited with the scopes the gestures need: bot plus applications.commands, and permissions View Channels, Send Messages, Read Message History, Add Reactions (for an acknowledgement reaction); intents message content (privileged), guild messages, guild message reactions; docs/actors/discord.md documents this for N bots",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with culture-rules runs show and Discord's command listing; the operator used the commands in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T08:41:11",
+        "commit": "9c5f7a6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 74
+    },
+    {
+      "id": "e62",
+      "obligation_ref": "o32",
+      "test_ref": "discord-bot-cli 6cd4970: tests/test_live_discord.py (pytest -m live, jetson-bot token, Experiments #spark-tests)",
+      "behavior_text": "6 live tests passed (user get, channel list, messages, write chain post-reply-react-thread, unknown guild, file upload; paging skipped) while culture-rules held jetson-bot's gateway session: no disconnect logged, both bots recorded the CLI's 3 posts and its reaction, and no rule ran (0 runs since 10:49:16)",
+      "contract_text": "discord-bot-cli and jetson-ai-lab-cli stay unchanged and do not conflict: both use the jetson-bot token over REST with Intents.none() and a login-act-close run, so culture-rules holding jetson-bot's gateway session duplicates nothing",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "the CLI's own live suite ran against real Discord with the gateway session held; the node log and the runs list were read back",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:49:16",
+        "commit": "6cd4970"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": true,
+      "seq": 75
+    },
+    {
+      "id": "e63",
+      "obligation_ref": "o19",
+      "test_ref": "live: run-ed5badc70c2ad37dfdf2b807f8c99014, run-fa237106c227492444bfab1eddd308e9",
+      "behavior_text": "observed \ud83d\udcda on a pdf message save page 91 and the pdf as item 92 on both bots, each reacting \u2705",
+      "contract_text": "A reaction saves a message: the gateway raises discord.reaction.added (guild, channel, message id, emoji name/id incl. custom emoji, reacting user, bot flag) with the reactions intent, and a rule filters on the emoji; the workflow fetches the reacted message (text, author, url, attachments) over REST since the reaction event carries no content",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T09:02:09",
+        "commit": "9c5f7a6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 76
+    },
+    {
+      "id": "e64",
+      "obligation_ref": "o21",
+      "test_ref": "live: run-ed5badc70c2ad37dfdf2b807f8c99014 (pdf), run-5721f9add1b09e614b36b05d5691ef97 (epub), run-da0dd1e19187ea017609cd7801301daa (md)",
+      "behavior_text": "observed the pdf saved as new item 92 (09:01-09:02 on 0.34.0, 9c5f7a6); the epub matched item 67, which the library already held from an earlier upload of the same bytes (created: false, 09:03 on 0.34.0), so it is one item but this gesture did not create it; a Markdown runbook saved as new item 85 (06:17 on 0.32.1, e63d160); a png was skipped with \u26d4 (run-cf64ee48508383719f4e86dd7423826a, 06:24 on 0.32.1)",
+      "contract_text": "Attachments reach the library: the message events and the REST read carry attachments (id, filename, content_type, size, url); a step downloads pdf/epub only from Discord's CDN (urls expire about 24 h), at most 50 MiB, and hands content_base64 and format to library.push; other types are skipped with a reason",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T09:03:32",
+        "commit": "9c5f7a6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 77
+    },
+    {
+      "id": "e65",
+      "obligation_ref": "o26",
+      "test_ref": "live: run-69535a65ac2379b25745dfc7faf7d42c, run-f1b816195ca055bd618a909d7935aff1",
+      "behavior_text": "observed both bots' 08:50 sweeps file the 3 messages since the cursor as items 87-89 and advance it",
+      "contract_text": "A time-based flow saves on a schedule: a schedule trigger runs a step that reads a channel's messages since the last run over REST (GET /channels/{id}/messages?after=), with a stored cursor per flow and channel so a rerun neither misses nor repeats a message",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T08:50:06",
+        "commit": "9c5f7a6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 78
+    },
+    {
+      "id": "e66",
+      "obligation_ref": "o28",
+      "test_ref": "live: 26 gesture runs 2026-10-27 08:41-10:39 (runs list), sweeps every 10 min",
+      "behavior_text": "observed every gesture on both bots complete in 1-13 s (08:41-10:39, on 0.34.0 then 0.35.0), the sweep within its period, the pdf as one new item (92) and the epub as one item (67, already held: created: false), re-saves created: false, and all 26 runs triggered by a human (bot: false)",
+      "contract_text": "On the live mesh, each of the 4 gestures (reaction, command, channel message, schedule) saves a test message to the library within 60 s of the gesture (the schedule within one period), a pdf and an epub attachment each become 1 item, saving the same message twice yields 1 item (created: false), and 0 events fire from one bot's posts on the other's rules",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 79
+    },
+    {
+      "id": "e67",
+      "obligation_ref": "o29",
+      "test_ref": "live: actors discord-bot and jetson-bot (events, commands, guild_id) and the runs above",
+      "behavior_text": "observed both actors listening and saving by all four gestures in JetsonBot Experiments, and jetson-bot also listening in the public server (no save flow there, d9); not met: Culture.dev is not in the operator's private server (t11), so the actors do not yet listen across every server the claim names",
+      "contract_text": "Two Discord app actors (discord-bot = Culture.dev, jetson-bot) listen across both servers; a message saves to the library by a reaction, by a slash or message command, by being posted in a chosen channel (or any channel), or by a scheduled sweep; its text and links land as a Markdown item and its pdf/epub attachments as their own items",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 80
+    },
+    {
+      "id": "e68",
+      "obligation_ref": "o31",
+      "test_ref": "git log origin/main --since 2026-10-26 in ../culture-library (1 commit: bb981c0)",
+      "behavior_text": "observed one culture-library commit in the window, bb981c0 (0.17.1, #26: status docs and the eval generator), none for Discord: Releases 2-3 needed no culture-library change",
+      "contract_text": "culture-library is unchanged in the first slice: a .md upload with an existing kind (document or article), title and author from the message, and the message URL and id in the body (which also avoids sha256 dedupe of identical text) already works; there is no link/bookmark/note kind, no source or tag metadata, no server-side URL fetch, and images are refused (415)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 81
+    },
+    {
+      "id": "e69",
+      "obligation_ref": "o32",
+      "test_ref": "discord-bot-cli 6cd4970: tests/test_live_discord.py (pytest -m live, jetson-bot token, Experiments #spark-tests)",
+      "behavior_text": "partial: discord-bot-cli's 6 live tests passed while culture-rules held jetson-bot's gateway session (no disconnect logged, both bots recorded the CLI's 3 posts and its reaction, no rule ran); jetson-ai-lab-cli has no live suite and was not run, so the obligation's 'both CLIs' is not met in full",
+      "contract_text": "discord-bot-cli and jetson-ai-lab-cli stay unchanged and do not conflict: both use the jetson-bot token over REST with Intents.none() and a login-act-close run, so culture-rules holding jetson-bot's gateway session duplicates nothing",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "the CLI's own live suite ran against real Discord with the gateway session held; the node log and the runs list were read back",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-27T10:49:16",
+        "commit": "6cd4970"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 82
+    },
+    {
+      "id": "e70",
+      "obligation_ref": "o19",
+      "test_ref": "tests/rules/test_discord_reaction_flow.py",
+      "behavior_text": "a reaction event runs the flow end to end: the page and its files are pushed, then the bot reacts",
+      "contract_text": "A reaction saves a message: the gateway raises discord.reaction.added (guild, channel, message id, emoji name/id incl. custom emoji, reacting user, bot flag) with the reactions intent, and a rule filters on the emoji; the workflow fetches the reacted message (text, author, url, attachments) over REST since the reaction event carries no content",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 83
+    },
+    {
+      "id": "e71",
+      "obligation_ref": "o20",
+      "test_ref": "tests/apps/test_discord_gateway.py",
+      "behavior_text": "the raw reaction payload is turned into discord.reaction.added for uncached messages",
+      "contract_text": "Reactions are received with discord.py's raw reaction event (on_raw_reaction_add), not on_reaction_add, which fires only for messages in the client cache; a reaction on an old message still saves it",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 84
+    },
+    {
+      "id": "e72",
+      "obligation_ref": "o21",
+      "test_ref": "tests/node/test_attachment_fetch.py",
+      "behavior_text": "pdf, epub and md are fetched to files on the node; images and others are skipped unsupported_format",
+      "contract_text": "Attachments reach the library: the message events and the REST read carry attachments (id, filename, content_type, size, url); a step downloads pdf/epub only from Discord's CDN (urls expire about 24 h), at most 50 MiB, and hands content_base64 and format to library.push; other types are skipped with a reason",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 85
+    },
+    {
+      "id": "e73",
+      "obligation_ref": "o22",
+      "test_ref": "tests/node/test_attachment_fetch.py",
+      "behavior_text": "exact-host allowlist, every resolved address vetted, no redirects, 50 MiB cap, a 4xx skip names its status",
+      "contract_text": "The attachment fetch reuses http.call's vetted connection (exact-host allowlist of Discord's CDN hosts, every resolved address vetted, pinned connect, redirects refused, no proxies) rather than a new HTTP path",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 86
+    },
+    {
+      "id": "e74",
+      "obligation_ref": "o23",
+      "test_ref": "tests/node/test_discord_react.py",
+      "behavior_text": "react adds and, with remove (d13), takes back the bot's own marks; a refused take-back does not fail the step",
+      "contract_text": "Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 87
+    },
+    {
+      "id": "e75",
+      "obligation_ref": "o23",
+      "test_ref": "tests/node/test_discord_reply.py",
+      "behavior_text": "reply edits the deferred private answer with the kept interaction token",
+      "contract_text": "Two small outbound Discord actions make acknowledgement configurable: discord.react (add an emoji to a message, mass-mention free) and an ephemeral reply to a command interaction; a flow uses them as ordinary steps with a when condition (e.g. only for opt-in users or one emoji)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 88
+    },
+    {
+      "id": "e76",
+      "obligation_ref": "o24",
+      "test_ref": "tests/apps/test_discord_commands.py",
+      "behavior_text": "the configured commands (d12) are built, deferred within Discord's window, sunk without the token, and answered not_here when no rule takes them",
+      "contract_text": "A slash command (e.g. /save) is registered per bot and handled; the interaction is answered within Discord's 3-second window and becomes an event (discord.command.invoked: command, options, user, channel, guild, target message when it is a message command) that rules trigger on",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 89
+    },
+    {
+      "id": "e77",
+      "obligation_ref": "o26",
+      "test_ref": "tests/node/test_discord_sweep.py",
+      "behavior_text": "the sweep reads after the cursor, oldest first, skips bots, and never moves the cursor itself",
+      "contract_text": "A time-based flow saves on a schedule: a schedule trigger runs a step that reads a channel's messages since the last run over REST (GET /channels/{id}/messages?after=), with a stored cursor per flow and channel so a rerun neither misses nor repeats a message",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 90
+    },
+    {
+      "id": "e78",
+      "obligation_ref": "o26",
+      "test_ref": "tests/rules/test_discord_command_and_sweep_flows.py",
+      "behavior_text": "a schedule tick sweeps, renders each message (config.with, d8), pushes it and advances the cursor",
+      "contract_text": "A time-based flow saves on a schedule: a schedule trigger runs a step that reads a channel's messages since the last run over REST (GET /channels/{id}/messages?after=), with a stored cursor per flow and channel so a rerun neither misses nor repeats a message",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 91
+    },
+    {
+      "id": "e79",
+      "obligation_ref": "o27",
+      "test_ref": "tests/node/test_discord_wiring.py",
+      "behavior_text": "discord.react/reply/sweep and attachment.fetch/cursor.advance are registered and described",
+      "contract_text": "The new kinds and events are first-class everywhere a kind lives: model/action_kinds.py, describe phrases (model/paragraph.py), the editor's trigger and action pickers with the channel picker, api/openapi.json if the API changes, and an explain/learn entry for any new CLI verb, with the CLI/MCP parity test green",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at the named commit; the whole test file is cited (every test in it ran and passed), not one node id; this repo has no behavioral marker or folder, so the claim's own tests are the behavioral tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:41:07",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 92
     }
   ],
   "deltas": [
@@ -962,6 +1760,94 @@
       "origin": "llm",
       "status": "approved",
       "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "attachment.fetch writes each fetched file under the node's attachments root (sha256-named, retention_days) and library.push reads it by content_path + content_root within the library actor's content_roots; the bytes never enter run state",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [
+        "e41",
+        "e42"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "added",
+      "behavior_text": "a builtin code step's config.with maps references (inputs.item.*) onto its inputs, so a for_each body renders each swept message",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [
+        "e53"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "amended",
+      "behavior_text": "attachment.fetch also saves Markdown attachments (text/markdown, or a .md name when the type is missing or octet-stream) as format md",
+      "caused_by": [
+        "d10"
+      ],
+      "evidence_refs": [
+        "e41",
+        "e42"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "added",
+      "behavior_text": "connection.command_guild_id narrows where a Discord actor's commands are registered and answered; servers left out are withdrawn; an edit that moves the commands reconnects",
+      "caused_by": [
+        "d11"
+      ],
+      "evidence_refs": [
+        "e51"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b11",
+      "kind": "amended",
+      "behavior_text": "Discord commands are each actor's params.commands (slash and message, options string|message, not_here), none built in; a rule picks one with the trigger filter command",
+      "caused_by": [
+        "d12"
+      ],
+      "evidence_refs": [
+        "e48",
+        "e49"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b12",
+      "kind": "added",
+      "behavior_text": "discord.react takes remove: the bot takes back its own earlier reactions after adding the new one, so a flow can show \u23f3, \u231b then \u2705 with one mark at a time",
+      "caused_by": [
+        "d13"
+      ],
+      "evidence_refs": [
+        "e45",
+        "e47"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
     }
   ],
   "supersessions": [
@@ -971,6 +1857,125 @@
       "target_ref": "b5",
       "replacement_ref": "b6",
       "origin": "user"
+    },
+    {
+      "id": "s2",
+      "action": "supersede",
+      "target_ref": "e39",
+      "replacement_ref": "e63",
+      "origin": "llm"
+    },
+    {
+      "id": "s3",
+      "action": "supersede",
+      "target_ref": "e42",
+      "replacement_ref": "e64",
+      "origin": "llm"
+    },
+    {
+      "id": "s4",
+      "action": "supersede",
+      "target_ref": "e54",
+      "replacement_ref": "e65",
+      "origin": "llm"
+    },
+    {
+      "id": "s5",
+      "action": "supersede",
+      "target_ref": "e57",
+      "replacement_ref": "e66",
+      "origin": "llm"
+    },
+    {
+      "id": "s6",
+      "action": "supersede",
+      "target_ref": "e58",
+      "replacement_ref": "e67",
+      "origin": "llm"
+    },
+    {
+      "id": "s7",
+      "action": "supersede",
+      "target_ref": "e60",
+      "replacement_ref": "e68",
+      "origin": "llm"
+    },
+    {
+      "id": "s8",
+      "action": "supersede",
+      "target_ref": "e62",
+      "replacement_ref": "e69",
+      "origin": "llm"
+    },
+    {
+      "id": "s9",
+      "action": "supersede",
+      "target_ref": "e38",
+      "replacement_ref": "e70",
+      "origin": "llm"
+    },
+    {
+      "id": "s10",
+      "action": "supersede",
+      "target_ref": "e40",
+      "replacement_ref": "e71",
+      "origin": "llm"
+    },
+    {
+      "id": "s11",
+      "action": "supersede",
+      "target_ref": "e41",
+      "replacement_ref": "e72",
+      "origin": "llm"
+    },
+    {
+      "id": "s12",
+      "action": "supersede",
+      "target_ref": "e43",
+      "replacement_ref": "e73",
+      "origin": "llm"
+    },
+    {
+      "id": "s13",
+      "action": "supersede",
+      "target_ref": "e45",
+      "replacement_ref": "e74",
+      "origin": "llm"
+    },
+    {
+      "id": "s14",
+      "action": "supersede",
+      "target_ref": "e46",
+      "replacement_ref": "e75",
+      "origin": "llm"
+    },
+    {
+      "id": "s15",
+      "action": "supersede",
+      "target_ref": "e48",
+      "replacement_ref": "e76",
+      "origin": "llm"
+    },
+    {
+      "id": "s16",
+      "action": "supersede",
+      "target_ref": "e52",
+      "replacement_ref": "e77",
+      "origin": "llm"
+    },
+    {
+      "id": "s17",
+      "action": "supersede",
+      "target_ref": "e53",
+      "replacement_ref": "e78",
+      "origin": "llm"
+    },
+    {
+      "id": "s18",
+      "action": "supersede",
+      "target_ref": "e55",
+      "replacement_ref": "e79",
+      "origin": "llm"
     }
   ]
 }

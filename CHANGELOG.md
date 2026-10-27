@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.1] - 2026-10-27
+
+### Changed
+
+- Delivery summary for discord-surfaces now covers the whole plan (t1-t20): Releases 2-3 (#102, #103) and the t20 follow-ups (#104-#107); records o19-o32, e38-e62, b7-b12, l15
+
 ## [0.35.0] - 2026-10-27
 
 ### Added
