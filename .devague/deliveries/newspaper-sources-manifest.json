@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-27T19:52:25Z",
+  "updated": "2026-10-27T20:20:13Z",
   "deviations": [
     {
       "id": "d1",
@@ -16,6 +16,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t4's criterion 'listed in the explain catalog' is not met: culture_rules/explain/catalog.py documents CLI verbs only and lists no builtin or action kind (markdown.from_html and http.call are absent too), and no verb was added. document.sections is documented instead where builtins live: the describe phrase (BUILTIN_WORDS), the editor's builtin list, the module docstring and docs/operations/sources-manifest.md; save_to is in the action-kinds catalog (action_kinds.py) and docs/actors/http.md",
+      "task_ref": "t4",
+      "reason": "the plan assumed the explain catalog lists builtins; it lists CLI verbs only",
+      "affects": [
+        "c29"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
     }
   ],
   "evidence": [],

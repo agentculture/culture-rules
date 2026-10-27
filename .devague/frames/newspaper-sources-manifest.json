@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-27T16:12:20Z",
-  "updated": "2026-10-27T18:36:32Z",
+  "updated": "2026-10-27T20:01:57Z",
   "claims": [
     {
       "id": "c1",
@@ -784,6 +784,18 @@
       "refs": [
         "t3",
         "03dd507"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "grader-unverified",
+      "what": "t4 wrote the wiring before its tests (Python and vitest), so the new tests were not seen failing first; mitigation run by the main agent: with document.sections unregistered from runner.py, its registration test fails (1 failed, 85 passed)",
+      "skipped_check": "test-first red run before implementing",
+      "refs": [
+        "t4",
+        "30178ae"
       ],
       "origin": "llm",
       "status": "proposed"
