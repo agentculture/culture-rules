@@ -365,7 +365,7 @@ async def sync_commands(tree: Any, registration: commands_mod.CommandRegistratio
             await tree.sync(guild=discord.Object(int(guild)))
             registration.forgotten(guild)
             log.info("discord gateway %s: commands withdrawn from guild %s", actor_id, guild)
-        except Exception as exc:  # noqa: BLE001 - kept on record, so the next connect retries
+        except Exception as exc:  # noqa: BLE001 - the record stays and the next connect retries
             log.warning(
                 "discord gateway %s: withdrawing commands from guild %s failed (%s)",
                 actor_id,
