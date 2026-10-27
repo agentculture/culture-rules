@@ -73,7 +73,9 @@ export function TextField({ label, ariaLabel, value, onChange, error, hint, plac
 }
 
 interface SelectFieldProps {
-  label: string;
+  /** Visible label, also the accessible name unless `ariaLabel` overrides it. */
+  label?: string;
+  ariaLabel?: string;
   value: string;
   /** Exactly the values offered, in order. */
   options: readonly string[];
@@ -83,14 +85,15 @@ interface SelectFieldProps {
 }
 
 /** A closed choice (an enum field): a native select, keyboard operable, with its error and hint announced. */
-export function SelectField({ label, value, options, onChange, error, hint }: Readonly<SelectFieldProps>) {
+export function SelectField({ label, ariaLabel, value, options, onChange, error, hint }: Readonly<SelectFieldProps>) {
   const uid = useId();
   return (
     <div className="actor-form__field">
-      <label htmlFor={`${uid}-in`}>{label}</label>
+      {label ? <label htmlFor={`${uid}-in`}>{label}</label> : null}
       <select
         id={`${uid}-in`}
         value={value}
+        aria-label={ariaLabel}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedByOf(uid, error, hint)}
         onChange={(e) => onChange(e.target.value)}

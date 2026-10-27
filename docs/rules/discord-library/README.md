@@ -42,11 +42,34 @@ together.
   stored, and Discord events expire after 30 days.
 - The text comes from `discord.read`, so a message longer than the event's
   2000 characters is filed whole. A message with only an attachment is filed
-  with no text; filing the attachment itself is planned (Release 2), as are
-  reactions, commands and the scheduled sweep (Release 3).
+  with no text; to file its pdf, epub or Markdown attachments too, add
+  `attachment.fetch` and a `library.push` per file (see
+  `docs/actors/discord.md`, Saving attachments).
 - If both bots are in the channel, each records its own event; the condition
   lets only the named bot's event run the rule, so the message is read and
   filed once. Without it the rule would run twice (the library would still
   keep one item, the second push reporting `created: false`).
 
 Deleting the Discord message later leaves the library item; archive it by hand.
+
+## Saving with a command
+
+The same flow can start from a command instead of a message. Commands are the
+bot's configuration: give its actor `discord.command.invoked` in
+`params.events`, its `connection.application_id`, and the commands, for
+example:
+
+```json
+"commands": [
+  {"name": "save", "type": "slash", "description": "Save a message to the library",
+   "options": [{"name": "message", "description": "A message link or id",
+                "kind": "message"}]},
+  {"name": "Save to library", "type": "message"}
+]
+```
+
+Then a rule with the trigger `discord.command.invoked`, `command` set to those
+names, maps `trigger.data.target_message_id` and `target_channel_id` to the
+workflow's message and channel, and ends with `discord.reply` (`event_id` from
+`trigger.id`) to answer the person privately. Its `concurrency_key` must
+resolve for command events, e.g. `discord:{trigger.data.target_message_id}`.

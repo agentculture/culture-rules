@@ -211,8 +211,10 @@ plan. What exists today:
     file under an `output_root` on the node (deviation d7: file bytes never enter run
     state, a MongoDB document); `library.push` reads it by `content_path` +
     `content_root`;
-  - Release 3: `/save` and the message command **Save to library**, registered per guild
-    when the actor declares `discord.command.invoked` and has `connection.application_id`;
+  - Release 3: application commands, registered per guild when the actor declares
+    `discord.command.invoked` and has `connection.application_id`; which commands is the
+    actor's `params.commands` (d12: slash and message commands, none built in; a rule picks
+    one with the trigger filter `command`; `connection.command_guild_id` narrows the guilds);
     the event never holds the interaction token (a 15-minute collection keyed by the event
     id), and `discord.reply` answers the invoker privately with it; `discord.sweep` reads a
     channel since a stored cursor (bots skipped unless `include_bots`; a first run starts

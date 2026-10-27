@@ -175,3 +175,57 @@ describe("switching the event type", () => {
     expect(saved()).toEqual({ kind: "event", params: { type: "discord.message.created", users: ["ori"] } });
   });
 });
+
+describe("discord.command.invoked (d12)", () => {
+  const COMMANDER: Actor = {
+    ...BOT,
+    params: { ...BOT.params, events: ["discord.message.created", "discord.command.invoked"] },
+  };
+  const INVOKED: Trigger = { kind: "event", params: { type: "discord.command.invoked" } };
+
+  function CommandHarness({ start = INVOKED }: Readonly<{ start?: Trigger }>) {
+    const [value, setValue] = useState<Trigger>(start);
+    return (
+      <>
+        <TriggerPicker value={value} actors={[COMMANDER]} onChange={setValue} loadDiscordTargets={async () => TARGETS} />
+        <output data-testid="saved">{JSON.stringify(value)}</output>
+      </>
+    );
+  }
+
+  it("saves one command name as a string and several as a list, and omits it when emptied", async () => {
+    const user = userEvent.setup();
+    render(<CommandHarness />);
+    const field = await screen.findByLabelText("Command");
+    await user.type(field, "save");
+    expect(saved()).toEqual({ kind: "event", params: { type: "discord.command.invoked", command: "save" } });
+    await user.type(field, ", Save to library");
+    expect(saved()).toEqual({
+      kind: "event",
+      params: { type: "discord.command.invoked", command: ["save", "Save to library"] },
+    });
+    await user.clear(field);
+    expect(saved()).toEqual(INVOKED);
+  });
+
+  it("shows a stored command name or list", async () => {
+    const { unmount } = render(<CommandHarness start={{ kind: "event", params: { type: "discord.command.invoked", command: "save" } }} />);
+    expect(await screen.findByLabelText("Command")).toHaveValue("save");
+    unmount();
+    render(<CommandHarness start={{ kind: "event", params: { type: "discord.command.invoked", command: ["save", "find"] } }} />);
+    expect(await screen.findByLabelText("Command")).toHaveValue("save, find");
+  });
+
+  it("shows no command field on a message or reaction trigger", async () => {
+    render(<Harness />);
+    await screen.findByRole("group", { name: "Channels" });
+    expect(screen.queryByLabelText("Command")).not.toBeInTheDocument();
+  });
+
+  it("drops a hidden command filter when the trigger leaves commands", async () => {
+    const user = userEvent.setup();
+    render(<CommandHarness start={{ kind: "event", params: { type: "discord.command.invoked", command: "save", users: ["ori"] } }} />);
+    await user.selectOptions(screen.getByLabelText("Event"), "discord.message.created");
+    expect(saved()).toEqual({ kind: "event", params: { type: "discord.message.created", users: ["ori"] } });
+  });
+});

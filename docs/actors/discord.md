@@ -310,37 +310,75 @@ being false. The library actor must list the attachments root in its
 
 ## Commands
 
-An actor that lists `discord.command.invoked` in `params.events` and has
-`connection.application_id` (the application's numeric id, from the Developer
-Portal's **General Information**; not a secret) registers two commands in each
-server of `connection.guild_id`: `/save` (an optional `message` option, a
-message link or id) and the message menu command **Save to library**. They
-are registered once and again only when their definition changes; without an
+Which commands a bot offers is configuration: nothing is built in. An actor
+that lists `discord.command.invoked` in `params.events` registers the commands
+its `params.commands` lists, in each server of `connection.guild_id`. It also
+needs `connection.application_id` (the application's numeric id, from the
+Developer Portal's **General Information**; not a secret). For example:
+
+```json
+"commands": [
+  {"name": "save", "type": "slash", "description": "Save a message to the library",
+   "options": [{"name": "message", "description": "A message link or id",
+                "kind": "message", "required": false}]},
+  {"name": "Save to library", "type": "message"}
+]
+```
+
+- `type` is `slash` (used as `/name`) or `message` (in a message's **Apps**
+  menu; it targets that message).
+- A `slash` name is 1-32 of `a-z`, `0-9`, `_` and `-`; a `message` name is 1-32
+  characters with no comma. No name or description has spaces around it. Names
+  are unique per type. An actor has at most 10 commands, at
+  most 5 of them `message` commands.
+- A `slash` command needs a `description` (1-100 characters) and takes up to 5
+  `options`, each with a `name` (`a-z`, `0-9`, `_`, not starting with a digit,
+  and not `interaction` or a Python keyword such as `from`),
+  a `description`, a `kind` and `required` (default false; required options
+  come first). `kind` is `string` (the default) or `message`: a message link
+  or id, read into the event's `target_message_id` and `target_channel_id`. A
+  command has at most one `message` option.
+- `not_here` (optional, up to 200 characters) is the private answer when no
+  rule takes the command where it was used. It defaults to "This command is
+  not set up here."
+
+The actor is refused on save when a command breaks one of these rules. The
+commands are registered once, and again only when they change; editing
+`params.commands` reconnects the bot so the change applies at once, and a
+command removed from the list disappears from Discord. Without commands, an
 application id or a `guild_id`, none are registered (the listener still runs)
 and the node logs why once.
+
+A rule picks its command with the trigger filter `command` (one name or a
+list, any case), on a `discord.command.invoked` trigger only. Dropping
+`discord.command.invoked` from `params.events` withdraws the bot's commands
+too.
 
 `connection.command_guild_id` (one id or a list, optional) narrows where the
 commands are: they are registered only in those servers (ones not also in
 `guild_id` are ignored, and the node logs that none are left), and an
-invocation from any other server is answered "This channel is not set up to
-save messages." without recording an event. Unset, every server of `guild_id`
-gets them. A bot can so post in a public server while its commands stay in a
-test server. A server taken out of the list has its commands removed on the
-next connect, and editing `application_id`, `guild_id` or `command_guild_id`
-in a way that moves the commands reconnects the bot at once.
+invocation from any other server gets the `not_here` answer without recording
+an event. Unset, every server of `guild_id` gets them. A bot can so post in a
+public server while its commands stay in a test server. A server taken out of
+the list has its commands removed on the next connect, and editing
+`application_id`, `guild_id` or `command_guild_id` in a way that moves the
+commands reconnects the bot at once.
 
 Upgrade every node and the API to 0.33.0 before setting `command_guild_id`: an
-older node holding the bot's connection ignores it and registers the commands
-in every server of `guild_id`.
+older node holding the bot's connection ignores it. For 0.34.0 the order is the
+other way round for a bot whose commands are already registered: set its
+`params.commands` first (an older node ignores the key and keeps the built-in
+`/save` and **Save to library**), then upgrade. A 0.34.0 node finding no
+`params.commands` withdraws the commands it registered before.
 
 A command is acknowledged at once, privately ("thinking…"), then recorded as a
-`discord.command.invoked` event with `command`, `command_type` (`slash` or
-`message`), `options`, `target_message_id`, `target_channel_id`, the invoking
-`user_id` and `username` (also as `author_id` and `author_name`),
+`discord.command.invoked` event with `command` (its name), `command_type`
+(`slash` or `message`), `options`, `target_message_id`, `target_channel_id`,
+the invoking `user_id` and `username` (also as `author_id` and `author_name`),
 `user_roles`, `channel_id` and `guild_id`. The interaction's token is never in
 the event: it is kept for 15 minutes in its own collection, keyed by the
-event's id. A command in a channel no rule selects is answered at once: "This
-channel is not set up to save messages."
+event's id. A command in a channel no rule selects is answered at once with its
+`not_here`.
 
 `discord.reply` answers the invoker privately: it replaces the "thinking…"
 message with its `text`, using the kept token (`event_id` names the event; a

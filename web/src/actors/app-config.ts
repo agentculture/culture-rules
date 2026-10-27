@@ -1,4 +1,13 @@
-import type { ActorParams, AppActorParams, AppProbe, AppSurface, HttpPolicy, RunnerCommand } from "../api/actors";
+import type {
+  ActorParams,
+  AppActorParams,
+  AppProbe,
+  AppSurface,
+  DiscordCommand,
+  DiscordCommandOption,
+  HttpPolicy,
+  RunnerCommand,
+} from "../api/actors";
 
 /*
  * Pure model behind the Actors tab's app connection / declarations editor and
@@ -119,6 +128,150 @@ export interface ProbeDraft {
   schedule: string;
 }
 
+/* ---------------- Discord application commands (d12) ---------------- */
+
+export const DISCORD_COMMAND_TYPES = ["slash", "message"] as const;
+export const DISCORD_OPTION_KINDS = ["string", "message"] as const;
+
+export interface DiscordOptionDraft {
+  name: string;
+  description: string;
+  kind: (typeof DISCORD_OPTION_KINDS)[number];
+  required: boolean;
+}
+
+export interface DiscordCommandDraft {
+  type: (typeof DISCORD_COMMAND_TYPES)[number];
+  name: string;
+  /** slash only; ignored (never saved) on a message command. */
+  description: string;
+  /** `not_here`: the private answer when no rule handles the command there. */
+  notHere: string;
+  /** slash only; ignored (never saved) on a message command. */
+  options: DiscordOptionDraft[];
+}
+
+export const emptyDiscordCommand = (): DiscordCommandDraft => ({
+  type: "slash",
+  name: "",
+  description: "",
+  notHere: "",
+  options: [],
+});
+
+export const emptyDiscordOption = (): DiscordOptionDraft => ({ name: "", description: "", kind: "string", required: false });
+
+/** The limits app_actor.py enforces on `params.commands`. */
+export const COMMAND_LIMITS = {
+  commands: 10,
+  messageCommands: 5,
+  options: 5,
+  name: 32,
+  description: 100,
+  notHere: 200,
+} as const;
+const SLASH_NAME_RE = /^[a-z0-9_-]{1,32}$/;
+const OPTION_NAME_RE = /^[a-z_][a-z0-9_]{0,31}$/;
+/** Python's keywords (keyword.kwlist): an option's name is the node's callback parameter. */
+const PYTHON_KEYWORDS = new Set(["False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"]);
+/** Length in characters as Python counts them (code points), not UTF-16 units. */
+const charCount = (text: string) => [...text].length;
+
+function discordCommandDraftFrom(c: DiscordCommand): DiscordCommandDraft {
+  return {
+    type: c.type,
+    name: c.name ?? "",
+    description: c.description ?? "",
+    notHere: c.not_here ?? "",
+    options: (c.options ?? []).map((o) => ({
+      name: o.name ?? "",
+      description: o.description ?? "",
+      kind: o.kind ?? "string",
+      required: o.required === true,
+    })),
+  };
+}
+
+function discordCommandFrom(d: DiscordCommandDraft): DiscordCommand {
+  const command: DiscordCommand = { name: d.name.trim(), type: d.type };
+  if (d.type === "slash") {
+    command.description = d.description.trim();
+    const options: DiscordCommandOption[] = d.options.map((o) => ({
+      name: o.name.trim(),
+      description: o.description.trim(),
+      kind: o.kind,
+      required: o.required,
+    }));
+    if (options.length) command.options = options;
+  }
+  const notHere = d.notHere.trim();
+  if (notHere) command.not_here = notHere;
+  return command;
+}
+
+function validateDiscordOptions(options: DiscordOptionDraft[], at: string, errors: FormErrors) {
+  if (options.length > COMMAND_LIMITS.options) errors[`${at}.options`] = `A command takes at most ${COMMAND_LIMITS.options} options.`;
+  const seen = new Set<string>();
+  let messageKinds = 0;
+  let optionalSeen = false;
+  options.forEach((o, j) => {
+    const key = `${at}.options.${j}`;
+    const name = o.name.trim();
+    if (!OPTION_NAME_RE.test(name)) {
+      errors[`${key}.name`] = "Use lowercase letters, digits and underscores, up to 32, not starting with a digit.";
+    } else if (name === "interaction" || PYTHON_KEYWORDS.has(name)) {
+      errors[`${key}.name`] = `${name} is reserved; choose another name.`;
+    }
+    else if (seen.has(name)) errors[`${key}.name`] = "Two options of this command share this name.";
+    seen.add(name);
+    const description = charCount(o.description.trim());
+    if (description === 0) errors[`${key}.description`] = "An option needs a description.";
+    else if (description > COMMAND_LIMITS.description) {
+      errors[`${key}.description`] = `At most ${COMMAND_LIMITS.description} characters.`;
+    }
+    if (o.kind === "message" && ++messageKinds > 1) errors[`${key}.kind`] = "A command takes at most one message option.";
+    if (o.required && optionalSeen) errors[`${key}.required`] = "Put required options before optional ones.";
+    if (!o.required) optionalSeen = true;
+  });
+}
+
+/** Refusals for `params.commands` (app_actor.py), keyed `commands`, `commands.<i>.<field>`, `commands.<i>.options.<j>.<field>`. */
+export function validateDiscordCommands(commands: DiscordCommandDraft[]): FormErrors {
+  const errors: FormErrors = {};
+  const messages = commands.filter((c) => c.type === "message").length;
+  if (commands.length > COMMAND_LIMITS.commands) errors.commands = `An app registers at most ${COMMAND_LIMITS.commands} commands.`;
+  else if (messages > COMMAND_LIMITS.messageCommands) {
+    errors.commands = `An app registers at most ${COMMAND_LIMITS.messageCommands} message commands.`;
+  }
+  const seen = { slash: new Set<string>(), message: new Set<string>() };
+  commands.forEach((c, i) => {
+    const at = `commands.${i}`;
+    if (!DISCORD_COMMAND_TYPES.includes(c.type)) {
+      errors[`${at}.type`] = "Choose slash or message.";
+      return;
+    }
+    const name = c.name.trim();
+    if (c.type === "slash" && !SLASH_NAME_RE.test(name)) {
+      errors[`${at}.name`] = "Use lowercase letters, digits, - and _, up to 32.";
+    } else if (c.type === "message" && (name === "" || charCount(name) > COMMAND_LIMITS.name)) {
+      errors[`${at}.name`] = `Use 1 to ${COMMAND_LIMITS.name} characters.`;
+    } else if (c.type === "message" && name.includes(",")) {
+      errors[`${at}.name`] = "Leave out commas: a rule's Command field lists names with commas.";
+    } else if (seen[c.type].has(name)) errors[`${at}.name`] = `Two ${c.type} commands share this name.`;
+    seen[c.type].add(name);
+    if (c.type === "slash") {
+      const description = charCount(c.description.trim());
+      if (description === 0) errors[`${at}.description`] = "A slash command needs a description.";
+      else if (description > COMMAND_LIMITS.description) {
+        errors[`${at}.description`] = `At most ${COMMAND_LIMITS.description} characters.`;
+      }
+      validateDiscordOptions(c.options, at, errors);
+    }
+    if (charCount(c.notHere.trim()) > COMMAND_LIMITS.notHere) errors[`${at}.not_here`] = `At most ${COMMAND_LIMITS.notHere} characters.`;
+  });
+  return errors;
+}
+
 export interface AppDraft {
   surface: AppSurface | "";
   /** Every connection value as text (lists comma separated). */
@@ -127,6 +280,8 @@ export interface AppDraft {
   actions: string[];
   probes: ProbeDraft[];
   selfIdentity: string;
+  /** discord only: the application commands it registers (`params.commands`). */
+  commands: DiscordCommandDraft[];
 }
 
 export const emptyAppDraft = (): AppDraft => ({
@@ -136,6 +291,7 @@ export const emptyAppDraft = (): AppDraft => ({
   actions: [],
   probes: [],
   selfIdentity: "",
+  commands: [],
 });
 
 const splitList = (text: string): string[] => [
@@ -161,6 +317,7 @@ export function appDraftFrom(params: ActorParams | undefined): AppDraft {
     actions: [...(params.actions ?? [])],
     probes: (params.probes ?? []).map((p) => ({ name: p.name, command: p.command, schedule: p.schedule ?? "" })),
     selfIdentity: params.self_identity ?? "",
+    commands: Array.isArray(params.commands) ? params.commands.map(discordCommandDraftFrom) : [],
   };
 }
 
@@ -205,6 +362,9 @@ export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): A
   else delete next.probes;
   if (draft.selfIdentity.trim()) next.self_identity = draft.selfIdentity.trim();
   else delete next.self_identity;
+  // params.commands is Discord-only on an app actor; empty is left out
+  if (surface === "discord" && draft.commands.length) next.commands = draft.commands.map(discordCommandFrom);
+  else delete next.commands;
   return next;
 }
 
@@ -236,7 +396,6 @@ function connectionFieldError(field: ConnectionField, text: string): string | nu
   return null;
 }
 
-/** Client-side refusals for an app draft, keyed by field path. Empty means sendable. */
 /** Command guild ids must be ids, and among the guild ids when those are set (the node drops others). */
 function commandGuildsError(guildIds: string, commandGuildIds: string): string | undefined {
   const wanted = splitList(commandGuildIds);
@@ -248,6 +407,7 @@ function commandGuildsError(guildIds: string, commandGuildIds: string): string |
   return undefined;
 }
 
+/** Client-side refusals for an app draft, keyed by field path. Empty means sendable. */
 export function validateApp(draft: AppDraft): FormErrors {
   const errors: FormErrors = {};
   if (draft.surface === "") {
@@ -271,6 +431,7 @@ export function validateApp(draft: AppDraft): FormErrors {
     if (probe.name.trim() === "") errors[`probes.${i}.name`] = "A probe needs a name.";
     if (probe.command.trim() === "") errors[`probes.${i}.command`] = "A probe needs a command.";
   });
+  if (draft.surface === "discord") Object.assign(errors, validateDiscordCommands(draft.commands));
   return errors;
 }
 
@@ -326,7 +487,9 @@ export interface CommandDraft {
 export const emptyCommand = (): CommandDraft => ({ name: "", argv: [""], params: [], timeout: "" });
 
 export function commandsFrom(params: ActorParams | undefined): CommandDraft[] {
-  return Object.entries(params?.commands ?? {}).map(([name, spec]) => ({
+  const commands = params?.commands;
+  if (!commands || Array.isArray(commands)) return []; // a list is a Discord app's, not a runner's
+  return Object.entries(commands).map(([name, spec]) => ({
     name,
     argv: [...(spec.argv ?? [])],
     params: Object.entries(spec.params ?? {}).map(([n, type]) => ({ name: n, type })),

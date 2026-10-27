@@ -113,3 +113,27 @@ def test_one_emoji_grammar_for_the_filter_and_the_action():
     assert not emoji_ok("save:99\n")
     assert not emoji_ok("thumbs up")
     assert not emoji_ok("")
+
+
+@pytest.mark.parametrize("command", ["save", ["save", "Save to library"]])
+def test_a_command_filter_is_a_name_or_a_list_of_them(command):
+    assert codes({"command": command}, "discord.command.invoked") == set()
+
+
+@pytest.mark.parametrize("command", [7, "", [""], ["save", 3], {"name": "save"}])
+def test_a_badly_typed_command_filter_is_refused(command):
+    assert codes({"command": command}, "discord.command.invoked") == {"trigger_param_invalid"}
+
+
+def test_only_a_command_trigger_takes_a_command_filter():
+    assert codes({"command": "save"}) == {"trigger_param_invalid"}
+    # review of #106: not on a non-Discord event either, where it would be ignored
+    assert codes({"command": "deploy"}, "github.issue_comment.created") == {"trigger_param_invalid"}
+
+
+def test_trigger_text_names_the_command():
+    trig = Trigger(
+        kind="event",
+        params={"type": "discord.command.invoked", "command": ["save", "Save to library"]},
+    )
+    assert "for command save or Save to library" in trigger_text(trig)

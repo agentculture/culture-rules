@@ -228,8 +228,9 @@ def _discord_admits(
 ) -> bool:
     """Discord filters: ``include_bots`` (default off), ``channels`` (ids; absent, empty or
     ``"all"`` is every channel), and who: ``users`` (ids or names, case-insensitive) and
-    ``roles`` (role ids against ``data.user_roles``), and ``emoji`` (a reaction's emoji,
-    :func:`~culture_rules.model.discord_filters.emoji_admits`). A bare string is a one-item
+    ``roles`` (role ids against ``data.user_roles``), ``emoji`` (a reaction's emoji,
+    :func:`~culture_rules.model.discord_filters.emoji_admits`) and ``command`` (an invoked
+    command's name, case-insensitive, discord-surfaces d12). A bare string is a one-item
     list. With both ``users`` and ``roles`` set, either admits (a listed user, or anyone holding
     a listed role); an event with no author id or name never passes a ``users`` filter, and one
     with no emoji never passes an ``emoji`` filter."""
@@ -242,6 +243,9 @@ def _discord_admits(
         return False
     emoji = filter_values(params.get("emoji"))
     if emoji and not emoji_admits(emoji, data):
+        return False
+    commands = {c.casefold() for c in filter_values(params.get("command"))}
+    if commands and str(data.get("command") or "").casefold() not in commands:
         return False
     users = {u.casefold() for u in filter_values(params.get("users"))}
     roles = set(filter_values(params.get("roles")))

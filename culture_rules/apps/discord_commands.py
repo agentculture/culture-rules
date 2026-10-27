@@ -1,36 +1,37 @@
-"""Discord application commands: the definitions, their hash, the event data and the token.
+"""Discord application commands: their hash, the guilds, the event data and the token.
 
-A Discord ``app`` actor that declares ``discord.command.invoked`` in ``params.events`` gets two
-**guild** commands (guild commands appear at once, global ones can take an hour), registered
-by the node holding its gateway lease (:mod:`culture_rules.apps.discord_gateway`):
+Which commands a bot offers is configuration (discord-surfaces d12): a Discord ``app`` actor
+that declares ``discord.command.invoked`` in ``params.events`` registers the commands its
+``params.commands`` lists (:mod:`culture_rules.model.discord_command_config`), as **guild**
+commands (they appear at once; global ones can take an hour), through the node holding its
+gateway lease (:mod:`culture_rules.apps.discord_gateway`). No command is built in.
 
-- the slash command ``/save``, with one optional string option ``message`` (a message link or
-  a bare message id); without it the event's ``target_message_id`` is ``None``;
-- the message context-menu command ``Save to library`` (right-click a message, Apps).
-
-Both need ``connection.application_id`` (the bot's application id, a literal) and
-``connection.guild_id`` (one id or a list); without either nothing is registered. The
+They need ``connection.application_id`` (the bot's application id, a literal) and
+``connection.guild_id`` (one id or a list); without either, or without commands, nothing is
+registered. The
 optional ``connection.command_guild_id`` (one id or a list) narrows the guilds commands are
 registered in and answered from (:func:`command_guild_ids`); an invocation from any other
-guild is not sunk and is answered :data:`NOT_HERE`. A guild left out that had them is synced
-with no commands, so Discord removes them there, and its sync record is dropped. Changing
-``application_id``, ``command_guild_id`` or ``guild_id`` in a way that moves the commands
-reconnects the gateway, so the change applies at once.
+guild is not sunk and is answered with the command's ``not_here``. A guild left out that had
+them is synced with no commands, so Discord removes them there, and its sync record is
+dropped. Changing
+``application_id``, ``command_guild_id``, ``guild_id`` or ``params.commands`` in a way that
+changes the commands reconnects the gateway, so the change applies at once.
 
 Sync state
 ==========
-A guild is synced only when :func:`definition_hash` (over :data:`DEFINITIONS` and the
-application id) differs from the hash recorded for it in :data:`COMMAND_SYNC_COLLECTION`
+A guild is synced only when :func:`definition_hash` (over the commands in Discord's API shape
+and the application id) differs from the hash recorded for it in :data:`COMMAND_SYNC_COLLECTION`
 (one ``{id: "<actor>:<guild>", actor, guild_id, hash, synced_at}`` document per actor and
 guild), so a reconnect does not sync again. A command deleted by hand in Discord is not
 restored until the definitions change (or the document is deleted).
 
 Event data
 ==========
-:func:`command_data` is the ``data`` of ``discord.command.invoked``: ``command`` (``save`` or
-``Save to library``), ``command_type`` (``slash`` or ``message``), ``options`` (the given
-options by name), ``target_message_id`` and ``target_channel_id`` (the right-clicked message;
-for ``/save`` parsed from the option, :func:`parse_message_ref`), ``interaction_id``,
+:func:`command_data` is the ``data`` of ``discord.command.invoked``: ``command`` (its name, as
+configured; the ``command`` trigger filter matches it), ``command_type`` (``slash`` or
+``message``), ``options`` (the given options by name), ``target_message_id`` and
+``target_channel_id`` (the right-clicked message; for a slash command, its ``kind: message``
+option parsed by :func:`parse_message_ref`), ``interaction_id``,
 ``user_id``, ``username``, ``user_roles``, ``bot``, ``channel_id``, ``guild_id``, and
 ``author_id`` / ``author_name`` (the invoking user, which the ``users`` trigger filter reads).
 
@@ -60,15 +61,11 @@ from culture_rules.apps.discord_rest import guild_ids
 __all__ = [
     "CHAT_INPUT",
     "COMMAND_SYNC_COLLECTION",
-    "DEFINITIONS",
     "INTERACTIONS_COLLECTION",
     "INTERACTIONS_TTL_INDEX",
     "INTERACTION_TOKEN_TTL",
     "MESSAGE",
-    "NOT_HERE",
     "NOT_SAVED",
-    "SAVE_COMMAND",
-    "SAVE_MESSAGE_COMMAND",
     "CommandRegistration",
     "command_data",
     "command_guild_ids",
@@ -86,29 +83,6 @@ __all__ = [
 
 CHAT_INPUT, MESSAGE = 1, 3
 """Discord application command types: a slash command and a message context-menu command."""
-_STRING_OPTION = 3
-
-SAVE_COMMAND = "save"
-SAVE_MESSAGE_COMMAND = "Save to library"
-MESSAGE_OPTION = "message"
-
-DEFINITIONS: tuple[Mapping[str, Any], ...] = (
-    {
-        "type": CHAT_INPUT,
-        "name": SAVE_COMMAND,
-        "description": "Save a message to the library",
-        "options": [
-            {
-                "type": _STRING_OPTION,
-                "name": MESSAGE_OPTION,
-                "description": "A message link or id",
-                "required": False,
-            }
-        ],
-    },
-    {"type": MESSAGE, "name": SAVE_MESSAGE_COMMAND},
-)
-"""The commands registered per guild, in Discord's API shape (the hash is taken over this)."""
 
 COMMAND_SYNC_COLLECTION = "discord_command_sync"
 INTERACTIONS_COLLECTION = "discord_interactions"
@@ -122,14 +96,9 @@ _LINK = re.compile(
 _ID = re.compile(r"^\d{1,25}$")
 
 
-NOT_HERE = "This channel is not set up to save messages."
-"""The private answer to a command whose event was not written (no rule selects the channel,
-or the bot keeps out of it), instead of leaving it "thinking" until Discord drops it."""
-
-
-NOT_SAVED = "Could not save this right now. Try again in a minute."
+NOT_SAVED = "Could not take this right now. Try again in a minute."
 """The private answer to a command whose event was admitted but could not be written (the
-store failed every attempt): not the channel's fault, so not :data:`NOT_HERE`."""
+store failed every attempt): not the channel's fault, so not the command's ``not_here``."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -138,12 +107,13 @@ class CommandRegistration:
 
     ``invoke`` takes one raw invocation (a mapping with the :func:`command_data` keys plus
     ``token`` and ``application_id``) and says whether its event was written: ``True``,
-    ``False`` when no rule or filter admits it (answered at once with :data:`NOT_HERE`), or
-    ``None`` when writing it failed (answered with :data:`NOT_SAVED`); ``needs_sync(guild)``
-    says whether the guild's commands must be synced, and ``synced(guild)`` records that they
-    were. ``withdrawn`` are guilds synced before but no longer among ``guild_ids``: each is
-    synced with no commands (Discord drops them there), then ``forgotten(guild)`` deletes its
-    record. ``actor_id`` is for logs."""
+    ``False`` when no rule or filter admits it (answered at once with the command's
+    ``not_here``), or ``None`` when writing it failed (answered with :data:`NOT_SAVED`);
+    ``needs_sync(guild)`` says whether the guild's commands must be synced, and
+    ``synced(guild)`` records that they were. ``commands`` are the actor's valid
+    ``params.commands``. ``withdrawn`` are guilds synced before but no longer among
+    ``guild_ids``: each is synced with no commands (Discord drops them there), then
+    ``forgotten(guild)`` deletes its record. ``actor_id`` is for logs."""
 
     actor_id: str
     application_id: str
@@ -151,14 +121,12 @@ class CommandRegistration:
     invoke: Callable[[Mapping[str, Any]], bool | None]
     needs_sync: Callable[[str], bool]
     synced: Callable[[str], None]
-    definitions: tuple[Mapping[str, Any], ...] = DEFINITIONS
+    commands: tuple[Mapping[str, Any], ...] = ()
     withdrawn: tuple[str, ...] = ()
     forgotten: Callable[[str], None] = lambda _guild: None
 
 
-def definition_hash(
-    application_id: str, definitions: Iterable[Mapping[str, Any]] = DEFINITIONS
-) -> str:
+def definition_hash(application_id: str, definitions: Iterable[Mapping[str, Any]]) -> str:
     """The sha256 of the definitions and the application id, in a canonical JSON form."""
     body = json.dumps(
         {"application_id": str(application_id), "commands": list(definitions)},

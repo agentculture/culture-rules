@@ -14,16 +14,35 @@ import pytest
 from culture_rules.apps import discord_commands as dc
 from culture_rules.apps import discord_gateway as dg
 from culture_rules.events.hook_sink import event_id_for
+from culture_rules.model.discord_command_config import DEFAULT_NOT_HERE, definitions
 from culture_rules.store.memory import MemoryStore
 from tests.apps.discord_fakes import eventually, interaction
 from tests.apps.test_discord_gateway import EVENT, Rig, discord_actor, discord_rule
 
 COMMAND = "discord.command.invoked"
 APP_ID = "777000"
+SAVE = {
+    "name": "save",
+    "type": "slash",
+    "description": "Save a message to the library",
+    "options": [{"name": "message", "description": "A message link or id", "kind": "message"}],
+}
+MENU = {"name": "Save to library", "type": "message"}
+COMMANDS = (SAVE, MENU)
 
 
-def command_actor(*, app_id=APP_ID, guild="1", events=(EVENT, COMMAND), command_guild=None, **kw):
+def command_actor(
+    *,
+    app_id=APP_ID,
+    guild="1",
+    events=(EVENT, COMMAND),
+    command_guild=None,
+    commands=COMMANDS,
+    **kw,
+):
     doc = discord_actor(events=events, guild=guild, **kw)
+    if commands is not None:
+        doc["params"]["commands"] = [dict(c) for c in commands]
     if app_id is not None:
         doc["params"]["connection"]["application_id"] = app_id
     if command_guild is not None:
@@ -49,22 +68,20 @@ def rig():
 # ---------------------------------------------------------------- definitions
 
 
-def test_the_definitions_are_save_and_a_save_to_library_message_command():
-    by_type = {d["type"]: d for d in dc.DEFINITIONS}
-    assert by_type[dc.CHAT_INPUT]["name"] == "save" == dc.SAVE_COMMAND
-    assert by_type[dc.MESSAGE]["name"] == "Save to library" == dc.SAVE_MESSAGE_COMMAND
-    (option,) = by_type[dc.CHAT_INPUT]["options"]
-    assert option["name"] == "message"
-    assert option["required"] is False
+def test_no_command_is_built_in():
+    # d12: which commands a bot offers is configuration (params.commands), never code
+    assert not hasattr(dc, "DEFINITIONS")
+    assert not hasattr(dc, "SAVE_COMMAND")
+    assert "save" not in dc.NOT_SAVED.casefold()
 
 
-def test_the_definition_hash_is_stable_and_covers_the_application_id():
-    first, again = dc.definition_hash(APP_ID), dc.definition_hash(APP_ID)
+def test_the_definition_hash_is_stable_and_covers_the_application_id_and_commands():
+    defs = definitions(COMMANDS)
+    first, again = dc.definition_hash(APP_ID, defs), dc.definition_hash(APP_ID, defs)
     assert first == again
-    assert dc.definition_hash(APP_ID) != dc.definition_hash("778000")
-    changed = [dict(d) for d in dc.DEFINITIONS]
-    changed[0]["description"] = "something else"
-    assert dc.definition_hash(APP_ID, changed) != dc.definition_hash(APP_ID)
+    assert dc.definition_hash("778000", defs) != first
+    changed = definitions([{**SAVE, "description": "something else"}, MENU])
+    assert dc.definition_hash(APP_ID, changed) != first
 
 
 @pytest.mark.parametrize(
@@ -180,7 +197,7 @@ def test_the_holder_registers_per_guild_and_reconnects_do_not_resync(rig):
     time.sleep(0.05)
     assert sorted(r.hub.syncs) == [("spark", "1"), ("spark", "2")]
     state = r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1")
-    assert state["hash"] == dc.definition_hash(APP_ID)
+    assert state["hash"] == dc.definition_hash(APP_ID, definitions(COMMANDS))
 
 
 @pytest.mark.parametrize(
@@ -293,7 +310,9 @@ def test_a_changed_definition_hash_resyncs(rig):
     )
     r.sup.tick()
     assert eventually(lambda: r.hub.syncs == [("spark", "1")])
-    assert r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1")["hash"] == dc.definition_hash(APP_ID)
+    assert r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1")["hash"] == dc.definition_hash(
+        APP_ID, definitions(COMMANDS)
+    )
 
 
 def test_without_an_application_id_or_guild_no_commands_are_registered(rig, caplog):
@@ -321,6 +340,50 @@ def test_without_an_application_id_or_guild_no_commands_are_registered(rig, capl
     r3.sup.tick()
     assert eventually(lambda: r3.hub.live_now() == ["spark"])
     assert set(r3.hub.registrations) == {None}
+
+
+def test_an_actor_with_no_commands_registers_nothing_and_says_so(rig, caplog):
+    caplog.set_level(logging.INFO, logger="culture_rules.apps.discord_gateway")
+    r = rig()
+    r.store.put("actors", command_actor(commands=None))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    assert set(r.hub.registrations) == {None}
+    assert any("params.commands" in m for m in caplog.messages)
+
+
+def test_removing_every_command_withdraws_them_where_they_were(rig):
+    r = rig()
+    r.store.put("actors", command_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "1")])
+    r.store.put("actors", command_actor(commands=[]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.withdrawals == [("spark", "1")])
+    assert r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1") is None
+
+
+def test_dropping_the_command_event_withdraws_the_commands(rig):
+    # review of #106: a bot that stops declaring commands must not leave dead ones behind
+    r = rig()
+    r.store.put("actors", command_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "1")])
+    r.store.put("actors", command_actor(events=(EVENT,)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.withdrawals == [("spark", "1")])
+    assert r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1") is None
+
+
+def test_editing_the_commands_reconnects_and_resyncs(rig):
+    r = rig()
+    r.store.put("actors", command_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "1")])
+    r.store.put("actors", command_actor(commands=[MENU]))
+    r.sup.tick()
+    assert eventually(lambda: len(r.hub.syncs) == 2 and r.hub.live_now() == ["spark"])
+    assert r.hub.registrations[-1].commands == (MENU,)
 
 
 def test_an_actor_not_declaring_the_command_event_registers_nothing(rig):
@@ -431,11 +494,12 @@ def _fake_interaction(order, *, token):
     )
 
 
-def _registration(invoked, *, need=lambda g: True, synced=None):
+def _registration(invoked, *, need=lambda g: True, synced=None, commands=COMMANDS):
     return dc.CommandRegistration(
         actor_id="bot",
         application_id=APP_ID,
         guild_ids=("1", "2"),
+        commands=tuple(commands),
         invoke=invoked,
         needs_sync=need,
         synced=synced or (lambda g: None),
@@ -511,6 +575,72 @@ def test_a_slash_command_defers_then_passes_its_option():
     assert raw["target_message_id"] is None
 
 
+def test_the_tree_holds_exactly_the_configured_commands():
+    discord = pytest.importorskip("discord")
+    digest = {
+        "name": "digest",
+        "type": "slash",
+        "description": "Post a digest",
+        "options": [
+            {"name": "topic", "description": "What about", "required": True},
+            {"name": "since", "description": "From when"},
+        ],
+    }
+    pin = {"name": "Pin it", "type": "message"}
+    tree = dg.build_command_tree(
+        _client(), _registration(lambda _raw: None, commands=[digest, pin])
+    )
+    cmds = {c.name: c for c in tree.get_commands(guild=discord.Object(1))}
+    assert set(cmds) == {"digest", "Pin it"}
+    assert [(p.name, p.required) for p in cmds["digest"].parameters] == [
+        ("topic", True),
+        ("since", False),
+    ]
+    assert cmds["digest"].parameters[0].description == "What about"
+    assert cmds["Pin it"].type == discord.AppCommandType.message
+
+
+def test_a_slash_command_passes_string_options_and_no_target():
+    discord = pytest.importorskip("discord")
+    order: list = []
+    digest = {
+        "name": "digest",
+        "type": "slash",
+        "description": "Post a digest",
+        "options": [{"name": "topic", "description": "What about", "required": True}],
+    }
+    tree = dg.build_command_tree(
+        _client(), _registration(lambda raw: order.append(("invoke", dict(raw))), commands=[digest])
+    )
+    cmd = tree.get_command("digest", guild=discord.Object(1))
+    asyncio.run(cmd.callback(_fake_interaction(order, token="t"), topic="jetson"))
+    raw = order[1][1]
+    assert (raw["command"], raw["options"]) == ("digest", {"topic": "jetson"})
+    assert raw["target_message_id"] is None
+
+
+def test_a_command_that_cannot_be_built_is_skipped_not_fatal(caplog):
+    # review of #106: one bad command must not take the bot's listener down
+    discord = pytest.importorskip("discord")
+    bad = {**SAVE, "name": "bad", "options": [{"name": "from", "description": "x"}]}
+    tree = dg.build_command_tree(_client(), _registration(lambda _raw: None, commands=[bad, MENU]))
+    assert {c.name for c in tree.get_commands(guild=discord.Object(1))} == {"Save to library"}
+    assert any("bad" in m and "skipped" in m for m in caplog.messages)
+
+
+def test_a_slash_command_with_no_options_takes_none():
+    discord = pytest.importorskip("discord")
+    order: list = []
+    ping = {"name": "ping", "type": "slash", "description": "Ping"}
+    tree = dg.build_command_tree(
+        _client(), _registration(lambda raw: order.append(("invoke", dict(raw))), commands=[ping])
+    )
+    cmd = tree.get_command("ping", guild=discord.Object(1))
+    assert cmd.parameters == []
+    asyncio.run(cmd.callback(_fake_interaction(order, token="t")))
+    assert order[1][1]["options"] == {}
+
+
 def test_a_withdrawn_guild_is_synced_empty_then_forgotten():
     pytest.importorskip("discord")
     forgotten: list[str] = []
@@ -518,6 +648,7 @@ def test_a_withdrawn_guild_is_synced_empty_then_forgotten():
         actor_id="bot",
         application_id=APP_ID,
         guild_ids=("2",),
+        commands=COMMANDS,
         invoke=lambda _raw: None,
         needs_sync=lambda g: False,
         synced=lambda g: None,
@@ -585,7 +716,17 @@ def test_an_invocation_that_is_not_written_is_answered_at_once():
     target = types.SimpleNamespace(id=9001, channel=types.SimpleNamespace(id=100))
     asyncio.run(menu.callback(_answering_interaction(order, token="t"), target))
     assert [kind for kind, _ in order] == ["defer", "edit"]
-    assert order[1][1] == {"content": dc.NOT_HERE}
+    assert order[1][1] == {"content": DEFAULT_NOT_HERE}
+
+
+def test_a_command_s_own_not_here_answer_is_used():
+    discord = pytest.importorskip("discord")
+    order: list = []
+    own = {**SAVE, "not_here": "Use #library for this."}
+    tree = dg.build_command_tree(_client(), _registration(lambda raw: False, commands=[own]))
+    cmd = tree.get_command("save", guild=discord.Object(1))
+    asyncio.run(cmd.callback(_answering_interaction(order, token="t")))
+    assert order[1][1] == {"content": "Use #library for this."}
 
 
 def test_a_written_invocation_is_left_for_the_flow_to_answer():

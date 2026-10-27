@@ -179,3 +179,40 @@ def test_the_variation_selector_does_not_split_one_emoji():
 
 def test_a_skin_tone_is_a_different_emoji():
     assert not trigger_matches(rtrig(emoji="👍"), react(emoji_name="👍🏽"))
+
+
+# --- d12: the command filter picks a flow's command ------------------------------------
+
+COMMAND = "discord.command.invoked"
+
+
+def ctrig(**params) -> Trigger:
+    return Trigger(kind="event", params={"type": COMMAND, **params})
+
+
+def invoked(command: str = "save", **data) -> dict:
+    base = {"command": command, "channel_id": "20", "author_id": "30", "bot": False}
+    base.update(data)
+    return {"kind": "event", "type": COMMAND, "data": base}
+
+
+def test_no_command_filter_matches_every_command():
+    assert trigger_matches(ctrig(), invoked("save"))
+    assert trigger_matches(ctrig(), invoked("Save to library"))
+
+
+def test_a_command_filter_matches_its_commands_only():
+    assert trigger_matches(ctrig(command="save"), invoked("save"))
+    assert not trigger_matches(ctrig(command="save"), invoked("digest"))
+    assert trigger_matches(ctrig(command=["save", "Save to library"]), invoked("Save to library"))
+
+
+def test_a_command_filter_ignores_case():
+    # review of #106: slash names are lowercase; "Save" in a rule must not silently miss
+    assert trigger_matches(ctrig(command="Save"), invoked("save"))
+    assert trigger_matches(ctrig(command="save to library"), invoked("Save to library"))
+    assert not trigger_matches(ctrig(command="sav"), invoked("save"))
+
+
+def test_a_command_filter_admits_no_event_without_a_command():
+    assert not trigger_matches(ctrig(command="save"), invoked(None))

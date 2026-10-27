@@ -73,6 +73,7 @@ the extra never starves one that has it.
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import threading
 import time
@@ -95,6 +96,7 @@ from culture_rules.events.hook_sink import (
     event_id_for,
     sink,
 )
+from culture_rules.model.discord_command_config import command_problems, definitions, not_here
 from culture_rules.model.discord_filters import discord_channels, filter_values
 from culture_rules.model.rule import Rule
 
@@ -257,82 +259,137 @@ def _interaction_dict(
     }
 
 
-def _definition(registration: commands_mod.CommandRegistration, type_: int) -> Mapping[str, Any]:
-    return next(d for d in registration.definitions if d["type"] == type_)
+def _slash_target(
+    command: Mapping[str, Any], given: Mapping[str, Any], interaction: Any
+) -> tuple[str | None, str | None]:
+    """``(target_channel_id, target_message_id)`` from the command's ``kind: message`` option:
+    a link names its channel; a bare id is in the channel the command was used in."""
+    for option in command.get("options") or ():
+        if option.get("kind") == "message" and given.get(option["name"]) is not None:
+            channel, target = commands_mod.parse_message_ref(given[option["name"]])
+            if target is not None and channel is None:
+                channel = _channel(interaction)
+            return channel, target
+    return None, None
 
 
-def build_command_tree(client: Any, registration: commands_mod.CommandRegistration) -> Any:
-    """A discord.py ``CommandTree`` on ``client`` holding the ``/save`` and ``Save to library``
-    commands in each guild of ``registration``. Each callback defers the interaction
-    (ephemeral, "thinking") *before* handing it to ``registration.invoke``."""
-    import asyncio  # noqa: PLC0415
+def _slash_callback(
+    discord: Any, command: Mapping[str, Any], registration: Any, hand_over: Callable
+) -> Any:
+    """A slash command's callback, its signature generated from the configured options:
+    discord.py reads each option's name, type and whether it is required from it."""
+    import inspect  # noqa: PLC0415
     from typing import Optional  # noqa: PLC0415
 
-    import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
-    from discord import app_commands  # noqa: PLC0415
-
-    slash = _definition(registration, commands_mod.CHAT_INPUT)
-    menu = _definition(registration, commands_mod.MESSAGE)
-    (option,) = slash["options"]
-    if option["name"] != "message":  # the callback's parameter is the option's name
-        raise ValueError("the /save option must be named 'message'")
-
-    async def hand_over(interaction: Any, raw: dict[str, Any]) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)  # within Discord's 3 s
-        written = await asyncio.to_thread(registration.invoke, raw)
-        if written is True:
-            return  # the flow answers it (discord.reply)
-        # no flow will answer it: say why now, not "thinking" until Discord drops it
-        answer = commands_mod.NOT_HERE if written is False else commands_mod.NOT_SAVED
-        try:
-            await interaction.edit_original_response(content=answer)
-        except Exception as exc:  # noqa: BLE001 - the answer is a courtesy; type logged
-            log.warning(
-                "discord gateway %s: answering an unsaved command failed (%s)",
-                registration.actor_id,
-                type(exc).__name__,
-            )
-
-    async def save(interaction, message=None):  # annotated below, for discord.py
-        channel, target = commands_mod.parse_message_ref(message)
+    async def callback(interaction: Any, **values: Any) -> None:
+        given = {k: v for k, v in values.items() if v is not None}
+        channel, target = _slash_target(command, given, interaction)
         raw = _interaction_dict(
             interaction,
             registration,
-            command=slash["name"],
+            command=command["name"],
             command_type="slash",
-            options={} if message is None else {option["name"]: message},
+            options=given,
             target_message_id=target,
-            target_channel_id=channel or (None if target is None else _channel(interaction)),
+            target_channel_id=channel,
         )
-        await hand_over(interaction, raw)
+        await hand_over(interaction, raw, not_here(command))
 
-    async def save_message(interaction, message):  # annotated below, for discord.py
+    keyword = inspect.Parameter.POSITIONAL_OR_KEYWORD
+    params = [inspect.Parameter("interaction", keyword, annotation=discord.Interaction)]
+    for option in command.get("options") or ():
+        required = option.get("required") is True
+        params.append(
+            inspect.Parameter(
+                option["name"],
+                keyword,
+                default=inspect.Parameter.empty if required else None,
+                annotation=str if required else Optional[str],
+            )
+        )
+    callback.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
+    callback.__annotations__ = {p.name: p.annotation for p in params}
+    described = {o["name"]: o["description"] for o in command.get("options") or ()}
+    if described:
+        callback = discord.app_commands.describe(**described)(callback)
+    return callback
+
+
+def _menu_callback(
+    discord: Any, command: Mapping[str, Any], registration: Any, hand_over: Callable
+) -> Any:
+    """A message command's callback: the right-clicked message is its target."""
+
+    async def callback(interaction: Any, message: Any) -> None:
         raw = _interaction_dict(
             interaction,
             registration,
-            command=menu["name"],
+            command=command["name"],
             command_type="message",
             options={},
             target_message_id=str(message.id),
             target_channel_id=str(message.channel.id),
         )
-        await hand_over(interaction, raw)
+        await hand_over(interaction, raw, not_here(command))
 
-    # real classes, not strings: discord.py introspects the callbacks' annotations
-    save.__annotations__ = {"interaction": discord.Interaction, "message": Optional[str]}
-    save_message.__annotations__ = {"interaction": discord.Interaction, "message": discord.Message}
-    save = app_commands.describe(message=option["description"])(save)
+    # real classes, not strings: discord.py introspects the callback's annotations
+    callback.__annotations__ = {"interaction": discord.Interaction, "message": discord.Message}
+    return callback
+
+
+def build_command_tree(client: Any, registration: commands_mod.CommandRegistration) -> Any:
+    """A discord.py ``CommandTree`` on ``client`` holding the actor's configured commands
+    (``registration.commands``, discord-surfaces d12) in each guild of ``registration``. Each
+    callback defers the interaction (ephemeral, "thinking") *before* handing it to
+    ``registration.invoke``; an invocation no rule takes is answered with its ``not_here``."""
+    import asyncio  # noqa: PLC0415
+
+    import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
+    from discord import app_commands  # noqa: PLC0415
+
+    async def hand_over(interaction: Any, raw: dict[str, Any], answer_not_here: str) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)  # within Discord's 3 s
+        written = await asyncio.to_thread(registration.invoke, raw)
+        if written is True:
+            return  # the flow answers it (discord.reply)
+        # no flow will answer it: say why now, not "thinking" until Discord drops it
+        answer = answer_not_here if written is False else commands_mod.NOT_SAVED
+        try:
+            await interaction.edit_original_response(content=answer)
+        except Exception as exc:  # noqa: BLE001 - the answer is a courtesy; type logged
+            log.warning(
+                "discord gateway %s: answering an unhandled command failed (%s)",
+                registration.actor_id,
+                type(exc).__name__,
+            )
 
     tree = app_commands.CommandTree(client)
     guilds = [discord.Object(int(g)) for g in registration.guild_ids]
-    tree.add_command(
-        app_commands.Command(name=slash["name"], description=slash["description"], callback=save),
-        guilds=guilds,
-    )
-    tree.add_command(
-        app_commands.ContextMenu(name=menu["name"], callback=save_message), guilds=guilds
-    )
+    for command in registration.commands:
+        try:
+            built = _app_command(app_commands, discord, command, registration, hand_over)
+            tree.add_command(built, guilds=guilds)
+        except Exception as exc:  # noqa: BLE001 - one bad command must not stop the listener
+            log.warning(
+                "discord gateway %s: command %r skipped, it cannot be built (%s)",
+                registration.actor_id,
+                command.get("name"),
+                type(exc).__name__,
+            )
     return tree
+
+
+def _app_command(
+    app_commands: Any, discord: Any, command: Mapping[str, Any], registration: Any, hand_over: Any
+) -> Any:
+    """One configured command as a discord.py command object."""
+    if command["type"] == "message":
+        menu = _menu_callback(discord, command, registration, hand_over)
+        return app_commands.ContextMenu(name=command["name"], callback=menu)
+    slash = _slash_callback(discord, command, registration, hand_over)
+    return app_commands.Command(
+        name=command["name"], description=command["description"], callback=slash
+    )
 
 
 def _channel(interaction: Any) -> str | None:
@@ -573,20 +630,24 @@ def _view(doc: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[str, Any]]
     return params, connection if isinstance(connection, Mapping) else {}
 
 
-_NO_COMMANDS: tuple[str, frozenset[str]] = ("", frozenset())
+_CommandKey = tuple[str, frozenset[str], str]
 
 
-def _command_key(doc: Mapping[str, Any]) -> tuple[str, frozenset[str]]:
-    """Where an actor's commands go: (application id, guilds), or :data:`_NO_COMMANDS` when it
-    does not declare ``discord.command.invoked``. The id is ``""`` when unset or not numeric."""
+def _command_key(doc: Mapping[str, Any]) -> _CommandKey:
+    """What an actor's commands are and where they go: (application id, guilds, its
+    ``params.commands`` as canonical JSON). An actor not declaring ``discord.command.invoked``
+    has no guilds and ``""`` for the JSON. The id is ``""`` when unset or not numeric."""
     params, connection = _view(doc)
-    if COMMAND_EVENT not in (params.get("events") or ()):
-        return _NO_COMMANDS
     app_id = str(connection.get("application_id") or "").strip()
+    app_id = app_id if app_id.isdigit() else ""
+    if COMMAND_EVENT not in (params.get("events") or ()):
+        # no commands, but the id is kept: commands synced before are withdrawn with it
+        return (app_id, frozenset(), "")
     guilds = commands_mod.command_guild_ids(
         connection.get("guild_id"), connection.get("command_guild_id")
     )
-    return (app_id if app_id.isdigit() else "", guilds)
+    configured = json.dumps(params.get("commands"), sort_keys=True, default=str)
+    return (app_id, guilds, configured)
 
 
 class _Session:
@@ -606,7 +667,7 @@ class _Session:
         self.stamped_at: float | None = None
         # where this connection registered commands (set on connect): the one source for
         # which guilds an invocation is answered from, and what a config edit is compared to
-        self.command_key: tuple[str, frozenset[str]] | None = None
+        self.command_key: _CommandKey | None = None
 
     def snapshot(self) -> Mapping[str, Any]:
         with self.lock:
@@ -892,42 +953,55 @@ class GatewaySupervisor:
     def _warn_commands_once(self, actor_id: str, missing: str) -> None:
         if (actor_id, missing) not in self._command_warned:
             self._command_warned.add((actor_id, missing))
+            what = (
+                "params.commands lists none, or is invalid"
+                if missing == "commands"
+                else f"connection.{missing} is unset or not an id"
+            )
             log.warning(
-                "discord gateway %s: discord.command.invoked is declared but "
-                "connection.%s is unset or not an id; commands are not registered",
+                "discord gateway %s: discord.command.invoked is declared but %s; "
+                "commands are not registered",
                 actor_id,
-                missing,
+                what,
             )
 
     def _registration(self, session: _Session) -> commands_mod.CommandRegistration | None:
         """The commands to register on this connect: only for an actor declaring
-        ``discord.command.invoked`` with ``connection.application_id`` and ``guild_id`` set
+        ``discord.command.invoked`` with valid ``params.commands`` (d12) and
+        ``connection.application_id`` and ``guild_id`` set
         (a missing or non-numeric one is logged once), in the guilds ``command_guild_id``
         narrows them to."""
         doc = session.snapshot()
         key = _command_key(doc)
         with session.lock:
             session.command_key = key
-        if key == _NO_COMMANDS:
-            return None
-        app_id, guilds = key
-        _, connection = _view(doc)
-        if not app_id:  # unset, or not an id discord.py can take
-            self._warn_commands_once(session.actor_id, "application_id")
-            return None
-        if not guilds:
-            narrowed = guild_ids(connection.get("command_guild_id")) is not None
-            self._warn_commands_once(
-                session.actor_id, "command_guild_id" if narrowed else "guild_id"
-            )
-            return None
+        app_id, guilds, configured = key
+        declared = configured != ""
+        params, connection = _view(doc)
         actor_id = session.actor_id
-        digest = commands_mod.definition_hash(app_id)
+        if not app_id:  # unset, or not an id discord.py can take: nothing can be synced
+            if declared:
+                self._warn_commands_once(actor_id, "application_id")
+            return None
+        commands = (params.get("commands") or []) if declared else []
+        if declared and not guilds:
+            narrowed = guild_ids(connection.get("command_guild_id")) is not None
+            self._warn_commands_once(actor_id, "command_guild_id" if narrowed else "guild_id")
+            commands = []
+        elif declared and (not commands or command_problems(commands)):
+            self._warn_commands_once(actor_id, "commands")
+            commands = []
+        if not commands:
+            guilds = frozenset()  # none here; any registered before are withdrawn
         withdrawn = commands_mod.synced_guilds(self._store, actor_id) - guilds
+        if not commands and not withdrawn:
+            return None
+        digest = commands_mod.definition_hash(app_id, definitions(commands))
         return commands_mod.CommandRegistration(
             actor_id=actor_id,
             application_id=app_id,
             guild_ids=tuple(sorted(guilds)),
+            commands=tuple(commands),
             invoke=lambda raw: self._on_command(session, raw),
             needs_sync=lambda g: commands_mod.sync_needed(self._store, actor_id, g, digest),
             synced=lambda g: commands_mod.record_sync(

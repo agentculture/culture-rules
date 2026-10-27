@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-27T07:27:18Z",
+  "updated": "2026-10-27T07:49:32Z",
   "claims": [
     {
       "id": "c1",
@@ -1219,6 +1219,18 @@
       "refs": [
         "tests/apps/test_discord_commands.py",
         "pyproject.toml"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l13",
+      "code": "control-absent",
+      "what": "d12 editor task agent: six of its new vitest cases (no commands written for a non-Discord surface, the stored example accepted, no description asked of a message command, left-over options ignored on a message command, commands unchecked on another surface, no command field on message/reaction triggers) passed before any implementation existed: negative guards never seen red",
+      "skipped_check": "seeing each new test fail before implementing",
+      "refs": [
+        "web/src/actors/AppConfigForm.commands.test.tsx",
+        "web/src/rules/TriggerPicker.discord.test.tsx"
       ],
       "origin": "llm",
       "status": "approved"
