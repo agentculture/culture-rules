@@ -130,9 +130,10 @@ Semantics
   adds nothing, so a ``skipped`` entry may hold ``errors == {}``. A failed body step still
   fails the loop. ``config.collect`` (``{name: "<body step id>.<output>"}``, validated
   against the loop's body when the workflow is saved or a run starts) adds each name to every
-  entry with that body step's output, copied as is (so collect scalars), ``None`` when the
-  step did not output it (a skipped step outputs nothing). An entry never holds a body
-  step's whole outputs. Without an ``outcomes`` port the loop records no outcomes.
+  entry with that body step's output when it is a scalar (a string, number, boolean or
+  null), ``None`` when it is a list or an object or the step did not output it (a skipped
+  step outputs nothing), so an entry never holds a body step's whole outputs or a large
+  value. Without an ``outcomes`` port the loop records no outcomes.
 * **Wait steps** - ``config["seconds"]`` parks the step as ``sleeping`` until
   ``deadline``; any engine whose tick finds it due wakes it with a compare-and-set, so it
   completes once however many nodes restart. With ``config["guard"]`` = ``head_unchanged``
@@ -256,7 +257,7 @@ from culture_rules.model.common import RetryPolicy
 from culture_rules.model.placement import Placement
 from culture_rules.model.refs import LITERAL_KEY, resolve_refs, var_name
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
-from culture_rules.model.validate import validate
+from culture_rules.model.validate import OUTCOMES_PORT, validate
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import LOOP_KINDS, Port, Step, Workflow
 from culture_rules.store.port import Document, StoragePort, StoreOps
@@ -2544,8 +2545,8 @@ def _spawn(new: dict, loop_step: Step, iteration: int) -> None:
         new["steps"].append(state)
 
 
-OUTCOMES_PORT = "outcomes"
-"""A ``for_each`` loop's output port that lists each iteration's outcome (#97 t7, d4)."""
+_SCALARS = (str, int, float, bool)
+"""What ``config.collect`` copies into an outcome; anything else is recorded as ``None``."""
 
 
 def _wants_outcomes(step: Step) -> bool:
@@ -2567,7 +2568,8 @@ def _outcome(step: Step, body: list[dict], index: int, item: Any) -> dict[str, A
         outputs = {b["def"]: b.get("outputs") or {} for b in body}
         for name, path in collect.items():
             source, _, output = str(path).partition(".")
-            entry[name] = outputs.get(source, {}).get(output)
+            value = outputs.get(source, {}).get(output)
+            entry[name] = value if value is None or isinstance(value, _SCALARS) else None
     return entry
 
 

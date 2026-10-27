@@ -230,6 +230,20 @@ def test_collect_keeps_the_entry_keys_plus_its_names(store, clock):
     assert sorted(only) == [ERRORS, "index", "item", "n", "p", STATUS]
 
 
+def test_collect_records_a_list_output_as_null(store, clock):
+    body = (
+        step(FETCH, inputs=(port("item"),), outputs=(port("path", ARRAY),), config=dict(SKIP)),
+        step(COUNT, inputs=(port("path", ARRAY),), outputs=(port(COUNT, "integer"),)),
+    )
+    loop = _loop(config={"collect": {"p": "fetch.path"}}, body=body)
+    actor = FakeActor()
+    actor.on("list", ("complete", {ITEMS: ["a"]}))
+    actor.on(step_key(EACH, 0, FETCH), ("complete", {"path": ["a", "b"]}))
+    actor.on(step_key(EACH, 0, COUNT), ("complete", {COUNT: 2}))
+    (only,) = step_state(_run(store, clock, actor, _wf(loop)), EACH)["outputs"][OUTCOMES]
+    assert only["p"] is None
+
+
 # --------------------------------------------------------------------------- unchanged
 
 

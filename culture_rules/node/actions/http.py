@@ -56,7 +56,9 @@ is absolute, ``save_roots`` is a non-empty list of absolute paths, and ``save_to
 (normalised: ``.``/``..`` and trailing slashes folded) **equals** one listed root (normalised
 the same way) - a directory under a root is not accepted. The root must be an existing
 directory with no symlink anywhere in its path (``os.path.realpath`` must change nothing, and
-it is opened ``O_NOFOLLOW | O_DIRECTORY``). A ``save_to`` that is not a non-empty string is
+it is opened ``O_NOFOLLOW | O_DIRECTORY``). These checks are made once, before the request: a
+symlink swapped onto the root afterwards, by someone who can already write to the root's
+parent, is not detected. A ``save_to`` that is not a non-empty string is
 ``invalid_request``; a bad ``save_max_bytes`` is ``invalid_request``.
 
 The answer's status is handled as above (a 4xx/5xx is never saved). A 2xx is saved only when
@@ -160,7 +162,7 @@ OpenerFactory = Callable[[str], Any]
 
 
 # ``<word> grant:<NAME>``: one word, one space, one reference (no further spaces).
-_WORD_GRANT = re.compile(r"([A-Za-z][A-Za-z0-9._-]*) (grant:\S*)")
+_WORD_GRANT = re.compile(r"([A-Za-z][A-Za-z0-9._-]*) (" + re.escape(GRANT_SCHEME) + r":\S*)")
 
 
 class RedirectRefused(Exception):
