@@ -509,6 +509,43 @@ def test_epub_without_a_package_reads_every_page():
     assert [s["heading"] for s in out["sections"]] == ["A", "B"]
 
 
+def _book_with_spine(spine):
+    """chapter1..chapter10 under OEBPS/, listed in ``spine`` order (ids c1..c10)."""
+    buffer = io.BytesIO()
+    items = "".join(
+        f'<item id="c{n}" href="chapter{n}.xhtml" media-type="application/xhtml+xml"/>'
+        for n in range(1, 11)
+    )
+    refs = "".join(f'<itemref idref="c{n}"/>' for n in spine)
+    with zipfile.ZipFile(buffer, "w") as book:
+        book.writestr(
+            "META-INF/container.xml",
+            '<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles>'
+            "</container>",
+        )
+        book.writestr(
+            "OEBPS/content.opf",
+            f"<package><manifest>{items}</manifest><spine>{refs}</spine></package>",
+        )
+        for n in range(1, 11):
+            book.writestr(f"OEBPS/chapter{n}.xhtml", f"<h2>Chapter {n}</h2><p>text</p>")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+def test_epub_pages_are_read_in_spine_order_not_name_order():
+    data = _book_with_spine(range(1, 11))
+    out = completed({"content_base64": data}, {**EXCERPT, "split_on": 2})
+    assert [s["heading"] for s in out["sections"]] == [f"Chapter {n}" for n in range(1, 11)]
+
+
+def test_a_page_the_spine_does_not_list_comes_after_it_by_name():
+    data = _book_with_spine([3, 1])
+    out = completed({"content_base64": data}, {**EXCERPT, "split_on": 2})
+    rest = sorted((f"chapter{n}.xhtml", f"Chapter {n}") for n in (2, *range(4, 11)))
+    expected = ["Chapter 3", "Chapter 1"] + [heading for _, heading in rest]
+    assert [s["heading"] for s in out["sections"]] == expected
+
+
 # ------------------------------------------------------------------ bad params
 
 

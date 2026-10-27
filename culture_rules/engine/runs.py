@@ -120,20 +120,20 @@ Semantics
   output objects); a ``retry_until`` loop's outputs are its last iteration's. Loops do not
   nest.
 * **Loop outcomes** (#97 t7) - a ``for_each`` loop that declares an output port named
-  ``outcomes`` (an ``array``) outputs one entry per item, in order:
-  ``{index, item, status, errors}``. ``item`` is the item as given. ``status`` is
-  ``succeeded`` when every body step of the iteration succeeded and ``skipped`` when any
-  body step was skipped, whatever the cause: a failure ``config.on_error: "skip"``
+  ``outcomes`` (an ``array``) outputs one entry per item, in order: ``{index, item, status,
+  errors}``. ``item`` is the item as given (so loop over small items: ids, not documents).
+  ``status`` is ``succeeded`` when every body step of the iteration succeeded and ``skipped``
+  when any body step was skipped, whatever the cause: a failure ``config.on_error: "skip"``
   tolerated (an ``input_missing`` behind a skipped step included), a false ``when``, a
   disabled step. ``errors`` maps the id of each skipped body step that kept an error (the
-  tolerated failures) to its message; a skip without an error (false ``when``, disabled)
-  adds nothing, so a ``skipped`` entry may hold ``errors == {}``. A failed body step still
-  fails the loop. ``config.collect`` (``{name: "<body step id>.<output>"}``, validated
-  against the loop's body when the workflow is saved or a run starts) adds each name to every
-  entry with that body step's output when it is a scalar (a string, number, boolean or
-  null), ``None`` when it is a list or an object or the step did not output it (a skipped
-  step outputs nothing), so an entry never holds a body step's whole outputs or a large
-  value. Without an ``outcomes`` port the loop records no outcomes.
+  tolerated failures) to its message; a skip without an error (false ``when``, disabled) adds
+  nothing, so a ``skipped`` entry may hold ``errors == {}``. A failed body step still fails
+  the loop. ``config.collect`` (``{name: "<body step id>.<output>"}``, validated against the
+  loop's body when the workflow is saved or a run starts) adds each name to every entry with
+  that body step's output when it is a scalar (a string, number, boolean or null), ``None``
+  when it is a list or an object or the step did not output it (a skipped step outputs
+  nothing), so an entry never holds a body step's whole outputs or a large value. Without an
+  ``outcomes`` port the loop records no outcomes.
 * **Wait steps** - ``config["seconds"]`` parks the step as ``sleeping`` until
   ``deadline``; any engine whose tick finds it due wakes it with a compare-and-set, so it
   completes once however many nodes restart. With ``config["guard"]`` = ``head_unchanged``
@@ -2674,7 +2674,7 @@ def _next_iteration(new: dict, nst: dict, step: Step, i: int) -> Found:
 
 
 def _loop_done(new: dict, nst: dict, step: Step, results: list[dict]) -> Found:
-    outputs = _loop_outputs(step, results, nst.get(OUTCOMES_PORT))
+    outputs = _loop_outputs(step, results, nst.pop(OUTCOMES_PORT, None))  # kept once, in outputs
     problem = _check_ports(step.outputs, outputs, "output")
     if problem:
         problem["code"] = "output_type_mismatch"

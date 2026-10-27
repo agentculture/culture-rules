@@ -59,7 +59,8 @@ directory with no symlink anywhere in its path (``os.path.realpath`` must change
 it is opened ``O_NOFOLLOW | O_DIRECTORY``). These checks are made once, before the request: a
 symlink swapped onto the root afterwards, by someone who can already write to the root's
 parent, is not detected. A ``save_to`` that is not a non-empty string is
-``invalid_request``; a bad ``save_max_bytes`` is ``invalid_request``.
+``invalid_request``; so is ``save_to`` with ``HEAD`` or ``OPTIONS`` (no body to save), and a
+bad ``save_max_bytes``.
 
 The answer's status is handled as above (a 4xx/5xx is never saved). A 2xx is saved only when
 its ``Content-Type`` media type (parameters such as ``charset`` ignored, case-insensitive) is
@@ -86,7 +87,6 @@ import http.client
 import ipaddress
 import json
 import os
-import re
 import socket
 import ssl
 import tempfile
@@ -97,7 +97,13 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from culture_rules.actors.secrets import GRANT_SCHEME, Redactor, SecretError, resolve
+from culture_rules.actors.secrets import (
+    GRANT_SCHEME,
+    Redactor,
+    SecretError,
+    resolve,
+    split_word_ref,
+)
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.node.actions.machine import load_bound_actor
 
@@ -128,6 +134,7 @@ _PATH_REFUSED = "path_refused"
 USER_AGENT = "culture-rules"
 MAX_TIMEOUT = 60.0
 METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+_NO_BODY = frozenset({"HEAD", "OPTIONS"})  # their answers carry no body for save_to
 _SCHEMES = {"http": 80, "https": 443}
 _KEPT_HEADERS = (
     "content-type",
@@ -159,10 +166,6 @@ _REFUSED_NETS = tuple(
 
 Resolver = Callable[[str, int], list[str]]
 OpenerFactory = Callable[[str], Any]
-
-
-# ``<word> grant:<NAME>``: one word, one space, one reference (no further spaces).
-_WORD_GRANT = re.compile(r"([A-Za-z][A-Za-z0-9._-]*) (" + re.escape(GRANT_SCHEME) + r":\S*)")
 
 
 class RedirectRefused(Exception):
@@ -434,9 +437,9 @@ class HttpCallPort:
             raise _Refused("invalid_request", "the Host header cannot be set")
         word = ""
         ref = value
-        match = _WORD_GRANT.fullmatch(value)
-        if match:
-            word, ref = match.group(1) + " ", match.group(2)
+        split = split_word_ref(value)
+        if split is not None:
+            word, ref = split[0] + " ", split[1]
         if not ref.startswith(GRANT_SCHEME + ":"):
             return value
         try:
@@ -468,6 +471,10 @@ class HttpCallPort:
         if method not in METHODS:
             raise _Refused("invalid_request", f"method {method or '(none)'!r} not allowed")
         save = _save_target(input.get("save_to"), params)
+        if save is not None and method in _NO_BODY:
+            raise _Refused(
+                "invalid_request", f"save_to needs a method that returns a body, not {method}"
+            )
         host, pinned = self._destination(input.get("url"), _allowlist(params))
         timeout = (deadline - self._clock()).total_seconds()
         if timeout <= 0:

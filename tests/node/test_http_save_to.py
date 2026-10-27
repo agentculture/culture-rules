@@ -427,3 +427,13 @@ def test_without_save_to_the_body_is_returned_as_before(tmp_path) -> None:
     port, _, _ = _save(root, body=b"hello", headers={"Content-Type": "text/plain"})
     res = _invoke(port, _call())
     assert res.output["body"] == "hello"
+
+
+@pytest.mark.parametrize("method", ["HEAD", "OPTIONS"])
+def test_save_to_with_a_method_that_returns_no_body_is_invalid(tmp_path, method) -> None:
+    root = _root(tmp_path)
+    port, calls, _ = _save(root)
+    res = _invoke(port, _call(save_to=root, method=method))
+    assert res.error.startswith("invalid_request")
+    assert calls == []
+    assert _files(root) == []

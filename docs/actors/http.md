@@ -45,7 +45,13 @@ time. Two shapes are resolved:
 A value holding `grant:` in any other shape (two words before it, two
 references) is sent unchanged, never half-resolved. A resolved secret is
 registered with the redactor and scrubbed from the step's output. The editor
-accepts both shapes in a credential header and refuses a literal value.
+accepts both shapes in a credential header and refuses a literal value, and
+saving an actor accepts both under `headers` too.
+
+Both shapes are resolved in the step's own `headers` as well as the policy's,
+as a bare `grant:<NAME>` already was before the word form: any workflow author
+can name a secret the node holds, and it is sent only to a host on the actor's
+`allow` list. Keep that list as narrow as the secrets the node holds.
 
 Seal the secret in grant and have the service unit inject it, as the README
 describes under "How secrets work here":

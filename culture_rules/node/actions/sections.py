@@ -37,8 +37,9 @@ Text (EPUB and HTML): ``head``, ``title``, ``script`` and ``style`` are dropped,
 become line breaks, entities are unescaped, runs of spaces collapse, and a blank line
 separates paragraphs: a paragraph is the text between two blocks. Links are ``<a href>``
 values, scheme ``http``/``https`` with a host, in document order, duplicates dropped. An EPUB
-is read as one document: its ``.xhtml``/``.html``/``.htm`` members in name order, never the
-navigation document its package marks ``properties="nav"`` (nor the NCX, which is not HTML);
+is read as one document: its ``.xhtml``/``.html``/``.htm`` members in reading order (the
+package's spine, then any page it does not list, by name), never the navigation document
+its package marks ``properties="nav"`` (nor the NCX, which is not HTML);
 the members' uncompressed bytes may total :data:`MAX_EPUB_TEXT_BYTES` at most.
 
 Markdown (kept simple): ATX headings only (``## Title``, an optional closing ``##``), no
@@ -282,13 +283,15 @@ def _attrs(text: str, tag: str) -> list[dict[str, str]]:
     return parser.found
 
 
-def _nav_names(book: zipfile.ZipFile, read: Any) -> set[str]:
-    """The members the package marks as its navigation document (none without a package)."""
+def _package(book: zipfile.ZipFile, read: Any) -> tuple[set[str], list[str]]:
+    """The members the package marks as its navigation document, and its spine (reading
+    order) as member names; both empty without a package."""
     try:
         container = read(book.getinfo("META-INF/container.xml"))
     except KeyError:
-        return set()
+        return set(), []
     navs: set[str] = set()
+    spine: list[str] = []
     for rootfile in _attrs(container, "rootfile"):
         package = rootfile.get("full-path", "")
         try:
@@ -296,14 +299,30 @@ def _nav_names(book: zipfile.ZipFile, read: Any) -> set[str]:
         except KeyError:
             continue
         base = posixpath.dirname(package)
+        hrefs: dict[str, str] = {}
         for item in _attrs(opf, "item"):
+            name = posixpath.normpath(posixpath.join(base, unquote(item.get("href", ""))))
+            hrefs[item.get("id", "")] = name
             if "nav" in item.get("properties", "").split():
-                navs.add(posixpath.normpath(posixpath.join(base, unquote(item.get("href", "")))))
-    return navs
+                navs.add(name)
+        spine.extend(
+            hrefs[ref["idref"]] for ref in _attrs(opf, "itemref") if ref.get("idref") in hrefs
+        )
+    return navs, spine
+
+
+def _reading_order(members: list[zipfile.ZipInfo], spine: list[str]) -> list[zipfile.ZipInfo]:
+    """Pages in the spine's order, then any page the spine does not list, by name."""
+    rank = {name: n for n, name in enumerate(dict.fromkeys(spine))}
+    last = len(rank)
+    return sorted(
+        members, key=lambda i: (rank.get(posixpath.normpath(i.filename), last), i.filename)
+    )
 
 
 def _epub_pages(data: bytes) -> list[str]:
-    """The EPUB's pages in name order, its navigation document left out, under the text cap."""
+    """The EPUB's pages in reading order (the package's spine, then any other page by name),
+    its navigation document left out, under the text cap."""
     budget = [MAX_EPUB_TEXT_BYTES]
 
     def read(info: zipfile.ZipInfo) -> str:
@@ -318,11 +337,9 @@ def _epub_pages(data: bytes) -> list[str]:
 
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as book:
-            navs = _nav_names(book, read)
-            members = sorted(
-                (i for i in book.infolist() if i.filename.lower().endswith(_PAGES)),
-                key=lambda i: i.filename,
-            )
+            navs, spine = _package(book, read)
+            pages = [i for i in book.infolist() if i.filename.lower().endswith(_PAGES)]
+            members = _reading_order(pages, spine)
             return [read(i) for i in members if posixpath.normpath(i.filename) not in navs]
     except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, RuntimeError,
             zlib.error) as exc:  # fmt: skip

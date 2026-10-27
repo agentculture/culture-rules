@@ -333,14 +333,14 @@ def test_collect_without_an_outcomes_port_is_refused():
     assert "not_allowed" in _codes(validate(_wf(loop)), CONFIG)
 
 
-def test_collect_on_a_retry_until_loop_is_refused():
+def test_collect_on_a_retry_until_loop_is_left_to_that_loop():
     loop = _loop(kind="retry_until", config={"collect": {"n": "count.count"}})
-    assert "not_allowed" in _codes(validate(_wf(loop)), CONFIG)
+    assert _codes(validate(_wf(loop)), CONFIG) == set()
 
 
-def test_collect_on_a_plain_step_is_refused():
+def test_collect_on_a_plain_step_is_left_to_that_step():
     plain = step("plain", config={"collect": {"n": "count.count"}})
-    assert "not_allowed" in _codes(validate(plain), "config.collect")
+    assert _codes(validate(plain), "config.collect") == set()
 
 
 def test_an_outcomes_port_that_is_not_an_array_is_refused():

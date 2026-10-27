@@ -848,7 +848,7 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
     if isinstance(obj.config, dict) and BUILTIN_WITH in obj.config:
         _check_builtin_with(obj, _join(path, f"config.{BUILTIN_WITH}"), errors)
     _check_when_explain(obj, _join(path, "config"), errors)
-    if isinstance(obj.config, dict) and "collect" in obj.config:
+    if obj.kind == "for_each" and isinstance(obj.config, dict) and "collect" in obj.config:
         _check_collect(obj, _join(path, "config.collect"), errors)
 
 
@@ -870,10 +870,11 @@ def _check_outcomes_port(obj: Step, path: str, errors: Errors) -> None:
 
 
 def _check_collect(obj: Step, path: str, errors: Errors) -> None:
-    """``config.collect`` (#97 t7): on a ``for_each`` loop that declares an ``outcomes`` port,
-    an object of entry name -> ``"<body step id>.<output name>"``; the step is one of the
-    loop's body steps and, when it declares output ports, the output is one of them."""
-    if obj.kind != "for_each" or not _declares_outcomes(obj):
+    """A ``for_each`` loop's ``config.collect`` (#97 t7): only with an ``outcomes`` port, an
+    object of entry name -> ``"<body step id>.<output name>"``; the step is one of the loop's
+    body steps and, when it declares output ports, the output is one of them. Other steps'
+    configs are not checked here: a ``collect`` key there is theirs (a builtin's own option)."""
+    if not _declares_outcomes(obj):
         _err(errors, path, "not_allowed", "collect belongs to a for_each loop with outcomes")
         return
     collect = obj.config["collect"]
