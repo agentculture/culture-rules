@@ -11,6 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `discord.react` takes `remove` (a list of emoji): the bot takes back its own earlier reactions after adding `emoji`, so a flow can show progress on a message (⏳, then ⌛, then ✅) with one mark at a time; `emoji` or `remove` may be given alone. The REST client gains `remove_reaction`, and the editor offers the Remove field
 
+### Changed
+
+- `docs/actors/discord.md`: place `attachment.fetch` and the pushes that read its files on the node holding the attachments root (a step with no placement may run elsewhere and fail `path_refused`)
+
 ## [0.34.0] - 2026-10-27
 
 ### Added

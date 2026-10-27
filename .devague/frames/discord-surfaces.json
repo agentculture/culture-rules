@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-27T07:49:32Z",
+  "updated": "2026-10-27T08:56:05Z",
   "claims": [
     {
       "id": "c1",
@@ -1234,6 +1234,18 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l14",
+      "code": "assumption-for-measurement",
+      "what": "Release 2's attachment flow (d7: files on the node) assumed every step runs on the node holding the attachments root: the docs and the live reaction flow left fetch and the file pushes unplaced, and no test runs a flow across two nodes. Live on 2026-10-27, save-on-reaction-jetson's fetch ran on spark2 and failed path_refused (run-001693e4b4f2824843d132cea01ffa0b); fixed by placing fetch, files and the push on spark in the four live flows",
+      "skipped_check": "placing the file-producing and file-reading steps on one node, and a multi-node check of the flow",
+      "refs": [
+        "run-001693e4b4f2824843d132cea01ffa0b",
+        "docs/actors/discord.md"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [
