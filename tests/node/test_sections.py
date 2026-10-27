@@ -562,8 +562,8 @@ def test_each_excerpt_setting_is_required(missing):
 
 
 def test_the_node_registers_document_sections():
-    from culture_rules.store.memory import MemoryStore
     from culture_rules.node.runner import default_ports
+    from culture_rules.store.memory import MemoryStore
 
     builtins = default_ports(MemoryStore(), "spark")["code"]._builtins
     assert isinstance(builtins[SECTIONS_BUILTIN], DocumentSectionsPort)
