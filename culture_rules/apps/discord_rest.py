@@ -300,6 +300,30 @@ class DiscordClient:
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
+    def remove_reaction(self, channel_id: str, message_id: str, emoji: str) -> dict[str, str]:
+        """Take back the bot's own reaction ``emoji`` (as :meth:`add_reaction` takes it). Taking
+        back one the bot never added changes nothing, so a retry is safe."""
+        _check_id(channel_id, "channel")
+        _check_id(message_id, "message")
+        emoji = emoji.strip() if isinstance(emoji, str) else ""
+        if not emoji_ok(emoji):
+            raise DiscordError("emoji must be a unicode emoji or name:id", retryable=False)
+        path = (
+            f"/channels/{channel_id}/messages/{message_id}/reactions/"
+            f"{urllib.parse.quote(emoji, safe='')}/@me"
+        )
+        status, payload = self._send(path, "DELETE")
+        if 200 <= status < 300:
+            return {"channel_id": channel_id, "message_id": message_id, "emoji": emoji}
+        if status == 429:
+            retry_after = _retry_after(payload)
+            raise DiscordError(
+                f"discord rate limited (retry_after={retry_after})",
+                retryable=True,
+                retry_after=retry_after,
+            )
+        raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
+
     def edit_interaction_response(
         self, application_id: str, interaction_token: str, text: str
     ) -> dict[str, bool]:

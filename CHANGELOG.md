@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-10-27
+
+### Added
+
+- `discord.react` takes `remove` (a list of emoji): the bot takes back its own earlier reactions after adding `emoji`, so a flow can show progress on a message (⏳, then ⌛, then ✅) with one mark at a time; `emoji` or `remove` may be given alone. The REST client gains `remove_reaction`, and the editor offers the Remove field
+
 ## [0.34.0] - 2026-10-27
 
 ### Added

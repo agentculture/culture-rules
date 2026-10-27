@@ -468,3 +468,34 @@ def test_edit_interaction_response_refuses_bad_ids():
     with pytest.raises(DiscordError):
         client.edit_interaction_response("9", "bad/tok", "hi")
     assert t.calls == []
+
+
+# --------------------------------------------------------------------------- remove_reaction
+
+
+def test_remove_reaction_deletes_the_bots_own_reaction():
+    t = PutTransport()
+    out = DiscordClient(TOKEN, transport=t).remove_reaction("123", "55", "\N{HOURGLASS}")
+    assert out == {"channel_id": "123", "message_id": "55", "emoji": "\N{HOURGLASS}"}
+    (call,) = t.calls
+    assert call["method"] == "DELETE"
+    assert call["url"].endswith("/channels/123/messages/55/reactions/%E2%8C%9B/@me")
+
+
+@pytest.mark.parametrize("emoji", ["", "a/b", "name:notanid", None])
+def test_remove_reaction_refuses_a_malformed_emoji(emoji):
+    t = PutTransport()
+    with pytest.raises(DiscordError):
+        DiscordClient(TOKEN, transport=t).remove_reaction("123", "55", emoji)
+    assert t.calls == []
+
+
+def test_remove_reaction_a_429_is_retryable_and_a_404_is_not():
+    rate = DiscordClient(TOKEN, transport=PutTransport((429, {"retry_after": 1}, {})))
+    with pytest.raises(DiscordError) as limited:
+        rate.remove_reaction("123", "55", "\N{HOURGLASS}")
+    assert limited.value.retryable
+    gone = DiscordClient(TOKEN, transport=PutTransport((404, {}, {})))
+    with pytest.raises(DiscordError) as missing:
+        gone.remove_reaction("123", "55", "\N{HOURGLASS}")
+    assert not missing.value.retryable

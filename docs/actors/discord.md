@@ -306,7 +306,11 @@ being false. The library actor must list the attachments root in its
 `path_refused`.
 
 `discord.react` adds the bot's reaction (a unicode emoji, or a custom
-`name:id`) to a message: a flow can answer a saving reaction with ✅.
+`name:id`) to a message, and `remove` (a list of emoji) takes back the bot's
+own earlier reactions after adding the new one; either may be given alone. A
+flow can so show its progress on the message: ⏳ when it starts, ⌛ (removing ⏳)
+after a meaningful middle step, then ✅ (removing ⌛ and ⏳) when it is done.
+Which marks, and at which steps, is the flow's configuration.
 
 ## Commands
 

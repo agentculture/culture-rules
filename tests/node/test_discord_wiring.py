@@ -50,7 +50,8 @@ def test_the_node_registers_the_generic_markdown_and_run_steps():
 def test_discord_react_is_a_catalogued_action_kind():
     kind = ACTION_KINDS["discord.react"]
     required = {name for name, spec in kind.params.items() if spec.required}
-    assert required == {"actor", "channel", "message", "emoji"}
+    assert required == {"actor", "channel", "message"}
+    assert kind.any_of == (("emoji", "remove"),)  # d13: add one, take back others, or both
     assert "guild" in kind.params
 
 

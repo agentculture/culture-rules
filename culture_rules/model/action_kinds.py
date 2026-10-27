@@ -109,12 +109,14 @@ _KINDS = (
     _k(
         "discord.react",
         "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
-        " app actor",
+        " app actor, and take back the bot's own earlier reactions (remove)",
+        any_of=(("emoji", "remove"),),
         actor=_RS,
         guild=_S,
         channel=_RS,
         message=_RS,
-        emoji=_RS,
+        emoji=_S,
+        remove=ParamSpec("list"),
     ),
     _k(
         "discord.reply",

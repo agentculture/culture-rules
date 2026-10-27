@@ -71,7 +71,8 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   },
   "discord.react": {
     label: "React to a Discord message",
-    params: { actor: RS, guild: S, channel: RS, message: RS, emoji: RS },
+    params: { actor: RS, guild: S, channel: RS, message: RS, emoji: S, remove: { type: "list" } },
+    anyOf: [["emoji", "remove"]],
   },
   "discord.reply": {
     label: "Answer a Discord command privately",

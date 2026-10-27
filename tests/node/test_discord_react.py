@@ -57,7 +57,13 @@ def test_reacts_with_the_actors_token_and_reports_it():
     t = FakeTransport()
     res = action(store_with(), t).invoke(INPUT, "k", NOW, context=ctx())
     assert res.outcome == COMPLETED
-    assert res.output == {"channel": "42", "message": "900", "emoji": THUMBS, "reacted": True}
+    assert res.output == {
+        "channel": "42",
+        "message": "900",
+        "emoji": THUMBS,
+        "removed": [],
+        "reacted": True,
+    }
     ((method, url, headers),) = t.calls
     assert method == "PUT"
     assert url.endswith("/channels/42/messages/900/reactions/%F0%9F%91%8D/@me")
@@ -211,3 +217,67 @@ def test_the_channels_server_is_looked_up_once_per_channel():
     for _ in range(3):
         assert react.invoke(INPUT, "k", NOW, context=ctx()).outcome == COMPLETED
     assert [m for m, *_ in t.calls] == [None, "PUT", "PUT", "PUT"]
+
+
+# --- removing the bot's own reactions (progress marks: add the next, take back the last) ---
+
+HOURGLASS, DONE, FLOWING = (
+    "\N{HOURGLASS}",
+    "\N{WHITE HEAVY CHECK MARK}",
+    "\N{HOURGLASS WITH FLOWING SAND}",
+)
+
+
+def test_remove_takes_back_the_listed_emoji_after_adding_the_new_one():
+    t = FakeTransport()
+    move = {**INPUT, "emoji": DONE, "remove": [FLOWING, HOURGLASS]}
+    res = action(store_with(), t).invoke(move, "k", NOW, context=ctx())
+    assert res.outcome == COMPLETED
+    assert [m for m, _, _ in t.calls] == ["PUT", "DELETE", "DELETE"]  # never a moment with none
+    assert res.output["emoji"] == DONE
+    assert res.output["removed"] == [FLOWING, HOURGLASS]
+
+
+def test_remove_alone_only_takes_back():
+    t = FakeTransport()
+    res = action(store_with(), t).invoke(
+        {"channel": "42", "message": "900", "remove": HOURGLASS}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == COMPLETED
+    assert [m for m, _, _ in t.calls] == ["DELETE"]
+    assert res.output["emoji"] is None
+    assert res.output["removed"] == [HOURGLASS]
+
+
+def test_neither_emoji_nor_remove_is_refused():
+    res = action(store_with(), FakeTransport()).invoke(
+        {"channel": "42", "message": "900"}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == FAILED
+
+
+def test_a_bad_emoji_to_remove_is_refused_before_any_call():
+    t = FakeTransport()
+    res = action(store_with(), t).invoke({**INPUT, "remove": ["a/b"]}, "k", NOW, context=ctx())
+    assert res.outcome == FAILED
+    assert t.calls == []
+
+
+def test_describe_names_what_is_added_and_taken_back():
+    from culture_rules.model.describe import action_text
+    from culture_rules.model.rule import Action
+
+    text = action_text(
+        Action(
+            kind="discord.react",
+            params={
+                "actor": "disc",
+                "emoji": DONE,
+                "remove": [FLOWING, HOURGLASS],
+                "message": "inputs.id",
+            },
+        )
+    )
+    assert f"with {DONE}" in text
+    assert f"removing {FLOWING} and {HOURGLASS}" in text
+    assert "[" not in text

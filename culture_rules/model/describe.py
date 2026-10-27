@@ -368,6 +368,10 @@ def action_text(action: Any, where: str = "") -> str:
         value = params.get(param)
         if value not in (None, "") and not _dynamic(value):
             words.append(template.format(value))
+    if kind == "discord.react":
+        taken = [e for e in filter_values(params.get("remove")) if not _dynamic(e)]
+        if taken:
+            words.append("removing " + " and ".join(taken))
     words.append(where)
     if kind == "github.push":  # the push port always requires an approving review (d20)
         gate = "a passing gate and " if params.get("gate_verdict") else ""
