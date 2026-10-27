@@ -231,9 +231,19 @@ describe("app-config model", () => {
     });
   });
 
+  it("refuses command guild ids that are not ids or not among the guild ids", () => {
+    const base = { ...emptyAppDraft(), surface: "discord" as const, events: [] };
+    const conn = (command_guild_id: string, guild_id = "10, 20") => ({ bot_token: "grant:bot", guild_id, command_guild_id });
+    expect(validateApp({ ...base, connection: conn("20") })).toEqual({});
+    expect(validateApp({ ...base, connection: conn("") })).toEqual({});
+    expect(validateApp({ ...base, connection: conn("30") })).toHaveProperty("connection.command_guild_id");
+    expect(validateApp({ ...base, connection: conn("my server") })).toHaveProperty("connection.command_guild_id");
+    expect(validateApp({ ...base, connection: conn("30", "") })).toEqual({}); // every guild: any id
+  });
+
   it("offers the Discord command guilds field", () => {
     render(<Harness initial={{ ...emptyAppDraft(), surface: "discord" }} />);
-    expect(screen.getByRole("textbox", { name: "Command guild ids (unset: every guild)" })).toHaveAccessibleDescription(
+    expect(screen.getByRole("textbox", { name: "Command guild ids (unset: all guild ids)" })).toHaveAccessibleDescription(
       /separate with commas/i,
     );
   });

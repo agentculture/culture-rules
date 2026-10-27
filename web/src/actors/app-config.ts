@@ -95,7 +95,7 @@ export const CONNECTION_FIELDS: Record<AppSurface, ConnectionField[]> = {
     { key: "guild_id", label: "Guild ids", oneOrMany: true },
     { key: "channels", label: "Channels", list: true },
     { key: "application_id", label: "Application id (for commands)" },
-    { key: "command_guild_id", label: "Command guild ids (unset: every guild)", oneOrMany: true },
+    { key: "command_guild_id", label: "Command guild ids (unset: all guild ids)", oneOrMany: true },
   ],
   email: [
     API_KEY,
@@ -237,6 +237,17 @@ function connectionFieldError(field: ConnectionField, text: string): string | nu
 }
 
 /** Client-side refusals for an app draft, keyed by field path. Empty means sendable. */
+/** Command guild ids must be ids, and among the guild ids when those are set (the node drops others). */
+function commandGuildsError(guildIds: string, commandGuildIds: string): string | undefined {
+  const wanted = splitList(commandGuildIds);
+  if (wanted.some((id) => !/^\d+$/.test(id))) return "Use guild ids (numbers), separated with commas.";
+  const listened = splitList(guildIds);
+  if (listened.length > 0 && wanted.some((id) => !listened.includes(id))) {
+    return "Use guild ids that are also in Guild ids.";
+  }
+  return undefined;
+}
+
 export function validateApp(draft: AppDraft): FormErrors {
   const errors: FormErrors = {};
   if (draft.surface === "") {
@@ -246,6 +257,10 @@ export function validateApp(draft: AppDraft): FormErrors {
   for (const field of CONNECTION_FIELDS[draft.surface]) {
     const error = connectionFieldError(field, (draft.connection[field.key] ?? "").trim());
     if (error) errors[`connection.${field.key}`] = error;
+  }
+  if (draft.surface === "discord") {
+    const error = commandGuildsError(draft.connection.guild_id ?? "", draft.connection.command_guild_id ?? "");
+    if (error) errors["connection.command_guild_id"] = error;
   }
   draft.events.forEach((event, i) => {
     if (!EVENT_TYPE_RE.test(event.trim())) {
