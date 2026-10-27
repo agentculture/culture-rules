@@ -1,0 +1,24 @@
+{
+  "plan_slug": "newspaper-sources-manifest",
+  "schema_version": 2,
+  "created": "2026-10-27T18:43:01Z",
+  "updated": "2026-10-27T19:52:25Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t2's criterion 'an existing symlink at the target name fails path_refused before any request is sent' is met after the read instead: the target name (sha256 plus extension) is known only once the body is read, so the request is sent and the body streamed to a temp file in the root; then path_refused fires, nothing is written through the symlink, and the temp file is removed (tested, including that the symlink's destination is never created). The other three refusals (outside save_roots, a symlinked root, no save_roots) still happen before any request",
+      "task_ref": "t2",
+      "reason": "the file is named by the sha256 of its body, which does not exist before the request",
+      "affects": [
+        "h4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
