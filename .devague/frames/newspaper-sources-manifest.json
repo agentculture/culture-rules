@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-27T16:12:20Z",
-  "updated": "2026-10-27T18:26:26Z",
+  "updated": "2026-10-27T18:36:32Z",
   "claims": [
     {
       "id": "c1",
@@ -775,7 +775,20 @@
       ]
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "grader-unverified",
+      "what": "t3's 81 tests in tests/node/test_sections.py passed on their first run; the task agent never saw them fail before the code existed, so the tests were not shown to be able to fail (the agent checked the real-issue manifest by hand instead)",
+      "skipped_check": "test-first red run before implementing",
+      "refs": [
+        "t3",
+        "03dd507"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",
