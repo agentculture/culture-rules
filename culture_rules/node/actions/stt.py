@@ -64,23 +64,26 @@ import json
 import os
 import re
 import tempfile
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from culture_rules.actors.model_rule import senior_holder
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions import audio_split, transcript_file
+from culture_rules.node.actions._endpoint import (
+    INVALID,
+    Refused,
+    base_url_problem,
+    model_taken,
+    post,
+    time_left,
+)
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.library import encode_multipart
-from culture_rules.node.actions.llm import _base_url_problem, _opener
 from culture_rules.node.actions.machine import load_bound_actor
-from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
     "MAX_RESPONSE_BYTES",
@@ -102,7 +105,6 @@ REJECTED = "stt_rejected"
 BAD_RESPONSE = "stt_bad_response"
 UNDECODABLE = "audio_undecodable"
 PATH_REFUSED = "path_refused"
-INVALID = "invalid_request"
 MISMATCH = "audio_mismatch"
 AUDIO_MISSING = "audio_missing"
 FFMPEG_MISSING = "ffmpeg_missing"
@@ -119,15 +121,6 @@ Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
 ``http.client.HTTPException`` when the server cannot be reached."""
 
 
-class _Refused(Exception):
-    def __init__(self, code: str, detail: str, *, retryable: bool = False) -> None:
-        super().__init__(f"{code}: {detail}")
-        self.retryable = retryable
-
-    def result(self) -> InvocationResult:
-        return InvocationResult.failed(str(self), retryable=self.retryable)
-
-
 # ------------------------------------------------------------------ the default transport
 
 
@@ -135,14 +128,8 @@ def urllib_transport(
     url: str, data: bytes, headers: Mapping[str, str], timeout: float
 ) -> tuple[int, bytes]:
     """POST ``data`` to ``url`` with urllib: no environment proxies, no redirects."""
-    request = urllib.request.Request(url, data=data, headers=dict(headers), method="POST")
-    try:
-        response = _opener().open(request, timeout=timeout)
-    except urllib.error.HTTPError as exc:
-        response = exc  # a non-2xx answer is still an answer
-    with response:
-        status = int(getattr(response, "status", None) or response.code)
-        return status, response.read(MAX_RESPONSE_BYTES + 1)
+    status, _headers, body = post(url, data, headers, timeout, MAX_RESPONSE_BYTES)
+    return status, body
 
 
 # ------------------------------------------------------------------ actor and input checks
@@ -161,7 +148,7 @@ def check_stt_actor(actor: Actor) -> str | None:
     if actor.kind != "agent":
         return f"audio.transcribe needs an agent actor, not {actor.kind!r}"
     params = actor.params
-    problem = _base_url_problem(params.get("base_url"))
+    problem = base_url_problem(params.get("base_url"))
     if problem:
         return problem
     model = params.get(_MODEL) or actor.model
@@ -187,57 +174,55 @@ def _check_input(input: Mapping[str, Any]) -> None:
     for name in _REQUIRED:
         value = input.get(name)
         if not isinstance(value, str) or not value:
-            raise _Refused(INVALID, f"{name} is required")
+            raise Refused(INVALID, f"{name} is required")
     sha = input.get("audio_sha256")
     if sha is not None and not (isinstance(sha, str) and _SHA_RE.match(sha)):
-        raise _Refused(INVALID, "audio_sha256 must be 64 lowercase hex characters")
+        raise Refused(INVALID, "audio_sha256 must be 64 lowercase hex characters")
     language = input.get("language")
     if language not in (None, "") and not (
         isinstance(language, str) and _LANGUAGE_RE.match(language)
     ):
-        raise _Refused(INVALID, "language must be a short language code")
+        raise Refused(INVALID, "language must be a short language code")
     model = input.get(_MODEL)
     if model is not None and not (isinstance(model, str) and model.strip()):
-        raise _Refused(INVALID, "model must be a non-empty string")
+        raise Refused(INVALID, "model must be a non-empty string")
 
 
 def _root(actor: Actor, name: str) -> Path:
     value = actor.params.get(name)
     if not isinstance(value, str) or not value:
-        raise _Refused(PATH_REFUSED, f"actor {actor.id!r} has no {name}")
+        raise Refused(PATH_REFUSED, f"actor {actor.id!r} has no {name}")
     try:
         return Path(value).resolve(strict=True)
     except (OSError, RuntimeError) as exc:
-        raise _Refused(PATH_REFUSED, f"{name} does not exist") from exc
+        raise Refused(PATH_REFUSED, f"{name} does not exist") from exc
 
 
 def _audio_file(actor: Actor, audio_path: str) -> Path:
     root = _root(actor, "audio_root")
     if not os.path.isabs(audio_path):
-        raise _Refused(PATH_REFUSED, "audio_path must be absolute")
+        raise Refused(PATH_REFUSED, "audio_path must be absolute")
     try:
         path = Path(audio_path).resolve(strict=False)
     except (OSError, RuntimeError) as exc:
-        raise _Refused(PATH_REFUSED, "audio_path cannot be resolved") from exc
+        raise Refused(PATH_REFUSED, "audio_path cannot be resolved") from exc
     if not path.is_relative_to(root):
-        raise _Refused(PATH_REFUSED, "audio_path is outside the actor's audio_root")
+        raise Refused(PATH_REFUSED, "audio_path is outside the actor's audio_root")
     if not path.exists():
-        raise _Refused(
-            AUDIO_MISSING, f"audio file {path.relative_to(root).as_posix()!r} is missing"
-        )
+        raise Refused(AUDIO_MISSING, f"audio file {path.relative_to(root).as_posix()!r} is missing")
     if not path.is_file():
-        raise _Refused(PATH_REFUSED, "audio_path is not a regular file")
+        raise Refused(PATH_REFUSED, "audio_path is not a regular file")
     return path
 
 
 def _output_dir(actor: Actor, output_dir: str, audio_sha256: str) -> Path:
     root = _root(actor, "output_root")
     if not os.path.isabs(output_dir):
-        raise _Refused(PATH_REFUSED, "output_dir must be absolute")
+        raise Refused(PATH_REFUSED, "output_dir must be absolute")
     path = Path(output_dir).resolve(strict=False)  # existing parts' symlinks are followed
     target = (path / audio_sha256).resolve(strict=False)
     if not (path.is_relative_to(root) and target.is_relative_to(root)):
-        raise _Refused(PATH_REFUSED, "output_dir is outside the actor's output_root")
+        raise Refused(PATH_REFUSED, "output_dir is outside the actor's output_root")
     return path
 
 
@@ -252,28 +237,28 @@ def _hash_file(path: str) -> str:
 # ------------------------------------------------------------------ the response
 
 
-def _status_failure(status: int, raw: bytes) -> _Refused:
+def _status_failure(status: int, raw: bytes) -> Refused:
     if status >= 500 or status in _RETRYABLE_4XX:
-        return _Refused(UNAVAILABLE, f"server answered {status}", retryable=True)
+        return Refused(UNAVAILABLE, f"server answered {status}", retryable=True)
     if status == 400 and b"invalid_audio" in raw[:65536]:
-        return _Refused(UNDECODABLE, "the server could not decode the audio (400)")
-    return _Refused(REJECTED, f"server answered {status}")
+        return Refused(UNDECODABLE, "the server could not decode the audio (400)")
+    return Refused(REJECTED, f"server answered {status}")
 
 
 def _parse(raw: bytes, start: float, end: float) -> dict[str, Any]:
     if len(raw) > MAX_RESPONSE_BYTES:
-        raise _Refused(BAD_RESPONSE, "response too large")
+        raise Refused(BAD_RESPONSE, "response too large")
     try:
         data = json.loads(raw.decode("utf-8"))
     except (ValueError, RecursionError) as exc:  # UnicodeDecodeError is a ValueError
-        raise _Refused(BAD_RESPONSE, "response is not JSON") from exc
+        raise Refused(BAD_RESPONSE, "response is not JSON") from exc
     if not isinstance(data, dict):
-        raise _Refused(BAD_RESPONSE, "response is not an object")
+        raise Refused(BAD_RESPONSE, "response is not an object")
     reply = {k: data[k] for k in ("text", "segments") if k in data and data[k] is not None}
     try:  # the same validation the result builder applies, before the reply is kept
         transcript_file.build_result("0" * 64, "m", None, end - start, [(start, end, reply)])
     except transcript_file.BadReply as exc:
-        raise _Refused(BAD_RESPONSE, str(exc)) from exc
+        raise Refused(BAD_RESPONSE, str(exc)) from exc
     return reply
 
 
@@ -334,7 +319,7 @@ class AudioTranscribePort:
             return failure or InvocationResult.failed("actor_not_found", retryable=False)
         try:
             result = self._transcribe(input, actor, doc, deadline)
-        except _Refused as exc:
+        except Refused as exc:
             return exc.result()
         if result.outcome == COMPLETED:
             self._ledger.put(idempotency_key, result)
@@ -348,31 +333,24 @@ class AudioTranscribePort:
         """``invalid_request`` for input that can never run (asked before a slot is taken)."""
         try:
             _check_input(input)
-        except _Refused as exc:
+        except Refused as exc:
             return exc.result()
         return None
 
     # -------------------------------------------------------------- checks
 
-    def _model_taken(self, actor: Actor, doc: Mapping[str, Any] | None) -> None:
-        candidate = dict(doc or {})
-        candidate.setdefault("id", actor.id)
-        candidate.setdefault("kind", actor.kind)
-        candidate.setdefault(_MODEL, actor.model)
-        holder = senior_holder(self._store.find(ACTORS_COLLECTION, {"kind": "agent"}), candidate)
-        if holder is not None:
-            raise _Refused("model_taken", str(holder))
-
     def _check_actor(self, actor: Actor, doc: Mapping[str, Any] | None) -> None:
         if actor.kind != "agent":
-            raise _Refused(
+            raise Refused(
                 "actor_kind_mismatch",
                 f"audio.transcribe needs an agent actor, {actor.id!r} is {actor.kind!r}",
             )
         problem = check_stt_actor(actor)
         if problem:
-            raise _Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
-        self._model_taken(actor, doc)
+            raise Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
+        taken = model_taken(self._store, actor, doc)
+        if taken is not None:
+            raise taken
 
     def _headers(self, params: Mapping[str, Any], content_type: str) -> dict[str, str]:
         headers = {"Content-Type": content_type, "Accept": "application/json"}
@@ -381,14 +359,11 @@ class AudioTranscribePort:
             try:
                 headers["Authorization"] = "Bearer " + resolve(key, self._secret_runner)
             except SecretError as exc:
-                raise _Refused("secret_unresolved", "params.api_key") from exc
+                raise Refused("secret_unresolved", "params.api_key") from exc
         return headers
 
     def _remaining(self, deadline: datetime) -> float:
-        timeout = (deadline - self._clock()).total_seconds()
-        if timeout <= 0:
-            raise _Refused(UNAVAILABLE, "attempt deadline already passed", retryable=True)
-        return min(timeout, MAX_TIMEOUT)
+        return min(time_left(deadline, self._clock, UNAVAILABLE), MAX_TIMEOUT)
 
     # -------------------------------------------------------------- the work
 
@@ -409,9 +384,9 @@ class AudioTranscribePort:
         try:
             audio_split.require_tools()
         except audio_split.ToolMissing as exc:
-            raise _Refused(FFMPEG_MISSING, str(exc)) from exc
+            raise Refused(FFMPEG_MISSING, str(exc)) from exc
         if given and _hash_file(str(audio)) != given:
-            raise _Refused(MISMATCH, "the audio file's sha256 differs from audio_sha256")
+            raise Refused(MISMATCH, "the audio file's sha256 differs from audio_sha256")
         target = transcript_file.result_path(out_dir, sha, model)
         existing = transcript_file.read_existing(target)
         if (
@@ -423,9 +398,9 @@ class AudioTranscribePort:
         try:
             return self._run_windows(actor, audio, sha, model, language, out_dir, target, deadline)
         except audio_split.ToolMissing as exc:
-            raise _Refused(FFMPEG_MISSING, str(exc)) from exc
+            raise Refused(FFMPEG_MISSING, str(exc)) from exc
         except audio_split.AudioUndecodable as exc:
-            raise _Refused(UNDECODABLE, str(exc)) from exc
+            raise Refused(UNDECODABLE, str(exc)) from exc
 
     def _run_windows(
         self,
@@ -456,7 +431,7 @@ class AudioTranscribePort:
         try:
             result = transcript_file.build_result(sha, model, language, duration, replies)
         except transcript_file.BadReply as exc:
-            raise _Refused(BAD_RESPONSE, f"a kept window reply: {exc}") from exc
+            raise Refused(BAD_RESPONSE, f"a kept window reply: {exc}") from exc
         transcript_file.write_atomic(target, result)
         work.clear()
         return InvocationResult.completed(_outputs(result, target))
@@ -484,7 +459,7 @@ class AudioTranscribePort:
         try:
             status, raw = self._transport(url, body, headers, timeout)
         except (OSError, http.client.HTTPException) as exc:  # URLError/timeouts are OSErrors
-            raise _Refused(UNAVAILABLE, type(exc).__name__, retryable=True) from exc
+            raise Refused(UNAVAILABLE, type(exc).__name__, retryable=True) from exc
         if not 200 <= status < 300:
             raise _status_failure(status, raw)
         return _parse(raw, start, end)

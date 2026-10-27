@@ -87,18 +87,24 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
-from culture_rules.actors.model_rule import senior_holder
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
+from culture_rules.node.actions._endpoint import (
+    INVALID,
+    Refused,
+    base_url_problem,
+    check_not_after,
+    is_number,
+    model_taken,
+    post,
+    time_left,
+)
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.machine import load_bound_actor
 from culture_rules.node.actions.recording_answer import AnswerRefused, parse_recording_answer
@@ -109,7 +115,6 @@ from culture_rules.node.actions.transcript_file import (
     read_excerpt,
     write_bytes_atomic,
 )
-from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
     "DEFAULT_MAX_CONTENT_CHARS",
@@ -179,7 +184,6 @@ LEDGER_SIZE = DEFAULT_LEDGER_SIZE
 UNAVAILABLE = "llm_unavailable"
 REJECTED = "llm_rejected"
 BAD_RESPONSE = "llm_bad_response"
-INVALID = "invalid_request"
 DEADLINE_PASSED = "llm_deadline"
 ACTOR_INVALID = "llm_actor_invalid"
 _CONTENT, _MODEL = "content", "model"
@@ -198,74 +202,24 @@ Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
 ``http.client.HTTPException`` when the server cannot be reached."""
 
 
-class _Refused(Exception):
-    def __init__(self, code: str, detail: str, *, retryable: bool = False) -> None:
-        super().__init__(f"{code}: {detail}")
-        self.retryable = retryable
-
-    def result(self) -> InvocationResult:
-        return InvocationResult.failed(str(self), retryable=self.retryable)
-
-
 # ------------------------------------------------------------------ the default transport
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *_: Any, **__: Any) -> None:
-        return None  # the 3xx then surfaces as an HTTPError: answered, not followed
-
-
-def _opener() -> urllib.request.OpenerDirector:
-    opener = urllib.request.OpenerDirector()
-    for handler in (
-        urllib.request.HTTPHandler(),
-        urllib.request.HTTPSHandler(),
-        urllib.request.HTTPDefaultErrorHandler(),
-        _NoRedirect(),
-        urllib.request.HTTPErrorProcessor(),
-    ):
-        opener.add_handler(handler)
-    return opener  # no ProxyHandler: environment proxies are ignored
 
 
 def urllib_transport(
     url: str, data: bytes, headers: Mapping[str, str], timeout: float
 ) -> tuple[int, bytes]:
     """POST ``data`` to ``url`` (http/https only, checked by the caller) with urllib."""
-    request = urllib.request.Request(url, data=data, headers=dict(headers), method="POST")
-    try:
-        response = _opener().open(request, timeout=timeout)
-    except urllib.error.HTTPError as exc:
-        response = exc  # a non-2xx answer is still an answer
-    with response:
-        status = int(getattr(response, "status", None) or response.code)
-        return status, response.read(MAX_RESPONSE_BYTES + 1)
+    status, _headers, body = post(url, data, headers, timeout, MAX_RESPONSE_BYTES)
+    return status, body
 
 
 # ------------------------------------------------------------------ actor and input checks
 
 
-def _base_url_problem(base_url: Any) -> str | None:
-    if not isinstance(base_url, str) or not base_url.strip():
-        return "params.base_url must be an http(s) URL"
-    try:
-        parts = urlsplit(base_url.strip())
-        _ = parts.port  # raises on a malformed port
-    except ValueError:
-        return "params.base_url is malformed"
-    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
-        return "params.base_url must be an http(s) URL with a host"
-    if parts.username is not None or parts.password is not None:
-        return "params.base_url must not carry credentials"
-    if parts.query or parts.fragment:
-        return "params.base_url must not carry a query or fragment"
-    return None
-
-
 def check_llm_actor(actor: Actor) -> str | None:
     """Why ``actor`` cannot serve ``llm.complete`` (None when it can)."""
     params = actor.params
-    problem = _base_url_problem(params.get("base_url"))
+    problem = base_url_problem(params.get("base_url"))
     if problem:
         return problem
     model = params.get(_MODEL) or actor.model
@@ -291,11 +245,11 @@ def _user_message(content: Any, limit: int) -> str:
         try:
             text = json.dumps(content, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
         except (TypeError, ValueError) as exc:
-            raise _Refused(INVALID, "content is not JSON-serialisable") from exc
+            raise Refused(INVALID, "content is not JSON-serialisable") from exc
     if not text.strip():
-        raise _Refused(INVALID, "content is required")
+        raise Refused(INVALID, "content is required")
     if len(text) > limit:
-        raise _Refused("llm_content_too_large", f"content is {len(text)} chars, limit {limit}")
+        raise Refused("llm_content_too_large", f"content is {len(text)} chars, limit {limit}")
     return text
 
 
@@ -304,42 +258,24 @@ def _brief(input: Mapping[str, Any]) -> str:
         return NEWSPAPER_BRIEF
     name = input["brief"]
     if not isinstance(name, str) or name not in _BRIEFS:
-        raise _Refused(INVALID, "brief must be 'newspaper', 'transcript' or 'recording'")
+        raise Refused(INVALID, "brief must be 'newspaper', 'transcript' or 'recording'")
     return _BRIEFS[name]
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 def _max_tokens(value: Any) -> int:
     if value is None:
         return DEFAULT_MAX_TOKENS
     if not (isinstance(value, int) and not isinstance(value, bool) and value >= 1):
-        raise _Refused(INVALID, "max_tokens must be a positive integer")
+        raise Refused(INVALID, "max_tokens must be a positive integer")
     return min(value, MAX_TOKENS_CAP)
 
 
 def _temperature(value: Any) -> float | None:
     if value is None:
         return None
-    if not (_is_number(value) and 0 <= value <= 2):
-        raise _Refused(INVALID, "temperature must be a number from 0 to 2")
+    if not (is_number(value) and 0 <= value <= 2):
+        raise Refused(INVALID, "temperature must be a number from 0 to 2")
     return float(value)
-
-
-def _not_after(value: Any) -> datetime | None:
-    if value is None:
-        return None
-    when = None
-    if isinstance(value, str):
-        try:
-            when = datetime.fromisoformat(value)
-        except ValueError:
-            when = None
-    if when is None or when.tzinfo is None:
-        raise _Refused(INVALID, "not_after must be an ISO-8601 time with a UTC offset")
-    return when
 
 
 # ------------------------------------------------------------------ the response
@@ -347,17 +283,17 @@ def _not_after(value: Any) -> datetime | None:
 
 def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
     if len(raw) > MAX_RESPONSE_BYTES:
-        raise _Refused(BAD_RESPONSE, "response too large")
+        raise Refused(BAD_RESPONSE, "response too large")
     try:
         data = json.loads(raw.decode("utf-8"))
     except ValueError as exc:  # UnicodeDecodeError is a ValueError
-        raise _Refused(BAD_RESPONSE, "response is not JSON") from exc
+        raise Refused(BAD_RESPONSE, "response is not JSON") from exc
     choices = data.get("choices") if isinstance(data, dict) else None
     first = choices[0] if isinstance(choices, list) and choices else None
     message = first.get("message") if isinstance(first, dict) else None
     text = message.get(_CONTENT) if isinstance(message, dict) else None
     if not isinstance(text, str):
-        raise _Refused(BAD_RESPONSE, "no message content in the first choice")
+        raise Refused(BAD_RESPONSE, "no message content in the first choice")
     model = data.get(_MODEL)
     usage = data.get("usage")
     return {
@@ -389,16 +325,16 @@ def _cache_path(input: Mapping[str, Any]) -> tuple[Path, str] | None:
     if flag is None or flag is False:
         return None
     if flag is not True:
-        raise _Refused(INVALID, "cache must be a boolean")
+        raise Refused(INVALID, "cache must be a boolean")
     if input.get("brief") != _CACHE_BRIEF or input.get(_CONTENT_PATH) is None:
-        raise _Refused(INVALID, "cache needs brief 'recording' and a content_path")
+        raise Refused(INVALID, "cache needs brief 'recording' and a content_path")
     try:
         path = _under(input.get(_CONTENT_PATH), input.get(_CONTENT_ROOT))
         digest = file_sha256(path)
     except ExcerptRefused as exc:
-        raise _Refused(exc.code, exc.detail) from exc
+        raise Refused(exc.code, exc.detail) from exc
     except OSError as exc:
-        raise _Refused(INVALID, "the content file is not readable") from exc
+        raise Refused(INVALID, "the content file is not readable") from exc
     return path.parent / f"answer.{_CACHE_BRIEF}.{digest[:16]}.json", digest
 
 
@@ -447,10 +383,10 @@ def _store_answer(file: Path, digest: str, out: Mapping[str, Any]) -> None:
         )
 
 
-def _status_failure(status: int) -> _Refused:
+def _status_failure(status: int) -> Refused:
     if status >= 500 or status in _RETRYABLE_4XX:
-        return _Refused(UNAVAILABLE, f"server answered {status}", retryable=True)
-    return _Refused(REJECTED, f"server answered {status}")
+        return Refused(UNAVAILABLE, f"server answered {status}", retryable=True)
+    return Refused(REJECTED, f"server answered {status}")
 
 
 # ------------------------------------------------------------------ the port
@@ -496,29 +432,16 @@ class LlmCompletePort:
         actor, _doc, failure = load_bound_actor(self._store, input, context)
         if failure is not None or actor is None:
             return failure or InvocationResult.failed("actor_not_found", retryable=False)
-        taken = self._model_taken(actor, _doc)
+        taken = model_taken(self._store, actor, _doc)
         if taken is not None:
-            return taken
+            return taken.result()
         try:
             result = self._complete(input, actor, deadline)
-        except _Refused as exc:
+        except Refused as exc:
             return exc.result()
         if result.outcome == COMPLETED:
             self._ledger.put(idempotency_key, result)
         return result
-
-    def _model_taken(self, actor: Actor, doc: Mapping[str, Any] | None) -> InvocationResult | None:
-        """``model_taken: <holder>`` when another enabled endpoint actor with a lower id holds
-        the model this request would use (``params.model``, else the actor's own ``model``).
-        Of two actors sharing a model, the lowest id keeps serving."""
-        candidate = dict(doc or {})
-        candidate.setdefault("id", actor.id)
-        candidate.setdefault("kind", actor.kind)
-        candidate.setdefault("model", actor.model)
-        holder = senior_holder(self._store.find(ACTORS_COLLECTION, {"kind": "agent"}), candidate)
-        if holder is None:
-            return None
-        return InvocationResult.failed(f"model_taken: {holder}", retryable=False)
 
     def refuse_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:
         """The failure for work that must not start (``not_after`` passed or malformed).
@@ -527,26 +450,17 @@ class LlmCompletePort:
         for a slot, so a passed deadline is never queued."""
         try:
             self._not_after(input)
-        except _Refused as exc:
+        except Refused as exc:
             return exc.result()
         return None
 
     def _not_after(self, input: Mapping[str, Any]) -> datetime | None:
-        when = _not_after(input.get("not_after"))
-        if when is not None and self._clock() >= when:
-            raise _Refused(DEADLINE_PASSED, "not_after has passed: the work may no longer start")
-        return when
+        return check_not_after(input, self._clock, DEADLINE_PASSED)
 
     def _remaining(self, input: Mapping[str, Any], deadline: datetime) -> float:
         """Seconds left for the request, read on the clock just before it is sent: a passed
         ``not_after`` fails ``llm_deadline``, a passed attempt deadline ``llm_unavailable``."""
-        not_after = self._not_after(input)
-        if not_after is not None:
-            deadline = min(deadline, not_after)
-        timeout = (deadline - self._clock()).total_seconds()
-        if timeout <= 0:
-            raise _Refused(UNAVAILABLE, "attempt deadline already passed", retryable=True)
-        return timeout
+        return time_left(deadline, self._clock, UNAVAILABLE, self._not_after(input))
 
     def replay(self, idempotency_key: str) -> InvocationResult | None:
         """The completed result already recorded for ``idempotency_key``, else None.
@@ -562,10 +476,10 @@ class LlmCompletePort:
         if input.get(_CONTENT_PATH) is None:
             return _user_message(input.get(_CONTENT), self._max_content_chars)
         if input.get(_CONTENT) is not None:
-            raise _Refused(INVALID, "give content or content_path, not both")
+            raise Refused(INVALID, "give content or content_path, not both")
         limit = input.get(_CONTENT_MAX_CHARS, self._max_content_chars)
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-            raise _Refused(INVALID, "content_max_chars must be an integer >= 1")
+            raise Refused(INVALID, "content_max_chars must be an integer >= 1")
         try:
             text = read_excerpt(
                 input.get(_CONTENT_PATH),
@@ -573,9 +487,9 @@ class LlmCompletePort:
                 min(limit, self._max_content_chars),
             )
         except ExcerptRefused as exc:
-            raise _Refused(exc.code, exc.detail) from exc
+            raise Refused(exc.code, exc.detail) from exc
         if not text:
-            raise _Refused(INVALID, "the transcript has no text to send")
+            raise Refused(INVALID, "the transcript has no text to send")
         return text
 
     def _request(self, input: Mapping[str, Any], model: str, content: str) -> bytes:
@@ -600,20 +514,20 @@ class LlmCompletePort:
             try:
                 headers["Authorization"] = "Bearer " + resolve(key, self._secret_runner)
             except SecretError as exc:
-                raise _Refused("secret_unresolved", "params.api_key") from exc
+                raise Refused("secret_unresolved", "params.api_key") from exc
         return headers
 
     def _complete(
         self, input: Mapping[str, Any], actor: Actor, deadline: datetime
     ) -> InvocationResult:
         if actor.kind != "agent":
-            raise _Refused(
+            raise Refused(
                 "actor_kind_mismatch",
                 f"llm.complete needs an agent actor, {actor.id!r} is {actor.kind!r}",
             )
         problem = check_llm_actor(actor)
         if problem:
-            raise _Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
+            raise Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
         model = str(actor.params.get(_MODEL) or actor.model).strip()
         cache = _cache_path(input)
         if cache is not None:
@@ -628,7 +542,7 @@ class LlmCompletePort:
         try:
             status, raw = self._transport(url, data, headers, min(timeout, MAX_TIMEOUT))
         except (OSError, http.client.HTTPException) as exc:  # URLError/timeouts are OSErrors
-            raise _Refused(UNAVAILABLE, type(exc).__name__, retryable=True) from exc
+            raise Refused(UNAVAILABLE, type(exc).__name__, retryable=True) from exc
         if not 200 <= status < 300:
             raise _status_failure(status)
         out = _parse(raw, model)
@@ -636,7 +550,7 @@ class LlmCompletePort:
             try:
                 out["answer"] = parse_recording_answer(out["text"])
             except AnswerRefused as exc:
-                raise _Refused(exc.code, exc.detail) from exc
+                raise Refused(exc.code, exc.detail) from exc
             out["cached"] = False
             if cache is not None:
                 _store_answer(*cache, out)

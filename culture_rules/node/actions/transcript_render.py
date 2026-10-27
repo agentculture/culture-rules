@@ -66,12 +66,8 @@ from __future__ import annotations
 import base64
 import contextlib
 import hashlib
-import html
-import io
 import json
-import os
 import re
-import zipfile
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -79,7 +75,26 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.node.actions.transcript_file import TRANSCRIPT_FILE_CAP, write_bytes_atomic
+from culture_rules.node.actions._epub import (
+    EPUB_NS,
+    INVALID_XML,
+    OEBPS,
+    XHTML_NS,
+    XML_DECL,
+    container,
+    esc,
+    nav_body,
+    ncx,
+    opf,
+    pack,
+)
+from culture_rules.node.actions.transcript_file import (
+    TRANSCRIPT_FILE_CAP,
+    ExcerptRefused,
+    require_absolute,
+    resolve_existing,
+    write_bytes_atomic,
+)
 
 __all__ = [
     "DEFAULT_WORD",
@@ -105,18 +120,12 @@ TIMEZONE = "Asia/Jerusalem"
 _WORD_RE = re.compile(r"^[A-Za-z][A-Za-z-]{1,23}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-_FENCE_RE = re.compile(r"^```[A-Za-z]*\s*\n?(.*?)\n?```$", re.DOTALL)
-_INVALID_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff￾￿]")
+_FENCE = "```"
+_ASCII_LETTERS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 _SUMMARY_MAX_CHARS = 2000
 _FACT_MAX_CHARS = 300
 _FACTS_MAX = 12
 
-_EPOCH = (1980, 1, 1, 0, 0, 0)
-_OEBPS = "OEBPS/"
-_XHTML_TYPE = "application/xhtml+xml"
-_XHTML_NS = "http://www.w3.org/1999/xhtml"
-_EPUB_NS = "http://www.idpf.org/2007/ops"
-_XML_DECL = '<?xml version="1.0" encoding="utf-8"?>\n'
 _CSS = (
     "body{font-family:Georgia,serif;line-height:1.5;margin:0 auto;max-width:42em;"
     "padding:0 1em}\n"
@@ -131,10 +140,6 @@ class RenderError(ValueError):
 
 def _fail(code: str, detail: str) -> RenderError:
     return RenderError(f"{code}: {detail}")
-
-
-def _esc(text: str) -> str:
-    return html.escape(_INVALID_XML.sub("", text), quote=True)
 
 
 # ------------------------------------------------------------------ inputs
@@ -152,6 +157,19 @@ def _local_moment(recorded_at: Any) -> datetime:
     return moment.astimezone(ZoneInfo(TIMEZONE))
 
 
+def _unfenced(text: str) -> str:
+    """The body of a stripped text wrapped in a code fence (an optional language tag of ASCII
+    letters after the opening fence), stripped; any other text unchanged. String slicing, not
+    a regular expression, so a long reply cannot make it backtrack."""
+    if len(text) < 2 * len(_FENCE) or not (text.startswith(_FENCE) and text.endswith(_FENCE)):
+        return text
+    inner = text[len(_FENCE) : -len(_FENCE)]
+    start = 0
+    while start < len(inner) and inner[start] in _ASCII_LETTERS:
+        start += 1
+    return inner[start:].strip()
+
+
 def _answer_data(value: Any) -> Mapping[str, Any] | None:
     """The answer object: a mapping that already is ``{summary, word, ...}`` (or holds it as
     ``answer``), or the JSON in llm.complete's ``text`` (or a plain string)."""
@@ -164,9 +182,7 @@ def _answer_data(value: Any) -> Mapping[str, Any] | None:
     if not isinstance(value, str):
         return None
     text = _THINK_RE.sub("", value).strip()
-    fenced = _FENCE_RE.match(text)
-    if fenced:
-        text = fenced.group(1).strip()
+    text = _unfenced(text)
     try:
         data = json.loads(text)
     except (ValueError, RecursionError):
@@ -182,7 +198,7 @@ def _facts(value: Any) -> list[str]:
     for item in value:
         if not isinstance(item, str):
             continue
-        fact = " ".join(_INVALID_XML.sub("", item).split())
+        fact = " ".join(INVALID_XML.sub("", item).split())
         if fact and len(fact) <= _FACT_MAX_CHARS:
             out.append(fact)
     return out[:_FACTS_MAX]
@@ -202,7 +218,7 @@ def parse_answer(value: Any) -> tuple[list[str], str, list[str]] | None:
     word = word.strip()
     if not _WORD_RE.match(word):
         return None
-    lines = [ln.strip() for ln in _INVALID_XML.sub("", summary).splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in INVALID_XML.sub("", summary).splitlines() if ln.strip()]
     if not 1 <= len(lines) <= 2 or sum(len(ln) for ln in lines) > _SUMMARY_MAX_CHARS:
         return None
     return lines, word.lower(), _facts(data.get("facts"))
@@ -228,8 +244,8 @@ def _paragraphs(doc: Mapping[str, Any]) -> list[str]:
     out: list[str] = []
     for seg in segments:
         text = seg.get("text") if isinstance(seg, Mapping) else None
-        if isinstance(text, str) and _INVALID_XML.sub("", text).strip():
-            out.append(_INVALID_XML.sub("", text).strip())
+        if isinstance(text, str) and INVALID_XML.sub("", text).strip():
+            out.append(INVALID_XML.sub("", text).strip())
     return out
 
 
@@ -239,64 +255,11 @@ def _paragraphs(doc: Mapping[str, Any]) -> list[str]:
 def _xhtml(title: str, body: str, lang: str, direction: str, *, css: bool = True) -> str:
     link = '<link rel="stylesheet" type="text/css" href="style.css"/>' if css else ""
     return (
-        f'{_XML_DECL}<html xmlns="{_XHTML_NS}" xmlns:epub="{_EPUB_NS}" '
+        f'{XML_DECL}<html xmlns="{XHTML_NS}" xmlns:epub="{EPUB_NS}" '
         f'lang="{lang}" xml:lang="{lang}" dir="{direction}"><head><meta charset="utf-8"/>'
-        f"<title>{_esc(title)}</title>{link}</head>"
+        f"<title>{esc(title)}</title>{link}</head>"
         f'<body dir="{direction}">{body}</body></html>\n'
     )
-
-
-def _container() -> str:
-    return (
-        f"{_XML_DECL}"
-        '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
-        f'<rootfiles><rootfile full-path="{_OEBPS}content.opf" '
-        'media-type="application/oebps-package+xml"/></rootfiles></container>\n'
-    )
-
-
-def _opf(uid: str, title: str, day: str, lang: str, direction: str) -> str:
-    items = "".join(
-        f'<item id="{cid}" href="{cid}.xhtml" media-type="{_XHTML_TYPE}"/>' for cid in ("c1", "c2")
-    )
-    spine = "".join(f'<itemref idref="{cid}"/>' for cid in ("c1", "c2"))
-    return (
-        f"{_XML_DECL}"
-        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
-        f'unique-identifier="uid" xml:lang="{lang}" dir="{direction}">'
-        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
-        f'<dc:identifier id="uid">{_esc(uid)}</dc:identifier>'
-        f"<dc:title>{_esc(title)}</dc:title><dc:language>{lang}</dc:language>"
-        f"<dc:creator>culture-rules</dc:creator><dc:date>{day}</dc:date>"
-        f'<meta property="dcterms:modified">{day}T00:00:00Z</meta></metadata>'
-        f'<manifest><item id="nav" href="nav.xhtml" media-type="{_XHTML_TYPE}" '
-        'properties="nav"/>'
-        '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
-        f'<item id="css" href="style.css" media-type="text/css"/>{items}</manifest>'
-        f'<spine toc="ncx" page-progression-direction="{direction}">{spine}</spine></package>\n'
-    )
-
-
-def _ncx(uid: str, title: str, labels: list[str]) -> str:
-    points = "".join(
-        f'<navPoint id="np{n}" playOrder="{n}"><navLabel><text>{_esc(label)}</text>'
-        f'</navLabel><content src="c{n}.xhtml"/></navPoint>'
-        for n, label in enumerate(labels, 1)
-    )
-    return (
-        f'{_XML_DECL}<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">'
-        f'<head><meta name="dtb:uid" content="{_esc(uid)}"/>'
-        '<meta name="dtb:depth" content="1"/><meta name="dtb:totalPageCount" content="0"/>'
-        '<meta name="dtb:maxPageNumber" content="0"/></head>'
-        f"<docTitle><text>{_esc(title)}</text></docTitle><navMap>{points}</navMap></ncx>\n"
-    )
-
-
-def _write(archive: zipfile.ZipFile, name: str, data: str, compress: int) -> None:
-    info = zipfile.ZipInfo(name, date_time=_EPOCH)
-    info.compress_type = compress
-    info.external_attr = 0o644 << 16
-    archive.writestr(info, data.encode("utf-8"))
 
 
 def _epub(
@@ -309,38 +272,31 @@ def _epub(
     direction: str,
 ) -> bytes:
     labels = [title, "Transcript"]
-    head = f'<h1>{_esc(title)}</h1><p class="date">{_esc(day)}</p>' + "".join(
-        f"<p>{_esc(line)}</p>" for line in summary_lines
+    head = f'<h1>{esc(title)}</h1><p class="date">{esc(day)}</p>' + "".join(
+        f"<p>{esc(line)}</p>" for line in summary_lines
     )
-    transcript = "<h2>Transcript</h2>" + "".join(f"<p>{_esc(p)}</p>" for p in paragraphs)
-    nav_items = "".join(
-        f'<li><a href="c{n}.xhtml">{_esc(label)}</a></li>' for n, label in enumerate(labels, 1)
-    )
-    nav = f'<nav epub:type="toc" id="toc"><h1>Contents</h1><ol>{nav_items}</ol></nav>'
+    transcript = "<h2>Transcript</h2>" + "".join(f"<p>{esc(p)}</p>" for p in paragraphs)
+    entries = list(zip(labels, ("c1", "c2"), strict=True))
+    nav = nav_body(entries)
     files = [
-        ("META-INF/container.xml", _container()),
-        (f"{_OEBPS}content.opf", _opf(uid, title, day, lang, direction)),
-        (f"{_OEBPS}nav.xhtml", _xhtml("Contents", nav, lang, direction, css=False)),
-        (f"{_OEBPS}toc.ncx", _ncx(uid, title, labels)),
-        (f"{_OEBPS}style.css", _CSS),
-        (f"{_OEBPS}c1.xhtml", _xhtml(title, f'<section id="c1">{head}</section>', lang, direction)),
+        ("META-INF/container.xml", container()),
+        (f"{OEBPS}content.opf", opf(uid, title, day, ("c1", "c2"), lang=lang, direction=direction)),
+        (f"{OEBPS}nav.xhtml", _xhtml("Contents", nav, lang, direction, css=False)),
+        (f"{OEBPS}toc.ncx", ncx(uid, title, entries)),
+        (f"{OEBPS}style.css", _CSS),
+        (f"{OEBPS}c1.xhtml", _xhtml(title, f'<section id="c1">{head}</section>', lang, direction)),
         (
-            f"{_OEBPS}c2.xhtml",
+            f"{OEBPS}c2.xhtml",
             _xhtml("Transcript", f'<section id="c2">{transcript}</section>', lang, direction),
         ),
     ]
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        _write(archive, "mimetype", "application/epub+zip", zipfile.ZIP_STORED)
-        for name, data in files:
-            _write(archive, name, data, zipfile.ZIP_DEFLATED)
-    return buffer.getvalue()
+    return pack(files)
 
 
 def _md_esc(text: str) -> str:
     """Escape ``&``, ``<`` and ``>`` (in that order) in model- or transcript-derived text, so
     it cannot inject HTML; Markdown syntax characters are left alone."""
-    clean = _INVALID_XML.sub("", text)
+    clean = INVALID_XML.sub("", text)
     return clean.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -370,9 +326,8 @@ def render_transcript(
 ) -> dict[str, Any]:
     """Render the schema-1 transcript ``doc`` (an EPUB, or Markdown for ``format="md"``);
     raises :class:`RenderError` (``invalid_request``)."""
-    if format in (None, ""):
-        format = "epub"  # noqa: A001
-    if format not in ("epub", "md"):
+    book_format = "epub" if format in (None, "") else format
+    if book_format not in ("epub", "md"):
         raise _fail(INVALID, "format must be epub or md")
     if not isinstance(doc, Mapping) or doc.get("schema") != 1:
         raise _fail(INVALID, "transcript is not a schema-1 document")
@@ -387,7 +342,7 @@ def render_transcript(
     rtl = _rtl(language, doc)
     lang, direction = ("he", "rtl") if rtl else ("en", "ltr")
     title = f"{day} {local:%H%M} {word}"
-    if format == "md":
+    if book_format == "md":
         data = _markdown(title, lines, facts, paragraphs, rtl).encode("utf-8")
     else:
         uid = f"urn:culture-rules:transcript:{sha}"
@@ -402,7 +357,7 @@ def render_transcript(
         "summary_used": parsed is not None,
         "segment_count": len(paragraphs),
     }
-    if format == "md":
+    if book_format == "md":
         out["format"] = "md"
     return out
 
@@ -411,14 +366,10 @@ def render_transcript(
 
 
 def _resolve_under(path_value: Any, roots: list[Path]) -> Path:
-    if not isinstance(path_value, str) or not os.path.isabs(path_value):
-        raise _fail(PATH_REFUSED, "result_path must be an absolute path")
+    require_absolute(path_value, "result_path")
     if not roots:
         raise _fail(PATH_REFUSED, "no transcripts root is set")
-    try:
-        path = Path(path_value).resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
-        raise _fail(PATH_REFUSED, "result_path does not exist") from exc
+    path = resolve_existing(path_value, "result_path does not exist")
     if not all(path.is_relative_to(root) for root in roots):
         raise _fail(PATH_REFUSED, "result_path is outside the transcripts root")
     if not path.is_file():
@@ -427,12 +378,8 @@ def _resolve_under(path_value: Any, roots: list[Path]) -> Path:
 
 
 def _root(value: Any, label: str) -> Path:
-    if not isinstance(value, str) or not os.path.isabs(value):
-        raise _fail(PATH_REFUSED, f"{label} must be an absolute path")
-    try:
-        return Path(value).resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
-        raise _fail(PATH_REFUSED, f"{label} does not exist") from exc
+    require_absolute(value, label)
+    return resolve_existing(value, f"{label} does not exist")
 
 
 def _read_bytes(path: Path) -> bytes:
@@ -561,7 +508,7 @@ class TranscriptRenderPort:
                 summary=input.get("summary"),
                 format=fmt,
             )
-        except RenderError as exc:
+        except (RenderError, ExcerptRefused) as exc:  # both read "<code>: <detail>"
             return InvocationResult.failed(str(exc), retryable=False)
         _store_book(path, raw, out, fmt)
         return InvocationResult.completed(out)
