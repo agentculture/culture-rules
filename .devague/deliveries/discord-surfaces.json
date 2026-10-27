@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-27T11:14:31Z",
+  "updated": "2026-10-27T15:41:32Z",
   "deviations": [
     {
       "id": "d1",
@@ -1451,7 +1451,7 @@
       },
       "origin": "llm",
       "status": "approved",
-      "superseded": false,
+      "superseded": true,
       "seq": 80
     },
     {
@@ -1681,6 +1681,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 92
+    },
+    {
+      "id": "e80",
+      "obligation_ref": "o29",
+      "test_ref": "live: actors discord-bot and jetson-bot (events, commands, guild_id) and the runs above",
+      "behavior_text": "observed both actors listening and saving by all four gestures in JetsonBot Experiments, which is the operator's private server (operator, 2026-10-27: 'we already did the private server, it's experimental'), and jetson-bot also listening in the public server with no save flow there (d9); both servers are covered, each bot where d2 and d9 place it",
+      "contract_text": "Two Discord app actors (discord-bot = Culture.dev, jetson-bot) listen across both servers; a message saves to the library by a reaction, by a slash or message command, by being posted in a chosen channel (or any channel), or by a scheduled sweep; its text and links land as a Markdown item and its pdf/epub attachments as their own items",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live runs read back with `culture-rules runs show`; the operator confirmed each gesture in Discord",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T10:39:41",
+        "commit": "feddca1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 93
     }
   ],
   "deltas": [
@@ -1975,6 +1994,13 @@
       "action": "supersede",
       "target_ref": "e55",
       "replacement_ref": "e79",
+      "origin": "llm"
+    },
+    {
+      "id": "s19",
+      "action": "supersede",
+      "target_ref": "e67",
+      "replacement_ref": "e80",
       "origin": "llm"
     }
   ]

@@ -1,6 +1,6 @@
 # Delivery Summary — discord surfaces
 
-plan: `discord-surfaces` · run: `partial` · date: `2026-10-25` · updated: `2026-10-27`
+plan: `discord-surfaces` · run: `complete` · date: `2026-10-25` · updated: `2026-10-27`
 baseline: `devague summary skeleton`
 
 ## Intent
@@ -20,8 +20,10 @@ gave a fresh go for Releases 2–3 on 2026-10-26. Release 1 shipped in three PRs
 (0.33.0), #106 (0.34.0) and #107 (0.35.0). 0.35.0 runs on every node and the API since
 2026-10-27 (`rollout verify` ok), and t20 exercised every gesture live on both bots.
 
-The run stays `partial` for one Release 1 item only: Culture.dev is not yet in the operator's
-private server (`t11`). Everything else in the plan is delivered.
+Every plan task is delivered. Until 2026-10-27 the run was recorded `partial` for `t11`
+alone, on the premise that Culture.dev still had to join the operator's private server; the
+operator then confirmed that JetsonBot Experiments *is* that private server, so `t11` was
+already met (`e80` supersedes `e67`). One claim stays failing: `c8`, half checked.
 
 ## Planned Work
 
@@ -62,7 +64,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t8` | delivered | catalogue, describe phrases, node runner, explain and OpenAPI entries for the new kind and builtin (#96) |
 | `t9` | delivered | trigger editor for the Discord filters, `guild_id` as a list, and `markdown.render` offered as a code-step builtin in the step panel, not ActionPicker (`d3`) (#96) |
 | `t10` | delivered | `docs/actors/discord.md`, `docs/actors/library.md` and the disabled bundle `docs/rules/discord-library` (#96); the bundle moved to kind `discord-message` and a literal actor, with an end-to-end test (#100, `d6`) |
-| `t11` | partial | 0.30.1 runs on all four nodes and the API; the jetson-bot actor exists; library key 10 and the library actor accept `discord-message`; a `#spark-tests` message saved as private Markdown item 72, and saving it again gave `created: false` (`d2`, `d4`–`d6`). Since Release 2–3 jetson-bot also listens (two gateway leases), and its MESSAGE CONTENT intent is verified live (`e61`). **Missing:** Culture.dev is not set up for the operator's private server (no server id yet) |
+| `t11` | delivered | 0.30.1 runs on all four nodes and the API; the jetson-bot actor exists; library key 10 and the library actor accept `discord-message`; a `#spark-tests` message saved as private Markdown item 72, and saving it again gave `created: false` (`d2`, `d4`–`d6`). Since Release 2–3 jetson-bot also listens (two gateway leases), and its MESSAGE CONTENT intent is verified live (`e61`). Culture.dev listens and saves in JetsonBot Experiments, which is the operator's private server (operator 2026-10-27; `e80`) |
 | `t12` | delivered | `discord.reaction.added` from discord.py's raw reaction event (emoji name and id, the reactor, `user_roles`), the `emoji` trigger filter (one grammar, U+FE0F ignored), declared per actor (#102) |
 | `t13` | delivered | the builtin `attachment.fetch` through http.call's vetted pinned opener; files written on the node and read by `library.push`'s `content_path` (`d7`); Markdown too (`d10`); a User-Agent the CDN accepts and the 4xx status on a skip (#104); placement on the node holding the files documented (#107, `l14`) (#102, #103) |
 | `t14` | delivered | the action kind `discord.react`, guild-confined (#102); `remove` takes back the bot's own earlier marks (`d13`, #107) |
@@ -169,6 +171,8 @@ Quoted verbatim from the `devague summary` skeleton:
   2026-10-27 during t20: the workflow should add ⏳ as it starts, ⌛ at a meaningful middle step,
   then ✅, removing the old emoji at every switch; removing a reaction needs a generic ability,
   the marks are configuration
+- `d2` speaks of the operator's private server as a third server; on 2026-10-27 the operator
+  confirmed it is JetsonBot Experiments, so there are two servers in all.
 - Release 2–3 decisions no deviation record covers:
   - `discord.py` joined the dev dependency group (#105): the command-tree tests had been
     skipped everywhere since Release 3 (`l12`).
@@ -201,7 +205,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t11` (`d4`) | operator request 2026-10-25: send the daily newsletter to that channel, as a rule/extension, test once with today's issue; library.culture.dev is behind Cloudflare Access so a link alone would not open for public members | acceptable |
 | `t11` (`d5`) | operator rule 2026-10-25: the code shouldn't have the newsletter, that's configuration; code holds schedule, web search, passing data, previous run results, convert to Markdown, post to Discord | acceptable |
 | `t11` (`d6`) | operator 2026-10-25: 'It shouldn't be a document. It's a message, or discord (or discord-message, so we can add later discord-react)'; first live test also showed actor: inputs.actor cannot resolve | needs-follow-up |
-| `t11` | Culture.dev is not configured for the operator's private server (server id not supplied); the newspaper posts in `#bot-experimentations` because `#bot-news` denies Send Messages | needs-follow-up |
+| `t11` | the newspaper posts in `#bot-experimentations` because `#bot-news` denies Send Messages | needs-follow-up |
 | `t13` (`d7`) | operator decision 2026-10-26: MongoDB caps a run document at 16 MiB, so base64 in step outputs fails a run at a ~12 MiB PDF (or a few smaller attachments in one loop) and t13's 50 MiB limit was unreachable; files on the node chosen over lowering the cap | acceptable |
 | `t19` (`d8`) | operator decision 2026-10-26: edges carry whole ports and only action steps resolved inputs.item.\* references, so no loop body could hand a swept message's fields to markdown.render; config.with chosen over a rendering sweep (against the generic-steps rule) and dotted edge ports (engine, validation and editor wiring) | acceptable |
 | `t20` (`d9`) | operator decision 2026-10-26: d2 kept jetson-bot out of Experiments, but t20 needs a private test channel on each bot; the operator chose to test jetson-bot in Experiments over a reduced check or Culture.dev only | acceptable |
@@ -249,8 +253,9 @@ Releases 2–3:
 - evidence records: `e38`–`e62` against obligations `o19`–`o32` and `o17`, approved by the
   operator 2026-10-27; after the `/code-review` of #108, seventeen of them are superseded by
   `e63`–`e79` (run times and commits per run, the epub's existing item, culture-library's one
-  commit, whole-file test refs). `e67` (`c24`) and `e69` (`c8`) record **fail**: not every
-  server the claim names, and one of the two CLIs.
+  commit, whole-file test refs). `e69` (`c8`) records **fail**: one of the two CLIs. `e67`
+  (`c24`) recorded a fail on a wrong premise (a private server other than Experiments); `e80`
+  supersedes it with **pass**, approved by the operator 2026-10-27.
 - CI: #102–#107 merged with every check green and SonarCloud at 0 open issues.
 - live (2026-10-27, on 0.32.1–0.35.0): 26 gesture runs on both bots, each triggered by a
   person (`e66`); pdf new item 92, Markdown new item 85, the epub matching item 67 that the
@@ -295,7 +300,7 @@ Releases 2–3:
 | `c34` — commands sync per guild only on change, only where allowed | high | `e50`, `e51` · `tests/apps/test_discord_commands.py::test_the_holder_registers_per_guild_and_reconnects_do_not_resync` · Discord's command listing |
 | `c16` — a scheduled sweep saves a channel's new messages | high | `e77`, `e78`, `e65` · `tests/node/test_discord_sweep.py` · `tests/rules/test_discord_command_and_sweep_flows.py` · live items 87–89 |
 | `c25` — the success signal on the live mesh | high | `e66` · 26 runs in 1–13 s, sweeps within their period, the pdf one new item and the epub one item (67, already held), re-saves `created: false`, no run from a bot's post |
-| `c24` — the after-state: two actors, four gestures, Markdown plus files | low | `e67` (**fail**: not every server the claim names) · all four gestures live in Experiments; jetson-bot listens in the public server with no save flow there (`d9`), and Culture.dev is not yet in the operator's private server (`t11`) |
+| `c24` — the after-state: two actors, four gestures, Markdown plus files | high | `e80` (supersedes `e67`) · all four gestures live on both bots in JetsonBot Experiments, the operator's private server; jetson-bot also listens in the public server with no save flow there (`d9`) |
 | `c41` — acknowledgement is per-flow configuration | high | `e59` · ✅/⛔ and ⏳⌛✅ set live without code |
 | `c7` — culture-library unchanged | medium | `e68` · one culture-library commit in the window, `bb981c0` (0.17.1, status docs and eval generator), none for Discord; Release 1 needed the `discord-message` kind (`d6`, culture-library#19) |
 | `c8` — discord-bot-cli and jetson-ai-lab-cli unchanged and not in conflict | low | `e69` (**fail**: half checked) · discord-bot-cli `6cd4970` `tests/test_live_discord.py`: 6 passed while jetson-bot's gateway was held, no disconnect, no rule run; jetson-ai-lab-cli has no live suite and was not run; neither CLI changed |
@@ -340,11 +345,9 @@ claim on its own, and `l13`'s editor cases cap `c29` at medium, as `l1` and `l6`
 
 ## Remaining Work / Follow-up
 
-- `t11` — Culture.dev in the operator's private server: needs the server id and an invite,
-  then `guild_id` as a list (every node runs 0.35.0, so a list is safe).
 - `c8` — jetson-ai-lab-cli has no live suite; checking it while jetson-bot's gateway is held
-  needs a read of the public server, which needs the operator's go (`e69`).
-- `c24` — Culture.dev in the operator's private server closes `e67`'s gap (`t11`).
+  needs a read of the public server. Asked in jetson-ai-lab-cli#26 (its Discord access is
+  REST-only, `Intents.none()`, so no conflict is expected); `e69` stays a fail until it reports.
 - `c39` — add a test that an edit or delete event leaves the item (or keep it documented as
   manual archive only).
 - `d11` — jetson-bot's commands stay in Experiments until the public server's admins agree;
