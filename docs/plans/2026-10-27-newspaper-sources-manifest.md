@@ -77,6 +77,6 @@ slug: `newspaper-sources-manifest` · status: `exported` · from frame: `newspap
 - covers: h13, c10
 - acceptance:
   - tests/engine/`test_for_each_outcomes.py`: a `for_each` loop that declares an output port named outcomes gets one entry per item, in order: {index, item, status, errors}; status is succeeded when every body step succeeded, skipped when any body step was skipped (by `on_error` skip or `input_missing`), and errors maps each such step id to its error message
-  - config.collect ({name: "<body step>.<output>"}) copies those body-step outputs into each entry (null when the step did not output it); an unknown step id or a malformed path is refused by validate before the run starts
+  - config.collect (`{name: "<body step>.<output>"}`) copies those body-step outputs into each entry (null when the step did not output it); an unknown step id or a malformed path is refused by validate before the run starts
   - A `for_each` loop without an outcomes port behaves exactly as before (existing loop tests pass unchanged); `retry_until` loops are unchanged; a failed body step still fails the loop
   - tests/rules/`test_sources_manifest_flow.py`'s backfill asserts on the run's outputs: the outcomes list holds every id given, pushed ones with their entry count via collect, the skipped one with its error; docs/operations/sources-manifest.md shows outcomes and collect in the backfill example; the engine docstring and CHANGELOG (0.36.0) describe the port
