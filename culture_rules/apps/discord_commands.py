@@ -9,7 +9,11 @@ by the node holding its gateway lease (:mod:`culture_rules.apps.discord_gateway`
 - the message context-menu command ``Save to library`` (right-click a message, Apps).
 
 Both need ``connection.application_id`` (the bot's application id, a literal) and
-``connection.guild_id`` (one id or a list); without either nothing is registered.
+``connection.guild_id`` (one id or a list); without either nothing is registered. The
+optional ``connection.command_guild_id`` (one id or a list) narrows the guilds commands are
+registered in and answered from (:func:`command_guild_ids`); an invocation from any other
+guild is not sunk and is answered :data:`NOT_HERE`. Narrowing does not remove commands
+already registered in a guild left out.
 
 Sync state
 ==========
@@ -49,6 +53,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from culture_rules.apps.discord_rest import guild_ids
+
 __all__ = [
     "CHAT_INPUT",
     "COMMAND_SYNC_COLLECTION",
@@ -63,6 +69,7 @@ __all__ = [
     "SAVE_MESSAGE_COMMAND",
     "CommandRegistration",
     "command_data",
+    "command_guild_ids",
     "definition_hash",
     "ensure_interaction_ttl",
     "forget_interaction",
@@ -155,6 +162,19 @@ def definition_hash(
 
 def _sync_id(actor_id: str, guild_id: str) -> str:
     return f"{actor_id}:{guild_id}"
+
+
+def command_guild_ids(guild_id: Any, command_guild_id: Any) -> frozenset[str]:
+    """The guilds commands are registered in and answered from: ``connection.command_guild_id``
+    (one id or a list) within ``connection.guild_id``; unset, every guild in ``guild_id``. An id
+    outside ``guild_id`` and a non-numeric one are ignored; nothing is a guild when both are
+    unset (commands are guild commands, never global)."""
+    listened, wanted = guild_ids(guild_id), guild_ids(command_guild_id)
+    if wanted is None:
+        chosen = listened or frozenset()
+    else:
+        chosen = wanted if listened is None else wanted & listened
+    return frozenset(g for g in chosen if g.isdigit())
 
 
 def sync_needed(store: Any, actor_id: str, guild_id: str, digest: str) -> bool:

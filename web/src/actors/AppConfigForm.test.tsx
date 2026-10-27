@@ -217,6 +217,27 @@ describe("app-config model", () => {
     expect(screen.getByRole("textbox", { name: "Guild ids" })).toHaveAccessibleDescription(/separate with commas/i);
   });
 
+  it("saves the Discord command guilds as one id or a list", () => {
+    const draft: AppDraft = {
+      ...emptyAppDraft(),
+      surface: "discord",
+      connection: { bot_token: "grant:bot", guild_id: "10, 20", command_guild_id: "20" },
+      events: ["discord.command.invoked"],
+    };
+    expect(appParamsFrom(draft, undefined).connection).toEqual({
+      bot_token: "grant:bot",
+      guild_id: ["10", "20"],
+      command_guild_id: "20",
+    });
+  });
+
+  it("offers the Discord command guilds field", () => {
+    render(<Harness initial={{ ...emptyAppDraft(), surface: "discord" }} />);
+    expect(screen.getByRole("textbox", { name: "Command guild ids (unset: every guild)" })).toHaveAccessibleDescription(
+      /separate with commas/i,
+    );
+  });
+
   it("refuses a literal credential header in the http policy", () => {
     expect(validateHttp({ allow: "", headers: [{ name: "Authorization", value: "Bearer x" }] })).toHaveProperty("http.0.value");
     expect(validateHttp({ allow: "", headers: [{ name: "Authorization", value: "grant:api" }] })).toEqual({});

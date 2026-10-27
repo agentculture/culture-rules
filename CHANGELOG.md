@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-10-27
+
+### Added
+
+- `connection.command_guild_id` on a Discord app actor (one id or a list, within `guild_id`): `/save` and Save to library are registered and answered only in those servers; an invocation from another server is answered "not set up here" and records no event. Unset, every server of `guild_id` (as before). The editor has a Command guild ids field
+
 ## [0.32.1] - 2026-10-27
 
 ### Fixed

@@ -95,6 +95,7 @@ export const CONNECTION_FIELDS: Record<AppSurface, ConnectionField[]> = {
     { key: "guild_id", label: "Guild ids", oneOrMany: true },
     { key: "channels", label: "Channels", list: true },
     { key: "application_id", label: "Application id (for commands)" },
+    { key: "command_guild_id", label: "Command guild ids (unset: every guild)", oneOrMany: true },
   ],
   email: [
     API_KEY,

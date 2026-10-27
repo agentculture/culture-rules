@@ -22,10 +22,12 @@ COMMAND = "discord.command.invoked"
 APP_ID = "777000"
 
 
-def command_actor(*, app_id=APP_ID, guild="1", events=(EVENT, COMMAND), **kw):
+def command_actor(*, app_id=APP_ID, guild="1", events=(EVENT, COMMAND), command_guild=None, **kw):
     doc = discord_actor(events=events, guild=guild, **kw)
     if app_id is not None:
         doc["params"]["connection"]["application_id"] = app_id
+    if command_guild is not None:
+        doc["params"]["connection"]["command_guild_id"] = command_guild
     return doc
 
 
@@ -179,6 +181,43 @@ def test_the_holder_registers_per_guild_and_reconnects_do_not_resync(rig):
     assert sorted(r.hub.syncs) == [("spark", "1"), ("spark", "2")]
     state = r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1")
     assert state["hash"] == dc.definition_hash(APP_ID)
+
+
+@pytest.mark.parametrize(
+    ("guild", "command_guild", "want"),
+    [
+        (["1", "2"], None, {"1", "2"}),  # unset: every guild in guild_id
+        (["1", "2"], "2", {"2"}),
+        (["1", "2"], ["2", "3"], {"2"}),  # a guild outside guild_id is ignored
+        (None, ["2"], {"2"}),  # guild_id unset (every guild): the list stands
+        (None, None, set()),
+        (["1"], [""], {"1"}),  # a list of only blanks is unset
+        (["1", "x"], None, {"1"}),  # not an id
+    ],
+)
+def test_command_guilds_are_command_guild_id_within_guild_id(guild, command_guild, want):
+    assert dc.command_guild_ids(guild, command_guild) == frozenset(want)
+
+
+def test_commands_register_only_in_the_command_guilds(rig):
+    r = rig()
+    r.store.put("actors", command_actor(guild=["1", "2"], command_guild=["2"]))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "2")])
+    assert r.hub.registrations[-1].guild_ids == ("2",)
+
+
+def test_an_invocation_outside_the_command_guilds_is_not_sunk(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule(type=COMMAND))
+    r.store.put("actors", command_actor(guild=["1", "2"], command_guild="2"))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.command(interaction(1, guild="1"))  # e.g. still registered there from before
+    r.hub.command(interaction(2, guild="2"))
+    assert eventually(lambda: len(r.events(COMMAND)) == 1)
+    time.sleep(0.05)
+    assert [e["envelope"]["data"]["guild_id"] for e in r.events(COMMAND)] == ["2"]
 
 
 def test_a_changed_definition_hash_resyncs(rig):

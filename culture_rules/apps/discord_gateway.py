@@ -867,7 +867,8 @@ class GatewaySupervisor:
     def _registration(self, session: _Session) -> commands_mod.CommandRegistration | None:
         """The commands to register on this connect: only for an actor declaring
         ``discord.command.invoked`` with ``connection.application_id`` and ``guild_id`` set
-        (a missing or non-numeric one is logged once)."""
+        (a missing or non-numeric one is logged once), in the guilds ``command_guild_id``
+        narrows them to."""
         params, connection = _view(session.snapshot())
         if COMMAND_EVENT not in (params.get("events") or ()):
             return None
@@ -875,7 +876,9 @@ class GatewaySupervisor:
         if not app_id.isdigit():  # unset, or not an id discord.py can take
             self._warn_commands_once(session.actor_id, "application_id")
             return None
-        guilds = frozenset(g for g in guild_ids(connection.get("guild_id")) or () if g.isdigit())
+        guilds = commands_mod.command_guild_ids(
+            connection.get("guild_id"), connection.get("command_guild_id")
+        )
         if not guilds:
             self._warn_commands_once(session.actor_id, "guild_id")
             return None
@@ -934,6 +937,12 @@ class GatewaySupervisor:
         app_id = raw.pop("application_id", None)
         data = commands_mod.command_data(raw)
         if not data["interaction_id"]:
+            return False
+        _, connection = _view(session.snapshot())
+        allowed = commands_mod.command_guild_ids(
+            connection.get("guild_id"), connection.get("command_guild_id")
+        )
+        if data["guild_id"] not in allowed:  # e.g. still registered there from before
             return False
         delivery = f"{session.actor_id}:interaction:{data['interaction_id']}"
         event_id = event_id_for("discord", delivery)
