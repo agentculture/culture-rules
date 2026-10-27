@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-27T11:07:28Z",
+  "updated": "2026-10-27T11:14:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -1374,7 +1374,7 @@
         "commit": "9c5f7a6"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 76
     },
@@ -1393,7 +1393,7 @@
         "commit": "9c5f7a6"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 77
     },
@@ -1412,7 +1412,7 @@
         "commit": "9c5f7a6"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 78
     },
@@ -1431,7 +1431,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 79
     },
@@ -1450,7 +1450,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 80
     },
@@ -1469,7 +1469,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 81
     },
@@ -1488,7 +1488,7 @@
         "commit": "6cd4970"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 82
     },
@@ -1507,7 +1507,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 83
     },
@@ -1526,7 +1526,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 84
     },
@@ -1545,7 +1545,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 85
     },
@@ -1564,7 +1564,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 86
     },
@@ -1583,7 +1583,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 87
     },
@@ -1602,7 +1602,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 88
     },
@@ -1621,7 +1621,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 89
     },
@@ -1640,7 +1640,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 90
     },
@@ -1659,7 +1659,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 91
     },
@@ -1678,7 +1678,7 @@
         "commit": "feddca1"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 92
     }
