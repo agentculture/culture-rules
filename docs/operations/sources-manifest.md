@@ -127,8 +127,9 @@ it.
 ## Example: backfilling the issues already pushed
 
 A one-off workflow, run once with `workflows run`, fills in the earlier
-issues. It takes `item_ids` (a list) and `library_base`, and loops over the ids
-with a `for_each`. Each pass of the body runs three steps, each with
+issues. It takes `item_ids` (a list of objects, each `{"id": 11}`) and
+`library_base`, and loops over them with a `for_each` (`config.items` is
+`item_ids`; the step reads `inputs.item.id`). Each pass of the body runs three steps, each with
 `on_error: "skip"` so a failed item is skipped and listed, never silent:
 
 1. **`fetch`**, `http.call` `GET` on
@@ -149,9 +150,15 @@ Run it:
 culture-rules workflows run backfill-manifests --inputs-json @inputs.json --apply
 ```
 
-with `inputs.json` holding `{"item_ids": [...], "library_base": "..."}`. The
-run's per-item outcomes list every id it was given: pushed (with an entry
-count) or skipped (with the error).
+with `inputs.json` holding
+`{"item_ids": [{"id": 11}, {"id": 12}], "library_base": "..."}`. The run's
+per-item outcomes list every id it was given: pushed (with an entry count) or
+skipped (with the error). They are read from the run's step states, one set per
+id (`each[0]/fetch`, `each[0]/manifest`, `each[0]/put_manifest`): a pushed id's
+`put_manifest` is `succeeded` and its `manifest` outputs the entry `count`; a
+failed id's first failing step is `skipped` with its `error`, and the steps after
+it are `skipped` too (`input_missing`). The loop's `results` output holds one
+object per id, `{}` for a skipped one: it does not carry the id or the error.
 
 ## What to check
 
