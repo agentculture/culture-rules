@@ -12,9 +12,12 @@ The bound actor (any kind: service, daemon, runner, an app actor, ...) carries t
 
 ``allow`` lists exact hostnames (case-insensitive, trailing dot ignored, no wildcards, any
 port) and exact IP literals. ``headers`` are sent on every call by this actor and take
-precedence over the action's own headers. Any header value of the form ``grant:<NAME>`` is
-resolved at call time on this host (:mod:`culture_rules.actors.secrets`) and its value is
-scrubbed from the response output. No allowlist means every call is refused.
+precedence over the action's own headers. A header value of the form ``grant:<NAME>``, or of
+the form ``<word> grant:<NAME>`` (exactly one word of ``[A-Za-z][A-Za-z0-9._-]*``, one space,
+then the reference; e.g. ``Bearer grant:TOKEN``), is resolved at call time on this host
+(:mod:`culture_rules.actors.secrets`), sent as the value or as ``<word> <value>``, and scrubbed
+from the response output. Any other value holding ``grant:`` is sent unchanged.
+No allowlist means every call is refused.
 
 Destination policy, checked before any request is made (failure code
 ``destination_refused``, never retryable):
@@ -47,6 +50,7 @@ import functools
 import http.client
 import ipaddress
 import json
+import re
 import socket
 import ssl
 import urllib.error
@@ -106,6 +110,10 @@ _REFUSED_NETS = tuple(
 
 Resolver = Callable[[str, int], list[str]]
 OpenerFactory = Callable[[str], Any]
+
+
+# ``<word> grant:<NAME>``: one word, one space, one reference (no further spaces).
+_WORD_GRANT = re.compile(r"([A-Za-z][A-Za-z0-9._-]*) (grant:\S*)")
 
 
 class RedirectRefused(Exception):
@@ -375,10 +383,15 @@ class HttpCallPort:
             raise _Refused("invalid_request", "header names and values must be strings")
         if name.strip().lower() == "host":
             raise _Refused("invalid_request", "the Host header cannot be set")
-        if not value.startswith(GRANT_SCHEME + ":"):
+        word = ""
+        ref = value
+        match = _WORD_GRANT.fullmatch(value)
+        if match:
+            word, ref = match.group(1) + " ", match.group(2)
+        if not ref.startswith(GRANT_SCHEME + ":"):
             return value
         try:
-            return resolve(value, self._secret_runner, redactor=redactor)
+            return word + resolve(ref, self._secret_runner, redactor=redactor)
         except SecretError as exc:
             raise _Refused("secret_unresolved", f"header {name!r}") from exc
 
