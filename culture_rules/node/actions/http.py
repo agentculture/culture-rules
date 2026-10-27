@@ -470,11 +470,7 @@ class HttpCallPort:
         method = method.upper() if isinstance(method, str) else ""
         if method not in METHODS:
             raise _Refused("invalid_request", f"method {method or '(none)'!r} not allowed")
-        save = _save_target(input.get("save_to"), params)
-        if save is not None and method in _NO_BODY:
-            raise _Refused(
-                "invalid_request", f"save_to needs a method that returns a body, not {method}"
-            )
+        save = _save_target(input.get("save_to"), params, method)
         host, pinned = self._destination(input.get("url"), _allowlist(params))
         timeout = (deadline - self._clock()).total_seconds()
         if timeout <= 0:
@@ -583,12 +579,16 @@ def _checked_status(response: Any) -> int:
 # so importing back from it would be circular, and its helpers raise its own exception types.
 
 
-def _save_target(save_to: Any, params: Mapping[str, Any]) -> tuple[str, int] | None:
+def _save_target(save_to: Any, params: Mapping[str, Any], method: str) -> tuple[str, int] | None:
     """(root, cap) for a ``save_to`` the policy allows, None without one; else refused."""
     if save_to is None:
         return None
     if not isinstance(save_to, str) or not save_to:
         raise _Refused("invalid_request", "save_to must be a non-empty string")
+    if method in _NO_BODY:
+        raise _Refused(
+            "invalid_request", f"save_to needs a method that returns a body, not {method}"
+        )
     policy = params.get("http")
     policy = policy if isinstance(policy, Mapping) else {}
     cap = policy.get("save_max_bytes", DEFAULT_SAVE_MAX_BYTES)
