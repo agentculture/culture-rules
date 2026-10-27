@@ -71,8 +71,9 @@ from typing import Any
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
-from culture_rules.node.actions._endpoint import Refused as _Refused
 from culture_rules.node.actions._endpoint import (
+    INVALID,
+    Refused,
     base_url_problem,
     check_not_after,
     is_number,
@@ -108,7 +109,6 @@ REJECTED = "decider_rejected"
 BAD_RESPONSE = "decider_bad_response"
 DEADLINE_PASSED = "decider_deadline"
 ACTOR_INVALID = "decider_actor_invalid"
-INVALID = "invalid_request"
 
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -176,51 +176,51 @@ def _is_text(value: Any) -> bool:
 
 def _question(key: Any, raw: Any) -> dict[str, Any]:
     if not isinstance(key, str) or not _KEY_RE.match(key):
-        raise _Refused(INVALID, "a question key must match ^[a-z][a-z0-9_]*$")
+        raise Refused(INVALID, "a question key must match ^[a-z][a-z0-9_]*$")
     if not isinstance(raw, Mapping):
-        raise _Refused(INVALID, f"question {key!r} must be an object")
+        raise Refused(INVALID, f"question {key!r} must be an object")
     if any(raw.get(m) for m in _MEDIA_KEYS):
-        raise _Refused(INVALID, f"question {key!r}: images and videos are not supported")
+        raise Refused(INVALID, f"question {key!r}: images and videos are not supported")
     kind = raw.get("type")
     if kind not in _TYPES:
-        raise _Refused(INVALID, f"question {key!r}: type must be choice, noul or score")
+        raise Refused(INVALID, f"question {key!r}: type must be choice, noul or score")
     if not _is_text(raw.get("instructions")):
-        raise _Refused(INVALID, f"question {key!r}: instructions are required")
+        raise Refused(INVALID, f"question {key!r}: instructions are required")
     question: dict[str, Any] = {"type": kind, "instructions": raw["instructions"]}
     if kind in _NEEDS_CRITERIA:
         criteria = raw.get("criteria")
         ok = isinstance(criteria, Mapping) and len(criteria) >= 2
         if not ok or not all(_is_text(k) and _is_text(v) for k, v in criteria.items()):
-            raise _Refused(INVALID, f"question {key!r}: needs at least two text criteria")
+            raise Refused(INVALID, f"question {key!r}: needs at least two text criteria")
         question["criteria"] = dict(criteria)
     return question
 
 
 def _build_request(input: Mapping[str, Any]) -> bytes:
     if any(input.get(m) for m in _MEDIA_KEYS):
-        raise _Refused(INVALID, "images and videos are not supported")
+        raise Refused(INVALID, "images and videos are not supported")
     state = input.get("state")
     if not _is_text(state):
-        raise _Refused(INVALID, "state must be a non-empty string")
+        raise Refused(INVALID, "state must be a non-empty string")
     raw = input.get("questions")
     if not isinstance(raw, Mapping) or not raw:
-        raise _Refused(INVALID, "questions must be a non-empty object")
+        raise Refused(INVALID, "questions must be a non-empty object")
     questions = {key: _question(key, value) for key, value in raw.items()}
     body = {"model": REQUEST_MODEL, "state": state, "questions": questions}
     try:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
     except (TypeError, ValueError) as exc:
-        raise _Refused(INVALID, "the request is not JSON-serialisable") from exc
+        raise Refused(INVALID, "the request is not JSON-serialisable") from exc
     if len(data.decode("utf-8")) > MAX_REQUEST_CHARS:
-        raise _Refused(INVALID, f"the request is over {MAX_REQUEST_CHARS} characters")
+        raise Refused(INVALID, f"the request is over {MAX_REQUEST_CHARS} characters")
     return data
 
 
 # ------------------------------------------------------------------ the response
 
 
-def _bad(detail: str) -> _Refused:
-    return _Refused(BAD_RESPONSE, detail)
+def _bad(detail: str) -> Refused:
+    return Refused(BAD_RESPONSE, detail)
 
 
 def _json_object(raw: bytes) -> dict[str, Any]:
@@ -319,11 +319,11 @@ def _error_code(raw: bytes) -> str | None:
     return code if isinstance(code, str) and _CODE_RE.match(code) else None
 
 
-def _status_failure(status: int, raw: bytes) -> _Refused:
+def _status_failure(status: int, raw: bytes) -> Refused:
     if status >= 500 or status in _RETRYABLE_4XX:
-        return _Refused(UNAVAILABLE, f"server answered {status}", retryable=True)
+        return Refused(UNAVAILABLE, f"server answered {status}", retryable=True)
     code = _error_code(raw)
-    return _Refused(REJECTED, f"status {status}" + (f" ({code})" if code else ""))
+    return Refused(REJECTED, f"status {status}" + (f" ({code})" if code else ""))
 
 
 # ------------------------------------------------------------------ the port
@@ -372,7 +372,7 @@ class DeciderAssessPort:
             return taken.result()
         try:
             result = self._assess(input, actor, deadline)
-        except _Refused as exc:
+        except Refused as exc:
             return exc.result()
         if result.outcome == COMPLETED:
             self._ledger.put(idempotency_key, result)
@@ -386,7 +386,7 @@ class DeciderAssessPort:
         """The failure for work that must not start (``not_after`` passed or malformed)."""
         try:
             self._not_after(input)
-        except _Refused as exc:
+        except Refused as exc:
             return exc.result()
         return None
 
@@ -408,20 +408,20 @@ class DeciderAssessPort:
             try:
                 headers["Authorization"] = "Bearer " + resolve(key, self._secret_runner)
             except SecretError as exc:
-                raise _Refused("secret_unresolved", "params.api_key") from exc
+                raise Refused("secret_unresolved", "params.api_key") from exc
         return headers
 
     def _assess(
         self, input: Mapping[str, Any], actor: Actor, deadline: datetime
     ) -> InvocationResult:
         if actor.kind != "agent":
-            raise _Refused(
+            raise Refused(
                 "actor_kind_mismatch",
                 f"decider.assess needs an agent actor, {actor.id!r} is {actor.kind!r}",
             )
         problem = check_decider_actor(actor)
         if problem:
-            raise _Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
+            raise Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
         domain = _domain(actor.params) or DEFAULT_DOMAIN
         data = _build_request(input)
         headers = self._headers(actor.params, domain)  # may block on a grant lookup
@@ -430,7 +430,7 @@ class DeciderAssessPort:
         try:
             status, reply_headers, raw = self._transport(url, data, headers, timeout)
         except (OSError, http.client.HTTPException) as exc:  # URLError/timeouts are OSErrors
-            raise _Refused(UNAVAILABLE, type(exc).__name__, retryable=True) from exc
+            raise Refused(UNAVAILABLE, type(exc).__name__, retryable=True) from exc
         if not 200 <= status < 300:
             raise _status_failure(status, raw)
         reply = _json_object(raw)

@@ -17,9 +17,10 @@ import zipfile
 from collections.abc import Iterable, Sequence
 
 __all__ = [
+    "ENCODING",
     "EPOCH",
-    "INVALID_XML",
     "EPUB_NS",
+    "INVALID_XML",
     "OEBPS",
     "XHTML_NS",
     "XHTML_TYPE",
@@ -67,13 +68,17 @@ def opf(
     direction: str | None = None,
 ) -> str:
     """The package document: ``chapters`` are the chapter ids (``<id>.xhtml``) in spine order.
-    A ``direction`` (``ltr``/``rtl``) is set on the package and as the page progression."""
-    package_dir = f' dir="{direction}"' if direction else ""
-    progression = f' page-progression-direction="{direction}"' if direction else ""
+    A ``direction`` (``ltr``/``rtl``) is set on the package and as the page progression. Every
+    value is escaped, so a caller cannot break the markup (for today's fixed values escaping
+    changes nothing)."""
+    lang, day = esc(lang), esc(day)
+    package_dir = f' dir="{esc(direction)}"' if direction else ""
+    progression = f' page-progression-direction="{esc(direction)}"' if direction else ""
+    ids = [esc(cid) for cid in chapters]
     items = "".join(
-        f'<item id="{cid}" href="{cid}.xhtml" media-type="{XHTML_TYPE}"/>' for cid in chapters
+        f'<item id="{cid}" href="{cid}.xhtml" media-type="{XHTML_TYPE}"/>' for cid in ids
     )
-    spine = "".join(f'<itemref idref="{cid}"/>' for cid in chapters)
+    spine = "".join(f'<itemref idref="{cid}"/>' for cid in ids)
     return (
         f"{XML_DECL}"
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
@@ -93,7 +98,9 @@ def opf(
 
 def nav_body(entries: Iterable[tuple[str, str]]) -> str:
     """The ``nav.xhtml`` body: one link per ``(label, chapter id)``."""
-    links = "".join(f'<li><a href="{cid}.xhtml">{esc(label)}</a></li>' for label, cid in entries)
+    links = "".join(
+        f'<li><a href="{esc(cid)}.xhtml">{esc(label)}</a></li>' for label, cid in entries
+    )
     return f'<nav epub:type="toc" id="toc"><h1>Contents</h1><ol>{links}</ol></nav>'
 
 
@@ -101,7 +108,7 @@ def ncx(uid: str, title: str, entries: Iterable[tuple[str, str]]) -> str:
     """The EPUB 2 NCX: one nav point per ``(label, chapter id)``, numbered from 1."""
     points = "".join(
         f'<navPoint id="np{n}" playOrder="{n}"><navLabel><text>{esc(label)}</text>'
-        f'</navLabel><content src="{cid}.xhtml"/></navPoint>'
+        f'</navLabel><content src="{esc(cid)}.xhtml"/></navPoint>'
         for n, (label, cid) in enumerate(entries, 1)
     )
     return (

@@ -63,6 +63,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from culture_rules.node.actions._epub import (
+    ENCODING,
     EPUB_NS,
     INVALID_XML,
     OEBPS,
@@ -106,7 +107,6 @@ _ISSUE_TITLE_MAX = 120
 _SUMMARY_MAX = 20000
 _ELLIPSIS = "…"
 
-_ENCODING = "utf-8"
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _LINK_RE = re.compile(r"\[([^\]\n]{1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,2048})\)")
@@ -417,7 +417,7 @@ def render_issue(
     sections = _sections(payload)
     unavailable = _summaries_unavailable(sections)
     page = _html(title, day, sections, unavailable)
-    page_size = len(page.encode(_ENCODING))
+    page_size = len(page.encode(ENCODING))
     if page_size > html_cap:
         raise RenderError(f"html_too_large: {page_size} bytes > {html_cap}")
     book = _epub(title, day, sections, unavailable)

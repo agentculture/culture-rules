@@ -281,7 +281,7 @@ def _epub(
     return pack(files)
 
 
-def _mdesc(text: str) -> str:
+def _md_esc(text: str) -> str:
     """Escape ``&``, ``<`` and ``>`` (in that order) in model- or transcript-derived text, so
     it cannot inject HTML; Markdown syntax characters are left alone."""
     clean = INVALID_XML.sub("", text)
@@ -294,11 +294,11 @@ def _markdown(
     """The transcript as Markdown: H1 title, summary, Key facts, Transcript. A right-to-left
     document is wrapped in a ``dir="rtl"`` block (blank lines around it keep the Markdown
     inside rendering)."""
-    parts = [f"# {_mdesc(title)}", "\n\n".join(_mdesc(ln) for ln in lines)]
+    parts = [f"# {_md_esc(title)}", "\n\n".join(_md_esc(ln) for ln in lines)]
     if facts:
-        parts.append("## Key facts\n\n" + "\n".join(f"- {_mdesc(fact)}" for fact in facts))
+        parts.append("## Key facts\n\n" + "\n".join(f"- {_md_esc(fact)}" for fact in facts))
     body = "\n\n".join(parts)
-    body += "\n\n## Transcript\n\n" + "\n\n".join(_mdesc(p) for p in paragraphs)
+    body += "\n\n## Transcript\n\n" + "\n\n".join(_md_esc(p) for p in paragraphs)
     if rtl:
         body = f'<div dir="rtl">\n\n{body}\n\n</div>'
     return body + "\n"
