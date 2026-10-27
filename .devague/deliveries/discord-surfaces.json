@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-27T06:31:27Z",
+  "updated": "2026-10-27T07:27:18Z",
   "deviations": [
     {
       "id": "d1",
@@ -150,6 +150,20 @@
       "status": "approved",
       "classification": null,
       "seq": 48
+    },
+    {
+      "id": "d12",
+      "what": "Discord application commands are actor configuration, not code: a Discord app actor's params.commands lists its commands ({name, type slash|message, description, options [{name, description, kind string|message, required}], not_here}); the gateway builds and syncs the command tree from that list (the hash over it, so a removed command disappears), a kind message option parses a message link or id into target_message_id/target_channel_id, a message command targets the right-clicked message; a trigger filter command picks a flow's command; the unhandled answer is neutral by default with an optional per-command not_here text. /save and Save to library move to the disabled discord-library template as an example",
+      "task_ref": "t16",
+      "reason": "operator 2026-10-27: /save should be generic; flows must not assume a specific command (flows are configuration, abilities are code). No live impact: neither bot has an application_id, so no commands are registered",
+      "affects": [
+        "t16",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 49
     }
   ],
   "evidence": [

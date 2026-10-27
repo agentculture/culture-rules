@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-27T06:42:02Z",
+  "updated": "2026-10-27T07:27:18Z",
   "claims": [
     {
       "id": "c1",
@@ -1221,7 +1221,7 @@
         "pyproject.toml"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
