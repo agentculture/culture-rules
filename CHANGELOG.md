@@ -9,7 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- attachment.fetch names itself with a User-Agent (`DiscordBot (culture-rules, 1)`): Discord's CDN answers 403 to Python's default `Python-urllib`, so every live attachment was skipped as `http_status` (found on 0.32.0 with a Markdown upload)
+- The pinned opener behind `http.call` and `attachment.fetch` names itself with the User-Agent `culture-rules` (a request's own User-Agent header still wins): Discord's CDN answers 403 to Python's default `Python-urllib`, so every live attachment was skipped as `http_status` (found on 0.32.0 with a Markdown upload)
+- An `attachment.fetch` item skipped as `http_status` now carries the answer's `status` (403, 404, ...)
 
 ## [0.32.0] - 2026-10-26
 

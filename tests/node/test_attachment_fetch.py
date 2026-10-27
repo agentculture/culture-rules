@@ -17,7 +17,6 @@ from culture_rules.node.actions.attachment_fetch import (
     DEFAULT_ALLOWED_HOSTS,
     MAX_ATTACHMENT_BYTES,
     READ_CHUNK,
-    USER_AGENT,
     AttachmentFetchPort,
 )
 
@@ -129,11 +128,15 @@ def test_builtin_name_and_defaults() -> None:
     assert MAX_ATTACHMENT_BYTES == 50 * 1024 * 1024
 
 
-def test_the_request_names_culture_rules_as_its_user_agent() -> None:
-    # Discord's CDN answers 403 to Python's default "Python-urllib/3.x" (found live on 0.32.0)
+def test_the_default_opener_names_culture_rules_as_its_user_agent() -> None:
+    # the pinned opener's default, kept by a fetch request that sets none of its own
+    assert http_mod.pinned_opener(PUBLIC).addheaders == [("User-agent", "culture-rules")]
+
+
+def test_a_fetch_request_sets_no_user_agent_of_its_own() -> None:
     port, calls, _ = _port()
     _invoke(port, {"attachments": [_att()]})
-    assert calls[0]["user_agent"] == USER_AGENT
+    assert calls[0]["user_agent"] is None
 
 
 def test_pdf_and_epub_are_fetched_as_base64_with_their_format() -> None:
@@ -313,6 +316,18 @@ def test_client_error_skips_the_item_with_http_status() -> None:
     res = _invoke(port, {"attachments": [_att()]})
     assert res.outcome == COMPLETED
     assert res.output["items"][0]["reason"] == "http_status"
+
+
+def test_a_client_error_skip_names_the_status() -> None:
+    port, _, _ = _port(lambda url: FakeResponse(status=403, body=b"forbidden"))
+    res = _invoke(port, {"attachments": [_att()]})
+    assert res.output["items"][0]["status"] == 403
+
+
+def test_other_skips_name_no_status() -> None:
+    port, _, _ = _port(lambda url: FakeResponse(status=301, body=b""))
+    res = _invoke(port, {"attachments": [_att()]})
+    assert "status" not in res.output["items"][0]
 
 
 def test_server_and_network_errors_fail_the_step_retryable() -> None:

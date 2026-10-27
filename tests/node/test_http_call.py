@@ -362,9 +362,11 @@ def test_default_resolver_strips_scope_and_dedups(monkeypatch) -> None:
 
 class _Handler(http.server.BaseHTTPRequestHandler):
     seen: list[tuple[str, str | None]] = []
+    agents: list[str | None] = []
 
     def do_GET(self):  # noqa: N802 - stdlib name
         type(self).seen.append((self.path, self.headers.get("Host")))
+        type(self).agents.append(self.headers.get("User-Agent"))
         if self.path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "http://169.254.169.254/latest/meta-data/")
@@ -384,6 +386,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def server():
     _Handler.seen = []
+    _Handler.agents = []
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
@@ -402,6 +405,22 @@ def test_real_transport_pins_vetted_ip_and_keeps_host_header(server) -> None:
     assert res.output["body"] == "hello"
     assert res.output["status"] == 200
     assert _Handler.seen == [("/hi", f"pinned.invalid:{server}")]
+
+
+def test_real_transport_names_culture_rules_as_its_user_agent(server) -> None:
+    # Discord's CDN answers 403 to Python's default "Python-urllib/3.x" (found live on 0.32.0)
+    port = HttpCallPort(_store(allow=["127.0.0.1"]))
+    res = _invoke(port, _call(f"http://127.0.0.1:{server}/hi"))
+    assert res.outcome == COMPLETED, res.error
+    assert _Handler.agents == ["culture-rules"]
+
+
+def test_an_action_user_agent_header_overrides_the_default(server) -> None:
+    port = HttpCallPort(_store(allow=["127.0.0.1"]))
+    call = _call(f"http://127.0.0.1:{server}/hi", headers={"User-Agent": "probe/1"})
+    res = _invoke(port, call)
+    assert res.outcome == COMPLETED, res.error
+    assert _Handler.agents == ["probe/1"]
 
 
 def test_real_transport_refuses_redirects_and_does_not_follow(server) -> None:
