@@ -69,3 +69,14 @@ slug: `newspaper-sources-manifest` · status: `exported` · from frame: `newspap
   - Dry run on one stored issue: its manifest is shown to the operator before any PUT; after the operator's go, the PUT answers 200 and culture-library's newspaper eval generation for that item reports unmatched = 0
   - Live config through the CLI: the newspaper-library actor's http policy and `save_roots`, a variable for the library base, the daily-newspaper steps after record (read back with workflows describe), and a backfill workflow; the backfill runs once with the live item ids and lists every id; GET /sources answers 200 for each pushed id
   - After the next 05:00 issue: its PUT step answered 200 and eval generation for it reports unmatched = 0; evidence filed for each check (devague evidence)
+
+### t7 — `for_each` outcomes: each iteration's status, errors and collected outputs as a loop output (generic engine)
+
+- instruction: Change `culture_rules`/engine/runs.py (`_progress_loop` records each iteration's body states into the outcome; `_loop_outputs` emits outcomes when the port is declared) and `culture_rules`/model/validate.py (check collect). Keep the outcome small: scalars and error messages only, never a body step's whole outputs. Then update the t5 flow test and the docs page. Test-first: see the new tests fail before the engine change.
+- depends on: t5
+- covers: h13, c10
+- acceptance:
+  - tests/engine/`test_for_each_outcomes.py`: a `for_each` loop that declares an output port named outcomes gets one entry per item, in order: {index, item, status, errors}; status is succeeded when every body step succeeded, skipped when any body step was skipped (by `on_error` skip or `input_missing`), and errors maps each such step id to its error message
+  - config.collect ({name: "<body step>.<output>"}) copies those body-step outputs into each entry (null when the step did not output it); an unknown step id or a malformed path is refused by validate before the run starts
+  - A `for_each` loop without an outcomes port behaves exactly as before (existing loop tests pass unchanged); `retry_until` loops are unchanged; a failed body step still fails the loop
+  - tests/rules/`test_sources_manifest_flow.py`'s backfill asserts on the run's outputs: the outcomes list holds every id given, pushed ones with their entry count via collect, the skipped one with its error; docs/operations/sources-manifest.md shows outcomes and collect in the backfill example; the engine docstring and CHANGELOG (0.36.0) describe the port

@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-27T20:20:13Z",
+  "updated": "2026-10-27T20:45:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -29,6 +29,35 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t5 criterion (c) and h13 say the backfill run's OUTPUTS list every id with its outcome; the engine cannot express that: a for_each result is the last succeeded body step's outputs, and a skipped step's error cannot be wired onward. The per-id outcome (pushed with the manifest's entry count, or skipped with the error) is in the run's stored step states instead, read with culture-rules runs show ID --json; the flow test derives the table from the stored run and asserts all three ids (11 pushed with 2 entries, 99 skipped with http_status 404, 12 pushed). Item ids are given as objects ({id: N}) so inputs.item.id resolves; the docs page says both",
+      "task_ref": "t5",
+      "reason": "for_each loop results carry no per-iteration status or error; changing that is an engine change outside this plan",
+      "affects": [
+        "h13",
+        "c10"
+      ],
+      "origin": "llm",
+      "status": "rejected",
+      "classification": "needs-follow-up",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "The plan gains task t7 (operator's decision on d3): for_each loop results carry each iteration's status, errors and collected outputs (a generic engine change, opt-in through an outcomes output port and config.collect), so a backfill-shaped run's outputs list every id with its outcome",
+      "task_ref": "t7",
+      "reason": "a for_each result held only the last succeeded body step's outputs, so a skipped iteration's error could not reach the run's outputs; the operator chose the engine change in this plan over a follow-up issue",
+      "affects": [
+        "t5",
+        "h13",
+        "c10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
