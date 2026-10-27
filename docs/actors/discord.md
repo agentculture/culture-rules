@@ -288,7 +288,8 @@ that resolves to the root or a directory under it, else the step fails
 `path_refused`. A step cannot write, or delete old files, anywhere else. Its `items` give each file's `path`, `format`,
 `size` and `sha256`, or `skipped: true` with a `reason` (`unsupported_format`
 for images and other types, `too_large` over 50 MiB, `host_refused`,
-`private_address`, `redirect_refused`, `http_status`). It fetches over https
+`private_address`, `redirect_refused`, `http_status` with the answer's `status`). It
+names itself with the User-Agent `culture-rules` (Discord's CDN refuses Python's default) and fetches over https
 from `cdn.discordapp.com` and `media.discordapp.net` only (`allowed_hosts`
 replaces the list with other hostnames; an IP address there fails
 `bad_params`), never follows a redirect and never connects to a private,

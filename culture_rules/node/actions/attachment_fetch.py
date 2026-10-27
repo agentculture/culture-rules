@@ -1,4 +1,4 @@
-"""Built-in ``attachment.fetch``: download pdf and epub attachments, vetted (discord-surfaces R2).
+"""Built-in ``attachment.fetch``: download pdf, epub and Markdown attachments, vetted.
 
 A code-step built-in (``config.builtin: attachment.fetch``), like ``markdown.render``: it
 fetches public CDN URLs and needs no secret, so no actor is involved. Because anyone who can
@@ -7,6 +7,8 @@ connection policy reuses ``http.call``'s pieces from :mod:`culture_rules.node.ac
 (not copied): the URL checks, DNS resolution with every address vetted against the refused
 (private, loopback, link-local, CGNAT, ...) ranges - with no allow-list exception, unlike
 ``http.call`` - a connection pinned to the vetted address, no proxies and no redirects.
+Requests carry the pinned opener's User-Agent (``http.USER_AGENT``, ``culture-rules``):
+Discord's CDN answers 403 to Python's default one.
 
 The bytes never enter run state (deviation d7: a run document is capped at 16 MiB). Each
 fetched file is streamed in :data:`READ_CHUNK` pieces to a temporary file in the output root
@@ -46,16 +48,17 @@ Output: ``items`` (one per attachment, in order), ``fetched`` and ``skipped`` (c
 fetched item is ``{filename, skipped: false, format, content_type, size, sha256, path}``
 (``path`` is the absolute path of the stored file, ``sha256`` its hex digest, ``size`` its
 bytes); there is no ``content_base64``;
-a skipped one is ``{filename, skipped: true, reason}``, the reason one of:
+a skipped one is ``{filename, skipped: true, reason}`` (plus ``status`` for ``http_status``),
+the reason one of:
 
-* ``unsupported_format`` - not a pdf or an epub (no request made);
+* ``unsupported_format`` - not a pdf, an epub or Markdown (no request made);
 * ``invalid_item`` - not a mapping, or no url;
 * ``host_refused`` - not ``https``, credentials in the url, or a host not allowed;
 * ``private_address`` - the host resolves to a refused address (no connection made);
 * ``redirect_refused`` - the server answered a redirect (never followed);
 * ``too_large`` - over :data:`MAX_ATTACHMENT_BYTES` by the declared ``size``, the
   ``Content-Length`` or the bytes read (never more than the limit plus one is read);
-* ``http_status`` - a 4xx answer.
+* ``http_status`` - a 4xx answer; ``status`` is its code (403, 404, ...).
 
 A 5xx or 429 answer, a network error and a resolution failure fail the whole step,
 retryable, so a retry fetches again (files already stored are reused). Non-list
@@ -133,9 +136,10 @@ class _BadParams(Exception):
 class _Skip(Exception):
     """One attachment is not fetched; ``reason`` is the item's reason code."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, status: int | None = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.status = status
 
 
 class _StepFailed(Exception):
@@ -195,7 +199,7 @@ def _param(input: Mapping[str, Any], config: Mapping[str, Any], key: str) -> Any
 
 
 def _format(filename: Any, content_type: Any) -> str | None:
-    """``pdf``, ``epub`` or None (unsupported), from the content type, else the extension."""
+    """``pdf``, ``epub``, ``md`` or None (unsupported): the content type, else the extension."""
     ctype = content_type.split(";", 1)[0].strip().lower() if isinstance(content_type, str) else ""
     if ctype in _TYPES:
         return _TYPES[ctype]
@@ -311,7 +315,10 @@ class AttachmentFetchPort:
                 raise _Skip("too_large")
             sha256, size, path = self._fetch(att["url"], allow, deadline, root, fmt)
         except _Skip as skip:
-            return {"filename": filename, "skipped": True, "reason": skip.reason}
+            item = {"filename": filename, "skipped": True, "reason": skip.reason}
+            if skip.status is not None:
+                item["status"] = skip.status
+            return item
         content_type = _CONTENT_TYPES[fmt]
         return {
             "filename": filename,
@@ -384,7 +391,7 @@ class AttachmentFetchPort:
         if status >= 500 or status < 200 or status in _RETRYABLE_STATUS:
             raise _StepFailed(f"http_status: server answered {status}")
         if status >= 400:
-            raise _Skip("http_status")
+            raise _Skip("http_status", status)
         if _over(_header(getattr(response, "headers", None), "content-length"), self._max_bytes):
             raise _Skip("too_large")
         fd, tmp = tempfile.mkstemp(dir=root, prefix=".attachment.", suffix=".part")

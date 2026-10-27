@@ -32,7 +32,8 @@ The connection is then made to the vetted address (pinned), while the ``Host`` h
 TLS SNI/certificate check keep the URL's hostname, so a DNS answer that changes between
 the check and the connect (rebinding) cannot redirect the request. Environment proxies
 are ignored, redirects are refused (``redirect_refused``, never followed) and the
-timeout comes from the attempt deadline.
+timeout comes from the attempt deadline. The User-Agent is :data:`USER_AGENT`
+(``culture-rules``) unless a ``User-Agent`` header is given.
 
 Outcome: 2xx -> completed with ``{status, headers (subset), body (text, truncated),
 truncated}``; 4xx -> failed ``http_status`` (retryable only for 408/425/429); 5xx and
@@ -60,6 +61,7 @@ from culture_rules.engine.actorport import COMPLETED, InvocationContext, Invocat
 from culture_rules.node.actions.machine import load_bound_actor
 
 __all__ = [
+    "USER_AGENT",
     "HttpCallPort",
     "RedirectRefused",
     "is_refused_address",
@@ -68,6 +70,9 @@ __all__ = [
 ]
 
 DEFAULT_MAX_BODY = 64 * 1024
+# Sent unless a request names its own: hosts such as Discord's CDN answer 403 to Python's
+# default "Python-urllib/3.x".
+USER_AGENT = "culture-rules"
 MAX_TIMEOUT = 60.0
 METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 _SCHEMES = {"http": 80, "https": 443}
@@ -196,8 +201,12 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def pinned_opener(pinned: str) -> urllib.request.OpenerDirector:
-    """An opener that dials only ``pinned``: no proxies, no redirects, http/https only."""
+    """An opener that dials only ``pinned``: no proxies, no redirects, http/https only.
+
+    It names itself ``USER_AGENT``; a request's own User-Agent header still wins.
+    """
     opener = urllib.request.OpenerDirector()
+    opener.addheaders = [("User-agent", USER_AGENT)]
     for handler in (
         _PinnedHTTPHandler(pinned),
         _PinnedHTTPSHandler(pinned),

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.1] - 2026-10-27
+
+### Fixed
+
+- The pinned opener behind `http.call` and `attachment.fetch` names itself with the User-Agent `culture-rules` (a request's own User-Agent header still wins): Discord's CDN answers 403 to Python's default `Python-urllib`, so every live attachment was skipped as `http_status` (found on 0.32.0 with a Markdown upload)
+- An `attachment.fetch` item skipped as `http_status` now carries the answer's `status` (403, 404, ...)
+
 ## [0.32.0] - 2026-10-26
 
 ### Added
