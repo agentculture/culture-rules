@@ -2,7 +2,7 @@
   "plan_slug": "discord-surfaces",
   "schema_version": 2,
   "created": "2026-10-25T11:56:08Z",
-  "updated": "2026-10-26T22:22:45Z",
+  "updated": "2026-10-27T05:41:35Z",
   "deviations": [
     {
       "id": "d1",
@@ -895,6 +895,18 @@
       "evidence_refs": [],
       "origin": "llm",
       "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "attachment.fetch sends User-Agent 'DiscordBot (culture-rules, 1)' on every CDN request; Discord's CDN refuses Python's default urllib User-Agent with 403, which had made every live attachment skip as http_status (0.32.1)",
+      "caused_by": [
+        "d10"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
       "superseded": false
     }
   ],

@@ -17,6 +17,7 @@ from culture_rules.node.actions.attachment_fetch import (
     DEFAULT_ALLOWED_HOSTS,
     MAX_ATTACHMENT_BYTES,
     READ_CHUNK,
+    USER_AGENT,
     AttachmentFetchPort,
 )
 
@@ -51,6 +52,7 @@ class FakeOpener:
     def open(self, request, timeout=None):
         self.calls[-1]["url"] = request.full_url
         self.calls[-1]["timeout"] = timeout
+        self.calls[-1]["user_agent"] = request.get_header("User-agent")
         out = self.responder(request.full_url)
         if isinstance(out, BaseException):
             raise out
@@ -125,6 +127,13 @@ def test_builtin_name_and_defaults() -> None:
     assert ATTACHMENT_FETCH_BUILTIN == "attachment.fetch"
     assert DEFAULT_ALLOWED_HOSTS == ("cdn.discordapp.com", "media.discordapp.net")
     assert MAX_ATTACHMENT_BYTES == 50 * 1024 * 1024
+
+
+def test_the_request_names_culture_rules_as_its_user_agent() -> None:
+    # Discord's CDN answers 403 to Python's default "Python-urllib/3.x" (found live on 0.32.0)
+    port, calls, _ = _port()
+    _invoke(port, {"attachments": [_att()]})
+    assert calls[0]["user_agent"] == USER_AGENT
 
 
 def test_pdf_and_epub_are_fetched_as_base64_with_their_format() -> None:

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T08:39:51Z",
-  "updated": "2026-10-26T20:28:44Z",
+  "updated": "2026-10-27T05:41:30Z",
   "claims": [
     {
       "id": "c1",
@@ -1198,6 +1198,18 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l11",
+      "code": "assumption-for-measurement",
+      "what": "attachment.fetch shipped in 0.31.0 and 0.32.0 tested only against a fake opener; nobody fetched a real Discord CDN URL before the release claimed pdf/epub/md saving, and the CDN answers 403 to Python's default User-Agent, so every live attachment was skipped as http_status (found on 0.32.0 when the operator reacted to a Markdown upload, run run-bf2d0566ce592105e46d6db670ced7d0)",
+      "skipped_check": "one live fetch of a real cdn.discordapp.com attachment URL before the R2 PR",
+      "refs": [
+        "culture_rules/node/actions/attachment_fetch.py",
+        "run-bf2d0566ce592105e46d6db670ced7d0"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [

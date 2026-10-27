@@ -112,6 +112,8 @@ DEFAULT_ATTACHMENTS_ROOT = "~/.local/share/culture-rules/attachments"
 DEFAULT_ALLOWED_HOSTS = ("cdn.discordapp.com", "media.discordapp.net")
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 READ_CHUNK = 1024 * 1024
+# Discord's CDN answers 403 to Python's default User-Agent; this is discord_rest's.
+USER_AGENT = "DiscordBot (culture-rules, 1)"
 DEFAULT_RETENTION_DAYS = 7
 _RETENTION_BOUNDS = (1, 365)
 _STORED_NAME = re.compile(r"[0-9a-f]{64}\.(?:pdf|epub|md)")
@@ -355,7 +357,7 @@ class AttachmentFetchPort:
         if timeout <= 0:
             raise _StepFailed("deadline_passed: attempt deadline already passed")
         try:
-            request = urllib.request.Request(url, method="GET")
+            request = urllib.request.Request(url, method="GET", headers={"User-Agent": USER_AGENT})
             request_host = urlsplit("//" + (request.host or "")).hostname or ""
         except ValueError as exc:
             raise _Skip("invalid_item") from exc
