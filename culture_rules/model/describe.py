@@ -362,20 +362,26 @@ def _comment_words(params: Mapping[str, Any]) -> list[str]:
     return words
 
 
+def _param_words(kind: str, params: Mapping[str, Any]) -> list[str]:
+    """The literal params :data:`ACTION_WORDS` names for ``kind``, each in its template; a
+    list param reads "a and b" (its literal items only)."""
+    words = []
+    for param, template in ACTION_WORDS.get(kind, ()):
+        value = params.get(param)
+        if isinstance(value, (list, tuple)):
+            value = " and ".join(str(v) for v in value if not _dynamic(v))
+        if value not in (None, "") and not _dynamic(value):
+            words.append(template.format(value))
+    return words
+
+
 def action_text(action: Any, where: str = "") -> str:
     """``github.comment as github-app``; literal params named in :data:`ACTION_WORDS`, then
     ``where`` (a step's placement), then the kind's guard words."""
     a = _plain(action)
     kind = str(a.get("kind") or "?")
     params = a.get("params") if isinstance(a.get("params"), Mapping) else {}
-    words = [kind, _actor_of(params)]
-    for param, template in ACTION_WORDS.get(kind, ()):
-        value = params.get(param)
-        if isinstance(value, (list, tuple)):  # a list param reads "a and b", its literals only
-            value = " and ".join(str(v) for v in value if not _dynamic(v))
-        if value not in (None, "") and not _dynamic(value):
-            words.append(template.format(value))
-    words.append(where)
+    words = [kind, _actor_of(params), *_param_words(kind, params), where]
     if kind == "github.push":  # the push port always requires an approving review (d20)
         gate = "a passing gate and " if params.get("gate_verdict") else ""
         words.append(f"(only on {gate}an approving review of exactly that commit)")

@@ -485,8 +485,9 @@ def test_remove_reaction_deletes_the_bots_own_reaction():
 @pytest.mark.parametrize("emoji", ["", "a/b", "name:notanid", None])
 def test_remove_reaction_refuses_a_malformed_emoji(emoji):
     t = PutTransport()
+    client = DiscordClient(TOKEN, transport=t)
     with pytest.raises(DiscordError):
-        DiscordClient(TOKEN, transport=t).remove_reaction("123", "55", emoji)
+        client.remove_reaction("123", "55", emoji)
     assert t.calls == []
 
 
