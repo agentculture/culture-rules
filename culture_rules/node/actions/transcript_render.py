@@ -120,7 +120,8 @@ TIMEZONE = "Asia/Jerusalem"
 _WORD_RE = re.compile(r"^[A-Za-z][A-Za-z-]{1,23}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-_FENCE_RE = re.compile(r"^```[A-Za-z]*\s*\n?(.*?)\n?```$", re.DOTALL)
+_FENCE = "```"
+_ASCII_LETTERS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 _SUMMARY_MAX_CHARS = 2000
 _FACT_MAX_CHARS = 300
 _FACTS_MAX = 12
@@ -156,6 +157,19 @@ def _local_moment(recorded_at: Any) -> datetime:
     return moment.astimezone(ZoneInfo(TIMEZONE))
 
 
+def _unfenced(text: str) -> str:
+    """The body of a stripped text wrapped in a code fence (an optional language tag of ASCII
+    letters after the opening fence), stripped; any other text unchanged. String slicing, not
+    a regular expression, so a long reply cannot make it backtrack."""
+    if len(text) < 2 * len(_FENCE) or not (text.startswith(_FENCE) and text.endswith(_FENCE)):
+        return text
+    inner = text[len(_FENCE) : -len(_FENCE)]
+    start = 0
+    while start < len(inner) and inner[start] in _ASCII_LETTERS:
+        start += 1
+    return inner[start:].strip()
+
+
 def _answer_data(value: Any) -> Mapping[str, Any] | None:
     """The answer object: a mapping that already is ``{summary, word, ...}`` (or holds it as
     ``answer``), or the JSON in llm.complete's ``text`` (or a plain string)."""
@@ -168,9 +182,7 @@ def _answer_data(value: Any) -> Mapping[str, Any] | None:
     if not isinstance(value, str):
         return None
     text = _THINK_RE.sub("", value).strip()
-    fenced = _FENCE_RE.match(text)
-    if fenced:
-        text = fenced.group(1).strip()
+    text = _unfenced(text)
     try:
         data = json.loads(text)
     except (ValueError, RecursionError):
@@ -314,9 +326,8 @@ def render_transcript(
 ) -> dict[str, Any]:
     """Render the schema-1 transcript ``doc`` (an EPUB, or Markdown for ``format="md"``);
     raises :class:`RenderError` (``invalid_request``)."""
-    if format in (None, ""):
-        format = "epub"  # noqa: A001
-    if format not in ("epub", "md"):
+    book_format = "epub" if format in (None, "") else format
+    if book_format not in ("epub", "md"):
         raise _fail(INVALID, "format must be epub or md")
     if not isinstance(doc, Mapping) or doc.get("schema") != 1:
         raise _fail(INVALID, "transcript is not a schema-1 document")
@@ -331,7 +342,7 @@ def render_transcript(
     rtl = _rtl(language, doc)
     lang, direction = ("he", "rtl") if rtl else ("en", "ltr")
     title = f"{day} {local:%H%M} {word}"
-    if format == "md":
+    if book_format == "md":
         data = _markdown(title, lines, facts, paragraphs, rtl).encode("utf-8")
     else:
         uid = f"urn:culture-rules:transcript:{sha}"
@@ -346,7 +357,7 @@ def render_transcript(
         "summary_used": parsed is not None,
         "segment_count": len(paragraphs),
     }
-    if format == "md":
+    if book_format == "md":
         out["format"] = "md"
     return out
 
