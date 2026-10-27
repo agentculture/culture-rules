@@ -363,6 +363,18 @@ def test_removing_every_command_withdraws_them_where_they_were(rig):
     assert r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1") is None
 
 
+def test_dropping_the_command_event_withdraws_the_commands(rig):
+    # review of #106: a bot that stops declaring commands must not leave dead ones behind
+    r = rig()
+    r.store.put("actors", command_actor())
+    r.sup.tick()
+    assert eventually(lambda: r.hub.syncs == [("spark", "1")])
+    r.store.put("actors", command_actor(events=(EVENT,)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.withdrawals == [("spark", "1")])
+    assert r.store.get(dc.COMMAND_SYNC_COLLECTION, "bot:1") is None
+
+
 def test_editing_the_commands_reconnects_and_resyncs(rig):
     r = rig()
     r.store.put("actors", command_actor())
@@ -605,6 +617,15 @@ def test_a_slash_command_passes_string_options_and_no_target():
     raw = order[1][1]
     assert (raw["command"], raw["options"]) == ("digest", {"topic": "jetson"})
     assert raw["target_message_id"] is None
+
+
+def test_a_command_that_cannot_be_built_is_skipped_not_fatal(caplog):
+    # review of #106: one bad command must not take the bot's listener down
+    discord = pytest.importorskip("discord")
+    bad = {**SAVE, "name": "bad", "options": [{"name": "from", "description": "x"}]}
+    tree = dg.build_command_tree(_client(), _registration(lambda _raw: None, commands=[bad, MENU]))
+    assert {c.name for c in tree.get_commands(guild=discord.Object(1))} == {"Save to library"}
+    assert any("bad" in m and "skipped" in m for m in caplog.messages)
 
 
 def test_a_slash_command_with_no_options_takes_none():

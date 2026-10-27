@@ -13,6 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Upgrading: a bot that has commands registered and no `params.commands` loses them on its first 0.34.0 connect; set `params.commands` before upgrading (an older node ignores the key)
 - No command is built in any more: `/save` and Save to library are an example in `docs/rules/discord-library/README.md`. The default answer for a command no rule takes is "This command is not set up here.", and a failed write answers "Could not take this right now"
 
 ## [0.33.0] - 2026-10-27

@@ -500,6 +500,7 @@ def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
         _check_probe_params(params, pp, errors)
     if obj.kind == "event" and str(params.get("type", "")).startswith("discord."):
         _check_discord_filters(params, pp, errors)
+    if obj.kind == "event":
         _check_command_filter(params, pp, errors)
 
 

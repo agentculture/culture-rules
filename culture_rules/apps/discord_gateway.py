@@ -366,20 +366,30 @@ def build_command_tree(client: Any, registration: commands_mod.CommandRegistrati
     tree = app_commands.CommandTree(client)
     guilds = [discord.Object(int(g)) for g in registration.guild_ids]
     for command in registration.commands:
-        if command["type"] == "message":
-            menu = _menu_callback(discord, command, registration, hand_over)
-            tree.add_command(
-                app_commands.ContextMenu(name=command["name"], callback=menu), guilds=guilds
+        try:
+            built = _app_command(app_commands, discord, command, registration, hand_over)
+            tree.add_command(built, guilds=guilds)
+        except Exception as exc:  # noqa: BLE001 - one bad command must not stop the listener
+            log.warning(
+                "discord gateway %s: command %r skipped, it cannot be built (%s)",
+                registration.actor_id,
+                command.get("name"),
+                type(exc).__name__,
             )
-            continue
-        slash = _slash_callback(discord, command, registration, hand_over)
-        tree.add_command(
-            app_commands.Command(
-                name=command["name"], description=command["description"].strip(), callback=slash
-            ),
-            guilds=guilds,
-        )
     return tree
+
+
+def _app_command(
+    app_commands: Any, discord: Any, command: Mapping[str, Any], registration: Any, hand_over: Any
+) -> Any:
+    """One configured command as a discord.py command object."""
+    if command["type"] == "message":
+        menu = _menu_callback(discord, command, registration, hand_over)
+        return app_commands.ContextMenu(name=command["name"], callback=menu)
+    slash = _slash_callback(discord, command, registration, hand_over)
+    return app_commands.Command(
+        name=command["name"], description=command["description"], callback=slash
+    )
 
 
 def _channel(interaction: Any) -> str | None:
@@ -621,22 +631,23 @@ def _view(doc: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[str, Any]]
 
 
 _CommandKey = tuple[str, frozenset[str], str]
-_NO_COMMANDS: _CommandKey = ("", frozenset(), "")
 
 
 def _command_key(doc: Mapping[str, Any]) -> _CommandKey:
     """What an actor's commands are and where they go: (application id, guilds, its
-    ``params.commands`` as canonical JSON), or :data:`_NO_COMMANDS` when it does not declare
-    ``discord.command.invoked``. The id is ``""`` when unset or not numeric."""
+    ``params.commands`` as canonical JSON). An actor not declaring ``discord.command.invoked``
+    has no guilds and ``""`` for the JSON. The id is ``""`` when unset or not numeric."""
     params, connection = _view(doc)
-    if COMMAND_EVENT not in (params.get("events") or ()):
-        return _NO_COMMANDS
     app_id = str(connection.get("application_id") or "").strip()
+    app_id = app_id if app_id.isdigit() else ""
+    if COMMAND_EVENT not in (params.get("events") or ()):
+        # no commands, but the id is kept: commands synced before are withdrawn with it
+        return (app_id, frozenset(), "")
     guilds = commands_mod.command_guild_ids(
         connection.get("guild_id"), connection.get("command_guild_id")
     )
     configured = json.dumps(params.get("commands"), sort_keys=True, default=str)
-    return (app_id if app_id.isdigit() else "", guilds, configured)
+    return (app_id, guilds, configured)
 
 
 class _Session:
@@ -964,24 +975,24 @@ class GatewaySupervisor:
         key = _command_key(doc)
         with session.lock:
             session.command_key = key
-        if key == _NO_COMMANDS:
-            return None
-        app_id, guilds, _ = key
+        app_id, guilds, configured = key
+        declared = configured != ""
         params, connection = _view(doc)
-        if not app_id:  # unset, or not an id discord.py can take
-            self._warn_commands_once(session.actor_id, "application_id")
-            return None
-        if not guilds:
-            narrowed = guild_ids(connection.get("command_guild_id")) is not None
-            self._warn_commands_once(
-                session.actor_id, "command_guild_id" if narrowed else "guild_id"
-            )
-            return None
         actor_id = session.actor_id
-        commands = params.get("commands") or []
-        if not commands or command_problems(commands):
+        if not app_id:  # unset, or not an id discord.py can take: nothing can be synced
+            if declared:
+                self._warn_commands_once(actor_id, "application_id")
+            return None
+        commands = (params.get("commands") or []) if declared else []
+        if declared and not guilds:
+            narrowed = guild_ids(connection.get("command_guild_id")) is not None
+            self._warn_commands_once(actor_id, "command_guild_id" if narrowed else "guild_id")
+            commands = []
+        elif declared and (not commands or command_problems(commands)):
             self._warn_commands_once(actor_id, "commands")
-            commands, guilds = [], frozenset()  # none here; any registered before go
+            commands = []
+        if not commands:
+            guilds = frozenset()  # none here; any registered before are withdrawn
         withdrawn = commands_mod.synced_guilds(self._store, actor_id) - guilds
         if not commands and not withdrawn:
             return None

@@ -151,6 +151,10 @@ describe("Discord commands: validation", () => {
     expect(errorsOf([message({ name: ` ${"x".repeat(32)} ` })])).toEqual({});
   });
 
+  it("refuses a comma in a message name, which the trigger's Command list would split", () => {
+    expect(errorsOf([message({ name: "Save, then share" })])).toHaveProperty("commands.0.name");
+  });
+
   it("refuses a duplicate name within a type and allows it across types", () => {
     expect(errorsOf([slash(), slash()])).toHaveProperty("commands.1.name");
     expect(errorsOf([slash(), slash()])).not.toHaveProperty("commands.0.name");
@@ -180,7 +184,7 @@ describe("Discord commands: validation", () => {
 
   it("checks an option name against ^[a-z_][a-z0-9_]{0,31}$ and refuses interaction", () => {
     expect(errorsOf([slash({ options: [option({ name: "_a1" })] })])).toEqual({});
-    for (const bad of ["", "1a", "a-b", "Text", "a".repeat(33), "interaction"]) {
+    for (const bad of ["", "1a", "a-b", "Text", "a".repeat(33), "interaction", "from", "class", "async"]) {
       expect(errorsOf([slash({ options: [option({ name: bad })] })])).toHaveProperty("commands.0.options.0.name");
     }
   });

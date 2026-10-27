@@ -328,10 +328,12 @@ Developer Portal's **General Information**; not a secret). For example:
 - `type` is `slash` (used as `/name`) or `message` (in a message's **Apps**
   menu; it targets that message).
 - A `slash` name is 1-32 of `a-z`, `0-9`, `_` and `-`; a `message` name is 1-32
-  characters. Names are unique per type. An actor has at most 10 commands, at
+  characters with no comma. No name or description has spaces around it. Names
+  are unique per type. An actor has at most 10 commands, at
   most 5 of them `message` commands.
 - A `slash` command needs a `description` (1-100 characters) and takes up to 5
-  `options`, each with a `name` (`a-z`, `0-9`, `_`, not starting with a digit),
+  `options`, each with a `name` (`a-z`, `0-9`, `_`, not starting with a digit,
+  and not `interaction` or a Python keyword such as `from`),
   a `description`, a `kind` and `required` (default false; required options
   come first). `kind` is `string` (the default) or `message`: a message link
   or id, read into the event's `target_message_id` and `target_channel_id`. A
@@ -348,7 +350,9 @@ application id or a `guild_id`, none are registered (the listener still runs)
 and the node logs why once.
 
 A rule picks its command with the trigger filter `command` (one name or a
-list, matched exactly), on a `discord.command.invoked` trigger only.
+list, any case), on a `discord.command.invoked` trigger only. Dropping
+`discord.command.invoked` from `params.events` withdraws the bot's commands
+too.
 
 `connection.command_guild_id` (one id or a list, optional) narrows where the
 commands are: they are registered only in those servers (ones not also in
@@ -360,9 +364,12 @@ the list has its commands removed on the next connect, and editing
 `application_id`, `guild_id` or `command_guild_id` in a way that moves the
 commands reconnects the bot at once.
 
-Upgrade every node and the API to 0.33.0 before setting `command_guild_id`, and
-to 0.34.0 before setting `params.commands`: an older node holding the bot's
-connection ignores them.
+Upgrade every node and the API to 0.33.0 before setting `command_guild_id`: an
+older node holding the bot's connection ignores it. For 0.34.0 the order is the
+other way round for a bot whose commands are already registered: set its
+`params.commands` first (an older node ignores the key and keeps the built-in
+`/save` and **Save to library**), then upgrade. A 0.34.0 node finding no
+`params.commands` withdraws the commands it registered before.
 
 A command is acknowledged at once, privately ("thinking…"), then recorded as a
 `discord.command.invoked` event with `command` (its name), `command_type`

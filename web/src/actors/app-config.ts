@@ -172,6 +172,8 @@ export const COMMAND_LIMITS = {
 } as const;
 const SLASH_NAME_RE = /^[a-z0-9_-]{1,32}$/;
 const OPTION_NAME_RE = /^[a-z_][a-z0-9_]{0,31}$/;
+/** Python's keywords (keyword.kwlist): an option's name is the node's callback parameter. */
+const PYTHON_KEYWORDS = new Set(["False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"]);
 /** Length in characters as Python counts them (code points), not UTF-16 units. */
 const charCount = (text: string) => [...text].length;
 
@@ -217,7 +219,9 @@ function validateDiscordOptions(options: DiscordOptionDraft[], at: string, error
     const name = o.name.trim();
     if (!OPTION_NAME_RE.test(name)) {
       errors[`${key}.name`] = "Use lowercase letters, digits and underscores, up to 32, not starting with a digit.";
-    } else if (name === "interaction") errors[`${key}.name`] = "interaction is reserved; choose another name.";
+    } else if (name === "interaction" || PYTHON_KEYWORDS.has(name)) {
+      errors[`${key}.name`] = `${name} is reserved; choose another name.`;
+    }
     else if (seen.has(name)) errors[`${key}.name`] = "Two options of this command share this name.";
     seen.add(name);
     const description = charCount(o.description.trim());
@@ -251,6 +255,8 @@ export function validateDiscordCommands(commands: DiscordCommandDraft[]): FormEr
       errors[`${at}.name`] = "Use lowercase letters, digits, - and _, up to 32.";
     } else if (c.type === "message" && (name === "" || charCount(name) > COMMAND_LIMITS.name)) {
       errors[`${at}.name`] = `Use 1 to ${COMMAND_LIMITS.name} characters.`;
+    } else if (c.type === "message" && name.includes(",")) {
+      errors[`${at}.name`] = "Leave out commas: a rule's Command field lists names with commas.";
     } else if (seen[c.type].has(name)) errors[`${at}.name`] = `Two ${c.type} commands share this name.`;
     seen[c.type].add(name);
     if (c.type === "slash") {

@@ -12,24 +12,28 @@ Which commands a bot offers is a flow's choice, so it lives on the actor, not in
 
 * ``type`` is ``slash`` (a ``/name`` command) or ``message`` (a message's Apps menu entry,
   which targets the right-clicked message);
-* a ``slash`` name matches :data:`SLASH_NAME_RE`; a ``message`` name is 1-32 characters;
+* a ``slash`` name matches :data:`SLASH_NAME_RE`; a ``message`` name is 1-32 characters with
+  no comma (the ``command`` filter is a comma-separated list in the editor);
   names are unique per type; at most :data:`MAX_COMMANDS` commands, at most
   :data:`MAX_MESSAGE_COMMANDS` of type ``message``;
 * a ``slash`` command needs a ``description`` (1-100 characters) and may take at most
   :data:`MAX_OPTIONS` ``options``; a ``message`` command takes neither;
-* an option has a ``name`` (:data:`OPTION_NAME_RE`, not ``interaction``, unique in its
-  command), a ``description`` (1-100), a ``kind`` (``string``, the default, or ``message``: a
-  message link or id, read into the event's target; at most one per command) and
+* an option has a ``name`` (:data:`OPTION_NAME_RE`, not ``interaction`` nor a Python
+  keyword, since it is the callback's parameter; unique in its command), a
+  ``description`` (1-100), a ``kind`` (``string``, the default, or ``message``: a message
+  link or id, read into the event's target; at most one per command) and
   ``required`` (a boolean, default false; required options come first);
 * ``not_here`` (1-200 characters) is the private answer when no rule takes the command
   there; unset, :data:`DEFAULT_NOT_HERE`.
 
 :func:`definitions` turns the list into Discord's API shape (what is registered, and what
-the sync hash covers). Standard library only.
+the sync hash covers). Texts carry no space around them, so what is registered is exactly
+what is hashed and matched. Standard library only.
 """
 
 from __future__ import annotations
 
+import keyword
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -73,7 +77,9 @@ _REQUIRED = "required"
 
 
 def _text_ok(value: Any, limit: int) -> bool:
-    return isinstance(value, str) and 0 < len(value.strip()) <= limit and len(value) <= limit
+    """1..limit characters with no space around them: what is registered is what is hashed
+    and matched, and Discord trims (or refuses) a name with surrounding space."""
+    return isinstance(value, str) and 0 < len(value) <= limit and value == value.strip()
 
 
 def _check_name(cmd: Mapping[str, Any], base: str, out: list[Problem]) -> None:
@@ -81,8 +87,14 @@ def _check_name(cmd: Mapping[str, Any], base: str, out: list[Problem]) -> None:
     if cmd.get("type") == "slash":
         if not isinstance(name, str) or not SLASH_NAME_RE.match(name):
             out.append((f"{base}.name", _INVALID, "a slash command's name is 1-32 of a-z 0-9 _ -"))
-    elif not _text_ok(name, _NAME_MAX):
-        out.append((f"{base}.name", _INVALID, "a message command's name is 1-32 characters"))
+    elif not _text_ok(name, _NAME_MAX) or "," in name:
+        out.append(
+            (
+                f"{base}.name",
+                _INVALID,
+                "a message command's name is 1-32 characters, no comma, no space around it",
+            )
+        )
 
 
 def _check_option(opt: Any, path: str, seen: set[str], out: list[Problem]) -> None:
@@ -94,6 +106,7 @@ def _check_option(opt: Any, path: str, seen: set[str], out: list[Problem]) -> No
         not isinstance(name, str)
         or not OPTION_NAME_RE.match(name)
         or name in _RESERVED_OPTION_NAMES
+        or keyword.iskeyword(name)
     ):
         out.append(
             (f"{path}.name", _INVALID, "an option's name is a-z 0-9 _, not starting with a digit")
@@ -193,7 +206,7 @@ def _option_definition(opt: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "type": _STRING_OPTION,  # a message link or id is text too
         "name": opt["name"],
-        "description": opt["description"].strip(),
+        "description": opt["description"],
         "required": opt.get("required") is True,
     }
 
@@ -203,12 +216,12 @@ def definitions(commands: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], 
     out: list[dict[str, Any]] = []
     for cmd in commands:
         if cmd["type"] == "message":
-            out.append({"type": _MESSAGE, "name": cmd["name"].strip()})
+            out.append({"type": _MESSAGE, "name": cmd["name"]})
             continue
         item: dict[str, Any] = {
             "type": _SLASH,
             "name": cmd["name"],
-            "description": cmd["description"].strip(),
+            "description": cmd["description"],
         }
         if cmd.get("options"):
             item["options"] = [_option_definition(o) for o in cmd["options"]]

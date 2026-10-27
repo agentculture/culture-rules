@@ -207,8 +207,11 @@ def test_a_command_filter_matches_its_commands_only():
     assert trigger_matches(ctrig(command=["save", "Save to library"]), invoked("Save to library"))
 
 
-def test_a_command_filter_is_exact():
-    assert not trigger_matches(ctrig(command="Save"), invoked("save"))
+def test_a_command_filter_ignores_case():
+    # review of #106: slash names are lowercase; "Save" in a rule must not silently miss
+    assert trigger_matches(ctrig(command="Save"), invoked("save"))
+    assert trigger_matches(ctrig(command="save to library"), invoked("Save to library"))
+    assert not trigger_matches(ctrig(command="sav"), invoked("save"))
 
 
 def test_a_command_filter_admits_no_event_without_a_command():

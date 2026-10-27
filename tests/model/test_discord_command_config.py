@@ -50,6 +50,11 @@ def test_commands_must_be_a_list_of_mappings():
         ({**MENU, "description": "menus have none"}, "commands[0].description"),
         ({**MENU, "options": []}, "commands[0].options"),
         ({**SAVE, "not_here": ""}, "commands[0].not_here"),
+        # review of #106: what is registered must be exactly what is hashed and matched
+        ({**MENU, "name": " Save"}, "commands[0].name"),
+        ({**MENU, "name": "Save "}, "commands[0].name"),
+        ({**MENU, "name": "Save, then share"}, "commands[0].name"),  # the filter splits on ,
+        ({**SAVE, "description": " Save it"}, "commands[0].description"),
         ({**SAVE, "not_here": "n" * 201}, "commands[0].not_here"),
     ],
 )
@@ -67,6 +72,9 @@ def _opt(**kw):
         ([_opt(name="Text")], "commands[0].options[0].name"),
         ([_opt(name="1st")], "commands[0].options[0].name"),
         ([_opt(name="interaction")], "commands[0].options[0].name"),
+        ([_opt(name="from")], "commands[0].options[0].name"),  # a Python keyword: no parameter
+        ([_opt(name="class")], "commands[0].options[0].name"),
+        ([_opt(description="Some text ")], "commands[0].options[0].description"),
         ([_opt(), _opt()], "commands[0].options[1].name"),  # unique
         ([_opt(description="")], "commands[0].options[0].description"),
         ([_opt(kind="number")], "commands[0].options[0].kind"),

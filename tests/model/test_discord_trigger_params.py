@@ -127,6 +127,8 @@ def test_a_badly_typed_command_filter_is_refused(command):
 
 def test_only_a_command_trigger_takes_a_command_filter():
     assert codes({"command": "save"}) == {"trigger_param_invalid"}
+    # review of #106: not on a non-Discord event either, where it would be ignored
+    assert codes({"command": "deploy"}, "github.issue_comment.created") == {"trigger_param_invalid"}
 
 
 def test_trigger_text_names_the_command():
