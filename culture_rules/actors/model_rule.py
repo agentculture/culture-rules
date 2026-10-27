@@ -1,10 +1,11 @@
 """The model-holder rule: one enabled endpoint actor per model.
 
-Pure and stdlib-only. Both the server guards and ``node/actions/llm.py`` import it, so
-the rule has one definition. An *endpoint actor* is an ``agent`` actor with a non-empty
-``params.base_url`` (it talks to an OpenAI-compatible endpoint). Mesh-reached agents
-(no ``base_url``) may share a model name freely and are never part of the rule. An
-actor's model is the one its requests use: ``params.model``, else its own ``model``.
+Pure and stdlib-only. Both the server guards and ``node/actions/_endpoint.py`` (the
+endpoint-actor ports) import it, so the rule has one definition. An *endpoint actor* is an
+``agent`` actor with a non-empty ``params.base_url`` (it talks to an OpenAI-compatible
+endpoint). Mesh-reached agents (no ``base_url``) may share a model name freely and are never
+part of the rule. An actor's model is the one its requests use: ``params.model``, else its
+own ``model``.
 
 What one holder holds is the model *key*: the model, plus ``@<params.domain>`` when the actor
 sets a domain. A decider actor serves one domain of one model (``clef@general``,
