@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-27T20:45:45Z",
+  "updated": "2026-10-27T23:07:37Z",
   "deviations": [
     {
       "id": "d1",
@@ -60,7 +60,179 @@
       "seq": 4
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o5",
+      "test_ref": "live: newspaper-sources-backfill run-b3458413 (item 81) and run-a77767e1 (16 items)",
+      "behavior_text": "PUT /api/library/{id}/sources answered 200 for all 17 newspaper items with the library's own body {item_id, sources}; never 422",
+      "contract_text": "h25/c13: the live PUT answers 200, not 422",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "real PUTs against the live culture-library through the live key, read back below",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o8",
+      "test_ref": "live: newspaper-sources-backfill run-a77767e1d90b4dc2836e5bc4b03b239e",
+      "behavior_text": "the run's outputs.outcomes listed all 16 ids given, each succeeded with its entry count (5:1, 8-15:5, 16-20,54,55,73:4), errors {}",
+      "contract_text": "h13/c10: the backfill's run lists every item id it was given with its outcome",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the stored live run read with runs show --json",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o4",
+      "test_ref": "local check on the 17 fetched EPUBs with tests/node/culture_library_rules.py (copied culture-library rules)",
+      "behavior_text": "all 72 manifest entries matched one chunk of their issue (unmatched 0) and every manifest passed validate_manifest",
+      "contract_text": "o4/h8: every manifest entry matches inside one chunk; the library's own eval generator still to report (asked on #97)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the live EPUB bytes and the live manifests, checked with the copied rules; the library-side generator is pending, so this is not yet o4's live half",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o9",
+      "test_ref": "live config read-back: actors show newspaper-library, variables get library_base, rules show daily-newspaper",
+      "behavior_text": "the library's base URL lives in the variable library_base, the key in the actor's http header as Bearer grant:LIBRARY_PUSH_API_KEY, the excerpt and split rules in step config; no URL or key in the 0.36.0 code",
+      "contract_text": "h10/c11: no URL, route or key is in code",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read back from the live store after the writes",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o11",
+      "test_ref": "live: workflows describe daily-newspaper (revision 6)",
+      "behavior_text": "steps 11 sources (document.sections on render's epub_base64) and 12 put_sources (http.call PUT to record's item_id), both when deliver = true and skipped on error; the rule maps library_base from vars.library_base",
+      "contract_text": "h22: the live daily-newspaper workflow shows the sections step and the PUT after record",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read back after the update; the 05:00 run's PUT 200 is still to be observed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o2",
+      "test_ref": "live: newspaper-sources-backfill fetch steps (17 items)",
+      "behavior_text": "http.call GET with save_to wrote 17 files named <sha256>.epub (mode 0600) under the listed root /home/spark/.local/share/culture-rules/fetched, outputs status 200, path, sha256, size, content_type application/epub+zip; no body in the outputs",
+      "contract_text": "o2: a body is written only under a root the actor's policy lists, atomically, named from a known Content-Type; no output carries the body",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the live run outputs and the directory listing",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:07:06Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "live: the stored runs run-a77767e1 (305 KB), run-b3458413, run-f89ac97f read with runs show --json",
+      "behavior_text": "no zip header (UEsDB) and no epub_base64/content_base64 key in any of them; only paths, sha256s, scalars and the section lists",
+      "contract_text": "h12/c15: no run on the fetch path stores EPUB bytes or base64",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "grep over the live run documents",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:07:06Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o5",
+      "test_ref": "live: throwaway workflow probe-sources-readback, run-ec8e1a14 (deleted and purged after)",
+      "behavior_text": "GET /api/library/{id}/sources answered 200 for all 17 newspaper items, with 1, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4 entries",
+      "contract_text": "h27/c19: after the backfill, GET /sources answers 200 for each item the run reports pushed",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "a live GET of every item through the live key, after the backfill",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:07:37Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o5",
+      "test_ref": "live: newspaper-sources-backfill dry run run-f89ac97f (PUT disabled) on item 81, then run-b3458413 with PUT",
+      "behavior_text": "the dry run produced item 81's 4-entry manifest without sending it; the operator checked it ('Looks right, PUT item 81'); the PUT then answered 200 with the live key (Bearer grant:LIBRARY_PUSH_API_KEY)",
+      "contract_text": "h8 (first half) and h14/c20: a dry run on one real issue shown to the operator before any PUT; one GET of an issue's file and one PUT of its manifest with the live key answer 200",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the operator's own check of the manifest, then a real PUT with the live key",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:07:37Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    }
+  ],
   "deltas": [],
   "supersessions": []
 }
