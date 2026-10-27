@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.3] - 2026-10-27
+
+### Changed
+
+- The endpoint-actor ports share one copy of their helpers (#87): `node/actions/_endpoint.py` holds the no-proxy, no-redirect POST, the `base_url` check, the `not_after` parse and gate, the attempt-deadline arithmetic, the refusal exception and the `model_taken` rule, imported by `llm.complete`, `audio.transcribe` and `decider.assess`; each keeps its own failure codes, and no behaviour changes
+- `newspaper.render` and `transcript.render` share one deterministic EPUB writer (#87, `node/actions/_epub.py`: escaping, container, package document, nav, NCX and the zip), and `transcript.render`'s root checks reuse `transcript_file`'s absolute-path and resolve steps; both books keep their exact bytes, now pinned by `tests/node/test_epub_bytes_pinned.py`
+
 ## [0.35.2] - 2026-10-27
 
 ### Changed

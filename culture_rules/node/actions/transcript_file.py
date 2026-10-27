@@ -163,16 +163,32 @@ class ExcerptRefused(ValueError):
         self.detail = detail
 
 
-def _under(path_value: Any, root_value: Any) -> Path:
-    if not isinstance(root_value, str) or not os.path.isabs(root_value):
-        raise ExcerptRefused(PATH_REFUSED, "the root must be an absolute path")
-    if not isinstance(path_value, str) or not os.path.isabs(path_value):
-        raise ExcerptRefused(PATH_REFUSED, "the transcript path must be an absolute path")
+def require_absolute(value: Any, what: str) -> str:
+    """``value`` when it is an absolute path, else ``path_refused: <what> must be an absolute
+    path`` (:class:`ExcerptRefused`)."""
+    if not isinstance(value, str) or not os.path.isabs(value):
+        raise ExcerptRefused(PATH_REFUSED, f"{what} must be an absolute path")
+    return value
+
+
+def resolve_existing(value: str, missing: str) -> Path:
+    """The absolute path ``value`` resolved, symlinks followed; ``path_refused: <missing>``
+    (:class:`ExcerptRefused`) when it does not exist or cannot be resolved."""
     try:
-        root = Path(root_value).resolve(strict=True)
-        path = Path(path_value).resolve(strict=True)
+        return Path(value).resolve(strict=True)
     except (OSError, RuntimeError) as exc:
-        raise ExcerptRefused(PATH_REFUSED, "the transcript or its root does not exist") from exc
+        raise ExcerptRefused(PATH_REFUSED, missing) from exc
+
+
+def _under(path_value: Any, root_value: Any) -> Path:
+    """The file ``path_value`` resolved under ``root_value`` (both absolute, both existing);
+    :class:`ExcerptRefused` (``path_refused``) otherwise. ``transcript.render`` builds its
+    check, over one or two roots, from the same two steps."""
+    root_value = require_absolute(root_value, "the root")
+    path_value = require_absolute(path_value, "the transcript path")
+    missing = "the transcript or its root does not exist"
+    root = resolve_existing(root_value, missing)
+    path = resolve_existing(path_value, missing)
     if not path.is_relative_to(root) or not path.is_file():
         raise ExcerptRefused(PATH_REFUSED, "the transcript is not a file under the root")
     return path

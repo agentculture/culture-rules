@@ -55,15 +55,26 @@ over :data:`EPUB_CAP` fails (``html_too_large`` / ``epub_too_large``). Standard-
 from __future__ import annotations
 
 import base64
-import html
-import io
 import re
-import zipfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date as Date
 from typing import Any
 from urllib.parse import urlsplit
+
+from culture_rules.node.actions._epub import (
+    EPUB_NS,
+    INVALID_XML,
+    OEBPS,
+    XHTML_NS,
+    XML_DECL,
+    container,
+    esc,
+    nav_body,
+    ncx,
+    opf,
+    pack,
+)
 
 __all__ = [
     "DEFAULT_TITLE",
@@ -95,15 +106,8 @@ _ISSUE_TITLE_MAX = 120
 _SUMMARY_MAX = 20000
 _ELLIPSIS = "…"
 
-_EPOCH = (1980, 1, 1, 0, 0, 0)
-_OEBPS = "OEBPS/"
-_XHTML_TYPE = "application/xhtml+xml"
-_XHTML_NS = "http://www.w3.org/1999/xhtml"
-_EPUB_NS = "http://www.idpf.org/2007/ops"
-_XML_DECL = '<?xml version="1.0" encoding="utf-8"?>\n'
 _ENCODING = "utf-8"
 
-_INVALID_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff￾￿]")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _LINK_RE = re.compile(r"\[([^\]\n]{1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,2048})\)")
 _BOLD_RE = re.compile(r"\*\*([^*\n]+)\*\*")
@@ -135,17 +139,13 @@ class _Section:
 
 
 def _clean(value: Any, limit: int) -> str:
-    text = _INVALID_XML.sub("", value if isinstance(value, str) else "").strip()
+    text = INVALID_XML.sub("", value if isinstance(value, str) else "").strip()
     return text if len(text) <= limit else text[:limit] + _ELLIPSIS
-
-
-def _esc(text: str) -> str:
-    return html.escape(_INVALID_XML.sub("", text), quote=True)
 
 
 def http_host(url: Any) -> str | None:
     """The lower-cased host of an ``http``/``https`` URL, else None (no whitespace allowed)."""
-    if not isinstance(url, str) or not url or _INVALID_XML.search(url) or re.search(r"\s", url):
+    if not isinstance(url, str) or not url or INVALID_XML.search(url) or re.search(r"\s", url):
         return None
     try:
         parts = urlsplit(url)
@@ -161,14 +161,14 @@ def _format(text: str) -> str:
     Only ever called on text that is not markup yet, never on generated tags or attributes,
     so a ``**`` inside a URL can't reach an ``href`` (Codex r1 #4).
     """
-    return _BOLD_RE.sub(r"<strong>\1</strong>", _esc(text))
+    return _BOLD_RE.sub(r"<strong>\1</strong>", esc(text))
 
 
 def _anchor(url: str, label: str) -> str:
     """A link built last: the escaped URL in the attribute, the formatted label as content."""
     if http_host(url) is None:
         return _format(label)
-    return f'<a href="{_esc(url)}">{_format(label)}</a>'
+    return f'<a href="{esc(url)}">{_format(label)}</a>'
 
 
 def summary_links(text: str) -> list[str]:
@@ -319,20 +319,20 @@ def _cid(n: int) -> str:
 def _result_item(result: Mapping[str, str]) -> str:
     parts = [f"<p>{_anchor(result['url'], result['title'] or result['url'])}</p>"]
     if result["snippet"]:
-        parts.append(f"<p>{_esc(result['snippet'])}</p>")
+        parts.append(f"<p>{esc(result['snippet'])}</p>")
     meta = " · ".join(value for value in (result["source"], result["age"]) if value)
     if meta:
-        parts.append(f'<p class="meta">{_esc(meta)}</p>')
+        parts.append(f'<p class="meta">{esc(meta)}</p>')
     return f"<li>{''.join(parts)}</li>"
 
 
 def _note(text: str) -> str:
-    return f'<p class="note">{_esc(text)}</p>'
+    return f'<p class="note">{esc(text)}</p>'
 
 
 def _body(section: _Section) -> str:
     if not section.results:
-        return f'<p class="empty">{_esc(NO_RESULTS)}</p>'
+        return f'<p class="empty">{esc(NO_RESULTS)}</p>'
     if section.summary is not None and _summary_ok(section.summary, section.results):
         return summary_to_xhtml(section.summary)
     items = "".join(_result_item(result) for result in section.results)
@@ -347,7 +347,7 @@ def _summaries_unavailable(sections: list[_Section]) -> bool:
 
 
 def _masthead(title: str, day: str, unavailable: bool) -> str:
-    head = f'<h1>{_esc(title)}</h1><p class="date">{_esc(day)}</p>'
+    head = f'<h1>{esc(title)}</h1><p class="date">{esc(day)}</p>'
     return head + (_note(SUMMARIES_UNAVAILABLE) if unavailable else "")
 
 
@@ -356,12 +356,12 @@ def _masthead(title: str, day: str, unavailable: bool) -> str:
 
 def _html(title: str, day: str, sections: list[_Section], unavailable: bool) -> str:
     body = "".join(
-        f'<section id="{_cid(n)}"><h2>{_esc(s.name)}</h2>{_body(s)}</section>'
+        f'<section id="{_cid(n)}"><h2>{esc(s.name)}</h2>{_body(s)}</section>'
         for n, s in enumerate(sections, 1)
     )
     return (
         '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"/>'
-        f"<title>{_esc(title)} {_esc(day)}</title><style>{_CSS}</style></head>"
+        f"<title>{esc(title)} {esc(day)}</title><style>{_CSS}</style></head>"
         f"<body>{_masthead(title, day, unavailable)}{body}</body></html>\n"
     )
 
@@ -372,99 +372,37 @@ def _html(title: str, day: str, sections: list[_Section], unavailable: bool) -> 
 def _xhtml(title: str, body: str, *, css: bool = True) -> str:
     link = '<link rel="stylesheet" type="text/css" href="style.css"/>' if css else ""
     return (
-        f"{_XML_DECL}<!DOCTYPE html>\n"
-        f'<html xmlns="{_XHTML_NS}" xmlns:epub="{_EPUB_NS}" lang="en" xml:lang="en">'
-        f'<head><meta charset="utf-8"/><title>{_esc(title)}</title>{link}</head>'
+        f"{XML_DECL}<!DOCTYPE html>\n"
+        f'<html xmlns="{XHTML_NS}" xmlns:epub="{EPUB_NS}" lang="en" xml:lang="en">'
+        f'<head><meta charset="utf-8"/><title>{esc(title)}</title>{link}</head>'
         f"<body>{body}</body></html>\n"
     )
 
 
 def _chapter(n: int, section: _Section, head: str) -> str:
-    body = f'{head}<section id="{_cid(n)}"><h2>{_esc(section.name)}</h2>{_body(section)}</section>'
+    body = f'{head}<section id="{_cid(n)}"><h2>{esc(section.name)}</h2>{_body(section)}</section>'
     return _xhtml(section.name, body)
 
 
-def _container() -> str:
-    return (
-        f"{_XML_DECL}"
-        '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
-        f'<rootfiles><rootfile full-path="{_OEBPS}content.opf" '
-        'media-type="application/oebps-package+xml"/></rootfiles></container>\n'
-    )
-
-
-def _opf(uid: str, title: str, day: str, count: int) -> str:
-    chapters = range(1, count + 1)
-    items = "".join(
-        f'<item id="{_cid(n)}" href="{_cid(n)}.xhtml" media-type="{_XHTML_TYPE}"/>'
-        for n in chapters
-    )
-    spine = "".join(f'<itemref idref="{_cid(n)}"/>' for n in chapters)
-    return (
-        f"{_XML_DECL}"
-        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
-        'unique-identifier="uid" xml:lang="en">'
-        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
-        f'<dc:identifier id="uid">{_esc(uid)}</dc:identifier>'
-        f"<dc:title>{_esc(title)} {_esc(day)}</dc:title><dc:language>en</dc:language>"
-        f"<dc:creator>culture-rules</dc:creator><dc:date>{day}</dc:date>"
-        f'<meta property="dcterms:modified">{day}T00:00:00Z</meta></metadata>'
-        f'<manifest><item id="nav" href="nav.xhtml" media-type="{_XHTML_TYPE}" '
-        'properties="nav"/>'
-        '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
-        f'<item id="css" href="style.css" media-type="text/css"/>{items}</manifest>'
-        f'<spine toc="ncx">{spine}</spine></package>\n'
-    )
-
-
-def _nav(sections: list[_Section]) -> str:
-    entries = "".join(
-        f'<li><a href="{_cid(n)}.xhtml">{_esc(s.name)}</a></li>' for n, s in enumerate(sections, 1)
-    )
-    body = f'<nav epub:type="toc" id="toc"><h1>Contents</h1><ol>{entries}</ol></nav>'
-    return _xhtml("Contents", body, css=False)
-
-
-def _ncx(uid: str, title: str, sections: list[_Section]) -> str:
-    points = "".join(
-        f'<navPoint id="np{n}" playOrder="{n}"><navLabel><text>{_esc(s.name)}</text>'
-        f'</navLabel><content src="{_cid(n)}.xhtml"/></navPoint>'
-        for n, s in enumerate(sections, 1)
-    )
-    return (
-        f'{_XML_DECL}<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">'
-        f'<head><meta name="dtb:uid" content="{_esc(uid)}"/>'
-        '<meta name="dtb:depth" content="1"/><meta name="dtb:totalPageCount" content="0"/>'
-        '<meta name="dtb:maxPageNumber" content="0"/></head>'
-        f"<docTitle><text>{_esc(title)}</text></docTitle><navMap>{points}</navMap></ncx>\n"
-    )
-
-
-def _write(archive: zipfile.ZipFile, name: str, data: str, compress: int) -> None:
-    info = zipfile.ZipInfo(name, date_time=_EPOCH)
-    info.compress_type = compress
-    info.external_attr = 0o644 << 16
-    archive.writestr(info, data.encode(_ENCODING))
+def _nav(entries: list[tuple[str, str]]) -> str:
+    return _xhtml("Contents", nav_body(entries), css=False)
 
 
 def _epub(title: str, day: str, sections: list[_Section], unavailable: bool) -> bytes:
     uid = f"urn:culture-rules:newspaper:{day}"
+    chapters = [_cid(n) for n in range(1, len(sections) + 1)]
+    entries = [(s.name, _cid(n)) for n, s in enumerate(sections, 1)]
     files = [
-        ("META-INF/container.xml", _container()),
-        (f"{_OEBPS}content.opf", _opf(uid, title, day, len(sections))),
-        (f"{_OEBPS}nav.xhtml", _nav(sections)),
-        (f"{_OEBPS}toc.ncx", _ncx(uid, f"{title} {day}", sections)),
-        (f"{_OEBPS}style.css", _CSS),
+        ("META-INF/container.xml", container()),
+        (f"{OEBPS}content.opf", opf(uid, f"{title} {day}", day, chapters)),
+        (f"{OEBPS}nav.xhtml", _nav(entries)),
+        (f"{OEBPS}toc.ncx", ncx(uid, f"{title} {day}", entries)),
+        (f"{OEBPS}style.css", _CSS),
     ]
     head = _masthead(title, day, unavailable)
     for n, section in enumerate(sections, 1):
-        files.append((f"{_OEBPS}{_cid(n)}.xhtml", _chapter(n, section, head if n == 1 else "")))
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        _write(archive, "mimetype", "application/epub+zip", zipfile.ZIP_STORED)
-        for name, data in files:
-            _write(archive, name, data, zipfile.ZIP_DEFLATED)
-    return buffer.getvalue()
+        files.append((f"{OEBPS}{_cid(n)}.xhtml", _chapter(n, section, head if n == 1 else "")))
+    return pack(files)
 
 
 # ------------------------------------------------------------------ the issue
