@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-28T16:34:05Z",
+  "updated": "2026-10-28T16:34:58Z",
   "deviations": [
     {
       "id": "d1",
@@ -288,6 +288,82 @@
       "status": "approved",
       "superseded": false,
       "seq": 16
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_http_grant_scheme.py (8 tests) + tests/actors/test_secrets_word_ref.py (6 tests)",
+      "behavior_text": "a '<word> grant:<NAME>' header is sent as the word plus the resolved value (policy and step), the value never appears in the step output, other shapes and a malformed reference are sent unchanged, a bare grant: still resolves, and the save-time check accepts the word form only under headers",
+      "contract_text": "o1 / c25: a header '<word> grant:<NAME>' is sent as the word plus the resolved value, the value is scrubbed from every output, and any other shape is sent unchanged",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_sections.py (77 tests)",
+      "behavior_text": "EPUB (spine order), HTML and Markdown give the same section shape (test_markdown_and_html_give_the_same_section_shape); split_on, paragraphs, max_chars, require_links and field names are config or input (test_input_overrides_config, test_each_excerpt_setting_is_required, test_two_configs_on_one_epub_give_two_outputs)",
+      "contract_text": "o3 / c27: EPUB, HTML and Markdown give the same section shape; every rule comes from config or input, none from code",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o6",
+      "test_ref": "tests/rules/test_sources_manifest_flow.py::test_a_library_answering_500_still_succeeds_the_run, ::test_a_library_answering_500_skips_the_put_step, ::test_the_skipped_put_step_keeps_its_error, ::test_the_manifest_step_before_the_failed_put_succeeded",
+      "behavior_text": "with the library answering 500, the daily run succeeds, the PUT step is skipped with its error kept on the run, and the steps before it succeeded",
+      "contract_text": "o6 / c9: the newspaper run still succeeds with the email and the library push done; the PUT step is skipped with its error recorded on the run",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o10",
+      "test_ref": "tests/node/test_epub_bytes_pinned.py (4 tests, the #112 pins)",
+      "behavior_text": "the newspaper EPUB bytes, newspaper HTML, transcript EPUB and transcript Markdown match their pinned digests",
+      "contract_text": "o10 / c12: the EPUB and email bytes are unchanged by this work; the #112 byte pins pass",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
     }
   ],
   "deltas": [],
