@@ -160,7 +160,7 @@
       "id": "e6",
       "obligation_ref": "o2",
       "test_ref": "live: newspaper-sources-backfill fetch steps (17 items)",
-      "behavior_text": "http.call GET with save_to wrote 17 files named <sha256>.epub (mode 0600) under the listed root /home/spark/.local/share/culture-rules/fetched, outputs status 200, path, sha256, size, content_type application/epub+zip; no body in the outputs",
+      "behavior_text": "http.call GET with save_to wrote 17 files named <sha256>.epub (mode 0600) under the listed save root (the node user's culture-rules fetched directory, mode 0700), outputs status 200, path, sha256, size, content_type application/epub+zip; no body in the outputs",
       "contract_text": "o2: a body is written only under a root the actor's policy lists, atomically, named from a known Content-Type; no output carries the body",
       "evidence_type": "observation",
       "strength": "execution",
