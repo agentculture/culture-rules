@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T20:49:47Z",
+  "updated": "2026-10-28T21:40:41Z",
   "claims": [
     {
       "id": "c1",
@@ -846,7 +846,7 @@
       "behavior": "after one seed run over the last 14 daily runs, keyset.filter over the 10-26, 10-27 and 10-28 issues' search results drops every one of their links",
       "source_text": "The go-live seed is configuration only: a one-off workflow, run once with workflows run, uses run.read to take the search step's results from each of the last 14 daily runs (by run id) and keyset.add to put them in the newspaper's set; no seed code ships",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o15",
@@ -855,7 +855,7 @@
       "behavior": "0 rendered links (normalised as the live step does) repeat a link from an issue of the previous 14 days; the No results sections are counted and reported",
       "source_text": "Over the first 7 consecutive daily issues after go-live, 0 links (normalised as configured) appear that an issue in the previous 14 days already linked, counted from the stored runs' rendered html; the number of sections showing No results is reported alongside, not gated",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }
