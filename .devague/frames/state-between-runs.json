@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T20:15:21Z",
+  "updated": "2026-10-28T20:15:39Z",
   "claims": [
     {
       "id": "c1",
@@ -87,7 +87,7 @@
     {
       "id": "c4",
       "kind": "requirement",
-      "text": "Generic builtin keyset.add puts keys into a named set, one store document per key with a timestamp and expires_at, by compare-and-set and idempotent on retry (adding a key already present refreshes nothing it should not); the set name, the key field, the normalisation, the window and max_keys are step config, never code",
+      "text": "Generic builtin keyset.add puts keys into a named set, one store document per key with its first-seen time and expires_at, written insert-if-absent so a retry or a concurrent add leaves one document and keeps the first-seen time; the set name, the key field, the normalisation, the window and max_keys are step config, never code",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [
@@ -132,6 +132,11 @@
           "text": "Generic: a builtin reads a named key set and outputs the keys still within the window; a second builtin adds keys with a timestamp each, by compare-and-set like cursor.advance and idempotent on retry (set union); the set name, the window and the key field are step config, never code",
           "kind": "requirement",
           "reason": "operator q5 2026-10-28: keyset.filter + keyset.add"
+        },
+        {
+          "text": "Generic builtin keyset.add puts keys into a named set, one store document per key with a timestamp and expires_at, by compare-and-set and idempotent on retry (adding a key already present refreshes nothing it should not); the set name, the key field, the normalisation, the window and max_keys are step config, never code",
+          "kind": "requirement",
+          "reason": "make 'idempotent on retry' exact: a key already present keeps its first timestamp"
         }
       ]
     },
