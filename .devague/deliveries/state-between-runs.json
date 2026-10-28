@@ -1,0 +1,25 @@
+{
+  "plan_slug": "state-between-runs",
+  "schema_version": 2,
+  "created": "2026-10-28T22:27:05Z",
+  "updated": "2026-10-28T22:27:05Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "keysets clear --apply becomes an audited mutating verb (keysets.clear): its deletes run in one store transaction with exactly one audit entry (identity, set, key or whole set, count), and it joins the registry-wide audit test; t3 shipped it unaudited, like variable writes",
+      "task_ref": "t3",
+      "reason": "a cleared set is destructive and hard to reverse (only a re-seed restores it) and, unlike a variable, leaves no version history of who cleared what; the decider (assess, 0.946 then 0.964 with the effort and trace facts removed) and the operator chose to audit it in this PR",
+      "affects": [
+        "c18",
+        "h17"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
