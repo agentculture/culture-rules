@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.1] - 2026-10-28
+
+### Changed
+
+- Delivery summary for newspaper-sources-manifest (#97): run complete, all 7 tasks delivered, evidence e1-e18 and deltas b1-b3 approved, lapses l1 and l2 approved; the first scheduled daily run PUT item 98 manifest (200) and culture-library eval gave unmatched 0 on items 81, 98 and 73; c5 is medium until o11 re-run clause is tested (#117)
+
 ## [0.36.0] - 2026-10-27
 
 ### Added
