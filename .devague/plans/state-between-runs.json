@@ -1,0 +1,474 @@
+{
+  "slug": "state-between-runs",
+  "title": "State between runs",
+  "frame_slug": "state-between-runs",
+  "schema_version": 5,
+  "status": "drafting",
+  "created": "2026-10-28T21:40:56Z",
+  "updated": "2026-10-28T21:41:41Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Workflows can keep a named set of keys between runs: generic builtins read the set (dropping items already in it) and add keys to it after a run's work succeeds, each key expiring after a configured window; the first configured use is the daily newspaper not repeating articles",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "a workflow built only from keyset.filter and keyset.add, with no newspaper builtin involved, drops on its second run the items its first run added",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "after_state",
+      "text": "The daily newspaper does not link an article (by URL) that an earlier delivered issue linked within the configured window; on 2026-10-28, 11 of 13 links had already appeared on 10-26 or 10-27",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the live daily-newspaper, configured through the CLI only, renders no link whose normalised form an issue of the last 14 days already linked",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "audience",
+      "text": "Flow authors who configure workflows live through the CLI (the operator, for the newspaper first); and the newspaper's reader, who sees fewer repeated links",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "a flow author can wire both builtins from the step config alone, with the guide and the describe phrases, without reading the source",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Generic builtin keyset.add puts keys into a named set, one store document per key with its first-seen time and expires_at, written insert-if-absent so a retry or a concurrent add leaves one document and keeps the first-seen time; the set name, the key field, the normalisation, the window and max_keys are step config, never code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "keyset.add retried with the same keys leaves exactly one document per key, and two concurrent adds of the same key both succeed with one document left",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the set name, key field, normalisation, window and max_keys are read from step config or inputs; a grep of the new modules finds no newspaper, url-parameter or window constant",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Generic builtin keyset.filter takes a list and returns, in order, the items whose key (a configured field, after the configured normalisation) is not in the named set within the window, plus the counts kept and dropped; the set's keys never enter run state; it names no app, flow or field in code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "keyset.filter keeps item order, keeps items with no key field (or an empty one) and reports them, and its outputs hold the kept list and counts but never the stored keys",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "The set is bounded and expires: one store document per key carries expires_at under a TTL index (operator q1), the window is config, and a configured cap on keys per add keeps one run from flooding it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "a key older than the window is not seen by keyset.filter even before the TTL monitor deletes it, and its document carries expires_at so the TTL index removes it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "keyset.add refuses (bad_params) a call over max_keys rather than truncating silently",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Only finished work marks keys seen: the add step is placed in the workflow (configuration) where a re-run will redo it if anything after it fails, so a failed or skipped run never marks keys it did not deliver and a crash never loses them; for the newspaper that is just before record, after push (newspaper.issue's fences make the re-run safe), set live",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "in a run that fails or skips before the add step, the set is unchanged afterwards; the flow test shows it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "Shared variables stay admin-written through the API; runs do not write the variables collection (it is versioned per write, unbounded and global, and the editor and explain text say only an admin may write)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "no code path from a node step writes the variables collection, and the explain and editor text 'only an admin may write' stays true",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "Untouched: trust (TRUSTED_WORKFLOWS_V2 gates only github.push and review), save-time validation of builtin configs (none exists; builtins check inputs at run time, bad_params), and action kinds (a builtin code step is not one)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "TRUSTED_WORKFLOWS_V2, model/validate.py and model/action_kinds.py are unchanged by the diff",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Each new builtin is registered in node/runner.py, has a describe phrase in BUILTIN_WORDS (model/describe.py), and a guide under docs/; the describe fixtures stay green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "both builtins are registered in node/runner.py and have BUILTIN_WORDS phrases; the describe fixtures and tests/model/test_describe.py pass",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Generic key normalisation is declarative step config, with no built-in list: e.g. lowercase the host, drop the fragment and a trailing slash, and drop query parameters matching configured patterns (the newspaper configures utm_* and ref); with no normalisation configured, the key is the field value unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "with no normalisation configured, the key is the field value unchanged; with the newspaper's config, http://Example.com/a/?utm_source=x#f and https://example.com/a give the same key",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "boundary",
+      "text": "newspaper.render is unchanged: a section the filter left empty renders its existing No results. line (newspaper_render.py:24,96); wording other than that would be a separate render input, out of scope",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "newspaper_render.py, newspaper.py and newspaper_issue.py are unchanged by the diff, and the byte pins in tests/node/test_epub_bytes_pinned.py pass",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "before_state",
+      "text": "Today nothing a run learns reaches the next run except admin-written shared variables and cursor.advance's single string; the newspaper runs the same queries each morning and links what Brave returns, so on 2026-10-28 11 of its 13 links had already appeared on 10-26 or 10-27",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "the 11-of-13 figure is reproducible from runs run-498cad51, run-90056447 and run-ada99021 by extracting href links from the email step's html",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "success_signal",
+      "text": "Over the first 7 consecutive daily issues after go-live, 0 links (normalised as configured) appear that an issue in the previous 14 days already linked, counted from the stored runs' rendered html; the number of sections showing No results is reported alongside, not gated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the 7-issue count is computed by one script over the stored runs, normalised with the same settings the live step uses",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Admin verbs over the sets: a keysets noun with list (set names with key counts), show (one set's keys with seen and expiry times) and clear (one key, or the whole set; dry run by default, --apply commits), as API routes pinned in api/openapi.json, CLI verbs, MCP tools, explain entries and learn text, with the parity test green; reads need admin too, since keys may be private URLs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "list, show and clear answer 403 for a non-admin token; clear without --apply changes nothing; the openapi contract and surface parity tests pass",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "A set name is one namespace across all workflows: two workflows that name the same set share it on purpose; names follow the checklist list_key pattern (letters, digits, _ : -, at most 100 characters)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "two workflows naming one set see each other's keys; a set name outside the pattern is refused bad_params",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "Keys are bounded in size: a normalised key over 2048 characters is refused bad_params, and the store document id is a sha256 over the set name and the key, so long URLs never become document ids",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "a 2049-character key is refused; two keys differing only past character 200 are distinct documents",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "keyset.add outputs the counts added and already present, and keyset.filter the counts kept, dropped and keyless, so runs show shows what the set did on each run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "both builtins' outputs carry the named counts and no stored key; a test asserts the output keys",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "keyset.add and keyset.filter accept a list of items or a list of such lists (one level, as a for_each loop's per-iteration results arrive); filter returns the same shape it was given",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "given the search loop's results (one list per section), keyset.add adds every item's key and keyset.filter returns one filtered list per section, in order",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "The go-live seed is configuration only: a one-off workflow, run once with workflows run, uses run.read to take the search step's results from each of the last 14 daily runs (by run id) and keyset.add to put them in the newspaper's set; no seed code ships",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "after the seed run, keyset.filter over the 10-26..10-28 issues' results drops every one of their links",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Generic keyset library: set-name and key rules, declarative normalisation, document ids, and the store read/add/list/clear helpers",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "culture_rules/keysets.py (stdlib only) validates a set name against letters, digits, _ : - up to 100 characters and raises a bad_params-style error otherwise",
+        "normalise(value, config): with no config returns the value unchanged; with lower_host, drop_fragment, drop_trailing_slash and drop_query patterns (fnmatch, e.g. utm_*, ref) http://Example.com/a/?utm_source=x#f and https://example.com/a give one key; drop_scheme is a config switch too; no pattern list is built in",
+        "a normalised key over 2048 characters is refused; doc_id(set, key) is the sha256 hex of set NUL key; two keys equal for 200 characters and different after give different ids",
+        "store helpers over StoreOps: add_keys(store, set, keys, now, window_s) inserts one document {id, set, key, first_seen, expires_at} per key only if absent (update_if with upsert, expected none) and returns added and already_present counts; seen(store, set, keys, now) returns the keys with expires_at after now; list_sets, show_set, clear_key, clear_set; ensure_ttl_index(store) calls store.ensure_index on expires_at with ttl_seconds 0 when the store has it (getattr, as handoff.py does)",
+        "tests/test_keysets.py (MemoryStore): retried and repeated adds leave one document and keep first_seen; a key whose expires_at has passed is not returned by seen even though its document exists; two sets with one name share keys"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h13",
+        "c19",
+        "h18",
+        "c20",
+        "h19",
+        "c6",
+        "h7"
+      ],
+      "instruction": "Model the store pattern on culture_rules/node/actions/cursor.py (update_if, upsert when the expected value is None) and the TTL pattern on culture_rules/actors/handoff.py:321 (getattr ensure_index). Collection name keysets. No newspaper, URL-parameter or window constant anywhere; every rule comes from the config dict passed in. Keep the module importable with zero third-party dependencies."
+    },
+    {
+      "id": "t2",
+      "summary": "Builtins keyset.filter and keyset.add (node ports over the keyset library)",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "culture_rules/node/actions/keyset.py defines KeysetFilterPort and KeysetAddPort; config (or inputs) set, key_field, normalise, window_days; add also max_keys; a missing or bad value fails bad_params",
+        "keyset.filter: input items (a list, or a list of lists one level deep) returns items in the same shape and order without those whose normalised key was seen in the window; items with no or an empty key field are kept; outputs items plus kept, dropped and keyless counts and never a stored key",
+        "keyset.add: input items (same shapes) adds every item's normalised key with expires_at = now + window_days; more than max_keys keys fails bad_params and writes nothing; outputs added and already_present counts; a retried step adds nothing twice",
+        "tests/node/test_keyset_builtins.py covers each criterion above with MemoryStore, plus two concurrent adds of one key leaving one document, and a grep test that culture_rules/keysets.py and node/actions/keyset.py name no newspaper, utm or url constant"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c4",
+        "h4",
+        "h5",
+        "c5",
+        "h6",
+        "h8",
+        "c21",
+        "h20",
+        "c23",
+        "h21"
+      ],
+      "instruction": "Follow the port shape of culture_rules/node/actions/cursor.py (CursorAdvancePort): read config and inputs, validate, call culture_rules/keysets.py, return outputs. Do not register the ports in runner.py here (t4 does it) so this task only adds new files. Call ensure_ttl_index on first use."
+    },
+    {
+      "id": "t3",
+      "summary": "Admin keysets verbs: API routes, CLI noun, MCP tools, OpenAPI, explain and learn",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "GET /keysets (names with key counts), GET /keysets/{name} (keys with first_seen and expires_at), POST /keysets/{name}/clear with an optional key and dry_run; all admin-only in auth/policy.py, 403 for viewer and editor tokens",
+        "culture-rules keysets list|show|clear with --json; clear is a dry run unless --apply; MCP tools keysets_list, keysets_show, keysets_clear; explain catalog entries and a learn mention; tests/test_surface_parity.py and tests/server/test_openapi_contract.py pass with api/openapi.json regenerated",
+        "tests for the routes and verbs: a non-admin gets 403 on all three; clear without --apply leaves the documents; clear --apply with a key removes one, without a key removes the set"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c18",
+        "h17"
+      ],
+      "instruction": "Mirror the variables noun: culture_rules/server/app.py _register_variables and service.py Variables for the routes, culture_rules/cli/_commands/variables.py for the verbs, culture_rules/mcp/tools.py, and the REGISTRY in cli/verbs.py. Read and clear only through culture_rules/keysets.py helpers. Regenerate api/openapi.json with the project's export script. Do not touch node/runner.py or describe.py (t4)."
+    },
+    {
+      "id": "t4",
+      "summary": "Wire the builtins: runner registry, describe phrases, editor builtin list, guide, version",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "node/runner.py registers keyset.filter and keyset.add and lists them in its docstring; model/describe.py BUILTIN_WORDS has a phrase for each; tests/model/test_describe.py and the describe fixtures pass",
+        "the editor's builtin list offers both (web typecheck and vitest pass); docs/operations/keysets.md explains config, list shapes, the add-before-commit placement and the admin verbs, with a worked example that is not applied; CLAUDE.md and the three harness prompt files mention the capability; version bumped minor with a CHANGELOG entry"
+      ],
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c11",
+        "h12",
+        "c3",
+        "h3"
+      ],
+      "instruction": "Small wiring only. Find the editor's builtin list where document.sections was added in 0.36.0 (git show b568def -- web/ shows it). The guide's example may use the newspaper shape but must say it is configured live, not shipped."
+    },
+    {
+      "id": "t5",
+      "summary": "Flow test: two-run keyset workflow, add before the commit step, and the boundaries",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "tests/rules/test_keyset_flow.py: a workflow built only from keyset.filter and keyset.add over a fixed list drops on its second run the items its first run added",
+        "a run that fails before the add step leaves the set unchanged; a run that fails after the add and before its commit step, then re-runs, adds each key once",
+        "a newspaper-shaped fixture (a for_each search loop yielding one list per section, then keyset.filter, newspaper.filter, render) shows a seen URL gone from the rendered html and an emptied section as No results.",
+        "a test asserts git diff origin/main --name-only touches none of newspaper.py, newspaper_render.py, newspaper_issue.py, actors/trusted.py, model/validate.py, model/action_kinds.py, and no node module calls put_variable; tests/node/test_epub_bytes_pinned.py passes"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c7",
+        "h9",
+        "c8",
+        "h10",
+        "c10",
+        "h11",
+        "c13",
+        "h14"
+      ],
+      "instruction": "Model on tests/rules/test_sources_manifest_flow.py (engine plus MemoryStore, a fake step failing on demand). The boundary diff check may run in the test suite only if it skips cleanly outside a git checkout; otherwise run it as a scripted check recorded as evidence."
+    },
+    {
+      "id": "t6",
+      "summary": "Live: roll out, seed the set, wire the daily newspaper, measure 7 issues",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "every node and the API run the new version (rollout verify ok) before any live workflow names keyset.*",
+        "the 11-of-13 before-figure is reproduced by one script from runs run-498cad51, run-90056447, run-ada99021 (h15); the same script, with the live normalisation, later counts repeats",
+        "a one-off seed workflow, configured live and dry-run first, uses run.read over the last 14 daily runs and keyset.add; afterwards keyset.filter over the 10-26..10-28 search results drops all their links (h22); the workflow is deleted after",
+        "daily-newspaper gains keyset.filter in the search loop (between search_web and filter) and keyset.add just before record, with a raised search count, through the CLI with operator approval per batch; describe shows the new steps",
+        "over the first 7 issues: 0 repeated links within 14 days, and the No results sections counted and reported (c15, o15)"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c14",
+        "h15",
+        "c15",
+        "h16",
+        "c24",
+        "h22"
+      ],
+      "instruction": "Operator-gated like the #97 t6: a rollout script in a worktree, every live write approved, the admin token only via grant run --inject. Nothing newspaper-specific is committed; the bundle may gain a disabled template."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Every node and the API must run the new version before the live workflow names keyset.* (an older node fails the step as an unknown builtin)",
+      "kind": "follow_up",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "c16 is unmeasured: a raised search count may still leave sections empty; measured in t6's first week by the No results count",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}
