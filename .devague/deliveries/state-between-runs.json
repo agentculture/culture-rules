@@ -2,7 +2,7 @@
   "plan_slug": "state-between-runs",
   "schema_version": 2,
   "created": "2026-10-28T22:27:05Z",
-  "updated": "2026-10-28T22:27:05Z",
+  "updated": "2026-10-28T22:32:00Z",
   "deviations": [
     {
       "id": "d1",
@@ -17,6 +17,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "keyset.filter and keyset.add gain an optional items_field setting: items may be a list of loop output objects (one per iteration, e.g. {results: [...]}), and items_field names the field holding each one's items; a None entry is an iteration with no items; filter keeps the shape (objects keep their other fields, None stays None). Without it, keyset.add placed after a for_each loop stored 0 keys silently",
+      "task_ref": "t2",
+      "reason": "t5's flow test showed a for_each loop's results port carries each iteration's last step output object, not a list of items, and per-port lists carry None for a skipped iteration; c23 assumed lists of lists. No field name is built in: the live newspaper config sets items_field: results on the add before record",
+      "affects": [
+        "c23",
+        "h21"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 2
     }
   ],
   "evidence": [],
