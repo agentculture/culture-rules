@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-28T16:31:23Z",
+  "updated": "2026-10-28T16:34:05Z",
   "deviations": [
     {
       "id": "d1",
@@ -76,7 +76,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 5
     },
@@ -95,7 +95,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 6
     },
@@ -114,7 +114,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 7
     },
@@ -133,7 +133,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 8
     },
@@ -152,7 +152,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 9
     },
@@ -171,7 +171,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 10
     },
@@ -190,7 +190,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 11
     },
@@ -209,7 +209,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 12
     },
@@ -228,7 +228,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 13
     },
@@ -247,7 +247,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 14
     },
@@ -266,7 +266,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 15
     },
@@ -285,7 +285,7 @@
         "commit": "b568def"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 16
     }
