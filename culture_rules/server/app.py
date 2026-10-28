@@ -1277,10 +1277,11 @@ def _register_keysets(app: FastAPI, sets: Keysets) -> None:
         operation_id="clear_keyset",
         responses={422: ERRORS[422]},
     )
-    def clear_keyset(name: str, body: KeysetClearRequest | None = None):
-        """Forget one key or the whole set; a dry run (the default) only counts."""
+    def clear_keyset(name: str, identity: Identity, body: KeysetClearRequest | None = None):
+        """Forget one key or the whole set; a dry run (the default) only counts. Applied, the
+        clear is audited (one entry naming the caller)."""
         req = body or KeysetClearRequest()
-        return sets.clear(name, req.key, dry_run=req.dry_run)
+        return sets.clear(name, req.key, dry_run=req.dry_run, identity=identity)
 
 
 def _register_rollouts(app: FastAPI, rollouts: Rollouts) -> None:

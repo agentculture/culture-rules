@@ -998,9 +998,15 @@ class Keysets:
     report the same number; applied, it also deletes expired documents not yet reaped.
     """
 
-    def __init__(self, store: StoragePort, clock: Callable[[], datetime] | None = None) -> None:
+    def __init__(
+        self,
+        store: StoragePort,
+        clock: Callable[[], datetime] | None = None,
+        audit: AuditLog | None = None,
+    ) -> None:
         self._store = store
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._audit = audit or AuditLog(clock=self._clock)
 
     @staticmethod
     def _invalid(exc: keysets.KeysetError, path: str) -> Invalid:
@@ -1021,12 +1027,22 @@ class Keysets:
         items = keysets.show_set(self._store, self._name(name), self._clock())
         return [{k: _iso(v) for k, v in item.items()} for item in items]
 
-    def clear(self, name: str, key: str | None = None, *, dry_run: bool = True) -> dict[str, Any]:
+    @mutating_verb("keysets.clear", "Forget one key or a whole keyset (dry run unless applied)")
+    def clear(
+        self,
+        name: str,
+        key: str | None = None,
+        *,
+        dry_run: bool = True,
+        identity: str | None = None,
+    ) -> dict[str, Any]:
         """Forget one key (``key``) or the whole set; ``{set, key, dry_run, count}``.
 
         ``count`` is how many live keys go (for a key, 1 when it is live, else 0), the same
         for a dry run, which deletes nothing, and an applied clear, which also deletes any
-        expired document of the set (or that key) not yet reaped.
+        expired document of the set (or that key) not yet reaped. Applied, the deletes and
+        exactly one audit entry (who, the set, the key or the whole set, the count) commit in
+        one transaction (deviation d1); a dry run writes nothing.
         """
         self._name(name)
         if key is not None:
@@ -1034,13 +1050,28 @@ class Keysets:
                 keysets.check_key(key)
             except keysets.KeysetError as exc:
                 raise self._invalid(exc, "key") from exc
+        principal = None if dry_run else require_identity(identity)
         live = [i["key"] for i in keysets.show_set(self._store, name, self._clock())]
         count = len(live) if key is None else int(key in live)
-        if not dry_run and key is None:
-            keysets.clear_set(self._store, name)
-        elif not dry_run:
-            keysets.clear_key(self._store, name, key)
+        if principal is not None:
+            self._apply_clear(principal, name, key, count)
         return {"set": name, "key": key, "dry_run": dry_run, "count": count}
+
+    def _apply_clear(self, principal: str, name: str, key: str | None, count: int) -> None:
+        with self._store.transaction() as tx:
+            if key is None:
+                keysets.clear_set(tx, name)
+            else:
+                keysets.clear_key(tx, name, key)
+            self._audit.write(
+                tx,
+                identity=principal,
+                verb="keysets.clear",
+                collection=keysets.KEYSETS_COLLECTION,
+                target_id=name,
+                before={"keys": count},
+                after={"keys": 0, "cleared": "the whole set" if key is None else key},
+            )
 
 
 def dumps(value: Any) -> str:

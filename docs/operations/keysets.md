@@ -80,6 +80,10 @@ culture-rules keysets clear <set> [--key K]    # dry run: how many live keys wou
 culture-rules keysets clear <set> --apply      # forget the set (or one key with --key)
 ```
 
+An applied clear is audited: its deletes and exactly one audit entry (who, the set, the key
+or the whole set, how many live keys went) commit in one transaction. A dry run writes
+nothing.
+
 The same verbs are MCP tools (`keysets_list`, `keysets_show`, `keysets_clear`) and API
 routes (`GET /keysets`, `GET /keysets/{name}`, `POST /keysets/{name}/clear`).
 

@@ -24,15 +24,15 @@ def test_dry_run_counts_live_keys():
 
 def test_applied_clear_reports_the_dry_run_count():
     _, svc = _service()
-    assert svc.clear("s", dry_run=False)["count"] == 1
+    assert svc.clear("s", dry_run=False, identity="alice")["count"] == 1
 
 
 def test_applied_clear_still_removes_the_expired_document():
     store, svc = _service()
-    svc.clear("s", dry_run=False)
+    svc.clear("s", dry_run=False, identity="alice")
     assert store.find(keysets.KEYSETS_COLLECTION, {"set": "s"}) == []
 
 
 def test_clearing_an_expired_key_counts_zero_like_its_dry_run():
     _, svc = _service()
-    assert svc.clear("s", "old", dry_run=False)["count"] == 0
+    assert svc.clear("s", "old", dry_run=False, identity="alice")["count"] == 0

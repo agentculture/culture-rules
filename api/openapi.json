@@ -4511,7 +4511,7 @@
     },
     "/keysets/{name}/clear": {
       "post": {
-        "description": "Forget one key or the whole set; a dry run (the default) only counts.",
+        "description": "Forget one key or the whole set; a dry run (the default) only counts. Applied, the\nclear is audited (one entry naming the caller).",
         "operationId": "clear_keyset",
         "parameters": [
           {

@@ -233,7 +233,7 @@ plan. What exists today:
   - one document per key in the `keysets` collection (id sha256 of set and key) under a TTL
     index on `expires_at`; a set name is shared by every workflow that names it;
   - admin verbs `keysets list|show|clear` (API, CLI, MCP; reads are admin too, `clear` dry
-    runs unless `--apply`); flows that use them (the newspaper not repeating links) are
+    runs unless `--apply`, and an applied clear is audited, deviation d1); flows that use them (the newspaper not repeating links) are
     configured live, never committed.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
