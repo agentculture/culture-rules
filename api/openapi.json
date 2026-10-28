@@ -918,6 +918,150 @@
         "title": "ItemList",
         "type": "object"
       },
+      "KeysetClearRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "default": true,
+            "description": "true = report what would go, delete nothing",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "forget only this key; absent = the whole set",
+            "title": "Key"
+          }
+        },
+        "title": "KeysetClearRequest",
+        "type": "object"
+      },
+      "KeysetClearResult": {
+        "properties": {
+          "count": {
+            "description": "dry run: live keys that would go (1 or 0 for a key); applied: deleted",
+            "title": "Count",
+            "type": "integer"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "set": {
+            "title": "Set",
+            "type": "string"
+          }
+        },
+        "required": [
+          "set",
+          "key",
+          "dry_run",
+          "count"
+        ],
+        "title": "KeysetClearResult",
+        "type": "object"
+      },
+      "KeysetKey": {
+        "properties": {
+          "expires_at": {
+            "description": "ISO-8601, when its window passes",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "first_seen": {
+            "description": "ISO-8601, when the key was first added",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "first_seen",
+          "expires_at"
+        ],
+        "title": "KeysetKey",
+        "type": "object"
+      },
+      "KeysetList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KeysetSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "KeysetList",
+        "type": "object"
+      },
+      "KeysetShow": {
+        "properties": {
+          "items": {
+            "description": "the live keys, by key",
+            "items": {
+              "$ref": "#/components/schemas/KeysetKey"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "set": {
+            "title": "Set",
+            "type": "string"
+          }
+        },
+        "required": [
+          "set",
+          "items"
+        ],
+        "title": "KeysetShow",
+        "type": "object"
+      },
+      "KeysetSummary": {
+        "properties": {
+          "keys": {
+            "description": "how many live keys it holds",
+            "title": "Keys",
+            "type": "integer"
+          },
+          "set": {
+            "description": "the set's name",
+            "title": "Set",
+            "type": "string"
+          }
+        },
+        "required": [
+          "set",
+          "keys"
+        ],
+        "title": "KeysetSummary",
+        "type": "object"
+      },
       "MachineLoad": {
         "properties": {
           "cpu": {
@@ -4241,6 +4385,215 @@
         "summary": "Import Definitions",
         "tags": [
           "exchange"
+        ]
+      }
+    },
+    "/keysets": {
+      "get": {
+        "description": "Every set with live keys, with its key count.",
+        "operationId": "list_keysets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeysetList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Keysets",
+        "tags": [
+          "keysets"
+        ]
+      }
+    },
+    "/keysets/{name}": {
+      "get": {
+        "description": "The live keys of a set with first_seen and expires_at; an unknown set has none.",
+        "operationId": "show_keyset",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeysetShow"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Show Keyset",
+        "tags": [
+          "keysets"
+        ]
+      }
+    },
+    "/keysets/{name}/clear": {
+      "post": {
+        "description": "Forget one key or the whole set; a dry run (the default) only counts.",
+        "operationId": "clear_keyset",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/KeysetClearRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeysetClearResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Clear Keyset",
+        "tags": [
+          "keysets"
         ]
       }
     },

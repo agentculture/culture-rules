@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from culture_rules.cli._commands import (
     actors,
+    keysets,
     machines,
     rollout,
     rules,
@@ -20,5 +21,5 @@ from culture_rules.cli.registry import Registry
 __all__ = ["REGISTRY"]
 
 REGISTRY = Registry()
-for _module in (rules, workflows, actors, machines, runs, variables, rollout):
+for _module in (rules, workflows, actors, machines, runs, variables, keysets, rollout):
     REGISTRY.extend(_module.VERBS)
