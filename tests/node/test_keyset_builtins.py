@@ -288,6 +288,76 @@ def test_two_concurrent_adds_of_one_key_leave_one_document():
     assert len(store.find(keysets.KEYSETS_COLLECTION)) == 1
 
 
+# ---------------------------------------------------------------- loop output shapes (t5)
+
+# What a for_each loop hands a later step: its ``results`` port is one output object per
+# iteration (``{}`` for an iteration whose body steps were all skipped); any other declared
+# port is one value per iteration (None for a skipped one).
+OBJECTS = [{"found": [item("http://a/1")]}, {}, {"found": [item("http://a/2")], "n": 3}]
+
+
+def test_add_reads_items_from_loop_result_objects_by_items_field():
+    out = run(
+        KeysetAddPort, MemoryStore(), cfg(max_keys=10, items_field="found"), {"items": OBJECTS}
+    ).output
+    assert out["added"] == 2
+
+
+def test_filter_keeps_the_loop_result_object_shape():
+    store = MemoryStore()
+    seed(store, "http://a/1")
+    out = run(KeysetFilterPort, store, cfg(items_field="found"), {"items": OBJECTS}).output
+    assert out["items"] == [{"found": []}, {}, {"found": [item("http://a/2")], "n": 3}]
+
+
+def test_filter_counts_across_loop_result_objects():
+    store = MemoryStore()
+    seed(store, "http://a/1")
+    out = run(KeysetFilterPort, store, cfg(items_field="found"), {"items": OBJECTS}).output
+    assert (out["kept"], out["dropped"]) == (1, 1)
+
+
+def test_items_field_takes_a_skipped_iteration_given_as_none():
+    res = run(
+        KeysetAddPort,
+        MemoryStore(),
+        cfg(max_keys=10, items_field="found"),
+        {"items": [None, OBJECTS[0]]},
+    )
+    assert res.output["added"] == 1
+
+
+@pytest.mark.parametrize("port", [KeysetFilterPort, KeysetAddPort])
+@pytest.mark.parametrize("bad", ["", 3, True, ["found"]])
+def test_a_bad_items_field_fails_bad_params(port, bad):
+    res = run(port, MemoryStore(), cfg(max_keys=10, items_field=bad), {"items": OBJECTS})
+    assert "bad_params" in res.error
+
+
+@pytest.mark.parametrize("port", [KeysetFilterPort, KeysetAddPort])
+@pytest.mark.parametrize("entry", [[item("http://a/")], "x", {"found": "x"}])
+def test_items_field_refuses_an_entry_that_is_not_a_result_object(port, entry):
+    res = run(port, MemoryStore(), cfg(max_keys=10, items_field="found"), {"items": [entry]})
+    assert "bad_params" in res.error
+
+
+def test_add_takes_a_per_port_list_with_a_skipped_iteration():
+    nested = [[item("http://a/1")], None, [item("http://a/2")]]
+    out = run(KeysetAddPort, MemoryStore(), cfg(max_keys=10), {"items": nested}).output
+    assert out["added"] == 2
+
+
+def test_filter_keeps_a_skipped_iteration_as_none():
+    nested = [[item("http://a/1")], None]
+    out = run(KeysetFilterPort, MemoryStore(), cfg(), {"items": nested}).output
+    assert out["items"] == [[item("http://a/1")], None]
+
+
+def test_an_item_mixed_with_a_skipped_iteration_is_refused():
+    res = run(KeysetFilterPort, MemoryStore(), cfg(), {"items": [item("http://a/"), None]})
+    assert "bad_params" in res.error
+
+
 # ---------------------------------------------------------------- no flow in the code
 
 ROOT = Path(__file__).resolve().parents[2]

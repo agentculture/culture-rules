@@ -10,10 +10,15 @@ integer); ``keyset.add`` also takes ``max_keys`` (a positive integer). A missing
 fails ``bad_params`` (final).
 
 Input ``items``: a list of mappings, or a list of lists of mappings one level deep (what a
-``for_each`` loop hands on). An item with no key field, or an empty or non-string one, is
-*keyless*.
+``for_each`` loop hands on through a per-port output; a ``None`` entry is an iteration that
+output nothing and holds no items). With the optional parameter ``items_field`` (a non-empty
+string), ``items`` is instead a list of output objects, one per iteration (what a ``for_each``
+loop's ``results`` port hands on): each entry's ``items_field`` list holds that iteration's
+items, and an entry without it (``{}``, a skipped iteration) or ``None`` holds none. An item
+with no key field, or an empty or non-string one, is *keyless*.
 
-``keyset.filter`` returns ``items`` in the same shape and order without those whose
+``keyset.filter`` returns ``items`` in the same shape and order (an output object keeps its
+other fields, ``None`` stays ``None``) without those whose
 normalised key is in the set within its window; keyless items are kept. Outputs ``items``,
 ``kept``, ``dropped`` and ``keyless``; it writes nothing and never outputs a stored key.
 
@@ -71,18 +76,52 @@ class _Params:
         if not isinstance(self.rules, Mapping):
             raise _Refused("bad_params: normalise must be a mapping")
         self.window_s = _positive_int(get("window_days"), "window_days") * _DAY
+        items_field = get("items_field")
+        if items_field is not None and (not isinstance(items_field, str) or not items_field):
+            raise _Refused("bad_params: items_field must be a non-empty string")
+        self.items_field: str | None = items_field
 
 
-def _shape(items: Any) -> tuple[bool, list[list[Any]]]:
-    """``(nested, groups)``: a flat list is one group."""
+_SHAPE = "bad_params: items must be a list of mappings or a list of such lists"
+
+
+def _group_of(entry: Any, items_field: str | None) -> list[Any]:
+    """The items one loop iteration's entry holds (``None``: an iteration with none)."""
+    if entry is None:
+        return []
+    if items_field is None:
+        group = entry
+    elif isinstance(entry, Mapping):
+        group = entry.get(items_field, [])
+    else:
+        raise _Refused(f"bad_params: items must be a list of objects with {items_field!r}")
+    if not isinstance(group, list) or not all(isinstance(i, Mapping) for i in group):
+        raise _Refused(_SHAPE)
+    return group
+
+
+def _shape(items: Any, items_field: str | None = None) -> tuple[list[Any] | None, list[list]]:
+    """``(entries, groups)``: ``entries`` is None for a flat list (one group), else the
+    per-iteration entries as given, which :func:`_reshape` rebuilds around the groups."""
     if not isinstance(items, list):
         raise _Refused("bad_params: items must be a list")
-    nested = any(isinstance(i, list) for i in items)
-    groups = items if nested else [items]
-    for group in groups:
-        if not isinstance(group, list) or not all(isinstance(i, Mapping) for i in group):
-            raise _Refused("bad_params: items must be a list of mappings or a list of such lists")
-    return nested, groups
+    nested = items_field is not None or any(i is None or isinstance(i, list) for i in items)
+    if not nested:
+        return None, [_group_of(items, None)]
+    return items, [_group_of(entry, items_field) for entry in items]
+
+
+def _reshape(entries: list[Any], groups: list[list], items_field: str | None) -> list[Any]:
+    """The entries with each iteration's items replaced by ``groups`` (same order)."""
+    out: list[Any] = []
+    for entry, group in zip(entries, groups):
+        if entry is None or (items_field is not None and items_field not in entry):
+            out.append(entry)
+        elif items_field is None:
+            out.append(group)
+        else:
+            out.append({**entry, items_field: group})
+    return out
 
 
 def _key_of(item: Mapping[str, Any], params: _Params) -> str | None:
@@ -103,7 +142,9 @@ class _KeysetPort:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._indexed = False
 
-    def _run(self, params: _Params, nested: bool, groups: list[list[Any]]) -> dict[str, Any]:
+    def _run(
+        self, params: _Params, entries: list[Any] | None, groups: list[list[Any]]
+    ) -> dict[str, Any]:
         raise NotImplementedError
 
     def _params(self, input: Mapping[str, Any], config: Mapping[str, Any]) -> _Params:  # noqa: A002
@@ -120,11 +161,11 @@ class _KeysetPort:
         config = context.config if isinstance(context.config, Mapping) else {}
         try:
             params = self._params(input, config)
-            nested, groups = _shape(input.get("items"))
+            entries, groups = _shape(input.get("items"), params.items_field)
             if not self._indexed:
                 keysets.ensure_ttl_index(self._store)
                 self._indexed = True
-            out = self._run(params, nested, groups)
+            out = self._run(params, entries, groups)
         except _Refused as exc:
             return InvocationResult.failed(str(exc), retryable=False)
         except keysets.KeysetError as exc:
@@ -135,7 +176,9 @@ class _KeysetPort:
 class KeysetFilterPort(_KeysetPort):
     """Built-in ``keyset.filter`` (see the module docstring)."""
 
-    def _run(self, params: _Params, nested: bool, groups: list[list[Any]]) -> dict[str, Any]:
+    def _run(
+        self, params: _Params, entries: list[Any] | None, groups: list[list[Any]]
+    ) -> dict[str, Any]:
         now = self._clock()
         kept = dropped = keyless = 0
         result = []
@@ -147,7 +190,7 @@ class KeysetFilterPort(_KeysetPort):
             dropped += len(group) - len(survivors)
             kept += len(survivors)
             result.append(survivors)
-        items = result if nested else result[0]
+        items = result[0] if entries is None else _reshape(entries, result, params.items_field)
         return {"items": items, "kept": kept, "dropped": dropped, "keyless": keyless}
 
 
@@ -159,7 +202,9 @@ class KeysetAddPort(_KeysetPort):
         params.max_keys = _positive_int(params.get("max_keys"), "max_keys")
         return params
 
-    def _run(self, params: _Params, nested: bool, groups: list[list[Any]]) -> dict[str, Any]:
+    def _run(
+        self, params: _Params, entries: list[Any] | None, groups: list[list[Any]]
+    ) -> dict[str, Any]:
         found = (_key_of(i, params) for group in groups for i in group)
         keys = [k for k in found if k]
         if len(keys) > params.max_keys:
