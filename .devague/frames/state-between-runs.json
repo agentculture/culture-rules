@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T20:49:20Z",
+  "updated": "2026-10-28T20:49:47Z",
   "claims": [
     {
       "id": "c1",
@@ -729,7 +729,7 @@
       "behavior": "each key is one document (id sha256 over set and key) with its first-seen time and expires_at; a retry or two concurrent adds of the same key leave one document and keep the first-seen time",
       "source_text": "Generic builtin keyset.add puts keys into a named set, one store document per key with its first-seen time and expires_at, written insert-if-absent so a retry or a concurrent add leaves one document and keeps the first-seen time; the set name, the key field, the normalisation, the window and max_keys are step config, never code",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o2",
@@ -738,7 +738,7 @@
       "behavior": "items whose normalised key is in the set within the window are dropped, the rest kept in order; items with no or an empty key field are kept and counted; the outputs never contain a stored key",
       "source_text": "Generic builtin keyset.filter takes a list and returns, in order, the items whose key (a configured field, after the configured normalisation) is not in the named set within the window, plus the counts kept and dropped; the set's keys never enter run state; it names no app, flow or field in code",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o3",
@@ -747,7 +747,7 @@
       "behavior": "a key older than the window is not dropped by keyset.filter even while its document still exists; every document carries expires_at under a TTL index; an add over max_keys fails bad_params and writes nothing",
       "source_text": "The set is bounded and expires: one store document per key carries expires_at under a TTL index (operator q1), the window is config, and a configured cap on keys per add keeps one run from flooding it",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o4",
@@ -756,7 +756,7 @@
       "behavior": "with no normalisation configured the key is the field value unchanged; with host lowercasing, fragment and trailing-slash removal and query patterns utm_* and ref, http://Example.com/a/?utm_source=x#f and https://example.com/a give one key",
       "source_text": "Generic key normalisation is declarative step config, with no built-in list: e.g. lowercase the host, drop the fragment and a trailing slash, and drop query parameters matching configured patterns (the newspaper configures utm_* and ref); with no normalisation configured, the key is the field value unchanged",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o5",
@@ -765,7 +765,7 @@
       "behavior": "a normalised key over 2048 characters fails bad_params; keys differing past character 200 are separate documents; no document id holds the raw key",
       "source_text": "Keys are bounded in size: a normalised key over 2048 characters is refused bad_params, and the store document id is a sha256 over the set name and the key, so long URLs never become document ids",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o6",
@@ -774,7 +774,7 @@
       "behavior": "a list of lists (one per for_each iteration) is accepted by both builtins; keyset.add adds every inner item's key and keyset.filter returns one filtered list per inner list, in order",
       "source_text": "keyset.add and keyset.filter accept a list of items or a list of such lists (one level, as a for_each loop's per-iteration results arrive); filter returns the same shape it was given",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o7",
@@ -783,7 +783,7 @@
       "behavior": "keyset.add outputs added and already_present counts, keyset.filter kept, dropped and keyless counts, and neither outputs a stored key",
       "source_text": "keyset.add outputs the counts added and already present, and keyset.filter the counts kept, dropped and keyless, so runs show shows what the set did on each run",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o8",
@@ -792,7 +792,7 @@
       "behavior": "list, show and clear answer 403 to a non-admin token; clear without --apply changes nothing and with --apply removes one key or the whole set; the routes are in api/openapi.json and the contract and surface parity tests pass",
       "source_text": "Admin verbs over the sets: a keysets noun with list (set names with key counts), show (one set's keys with seen and expiry times) and clear (one key, or the whole set; dry run by default, --apply commits), as API routes pinned in api/openapi.json, CLI verbs, MCP tools, explain entries and learn text, with the parity test green; reads need admin too, since keys may be private URLs",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o9",
@@ -801,7 +801,7 @@
       "behavior": "two workflows that name one set see each other's keys; a name outside the pattern (letters, digits, _ : -, at most 100 characters) fails bad_params",
       "source_text": "A set name is one namespace across all workflows: two workflows that name the same set share it on purpose; names follow the checklist list_key pattern (letters, digits, _ : -, at most 100 characters)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o10",
@@ -810,7 +810,7 @@
       "behavior": "a run that fails before the add leaves the set unchanged; a run that fails after the add and is re-run adds each key once; the flow test shows both",
       "source_text": "Only finished work marks keys seen: the add step is placed in the workflow (configuration) where a re-run will redo it if anything after it fails, so a failed or skipped run never marks keys it did not deliver and a crash never loses them; for the newspaper that is just before record, after push (newspaper.issue's fences make the re-run safe), set live",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o11",
@@ -819,7 +819,7 @@
       "behavior": "its second run drops the items its first run added; no new module contains a newspaper, URL-parameter or window constant (grep)",
       "source_text": "Workflows can keep a named set of keys between runs: generic builtins read the set (dropping items already in it) and add keys to it after a run's work succeeds, each key expiring after a configured window; the first configured use is the daily newspaper not repeating articles",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o12",
@@ -828,7 +828,7 @@
       "behavior": "newspaper.py, newspaper_render.py, newspaper_issue.py, trusted.py, validate.py and action_kinds.py are unchanged by the diff; no node step writes the variables collection; the EPUB byte pins pass",
       "source_text": "newspaper.render is unchanged: a section the filter left empty renders its existing No results. line (newspaper_render.py:24,96); wording other than that would be a separate render input, out of scope",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o13",
@@ -837,7 +837,7 @@
       "behavior": "both builtins are registered in node/runner.py and describe with BUILTIN_WORDS phrases; tests/model/test_describe.py and the describe fixtures pass",
       "source_text": "Each new builtin is registered in node/runner.py, has a describe phrase in BUILTIN_WORDS (model/describe.py), and a guide under docs/; the describe fixtures stay green",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o14",
