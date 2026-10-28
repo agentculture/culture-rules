@@ -60,6 +60,7 @@ from culture_rules.server.service import (
     Conflict,
     Definitions,
     Invalid,
+    Keysets,
     NotFound,
     RevisionConflict,
     RuleReferenced,
@@ -409,6 +410,42 @@ class VariableWrite(BaseModel):
 
 class VariableItem(BaseModel):
     item: Any = Field(description="a JSON scalar of the list's item type")
+
+
+class KeysetSummary(BaseModel):
+    set: str = Field(description="the set's name")
+    keys: int = Field(description="how many live keys it holds")
+
+
+class KeysetList(BaseModel):
+    items: list[KeysetSummary]
+
+
+class KeysetKey(BaseModel):
+    key: str
+    first_seen: str = Field(description="ISO-8601, when the key was first added")
+    expires_at: str = Field(description="ISO-8601, when its window passes")
+
+
+class KeysetShow(BaseModel):
+    set: str
+    items: list[KeysetKey] = Field(description="the live keys, by key")
+
+
+class KeysetClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str | None = Field(None, description="forget only this key; absent = the whole set")
+    dry_run: bool = Field(True, description="true = report what would go, delete nothing")
+
+
+class KeysetClearResult(BaseModel):
+    set: str
+    key: str | None
+    dry_run: bool
+    count: int = Field(
+        description="dry run: live keys that would go (1 or 0 for a key); applied: deleted"
+    )
 
 
 class MigrateRequest(BaseModel):
@@ -765,6 +802,7 @@ def create_app(
     _register_ops(app, store, node)
     _register_migrations(app, store, defs)
     _register_variables(app, Variables(store))
+    _register_keysets(app, Keysets(store))
     _register_rollouts(app, Rollouts(store, audit))
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life, store, audit)
@@ -1211,6 +1249,38 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
     def variable_refs(name: str):
         """Live rules whose condition or workflow inputs reference the variable."""
         return {"items": variables.refs(name)}
+
+
+def _register_keysets(app: FastAPI, sets: Keysets) -> None:
+    """Keysets: every route is admin (the route matrix); the clear is a dry run by default."""
+
+    @app.get("/keysets", response_model=KeysetList, tags=["keysets"], operation_id="list_keysets")
+    def list_keysets():
+        """Every set with live keys, with its key count."""
+        return {"items": sets.list()}
+
+    @app.get(
+        "/keysets/{name}",
+        response_model=KeysetShow,
+        tags=["keysets"],
+        operation_id="show_keyset",
+        responses={422: ERRORS[422]},
+    )
+    def show_keyset(name: str):
+        """The live keys of a set with first_seen and expires_at; an unknown set has none."""
+        return {"set": name, "items": sets.show(name)}
+
+    @app.post(
+        "/keysets/{name}/clear",
+        response_model=KeysetClearResult,
+        tags=["keysets"],
+        operation_id="clear_keyset",
+        responses={422: ERRORS[422]},
+    )
+    def clear_keyset(name: str, body: KeysetClearRequest | None = None):
+        """Forget one key or the whole set; a dry run (the default) only counts."""
+        req = body or KeysetClearRequest()
+        return sets.clear(name, req.key, dry_run=req.dry_run)
 
 
 def _register_rollouts(app: FastAPI, rollouts: Rollouts) -> None:

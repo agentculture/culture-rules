@@ -24,6 +24,7 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules import keysets
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
 from culture_rules.engine.lifecycle import Lifecycle
 from culture_rules.engine.ruleset import validate_rule_set
@@ -46,6 +47,7 @@ __all__ = [
     "Conflict",
     "Definitions",
     "Invalid",
+    "Keysets",
     "RevisionConflict",
     "RuleReferenced",
     "NotFound",
@@ -981,6 +983,64 @@ class Variables:
             {"id": d.get("id"), "name": d.get("name"), "enabled": d.get("enabled", True)}
             for d in sorted(hits, key=lambda d: str(d.get("id")))
         ]
+
+
+def _iso(value: Any) -> Any:
+    """A stored datetime as an ISO-8601 string in UTC (other values unchanged)."""
+    return value.astimezone(UTC).isoformat() if isinstance(value, datetime) else value
+
+
+class Keysets:
+    """Keysets behind the API (admin only, the route matrix): reads and a dry-run-first clear.
+
+    Reads and clears go only through :mod:`culture_rules.keysets`. A read sees live keys
+    (window not passed); a clear deletes the stored documents, so an applied clear may count
+    an expired key not yet reaped that its dry run (live keys only) did not.
+    """
+
+    def __init__(self, store: StoragePort, clock: Callable[[], datetime] | None = None) -> None:
+        self._store = store
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    @staticmethod
+    def _invalid(exc: keysets.KeysetError, path: str) -> Invalid:
+        return Invalid(str(exc), [{"path": path, "code": exc.code, "message": str(exc)}])
+
+    def _name(self, name: str) -> str:
+        try:
+            return keysets.check_set_name(name)
+        except keysets.KeysetError as exc:
+            raise self._invalid(exc, "name") from exc
+
+    def list(self) -> list[dict[str, Any]]:
+        """Every set with live keys, ``{set, keys}`` by name."""
+        return keysets.list_sets(self._store, self._clock())
+
+    def show(self, name: str) -> list[dict[str, Any]]:
+        """The live keys of a set, ``{key, first_seen, expires_at}`` (ISO-8601) by key."""
+        items = keysets.show_set(self._store, self._name(name), self._clock())
+        return [{k: _iso(v) for k, v in item.items()} for item in items]
+
+    def clear(self, name: str, key: str | None = None, *, dry_run: bool = True) -> dict[str, Any]:
+        """Forget one key (``key``) or the whole set; ``{set, key, dry_run, count}``.
+
+        A dry run deletes nothing: ``count`` is how many live keys would go (for a key, 1 when
+        it is there, else 0). Applied, ``count`` is how many documents were deleted.
+        """
+        self._name(name)
+        if key is not None:
+            try:
+                keysets.check_key(key)
+            except keysets.KeysetError as exc:
+                raise self._invalid(exc, "key") from exc
+        if dry_run:
+            live = [i["key"] for i in keysets.show_set(self._store, name, self._clock())]
+            count = len(live) if key is None else int(key in live)
+        elif key is None:
+            count = keysets.clear_set(self._store, name)
+        else:
+            count = int(keysets.clear_key(self._store, name, key))
+        return {"set": name, "key": key, "dry_run": dry_run, "count": count}
 
 
 def dumps(value: Any) -> str:

@@ -86,6 +86,10 @@ refuses while rules enable restores are off unless --force, enable refuses while
 a node is older than the release or a rule outside the snapshot is enabled,
 upgrade --apply needs the admin role before it runs anything, and verify exits 1
 listing each failed check.
+The keysets noun (admin only, reads included) shows the named sets of remembered keys:
+keysets list counts each set's live keys, keysets show <name> lists them with first_seen
+and expires_at, and keysets clear <name> [--key K] --apply forgets one key or the set
+(without --apply it only reports how many would go). Needs server >= 0.37.0.
 
 Machine-readable output
 -----------------------

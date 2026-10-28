@@ -13,7 +13,9 @@
   writing a rollout document (``PUT /rollouts/{id}``, ``POST /rollouts/{id}/steps/{name}``
   and ``POST /rollouts/{id}/snapshot``, also via the default) is admin too, and rollout reads
   are viewer; enrolling a gateway's models (``POST /actors/enrol-models``) is admin via the
-  default, and an actor's references (``GET /actors/{id}/references``) are a viewer read.
+  default, and an actor's references (``GET /actors/{id}/references``) are a viewer read;
+  keysets (``GET /keysets``, ``GET /keysets/{name}``, ``POST /keysets/{name}/clear``) are
+  admin, reads included: a set's keys can name what a flow has seen.
 
 Saving a workflow step that carries inline script text is admin-only too, and so is adding or
 changing a runner actor's command registry (``params.commands``), but those depend on the body
@@ -38,6 +40,7 @@ _ADMIN_PATTERNS = (
     re.compile(r"^/rules/migrate-orphans$"),
     re.compile(r"^/workflows/migrate-notes$"),
     re.compile(r"^/runs/backfill-ids$"),
+    re.compile(r"^/keysets(/[^/]+(/clear)?)?$"),
 )
 # read-only operations that take a request body (no write happens)
 _VIEWER_POSTS = (re.compile(r"^/replay$"),)

@@ -15,6 +15,8 @@ from culture_rules.explain import known_paths
 
 NOUNS = {"rules", "workflows", "actors", "machines", "runs", "rollout"}
 ROOT = Path(__file__).resolve().parents[2] / "culture_rules"
+#: Read verbs the route matrix keeps admin-only (a keyset's keys can name what a flow saw).
+ADMIN_READS = {("keysets", "list"), ("keysets", "show")}
 
 
 def _noop(ctx, **params):
@@ -22,7 +24,7 @@ def _noop(ctx, **params):
 
 
 def test_registry_covers_the_nouns_with_overview():
-    assert {v.noun for v in REGISTRY.verbs()} == NOUNS | {"variables"}
+    assert {v.noun for v in REGISTRY.verbs()} == NOUNS | {"variables", "keysets"}
     for noun in NOUNS:
         assert REGISTRY.get(noun, "overview") is not None
         assert REGISTRY.get(noun, "list") is not None
@@ -71,7 +73,7 @@ def test_every_verb_carries_name_schema_mutating_flag_and_role():
         if v.mutating:
             assert v.role != "viewer"
         else:
-            assert v.role == "viewer"
+            assert v.role == ("admin" if v.path in ADMIN_READS else "viewer")
 
 
 def test_duplicate_registration_is_refused():
