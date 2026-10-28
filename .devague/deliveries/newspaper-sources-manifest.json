@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-28T15:41:14Z",
+  "updated": "2026-10-28T16:31:23Z",
   "deviations": [
     {
       "id": "d1",
@@ -269,6 +269,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 15
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "live: culture-library eval generate (0.17.1 CLI, judge cortex, default seed) on items 81, 98, 73, reported on culture-rules#97 comment 6473927635",
+      "behavior_text": "eval sets 6 (item 81), 7 (item 98, today's 05:00 issue) and 8 (item 73) generated with 4 samples each and unmatched = 0; each sample anchored to its article's chunk by chunk_sha and carrying 3-5 source_urls",
+      "contract_text": "o12 / c18 / h8 / h15: a live issue with a manifest generates an eval set with unmatched = 0 instead of being refused for having no sources",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "culture-library's own eval generator run on live against the library's indexed chunks, including the first unattended daily issue (98); reported by culture-library on #97, not run by culture-rules",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T15:59:19Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
     }
   ],
   "deltas": [],
