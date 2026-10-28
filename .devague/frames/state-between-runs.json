@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T20:24:09Z",
+  "updated": "2026-10-28T20:24:55Z",
   "claims": [
     {
       "id": "c1",
@@ -212,9 +212,9 @@
     {
       "id": "c7",
       "kind": "requirement",
-      "text": "Only finished work marks keys seen: the add step is placed in the workflow (configuration) after the flow's own commit point, so a failed or skipped run leaves the set unchanged; for the newspaper that placement is after record, set live",
+      "text": "Only finished work marks keys seen: the add step is placed in the workflow (configuration) where a re-run will redo it if anything after it fails, so a failed or skipped run never marks keys it did not deliver and a crash never loses them; for the newspaper that is just before record, after push (newspaper.issue's fences make the re-run safe), set live",
       "origin": "llm",
-      "status": "confirmed",
+      "status": "proposed",
       "honesty_conditions": [
         {
           "id": "h9",
@@ -231,6 +231,11 @@
           "text": "Only delivered work marks keys seen: the add step runs after the run's work is done (for the newspaper, after record), so a failed or skipped run leaves the set unchanged",
           "kind": "requirement",
           "reason": "operator 2026-10-28: code generic capabilities, configure the business logic on top"
+        },
+        {
+          "text": "Only finished work marks keys seen: the add step is placed in the workflow (configuration) after the flow's own commit point, so a failed or skipped run leaves the set unchanged; for the newspaper that placement is after record, set live",
+          "kind": "requirement",
+          "reason": "operator decision c22: a crash between record and the add would lose the day's keys"
         }
       ]
     },
@@ -484,6 +489,56 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "Operator 2026-10-28 (challenge): the newspaper's keyset.add sits just before record, after push: if the add or record fails the date stays claimed and the re-run redoes both (the email fence sends once, the push is skipped once recorded, keyset.add is idempotent); and at go-live a one-off live workflow seeds the set from the last 14 days of daily runs",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "keyset.add and keyset.filter accept a list of items or a list of such lists (one level, as a for_each loop's per-iteration results arrive); filter returns the same shape it was given",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "given the search loop's results (one list per section), keyset.add adds every item's key and keyset.filter returns one filtered list per section, in order",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "The go-live seed is configuration only: a one-off workflow, run once with workflows run, uses run.read to take the search step's results from each of the last 14 daily runs (by run id) and keyset.add to put them in the newspaper's set; no seed code ships",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "after the seed run, keyset.filter over the 10-26..10-28 issues' results drops every one of their links",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -647,6 +702,22 @@
       "surface": "challenge pass / operations lens: node/runner.py builtins registry, rollout docs/operations/rollout.md",
       "finding": "a node on an older version does not know keyset.* and fails the step; every node and the API must run the new version before the live workflow names the builtins (plan-side ordering, to land as a plan risk)",
       "seeds": []
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / data-flow lens: newspaper.py:310-332 (filter reads results per section), newspaper_render.py:16-18 (results as one list per output port or a for_each result object)",
+      "finding": "the search loop yields one results list per section, so the add after push receives a list of lists; the builtins must flatten one level (add) or keep the shape (filter)",
+      "seeds": [
+        "c23"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / lifecycle lens: culture_rules/node/actions/run_read.py:1-30,90-96",
+      "finding": "run.read reads a named step's outputs from any succeeded run given by run_id, so past daily runs' search results can feed keyset.add without new code",
+      "seeds": [
+        "c24"
+      ]
     }
   ],
   "lapses": [],
