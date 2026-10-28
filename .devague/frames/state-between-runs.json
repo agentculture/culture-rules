@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T20:23:00Z",
+  "updated": "2026-10-28T20:24:09Z",
   "claims": [
     {
       "id": "c1",
@@ -427,9 +427,76 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "A set name is one namespace across all workflows: two workflows that name the same set share it on purpose; names follow the checklist list_key pattern (letters, digits, _ : -, at most 100 characters)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "two workflows naming one set see each other's keys; a set name outside the pattern is refused bad_params",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "Keys are bounded in size: a normalised key over 2048 characters is refused bad_params, and the store document id is a sha256 over the set name and the key, so long URLs never become document ids",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "a 2049-character key is refused; two keys differing only past character 200 are distinct documents",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "keyset.add outputs the counts added and already present, and keyset.filter the counts kept, dropped and keyless, so runs show shows what the set did on each run",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "both builtins' outputs carry the named counts and no stored key; a test asserts the output keys",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
-  "open_vagueness": [],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether a raised search count leaves enough fresh results per section; c16 is an unmeasured assumption, measured in the first live week by the No results count c15 reports",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
   "scope_entries": [
     {
       "id": "s1",
@@ -518,6 +585,68 @@
       "seeds": [
         "c13"
       ]
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / data-flow lens: culture_rules/node/actions/newspaper_render.py:26-32",
+      "finding": "render's link check admits a summary only if every link is one of that section's result URLs, else the summary is dropped; so filtering the results before summarise is enough for c2, no seen link can reach the issue through the summary",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / adjacent-systems lens: store/memory.py (no ensure_index), handoff.py:321, hook_sink.py:142, run_events.py:157",
+      "finding": "every TTL user calls ensure_index lazily via getattr and the in-memory store keeps everything; so keyset.filter must itself ignore expired keys (h7), and the index is created by the module on first use on each node, as the other users do",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / overlooked-actors lens: culture_rules/node/actions/checklist.py:108 (list_key pattern), cursor.py (cursor_key named by the flow author)",
+      "finding": "existing run-written stores are keyed by a flow-chosen name with no per-workflow scoping; the same convention makes sharing deliberate and collisions the author's choice",
+      "seeds": [
+        "c19"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / failure-mode lens: culture_rules/node/actions/cursor.py (200-char key and value caps), checklist.py (MAX_TEXT 500)",
+      "finding": "existing stores cap their keys; a URL can be thousands of characters, so the key needs a cap and a hashed id",
+      "seeds": [
+        "c20"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / observability lens: runs show --json on run-498cad51 (outputs per step), cursor.py advanced flag",
+      "finding": "run outputs are the only per-run window into a step; counts (never keys) make a wrong drop or a missed add visible without reading the store",
+      "seeds": [
+        "c21"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / security lens: run state and the new admin verbs (c18)",
+      "finding": "clean: keyset.filter's kept items are already in the run (search results), and stored keys only leave the store through admin-only verbs; no new exposure found",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / reversibility lens: live workflow config, the clear verb (c18)",
+      "finding": "clean: turning it off is removing two steps from the live workflow (CLI), and clear empties a set; the collection left behind holds expiring keys only",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / operations lens: node/runner.py builtins registry, rollout docs/operations/rollout.md",
+      "finding": "a node on an older version does not know keyset.* and fails the step; every node and the API must run the new version before the live workflow names the builtins (plan-side ordering, to land as a plan risk)",
+      "seeds": []
     }
   ],
   "lapses": [],
