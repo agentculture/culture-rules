@@ -2,21 +2,21 @@
   "slug": "state-between-runs",
   "title": "State between runs",
   "schema_version": 6,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T20:15:39Z",
+  "updated": "2026-10-28T20:23:00Z",
   "claims": [
     {
       "id": "c1",
       "kind": "announcement",
       "text": "Workflows can keep a named set of keys between runs: generic builtins read the set (dropping items already in it) and add keys to it after a run's work succeeds, each key expiring after a configured window; the first configured use is the daily newspaper not repeating articles",
       "origin": "user",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h1",
           "text": "a workflow built only from keyset.filter and keyset.add, with no newspaper builtin involved, drops on its second run the items its first run added",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -36,12 +36,12 @@
       "kind": "after_state",
       "text": "The daily newspaper does not link an article (by URL) that an earlier delivered issue linked within the configured window; on 2026-10-28, 11 of 13 links had already appeared on 10-26 or 10-27",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h2",
           "text": "the live daily-newspaper, configured through the CLI only, renders no link whose normalised form an issue of the last 14 days already linked",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -70,12 +70,12 @@
       "kind": "audience",
       "text": "Flow authors who configure workflows live through the CLI (the operator, for the newspaper first); and the newspaper's reader, who sees fewer repeated links",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h3",
           "text": "a flow author can wire both builtins from the step config alone, with the guide and the describe phrases, without reading the source",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -89,18 +89,18 @@
       "kind": "requirement",
       "text": "Generic builtin keyset.add puts keys into a named set, one store document per key with its first-seen time and expires_at, written insert-if-absent so a retry or a concurrent add leaves one document and keeps the first-seen time; the set name, the key field, the normalisation, the window and max_keys are step config, never code",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h4",
           "text": "keyset.add retried with the same keys leaves exactly one document per key, and two concurrent adds of the same key both succeed with one document left",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         },
         {
           "id": "h5",
           "text": "the set name, key field, normalisation, window and max_keys are read from step config or inputs; a grep of the new modules finds no newspaper, url-parameter or window constant",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -145,12 +145,12 @@
       "kind": "requirement",
       "text": "Generic builtin keyset.filter takes a list and returns, in order, the items whose key (a configured field, after the configured normalisation) is not in the named set within the window, plus the counts kept and dropped; the set's keys never enter run state; it names no app, flow or field in code",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h6",
           "text": "keyset.filter keeps item order, keeps items with no key field (or an empty one) and reports them, and its outputs hold the kept list and counts but never the stored keys",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -183,18 +183,18 @@
       "kind": "requirement",
       "text": "The set is bounded and expires: one store document per key carries expires_at under a TTL index (operator q1), the window is config, and a configured cap on keys per add keeps one run from flooding it",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h7",
           "text": "a key older than the window is not seen by keyset.filter even before the TTL monitor deletes it, and its document carries expires_at so the TTL index removes it",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         },
         {
           "id": "h8",
           "text": "keyset.add refuses (bad_params) a call over max_keys rather than truncating silently",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -214,12 +214,12 @@
       "kind": "requirement",
       "text": "Only finished work marks keys seen: the add step is placed in the workflow (configuration) after the flow's own commit point, so a failed or skipped run leaves the set unchanged; for the newspaper that placement is after record, set live",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h9",
           "text": "in a run that fails or skips before the add step, the set is unchanged afterwards; the flow test shows it",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -239,12 +239,12 @@
       "kind": "boundary",
       "text": "Shared variables stay admin-written through the API; runs do not write the variables collection (it is versioned per write, unbounded and global, and the editor and explain text say only an admin may write)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h10",
           "text": "no code path from a node step writes the variables collection, and the explain and editor text 'only an admin may write' stays true",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -258,7 +258,7 @@
       "kind": "non_goal",
       "text": "No flow-specific code: everything the newspaper needs is live workflow configuration: the set name, the 14-day window, the key field (url), the normalisation settings, which steps read and add, the raised search count, and the placement after record. The committed bundle may gain these steps only as a disabled template; newspaper.filter, newspaper.render and newspaper.issue are unchanged",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -276,12 +276,12 @@
       "kind": "boundary",
       "text": "Untouched: trust (TRUSTED_WORKFLOWS_V2 gates only github.push and review), save-time validation of builtin configs (none exists; builtins check inputs at run time, bad_params), and action kinds (a builtin code step is not one)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h11",
           "text": "TRUSTED_WORKFLOWS_V2, model/validate.py and model/action_kinds.py are unchanged by the diff",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -295,12 +295,12 @@
       "kind": "requirement",
       "text": "Each new builtin is registered in node/runner.py, has a describe phrase in BUILTIN_WORDS (model/describe.py), and a guide under docs/; the describe fixtures stay green",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h12",
           "text": "both builtins are registered in node/runner.py and have BUILTIN_WORDS phrases; the describe fixtures and tests/model/test_describe.py pass",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -314,12 +314,12 @@
       "kind": "requirement",
       "text": "Generic key normalisation is declarative step config, with no built-in list: e.g. lowercase the host, drop the fragment and a trailing slash, and drop query parameters matching configured patterns (the newspaper configures utm_* and ref); with no normalisation configured, the key is the field value unchanged",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h13",
           "text": "with no normalisation configured, the key is the field value unchanged; with the newspaper's config, http://Example.com/a/?utm_source=x#f and https://example.com/a give the same key",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -333,12 +333,12 @@
       "kind": "boundary",
       "text": "newspaper.render is unchanged: a section the filter left empty renders its existing No results. line (newspaper_render.py:24,96); wording other than that would be a separate render input, out of scope",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h14",
           "text": "newspaper_render.py, newspaper.py and newspaper_issue.py are unchanged by the diff, and the byte pins in tests/node/test_epub_bytes_pinned.py pass",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -352,12 +352,12 @@
       "kind": "before_state",
       "text": "Today nothing a run learns reaches the next run except admin-written shared variables and cursor.advance's single string; the newspaper runs the same queries each morning and links what Brave returns, so on 2026-10-28 11 of its 13 links had already appeared on 10-26 or 10-27",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h15",
           "text": "the 11-of-13 figure is reproducible from runs run-498cad51, run-90056447 and run-ada99021 by extracting href links from the email step's html",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -371,12 +371,12 @@
       "kind": "success_signal",
       "text": "Over the first 7 consecutive daily issues after go-live, 0 links (normalised as configured) appear that an issue in the previous 14 days already linked, counted from the stored runs' rendered html; the number of sections showing No results is reported alongside, not gated",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h16",
           "text": "the 7-issue count is computed by one script over the stored runs, normalised with the same settings the live step uses",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -390,7 +390,7 @@
       "kind": "assumption",
       "text": "A raised search count (config, e.g. 10 to 20 per query) leaves enough fresh results that most sections still have links; Brave's free tier allows it within the existing quota; not yet measured",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -414,12 +414,12 @@
       "kind": "requirement",
       "text": "Admin verbs over the sets: a keysets noun with list (set names with key counts), show (one set's keys with seen and expiry times) and clear (one key, or the whole set; dry run by default, --apply commits), as API routes pinned in api/openapi.json, CLI verbs, MCP tools, explain entries and learn text, with the parity test green; reads need admin too, since keys may be private URLs",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h17",
           "text": "list, show and clear answer 403 for a non-admin token; clear without --apply changes nothing; the openapi contract and surface parity tests pass",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
