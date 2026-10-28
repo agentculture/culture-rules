@@ -4,19 +4,25 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T20:13:11Z",
+  "updated": "2026-10-28T20:14:00Z",
   "claims": [
     {
       "id": "c1",
       "kind": "announcement",
-      "text": "Workflows keep state between runs: a step reads a named, bounded, expiring set of keys at the start of a run and adds to it after the run's work succeeds, so the daily newspaper stops repeating articles it already covered",
+      "text": "Workflows can keep a named set of keys between runs: generic builtins read the set (dropping items already in it) and add keys to it after a run's work succeeds, each key expiring after a configured window; the first configured use is the daily newspaper not repeating articles",
       "origin": "user",
-      "status": "confirmed",
+      "status": "proposed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Workflows keep state between runs: a step reads a named, bounded, expiring set of keys at the start of a run and adds to it after the run's work succeeds, so the daily newspaper stops repeating articles it already covered",
+          "kind": "announcement",
+          "reason": "operator 2026-10-28: code generic capabilities, configure the business logic on top"
+        }
+      ]
     },
     {
       "id": "c2",
@@ -60,7 +66,7 @@
     {
       "id": "c4",
       "kind": "requirement",
-      "text": "Generic: a builtin reads a named key set (its stored keys within the window) as a step output, and a second builtin adds keys to it with a timestamp each; both by compare-and-set like cursor.advance, idempotent on retry (set union); the set's name and window are step config",
+      "text": "Generic: a builtin reads a named key set and outputs the keys still within the window; a second builtin adds keys with a timestamp each, by compare-and-set like cursor.advance and idempotent on retry (set union); the set name, the window and the key field are step config, never code",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
@@ -82,12 +88,18 @@
       ],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Generic: a builtin reads a named key set (its stored keys within the window) as a step output, and a second builtin adds keys to it with a timestamp each; both by compare-and-set like cursor.advance, idempotent on retry (set union); the set's name and window are step config",
+          "kind": "requirement",
+          "reason": "operator 2026-10-28: code generic capabilities, configure the business logic on top"
+        }
+      ]
     },
     {
       "id": "c5",
       "kind": "requirement",
-      "text": "Generic: a builtin drops list items whose key field (e.g. url) is in a given key list, keeping order; field names are config; no newspaper rule in code",
+      "text": "Generic: a builtin drops the items of a given list whose key (a configured field, after the configured normalisation) is in the set, keeping order; it names no app, flow or field in code",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
@@ -102,31 +114,49 @@
       ],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Generic: a builtin drops list items whose key field (e.g. url) is in a given key list, keeping order; field names are config; no newspaper rule in code",
+          "kind": "requirement",
+          "reason": "operator 2026-10-28: code generic capabilities, configure the business logic on top"
+        }
+      ]
     },
     {
       "id": "c6",
       "kind": "requirement",
-      "text": "The set is bounded and expires: entries older than the window are not read and are pruned (or TTL-indexed), and a cap on entries/bytes keeps the store document well under MongoDB's 16 MB",
+      "text": "The set is bounded and expires: one store document per key carries expires_at under a TTL index (operator q1), the window is config, and a configured cap on keys per add keeps one run from flooding it",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "The set is bounded and expires: entries older than the window are not read and are pruned (or TTL-indexed), and a cap on entries/bytes keeps the store document well under MongoDB's 16 MB",
+          "kind": "requirement",
+          "reason": "operator 2026-10-28: code generic capabilities, configure the business logic on top"
+        }
+      ]
     },
     {
       "id": "c7",
       "kind": "requirement",
-      "text": "Only delivered work marks keys seen: the add step runs after the run's work is done (for the newspaper, after record), so a failed or skipped run leaves the set unchanged",
+      "text": "Only finished work marks keys seen: the add step is placed in the workflow (configuration) after the flow's own commit point, so a failed or skipped run leaves the set unchanged; for the newspaper that placement is after record, set live",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Only delivered work marks keys seen: the add step runs after the run's work is done (for the newspaper, after record), so a failed or skipped run leaves the set unchanged",
+          "kind": "requirement",
+          "reason": "operator 2026-10-28: code generic capabilities, configure the business logic on top"
+        }
+      ]
     },
     {
       "id": "c8",
@@ -143,14 +173,20 @@
     {
       "id": "c9",
       "kind": "non_goal",
-      "text": "No newspaper-specific code: the newspaper's use (which links count, which window, the set's name) is live workflow configuration; the committed bundle may gain the steps only as a disabled template",
+      "text": "No flow-specific code: everything the newspaper needs is live workflow configuration: the set name, the 14-day window, the key field (url), the normalisation settings, which steps read and add, the raised search count, and the placement after record. The committed bundle may gain these steps only as a disabled template; newspaper.filter, newspaper.render and newspaper.issue are unchanged",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "No newspaper-specific code: the newspaper's use (which links count, which window, the set's name) is live workflow configuration; the committed bundle may gain the steps only as a disabled template",
+          "kind": "non_goal",
+          "reason": "operator 2026-10-28: code generic capabilities, configure the business logic on top"
+        }
+      ]
     },
     {
       "id": "c10",
@@ -168,6 +204,30 @@
       "id": "c11",
       "kind": "requirement",
       "text": "Each new builtin is registered in node/runner.py, has a describe phrase in BUILTIN_WORDS (model/describe.py), and a guide under docs/; the describe fixtures stay green",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Generic key normalisation is declarative step config, with no built-in list: e.g. lowercase the host, drop the fragment and a trailing slash, and drop query parameters matching configured patterns (the newspaper configures utm_* and ref); with no normalisation configured, the key is the field value unchanged",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "boundary",
+      "text": "newspaper.render is unchanged: a section the filter left empty renders its existing No results. line (newspaper_render.py:24,96); wording other than that would be a separate render input, out of scope",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
@@ -249,6 +309,22 @@
       "finding": "a builtin without a BUILTIN_WORDS entry describes as 'builtin X'; registration is a Port class plus a dict entry",
       "seeds": [
         "c11"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "operator q3 decision; culture_rules/node/actions/newspaper.py:269-286 (dedupe by exact URL today)",
+      "finding": "the same article reappears under tracking parameters; which parameters to drop is a newspaper decision, so it is config passed to a generic normaliser, not a list in code",
+      "seeds": [
+        "c12"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "culture_rules/node/actions/newspaper_render.py:13,24-25,96",
+      "finding": "render already prints NO_RESULTS = 'No results.' for an empty section and asks for no summary, so 'empty rather than repeat' (operator q4) needs no code",
+      "seeds": [
+        "c13"
       ]
     }
   ],
