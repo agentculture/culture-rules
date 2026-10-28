@@ -35,7 +35,13 @@ def test_keyset_add_has_a_phrase():
     assert BUILTIN_WORDS[KEYSET_ADD_BUILTIN].startswith("keyset.add:")
 
 
-def test_the_runner_docstring_names_both():
+def test_the_runner_docstring_names_keyset_filter():
     from culture_rules.node import runner
 
-    assert "keyset.filter" in runner.__doc__ and "keyset.add" in runner.__doc__
+    assert "keyset.filter" in runner.__doc__
+
+
+def test_the_runner_docstring_names_keyset_add():
+    from culture_rules.node import runner
+
+    assert "keyset.add" in runner.__doc__

@@ -67,7 +67,7 @@ def seed(store, *urls, window_days=7):
 def test_a_missing_or_bad_config_value_fails_bad_params(port, over):
     config = cfg(max_keys=10, **over)
     res = run(port, MemoryStore(), config, {"items": [item("http://a/")]})
-    assert res.outcome == FAILED and "bad_params" in res.error
+    assert (res.outcome, "bad_params" in res.error) == (FAILED, True)
 
 
 @pytest.mark.parametrize("port", [KeysetFilterPort, KeysetAddPort])
@@ -199,7 +199,7 @@ def test_add_stores_normalised_keys_with_an_expiry_of_now_plus_window():
     store = MemoryStore()
     run(KeysetAddPort, store, cfg(max_keys=10), {"items": [item("http://a/x?utm_s=1#f")]})
     rows = keysets.show_set(store, "seen", NOW)
-    assert rows[0]["key"] == "http://a/x" and rows[0]["expires_at"] == NOW + timedelta(days=7)
+    assert (rows[0]["key"], rows[0]["expires_at"]) == ("http://a/x", NOW + timedelta(days=7))
 
 
 def test_add_reports_counts():
@@ -220,7 +220,7 @@ def test_add_accepts_a_list_of_lists():
 def test_add_over_max_keys_fails_bad_params():
     items = [item(f"http://a/{i}") for i in range(3)]
     res = run(KeysetAddPort, MemoryStore(), cfg(max_keys=2), {"items": items})
-    assert res.outcome == FAILED and "bad_params" in res.error
+    assert (res.outcome, "bad_params" in res.error) == (FAILED, True)
 
 
 def test_add_over_max_keys_writes_nothing():

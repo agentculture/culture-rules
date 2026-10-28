@@ -146,13 +146,15 @@ def test_duplicate_keys_in_one_call_count_once():
 
 
 def test_window_must_be_positive():
+    store = MemoryStore()
     with pytest.raises(KeysetError):
-        keysets.add_keys(MemoryStore(), "s", ["a"], NOW, 0)
+        keysets.add_keys(store, "s", ["a"], NOW, 0)
 
 
 def test_naive_now_refused():
+    store, naive = MemoryStore(), datetime(2026, 1, 1)
     with pytest.raises(KeysetError):
-        keysets.add_keys(MemoryStore(), "s", ["a"], datetime(2026, 1, 1), 60)
+        keysets.add_keys(store, "s", ["a"], naive, 60)
 
 
 def test_seen_returns_live_keys():
