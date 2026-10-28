@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-28T16:34:58Z",
+  "updated": "2026-10-28T16:35:22Z",
   "deviations": [
     {
       "id": "d1",
@@ -364,8 +364,91 @@
       "status": "proposed",
       "superseded": false,
       "seq": 20
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_http_save_to.py (39 tests), incl. ::test_an_existing_symlink_at_the_target_name_is_refused and ::test_a_symlink_at_the_target_name_leaves_no_temp_file",
+      "behavior_text": "a body is written only under a listed save root, atomically, as <sha256>.<ext> from a known Content-Type; a symlinked root, an unlisted root, an unknown type or an oversized body writes nothing; a symlink at the target name is refused after the read with no temp file left and its destination never created",
+      "contract_text": "o2 / c26: a body is written only under a root the actor's policy lists, atomically, named <sha256>.<ext> from a known Content-Type; a symlink, an unknown type or an oversized body writes nothing",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o8",
+      "test_ref": "tests/engine/test_for_each_outcomes.py (43 tests)",
+      "behavior_text": "a for_each loop with an outcomes port and config.collect lists every iteration with its index, item, status, errors and collected scalar outputs; collect is refused on other loops, on unknown steps or outputs and on reserved names",
+      "contract_text": "o8 / c10 (via d4, t7): every item id given is listed with its outcome, pushed with an entry count or skipped with the error; no skip is silent",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
     }
   ],
-  "deltas": [],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "http.call save_to refuses a symlink at the target file name after the body is read, not before the request: the body streams to a temp file in the root, path_refused fires, the temp file is removed and nothing is written through the symlink. The other refusals (unlisted root, symlinked root, no save_roots) still happen before any request",
+      "caused_by": [
+        "d1",
+        "h4"
+      ],
+      "evidence_refs": [
+        "e17"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "document.sections and save_to are not in the explain catalog (it lists CLI verbs only); they are documented in the describe phrase table (BUILTIN_WORDS), the editor's builtin list, action_kinds.py, docs/actors/http.md and docs/operations/sources-manifest.md",
+      "caused_by": [
+        "d2",
+        "c29"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "for_each loops gain an opt-in outcomes output port and config.collect: each iteration's index, item, status, errors and collected scalar outputs reach the loop's outputs, so a skipped iteration's error is visible in the run outputs (live: the backfill run listed all 17 ids)",
+      "caused_by": [
+        "d4",
+        "c10"
+      ],
+      "evidence_refs": [
+        "e18",
+        "e2"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
