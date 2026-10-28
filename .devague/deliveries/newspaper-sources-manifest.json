@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-27T20:45:45Z",
+  "updated": "2026-10-28T16:39:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -60,7 +60,395 @@
       "seq": 4
     }
   ],
-  "evidence": [],
-  "deltas": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o5",
+      "test_ref": "live: newspaper-sources-backfill run-b3458413 (item 81) and run-a77767e1 (16 items)",
+      "behavior_text": "PUT /api/library/{id}/sources answered 200 for all 17 newspaper items with the library's own body {item_id, sources}; never 422",
+      "contract_text": "h25/c13: the live PUT answers 200, not 422",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "real PUTs against the live culture-library through the live key, read back below",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o8",
+      "test_ref": "live: newspaper-sources-backfill run-a77767e1d90b4dc2836e5bc4b03b239e",
+      "behavior_text": "the run's outputs.outcomes listed all 16 ids given, each succeeded with its entry count (5:1, 8-10,12-15:5, 16-20,54,55,73:4; item 81's 4 came from run-b3458413), errors {}",
+      "contract_text": "h13/c10: the backfill's run lists every item id it was given with its outcome",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the stored live run read with runs show --json",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o4",
+      "test_ref": "local check on the 17 fetched EPUBs with tests/node/culture_library_rules.py (copied culture-library rules)",
+      "behavior_text": "all 72 manifest entries matched one chunk of their issue (unmatched 0) and every manifest passed validate_manifest",
+      "contract_text": "o4/h8: every manifest entry matches inside one chunk; the library's own eval generator still to report (asked on #97)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the live EPUB bytes and the live manifests, checked with the copied rules; the library-side generator is pending, so this is not yet o4's live half",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o9",
+      "test_ref": "live config read-back: actors show newspaper-library, variables get library_base, rules show daily-newspaper",
+      "behavior_text": "the library's base URL lives in the variable library_base, the key in the actor's http header as Bearer grant:LIBRARY_PUSH_API_KEY, the excerpt and split rules in step config; no URL or key in the 0.36.0 code",
+      "contract_text": "h10/c11: no URL, route or key is in code",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read back from the live store after the writes",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o11",
+      "test_ref": "live: workflows describe daily-newspaper (revision 6)",
+      "behavior_text": "steps 11 sources (document.sections on render's epub_base64) and 12 put_sources (http.call PUT to record's item_id), both when deliver = true and skipped on error; the rule maps library_base from vars.library_base",
+      "contract_text": "h22: the live daily-newspaper workflow shows the sections step and the PUT after record",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read back after the update; the 05:00 run's PUT 200 is still to be observed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:06:46Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o2",
+      "test_ref": "live: newspaper-sources-backfill fetch steps (17 items)",
+      "behavior_text": "http.call GET with save_to wrote 17 files named <sha256>.epub (mode 0600) under the listed save root (the node user's culture-rules fetched directory, mode 0700), outputs status 200, path, sha256, size, content_type application/epub+zip; no body in the outputs",
+      "contract_text": "o2: a body is written only under a root the actor's policy lists, atomically, named from a known Content-Type; no output carries the body",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the live run outputs and the directory listing",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:07:06Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "live: the stored runs run-a77767e1 (305 KB), run-b3458413, run-f89ac97f read with runs show --json",
+      "behavior_text": "no zip header (UEsDB) and no epub_base64/content_base64 key in any of them; only paths, sha256s, scalars and the section lists",
+      "contract_text": "h12/c15: no run on the fetch path stores EPUB bytes or base64",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "grep over the live run documents",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:07:06Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o5",
+      "test_ref": "live: throwaway workflow probe-sources-readback, run-ec8e1a14 (deleted and purged after)",
+      "behavior_text": "GET /api/library/{id}/sources answered 200 for all 17 newspaper items, with 1, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4 entries",
+      "contract_text": "h27/c19: after the backfill, GET /sources answers 200 for each item the run reports pushed",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "a live GET of every item through the live key, after the backfill",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:07:37Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o5",
+      "test_ref": "live: newspaper-sources-backfill dry run run-f89ac97f (PUT disabled) on item 81, then run-b3458413 with PUT",
+      "behavior_text": "the dry run produced item 81's 4-entry manifest without sending it; the operator checked it ('Looks right, PUT item 81'); the PUT then answered 200 with the live key (Bearer grant:LIBRARY_PUSH_API_KEY)",
+      "contract_text": "h8 (first half) and h14/c20: a dry run on one real issue shown to the operator before any PUT; one GET of an issue's file and one PUT of its manifest with the live key answer 200",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the operator's own check of the manifest, then a real PUT with the live key",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-27T23:07:37Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o11",
+      "test_ref": "live: daily-newspaper scheduled run run-498cad514bfddb42d11a31ba21f312cf (2026-10-28 05:00 IST, workflow rev 6, node spark)",
+      "behavior_text": "after record (item_id 98), the sources step read render's EPUB (count 4, found 4) and put_sources answered 200; the PUT reply echoes item 98 with 4 entries, each with 4-5 source_urls; run status succeeded with no step error. Not exercised: the re-run-with-skipped-push clause (no re-run happened)",
+      "contract_text": "o11 / h22 / c5: after each daily push, the live daily-newspaper workflow runs the sections step on the rendered EPUB and http.call PUTs the result to culture-library's PUT /api/library/{id}/sources for record's item_id",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the first unattended scheduled run on the live config: real EPUB, real item id, real key, 200 from the library; the re-run clause is covered only by the t5 flow test, not live",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T03:02:08Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o4",
+      "test_ref": "local: culture-library bb981c0 extract_text(epub) + chunk_text + eval.generate._norm/MATCH_CHARS on the EPUB and PUT body of run-498cad51 (item 98)",
+      "behavior_text": "all 4 entries' first 120 normalised excerpt characters are found inside one chunk (chunks 0, 2, 4, 5 of 7), each with source_urls: unmatched = 0",
+      "contract_text": "o4: every manifest entry's excerpt matches inside one chunk of the item's extracted text (first 120 normalised characters), live (unmatched = 0)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "culture-library's own extractor, chunker and matcher code run over the bytes the library received; a local reproduction, not the library's indexed chunks (those need a key) nor its eval run (o12 stays open)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T03:02:08Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "live: culture-library eval generate (0.17.1 CLI, judge cortex, default seed) on items 81, 98, 73, reported on culture-rules#97 comment 6473927635",
+      "behavior_text": "eval sets 6 (item 81), 7 (item 98, today's 05:00 issue) and 8 (item 73) generated with 4 samples each and unmatched = 0; each sample anchored to its article's chunk by chunk_sha and carrying 3-5 source_urls",
+      "contract_text": "o12 / c18 / h8 / h15: a live issue with a manifest generates an eval set with unmatched = 0 instead of being refused for having no sources",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "culture-library's own eval generator run on live against the library's indexed chunks, including the first unattended daily issue (98); reported by culture-library on #97, not run by culture-rules",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T15:59:19Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_http_grant_scheme.py (13 collected tests) + tests/actors/test_secrets_word_ref.py (14 collected tests)",
+      "behavior_text": "a '<word> grant:<NAME>' header is sent as the word plus the resolved value (policy and step), the value never appears in the step output, other shapes and a malformed reference are sent unchanged, a bare grant: still resolves, and the save-time check accepts the word form only under headers",
+      "contract_text": "o1 / c25: a header '<word> grant:<NAME>' is sent as the word plus the resolved value, the value is scrubbed from every output, and any other shape is sent unchanged",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_sections.py (92 collected tests)",
+      "behavior_text": "EPUB (spine order), HTML and Markdown give the same section shape (test_markdown_and_html_give_the_same_section_shape); split_on, paragraphs, max_chars, require_links and field names are config or input (test_input_overrides_config, test_each_excerpt_setting_is_required, test_two_configs_on_one_epub_give_two_outputs)",
+      "contract_text": "o3 / c27: EPUB, HTML and Markdown give the same section shape; every rule comes from config or input, none from code",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o6",
+      "test_ref": "tests/rules/test_sources_manifest_flow.py::test_a_library_answering_500_still_succeeds_the_run, ::test_a_library_answering_500_skips_the_put_step, ::test_the_skipped_put_step_keeps_its_error, ::test_the_manifest_step_before_the_failed_put_succeeded",
+      "behavior_text": "with the library answering 500, the daily run succeeds, the PUT step is skipped with its error kept on the run, and the steps before it succeeded",
+      "contract_text": "o6 / c9: the newspaper run still succeeds with the email and the library push done; the PUT step is skipped with its error recorded on the run",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o10",
+      "test_ref": "tests/node/test_epub_bytes_pinned.py (7 collected tests, the #112 pins)",
+      "behavior_text": "the newspaper EPUB bytes, newspaper HTML, transcript EPUB and transcript Markdown match their pinned digests",
+      "contract_text": "o10 / c12: the EPUB and email bytes are unchanged by this work; the #112 byte pins pass",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_http_save_to.py (62 collected tests), incl. ::test_an_existing_symlink_at_the_target_name_is_refused and ::test_a_symlink_at_the_target_name_leaves_no_temp_file",
+      "behavior_text": "a body is written only under a listed save root, atomically, as <sha256>.<ext> from a known Content-Type; a symlinked root, an unlisted root, an unknown type or an oversized body writes nothing; a symlink at the target name is refused after the read with no temp file left and its destination never created",
+      "contract_text": "o2 / c26: a body is written only under a root the actor's policy lists, atomically, named <sha256>.<ext> from a known Content-Type; a symlink, an unknown type or an oversized body writes nothing",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o8",
+      "test_ref": "tests/engine/test_for_each_outcomes.py (43 collected tests)",
+      "behavior_text": "a for_each loop with an outcomes port and config.collect lists every iteration with its index, item, status, errors and collected scalar outputs; collect is refused on other loops, on unknown steps or outputs and on reserved names",
+      "contract_text": "o8 / c10 (via d4, t7): every item id given is listed with its outcome, pushed with an entry count or skipped with the error; no skip is silent",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at ac8ae21 (culture_rules and tests identical to main b568def, 0.36.0): 265 passed across the 7 feature test files",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:34:43Z",
+        "commit": "ac8ae21"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 22
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "http.call save_to refuses a symlink at the target file name after the body is read, not before the request: the body streams to a temp file in the root, path_refused fires, the temp file is removed and nothing is written through the symlink. The other refusals (unlisted root, symlinked root, no save_roots) still happen before any request",
+      "caused_by": [
+        "d1",
+        "h4"
+      ],
+      "evidence_refs": [
+        "e17"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "document.sections and save_to are not in the explain catalog (it lists CLI verbs only); they are documented in the describe phrase table (BUILTIN_WORDS), the editor's builtin list, action_kinds.py, docs/actors/http.md and docs/operations/sources-manifest.md",
+      "caused_by": [
+        "d2",
+        "c29"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "for_each loops gain an opt-in outcomes output port and config.collect: each iteration's index, item, status, errors and collected scalar outputs reach the loop's outputs, so a skipped iteration's error is visible in the run outputs (live: the backfill run listed all 17 ids)",
+      "caused_by": [
+        "d4",
+        "c10"
+      ],
+      "evidence_refs": [
+        "e18",
+        "e2"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
