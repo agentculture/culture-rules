@@ -1,0 +1,257 @@
+{
+  "slug": "state-between-runs",
+  "title": "State between runs",
+  "schema_version": 6,
+  "status": "drafting",
+  "created": "2026-10-28T19:47:55Z",
+  "updated": "2026-10-28T19:48:33Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Workflows keep state between runs: a step reads a named, bounded, expiring set of keys at the start of a run and adds to it after the run's work succeeds, so the daily newspaper stops repeating articles it already covered",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "after_state",
+      "text": "The daily newspaper does not link an article (by URL) that an earlier delivered issue linked within the configured window; on 2026-10-28, 11 of 13 links had already appeared on 10-26 or 10-27",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "What is the key and window for the newspaper: the exact URL, or a normalised one (scheme, trailing slash, utm_* dropped)? And how many days (7? 14? 30?)?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        },
+        {
+          "id": "q4",
+          "text": "When every result in a section was already seen, does the section render empty ('nothing new'), or fall back to repeats, or does the search ask for more results (count) to make up for the filtered ones?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "audience",
+      "text": "Flow authors who configure workflows live through the CLI (the operator, for the newspaper first); and the newspaper's reader, who sees fewer repeated links",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Generic: a builtin reads a named key set (its stored keys within the window) as a step output, and a second builtin adds keys to it with a timestamp each; both by compare-and-set like cursor.advance, idempotent on retry (set union); the set's name and window are step config",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Where does the set live: a new store collection of its own (one doc per set, or one doc per key with an expires_at TTL index), or the shared variables collection made node-writable?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        },
+        {
+          "id": "q2",
+          "text": "Is the set inspectable and editable by the operator (an API route plus CLI/MCP verbs, e.g. to clear it), or node-internal in the first release?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Generic: a builtin drops list items whose key field (e.g. url) is in a given key list, keeping order; field names are config; no newspaper rule in code",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "One generic list-exclude builtin between search and filter, or should the set-read builtin itself take a list and return only the unseen items (one step instead of two)?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "The set is bounded and expires: entries older than the window are not read and are pruned (or TTL-indexed), and a cap on entries/bytes keeps the store document well under MongoDB's 16 MB",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Only delivered work marks keys seen: the add step runs after the run's work is done (for the newspaper, after record), so a failed or skipped run leaves the set unchanged",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "Shared variables stay admin-written through the API; runs do not write the variables collection (it is versioned per write, unbounded and global, and the editor and explain text say only an admin may write)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "non_goal",
+      "text": "No newspaper-specific code: the newspaper's use (which links count, which window, the set's name) is live workflow configuration; the committed bundle may gain the steps only as a disabled template",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "Untouched: trust (TRUSTED_WORKFLOWS_V2 gates only github.push and review), save-time validation of builtin configs (none exists; builtins check inputs at run time, bad_params), and action kinds (a builtin code step is not one)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Each new builtin is registered in node/runner.py, has a describe phrase in BUILTIN_WORDS (model/describe.py), and a guide under docs/; the describe fixtures stay green",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "live runs run-498cad51 / run-90056447 / run-ada99021 (issues 10-28, 10-27, 10-26)",
+      "finding": "measured: 13, 14 and 17 links; 10 shared between each pair of days; 11 of 10-28's 13 links already ran on 10-26 or 10-27",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "culture_rules/node/actions/cursor.py:94-114, discord_sweep.py:24-25",
+      "finding": "cursor.advance is the run-written precedent: a read step outputs the stored value, acting steps run, a final CAS step (store.update_if) writes only after success; but it holds one string of at most 200 chars, no set, no TTL",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_rules/node/actions/newspaper.py:269-286,310-332 (newspaper.filter)",
+      "finding": "dedupe today is per section only (a local seen set, first URL wins); no input takes an exclude list; there is no generic list-filter builtin in the runner.py registry (~400-424)",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "culture_rules/store/mongo.py:749-769 ensure_index; actors/handoff.py:168,321; events/hook_sink.py:118",
+      "finding": "a generic TTL index helper exists (ttl_seconds on an expires_at field), used by handoffs and hook-sink events; variables, sweep_cursors, checklists and fixer_cooldowns have no TTL or retention",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_rules/node/actions/newspaper_issue.py:446 (_record), live daily-newspaper rev 6 step order",
+      "finding": "record marks the date delivered by CAS; steps after it run only when deliver is true; the add step belongs after record, fed from the links render actually used",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_rules/model/variable.py:25-60, store/mongo.py:627-675, auth/policy.py:11-12, explain/catalog.py:238, web/src/routes/Variables.tsx",
+      "finding": "variables are admin/API-write only, append a version on every put (one doc grows toward 16 MB), have no list cap, and no node action writes them",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "memory steps-generic-flows-are-config; CLAUDE.md 'Library items' (flows configured live, never committed)",
+      "finding": "operator rule: code holds generic capabilities, flows and business logic are configuration; extending newspaper.filter with an exclude input would put the rule in a newspaper builtin",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "culture_rules/actors/trusted.py:75,122,262; model/validate.py:936-949; model/action_kinds.py",
+      "finding": "cursor.advance and fixer.cooldown already write state untrusted; validate.py checks only config.with for builtins; action_kinds.py covers kind: action steps only",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_rules/node/runner.py ~400-425 builtins dict; model/describe.py:67; tests/model/test_describe.py:237",
+      "finding": "a builtin without a BUILTIN_WORDS entry describes as 'builtin X'; registration is a Port class plus a dict entry",
+      "seeds": [
+        "c11"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
