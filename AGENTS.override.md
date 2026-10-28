@@ -149,6 +149,13 @@ token kept apart, answered privately by `discord.reply`), and `discord.sweep`
 with the generic `cursor.advance`; a builtin's `config.with` reads
 `inputs.item.*` in a loop (d8).
 
+**State between runs** (guide `docs/operations/keysets.md`). Generic named key sets:
+`keyset.filter` drops the items whose normalised key a set already holds, `keyset.add`
+remembers items' keys for `window_days` (insert-if-absent, `max_keys` cap); the set name,
+key field, normalisation and window are step config. One document per key in `keysets`,
+under a TTL index; admin verbs `keysets list|show|clear`. Flows using them are configured
+live.
+
 Two GitHub issues carried the design:
 
 - **#1** is the build brief: repo shape, packaging/CI pitfalls, and the

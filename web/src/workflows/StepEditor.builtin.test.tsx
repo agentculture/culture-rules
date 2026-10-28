@@ -118,3 +118,26 @@ describe("document.sections built-in", () => {
     expect(last().outputs?.map((p) => p.name)).toEqual(["sections", "count", "found"]);
   });
 });
+
+describe("keyset built-ins", () => {
+  it("sets config.builtin for keyset.filter", async () => {
+    const user = userEvent.setup();
+    const last = setup({ id: "fresh", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), "keyset.filter");
+    expect(last().config).toEqual({ builtin: "keyset.filter" });
+  });
+
+  it("gives keyset.filter the items, kept, dropped and keyless outputs", async () => {
+    const user = userEvent.setup();
+    const last = setup({ id: "fresh", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), "keyset.filter");
+    expect(last().outputs?.map((p) => p.name)).toEqual(["items", "kept", "dropped", "keyless"]);
+  });
+
+  it("gives keyset.add the added and already_present outputs", async () => {
+    const user = userEvent.setup();
+    const last = setup({ id: "remember", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), "keyset.add");
+    expect(last().outputs?.map((p) => p.name)).toEqual(["added", "already_present"]);
+  });
+});

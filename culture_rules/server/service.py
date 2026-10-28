@@ -994,8 +994,8 @@ class Keysets:
     """Keysets behind the API (admin only, the route matrix): reads and a dry-run-first clear.
 
     Reads and clears go only through :mod:`culture_rules.keysets`. A read sees live keys
-    (window not passed); a clear deletes the stored documents, so an applied clear may count
-    an expired key not yet reaped that its dry run (live keys only) did not.
+    (window not passed). A clear counts live keys both as a dry run and applied, so the two
+    report the same number; applied, it also deletes expired documents not yet reaped.
     """
 
     def __init__(self, store: StoragePort, clock: Callable[[], datetime] | None = None) -> None:
@@ -1024,8 +1024,9 @@ class Keysets:
     def clear(self, name: str, key: str | None = None, *, dry_run: bool = True) -> dict[str, Any]:
         """Forget one key (``key``) or the whole set; ``{set, key, dry_run, count}``.
 
-        A dry run deletes nothing: ``count`` is how many live keys would go (for a key, 1 when
-        it is there, else 0). Applied, ``count`` is how many documents were deleted.
+        ``count`` is how many live keys go (for a key, 1 when it is live, else 0), the same
+        for a dry run, which deletes nothing, and an applied clear, which also deletes any
+        expired document of the set (or that key) not yet reaped.
         """
         self._name(name)
         if key is not None:
@@ -1033,13 +1034,12 @@ class Keysets:
                 keysets.check_key(key)
             except keysets.KeysetError as exc:
                 raise self._invalid(exc, "key") from exc
-        if dry_run:
-            live = [i["key"] for i in keysets.show_set(self._store, name, self._clock())]
-            count = len(live) if key is None else int(key in live)
-        elif key is None:
-            count = keysets.clear_set(self._store, name)
-        else:
-            count = int(keysets.clear_key(self._store, name, key))
+        live = [i["key"] for i in keysets.show_set(self._store, name, self._clock())]
+        count = len(live) if key is None else int(key in live)
+        if not dry_run and key is None:
+            keysets.clear_set(self._store, name)
+        elif not dry_run:
+            keysets.clear_key(self._store, name, key)
         return {"set": name, "key": key, "dry_run": dry_run, "count": count}
 
 

@@ -221,6 +221,20 @@ plan. What exists today:
     now unless `backfill`) and the generic builtin `cursor.advance` moves the cursor by
     compare-and-set after the saves; a builtin code step's `config.with` maps
     `inputs.item.*` references onto its inputs (deviation d8).
+- **State between runs** (spec `docs/specs/2026-10-28-state-between-runs.md`, guide
+  `docs/operations/keysets.md`): generic named key sets that remember keys for a window:
+  - the builtins `keyset.filter` (drop the items whose normalised key a named set already
+    holds; a list, or one list per loop iteration, in the same shape and order; outputs
+    counts, never keys) and `keyset.add` (remember the items' keys until now plus
+    `window_days`, insert-if-absent so a retry adds nothing twice; more than `max_keys` is
+    refused); the set name, key field, normalisation (`lower_host`, `drop_scheme`,
+    `drop_fragment`, `drop_trailing_slash`, `drop_query` patterns) and window are step
+    config, with no defaults in code;
+  - one document per key in the `keysets` collection (id sha256 of set and key) under a TTL
+    index on `expires_at`; a set name is shared by every workflow that names it;
+  - admin verbs `keysets list|show|clear` (API, CLI, MCP; reads are admin too, `clear` dry
+    runs unless `--apply`); flows that use them (the newspaper not repeating links) are
+    configured live, never committed.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

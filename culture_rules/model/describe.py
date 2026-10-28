@@ -94,6 +94,8 @@ BUILTIN_WORDS: dict[str, str] = {
         "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node"
     ),
     "cursor.advance": "cursor.advance: move a stored cursor on, only from the value read",
+    "keyset.filter": "keyset.filter: drop the items whose key a named set already holds",
+    "keyset.add": "keyset.add: remember the items' keys in a named set for a window",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)

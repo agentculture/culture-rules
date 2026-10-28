@@ -115,6 +115,9 @@ On disk today:
   paragraph from one phrase table (`culture_rules/model/paragraph.py`, no
   AI), a server-owned workflow `revision` checked on save, v1 and v2 trust
   digests, and `rules migrate-orphans [--apply]`.
+- State between runs (guide `docs/operations/keysets.md`): `keyset.filter` and
+  `keyset.add` keep named key sets for a configured window (one document per key, TTL
+  index, config-only rules); admin verbs `keysets list|show|clear`.
 
 GitHub issue #1 was the build brief, and #2 the product model and UX. The
 spec is `docs/specs/2026-10-03-culture-rules-engine-editor.md`; the operator

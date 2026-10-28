@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2026-10-29
+
+### Added
+
+- State between runs: generic named key sets (spec docs/specs/2026-10-28-state-between-runs.md, guide docs/operations/keysets.md). The builtins keyset.filter (drop items whose normalised key a set holds within a window) and keyset.add (remember items keys, insert-if-absent, max_keys cap), with set name, key field, normalisation and window as step config; one document per key under a TTL index; admin verbs keysets list|show|clear on the API, CLI and MCP (reads admin-only, clear dry-runs unless --apply)
+
 ## [0.36.1] - 2026-10-28
 
 ### Changed

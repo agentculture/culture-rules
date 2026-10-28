@@ -29,7 +29,9 @@ Production wiring done by :func:`run_node`:
   (#39, the Codex fixer's commits carried from spark to spark2's gate through the store,
   :mod:`culture_rules.actors.handoff`), ``newspaper.sections``, ``newspaper.filter``,
   ``newspaper.render`` and ``newspaper.issue`` (#53, the daily newspaper,
-  :mod:`culture_rules.node.actions.newspaper`) and ``action`` (d12), which
+  :mod:`culture_rules.node.actions.newspaper`), ``keyset.filter`` and ``keyset.add`` (named
+  sets of keys remembered for a window, :mod:`culture_rules.node.actions.keyset`) and
+  ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
@@ -316,6 +318,12 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         JSON_READ_BUILTIN,
         JsonReadPort,
     )
+    from culture_rules.node.actions.keyset import (  # noqa: PLC0415
+        KEYSET_ADD_BUILTIN,
+        KEYSET_FILTER_BUILTIN,
+        KeysetAddPort,
+        KeysetFilterPort,
+    )
     from culture_rules.node.actions.library import LibraryPushPort  # noqa: PLC0415
     from culture_rules.node.actions.llm import LlmCompletePort  # noqa: PLC0415
     from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
@@ -423,6 +431,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 RUN_READ_BUILTIN: RunReadPort(store),  # a step's outputs from an earlier run
                 ATTACHMENT_FETCH_BUILTIN: AttachmentFetchPort(),  # pdf/epub/md to files (d7, d10)
                 CURSOR_ADVANCE_BUILTIN: CursorAdvancePort(store),  # compare-and-set a cursor
+                KEYSET_FILTER_BUILTIN: KeysetFilterPort(store),  # drop items whose key was seen
+                KEYSET_ADD_BUILTIN: KeysetAddPort(store),  # remember items' keys for a window
                 checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
                     store
                 ),  # stored lists, stable ids

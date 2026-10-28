@@ -355,6 +355,16 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
     inputs: [PORT("key", true), PORT("expected", false), PORT("value", true)],
     outputs: [PORT("key", true), PORT("value", true), PORT("previous", false), { name: "advanced", type: "boolean", required: true }],
   },
+  "keyset.filter": {
+    label: "keyset.filter: drop the items whose key a named set already holds",
+    inputs: [{ name: "items", type: "array", required: true }],
+    outputs: [{ name: "items", type: "array", required: true }, { name: "kept", type: "integer", required: true }, { name: "dropped", type: "integer", required: true }, { name: "keyless", type: "integer", required: true }],
+  },
+  "keyset.add": {
+    label: "keyset.add: remember the items' keys in a named set for a window",
+    inputs: [{ name: "items", type: "array", required: true }],
+    outputs: [{ name: "added", type: "integer", required: true }, { name: "already_present", type: "integer", required: true }],
+  },
 };
 
 /**
