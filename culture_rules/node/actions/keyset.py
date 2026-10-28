@@ -134,6 +134,14 @@ def _key_of(item: Mapping[str, Any], params: _Params) -> str | None:
         raise _Refused(f"bad_params: {exc}") from None
 
 
+def _looks_like_loop_output(groups: list[list[Any]], keys: list[str | None]) -> bool:
+    """Whether a keyless item holds a list-valued field, as a loop's output object does."""
+    flat = [i for group in groups for i in group]
+    return any(
+        k is None and any(isinstance(v, list) for v in i.values()) for i, k in zip(flat, keys)
+    )
+
+
 class _KeysetPort:
     supports_idempotency_key = True  # keys are written once, so a retry is a no-op
 
@@ -205,8 +213,14 @@ class KeysetAddPort(_KeysetPort):
     def _run(
         self, params: _Params, entries: list[Any] | None, groups: list[list[Any]]
     ) -> dict[str, Any]:
-        found = (_key_of(i, params) for group in groups for i in group)
+        found = [_key_of(i, params) for group in groups for i in group]
         keys = [k for k in found if k]
+        if _looks_like_loop_output(groups, found):  # d4: likely a missing items_field
+            raise _Refused(
+                f"bad_params: an item has no {params.key_field!r} key but holds a list "
+                "(it looks like a loop output object: set items_field)"
+            )
         if len(keys) > params.max_keys:
             raise _Refused(f"bad_params: {len(keys)} keys exceed max_keys {params.max_keys}")
-        return keysets.add_keys(self._store, params.set_name, keys, self._clock(), params.window_s)
+        out = keysets.add_keys(self._store, params.set_name, keys, self._clock(), params.window_s)
+        return {**out, "keyless": len(found) - len(keys)}

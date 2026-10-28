@@ -207,7 +207,7 @@ def test_add_reports_counts():
     seed(store, "http://a/x")
     items = [item("http://a/x"), item("http://a/y"), {"title": "keyless"}]
     out = run(KeysetAddPort, store, cfg(max_keys=10), {"items": items}).output
-    assert out == {"added": 1, "already_present": 1}
+    assert out == {"added": 1, "already_present": 1, "keyless": 1}
 
 
 def test_add_accepts_a_list_of_lists():
@@ -241,7 +241,7 @@ def test_a_retried_add_adds_nothing_twice():
     inp = {"items": [item("http://a/x"), item("http://a/y")]}
     run(KeysetAddPort, store, cfg(max_keys=10), inp)
     again = run(KeysetAddPort, store, cfg(max_keys=10), inp).output
-    assert again == {"added": 0, "already_present": 2}
+    assert again == {"added": 0, "already_present": 2, "keyless": 0}
 
 
 def test_a_retried_add_leaves_one_document_per_key():
@@ -368,3 +368,46 @@ SOURCES = [ROOT / "culture_rules/keysets.py", ROOT / "culture_rules/node/actions
 def test_no_newspaper_utm_or_url_constant_in_the_code(path):
     text = path.read_text().lower()
     assert not re.search(r"newspaper|utm_(?!\*)|[\"']ref[\"']|https?://", text)
+
+
+# ---------------------------------------------------------------- d3: an all-keyless add fails
+
+
+def test_add_reports_keyless_items():
+    items = [item("http://a/x"), {"title": "keyless"}]
+    out = run(KeysetAddPort, MemoryStore(), cfg(max_keys=10), {"items": items}).output
+    assert out["keyless"] == 1
+
+
+def test_an_all_keyless_add_of_plain_items_succeeds():
+    out = run(KeysetAddPort, MemoryStore(), cfg(max_keys=10), {"items": [{"title": "t"}]}).output
+    assert out == {"added": 0, "already_present": 0, "keyless": 1}
+
+
+def test_add_fails_on_loop_output_objects_without_items_field():
+    loop = [{"results": [item("http://a/x")]}, {"results": []}]
+    result = run(KeysetAddPort, MemoryStore(), cfg(max_keys=10), {"items": loop})
+    assert "items_field" in (result.error or "")
+
+
+def test_a_refused_loop_shape_add_writes_nothing():
+    store = MemoryStore()
+    run(KeysetAddPort, store, cfg(max_keys=10), {"items": [{"results": [item("http://a/x")]}]})
+    assert store.find(keysets.KEYSETS_COLLECTION) == []
+
+
+def test_the_same_objects_with_items_field_are_added():
+    loop = [{"results": [item("http://a/x")]}, {"results": []}]
+    config = cfg(max_keys=10, items_field="results")
+    out = run(KeysetAddPort, MemoryStore(), config, {"items": loop}).output
+    assert out["added"] == 1
+
+
+def test_an_add_of_no_items_still_succeeds():
+    out = run(KeysetAddPort, MemoryStore(), cfg(max_keys=10), {"items": [[], []]}).output
+    assert out == {"added": 0, "already_present": 0, "keyless": 0}
+
+
+def test_filter_still_passes_an_all_keyless_list():
+    out = run(KeysetFilterPort, MemoryStore(), cfg(), {"items": [{"title": "t"}]}).output
+    assert out["keyless"] == 1

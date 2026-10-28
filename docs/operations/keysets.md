@@ -46,8 +46,11 @@ A code step with `config.builtin: keyset.add`: the same `set`, `key_field`, `nor
 and `window_days`, plus `max_keys`, the most keys one call may add. Input `items` takes
 the same shapes. Each item's normalised key is stored until now plus `window_days`; a key
 already there keeps its first-seen time, so a retried step adds nothing twice. More keys
-than `max_keys` fails the step `bad_params` and writes nothing. Outputs: `added` and
-`already_present`.
+than `max_keys` fails the step `bad_params` and writes nothing. A keyless item is skipped
+and counted, but one that holds a list-valued field (it looks like a loop output object,
+`{results: [...]}`) fails the step `bad_params` with a hint to set `items_field`, so a
+missing setting never stores nothing silently. Outputs: `added`, `already_present` and
+`keyless`.
 
 Every setting may come from `config` or, per run, from an input of the same name.
 

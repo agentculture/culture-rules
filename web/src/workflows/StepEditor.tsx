@@ -363,7 +363,7 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
   "keyset.add": {
     label: "keyset.add: remember the items' keys in a named set for a window",
     inputs: [{ name: "items", type: "array", required: true }],
-    outputs: [{ name: "added", type: "integer", required: true }, { name: "already_present", type: "integer", required: true }],
+    outputs: [{ name: "added", type: "integer", required: true }, { name: "already_present", type: "integer", required: true }, { name: "keyless", type: "integer", required: true }],
   },
 };
 

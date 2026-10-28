@@ -134,10 +134,10 @@ describe("keyset built-ins", () => {
     expect(last().outputs?.map((p) => p.name)).toEqual(["items", "kept", "dropped", "keyless"]);
   });
 
-  it("gives keyset.add the added and already_present outputs", async () => {
+  it("gives keyset.add the added, already_present and keyless outputs", async () => {
     const user = userEvent.setup();
     const last = setup({ id: "remember", kind: "code" });
     await user.selectOptions(screen.getByLabelText("Built-in"), "keyset.add");
-    expect(last().outputs?.map((p) => p.name)).toEqual(["added", "already_present"]);
+    expect(last().outputs?.map((p) => p.name)).toEqual(["added", "already_present", "keyless"]);
   });
 });

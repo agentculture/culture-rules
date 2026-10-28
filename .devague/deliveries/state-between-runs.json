@@ -2,7 +2,7 @@
   "plan_slug": "state-between-runs",
   "schema_version": 2,
   "created": "2026-10-28T22:27:05Z",
-  "updated": "2026-10-28T22:32:00Z",
+  "updated": "2026-10-28T22:34:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -31,6 +31,36 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "keyset.add fails bad_params when it is given at least one item and none yields a key (zero items stays a success), and outputs a keyless count beside added and already_present; keyset.filter is unchanged (it keeps keyless items and counts them)",
+      "task_ref": "t2",
+      "reason": "t5 showed a misconfigured add (missing items_field) completes with added 0 and stores nothing, so the next issue repeats every link with no failure anywhere; the decider (assess: fail_all_keyless 0.789, count_only 0.148; failing filter too 0.249) favoured failing the all-keyless case; a mix with some keyless items stays normal, and a flow can still set on_error skip",
+      "affects": [
+        "c21",
+        "h20",
+        "c4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Refines d3: keyset.add does not fail on all-keyless input; it fails bad_params only when a keyless item holds a list-valued field (a loop output object, so items_field is probably missing), with a hint to set items_field; plain keyless items are skipped and counted in a new keyless output",
+      "task_ref": "t2",
+      "reason": "building d3 showed a filter-then-add run fails on an ordinary day when only keyless items survive the filter; re-assessed (fail_on_loop_shape 0.889, fail_all_keyless 0.068; the keyless-survivor case is ordinary at 0.880). d3 should be rejected in favour of this",
+      "affects": [
+        "c21",
+        "h20",
+        "c4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
