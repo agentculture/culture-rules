@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sources-manifest",
   "schema_version": 2,
   "created": "2026-10-27T18:43:01Z",
-  "updated": "2026-10-27T23:07:37Z",
+  "updated": "2026-10-28T15:41:14Z",
   "deviations": [
     {
       "id": "d1",
@@ -231,6 +231,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 13
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o11",
+      "test_ref": "live: daily-newspaper scheduled run run-498cad514bfddb42d11a31ba21f312cf (2026-10-28 05:00 IST, workflow rev 6, node spark)",
+      "behavior_text": "after record (item_id 98), the sources step read render's EPUB (count 4, found 4) and put_sources answered 200; the PUT reply echoes item 98 with 4 entries, each with 4-5 source_urls; run status succeeded with no step error. Not exercised: the re-run-with-skipped-push clause (no re-run happened)",
+      "contract_text": "o11 / h22 / c5: after each daily push, the live daily-newspaper workflow runs the sections step on the rendered EPUB and http.call PUTs the result to culture-library's PUT /api/library/{id}/sources for record's item_id",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the first unattended scheduled run on the live config: real EPUB, real item id, real key, 200 from the library; the re-run clause is covered only by the t5 flow test, not live",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T03:02:08Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o4",
+      "test_ref": "local: culture-library bb981c0 extract_text(epub) + chunk_text + eval.generate._norm/MATCH_CHARS on the EPUB and PUT body of run-498cad51 (item 98)",
+      "behavior_text": "all 4 entries' first 120 normalised excerpt characters are found inside one chunk (chunks 0, 2, 4, 5 of 7), each with source_urls: unmatched = 0",
+      "contract_text": "o4: every manifest entry's excerpt matches inside one chunk of the item's extracted text (first 120 normalised characters), live (unmatched = 0)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "culture-library's own extractor, chunker and matcher code run over the bytes the library received; a local reproduction, not the library's indexed chunks (those need a key) nor its eval run (o12 stays open)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T03:02:08Z",
+        "commit": "b568def"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
     }
   ],
   "deltas": [],
