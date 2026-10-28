@@ -27,10 +27,16 @@ A code step with `config.builtin: keyset.filter`.
 | `key_field` | the item field that holds the key (for example `url`) |
 | `normalise` | normalisation rules (below); `{}` for none |
 | `window_days` | how far back a key counts as seen |
+| `items_field` | optional: the field of each loop output object that holds its items |
 
-Input `items`: a list of objects, or a list of such lists (what a `for_each` loop yields,
-one list per iteration). The output `items` has the same shape and order, without the
-items whose normalised key the set holds within the window. An item with no key field,
+Input `items`: a list of objects, or a list of such lists (what a `for_each` loop's
+per-port output yields, one list per iteration; `null` for an iteration that output
+nothing). With the optional setting `items_field`, `items` is instead a list of output
+objects, one per iteration (what a loop's `results` port yields), and each object's
+`items_field` list holds that iteration's items; an object without it (`{}`, a skipped
+iteration) holds none. The output `items` has the same shape and order (an output object
+keeps its other fields), without the items whose normalised key the set holds within the
+window. An item with no key field,
 or an empty one, is kept. The outputs also carry `kept`, `dropped` and `keyless` counts,
 never a stored key. It writes nothing.
 
@@ -95,7 +101,9 @@ example of configuration set live through the CLI; nothing here ships enabled.
   results.
 - After the publish steps and just before the step that records the issue delivered, a code
   step with the same settings and `builtin: keyset.add`, `max_keys: 200`, its `items` from
-  the loop's results.
+  the loop's results. Those are one output object per section, `{results: [...]}` (the
+  section filter's outputs), so the step also sets `items_field: "results"`; without it every
+  object is keyless and the step adds nothing.
 - Raise the search count so the filtered results leave enough fresh ones; a section left
   empty renders as having no results rather than repeating.
 - Seed the set once from earlier runs with a one-off workflow: `run.read` of each past run's
