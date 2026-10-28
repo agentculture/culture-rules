@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T19:48:33Z",
+  "updated": "2026-10-28T20:13:11Z",
   "claims": [
     {
       "id": "c1",
@@ -29,16 +29,16 @@
         {
           "id": "q3",
           "text": "What is the key and window for the newspaper: the exact URL, or a normalised one (scheme, trailing slash, utm_* dropped)? And how many days (7? 14? 30?)?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Operator 2026-10-28: a normalised URL (lowercase host; scheme, fragment, trailing slash and utm_*/ref query parameters dropped) for 14 days; the normalisation and the window are step config"
         },
         {
           "id": "q4",
           "text": "When every result in a section was already seen, does the section render empty ('nothing new'), or fall back to repeats, or does the search ask for more results (count) to make up for the filtered ones?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Operator 2026-10-28: ask for more, then empty: the search count is raised (config) so filtered results leave enough fresh ones; a section with none left says nothing new today rather than repeating"
         }
       ],
       "links": [],
@@ -68,16 +68,16 @@
         {
           "id": "q1",
           "text": "Where does the set live: a new store collection of its own (one doc per set, or one doc per key with an expires_at TTL index), or the shared variables collection made node-writable?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Operator 2026-10-28: a new store collection, one document per key with an expires_at TTL index plus the set name, written by compare-and-set like cursor.advance; shared variables stay admin-only"
         },
         {
           "id": "q2",
           "text": "Is the set inspectable and editable by the operator (an API route plus CLI/MCP verbs, e.g. to clear it), or node-internal in the first release?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Operator 2026-10-28: read and clear in the first release: an API route plus CLI/MCP verbs to list a set's keys and clear one key or the whole set (admin)"
         }
       ],
       "links": [],
