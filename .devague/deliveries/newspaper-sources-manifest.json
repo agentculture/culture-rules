@@ -84,7 +84,7 @@
       "id": "e2",
       "obligation_ref": "o8",
       "test_ref": "live: newspaper-sources-backfill run-a77767e1d90b4dc2836e5bc4b03b239e",
-      "behavior_text": "the run's outputs.outcomes listed all 16 ids given, each succeeded with its entry count (5:1, 8-15:5, 16-20,54,55,73:4), errors {}",
+      "behavior_text": "the run's outputs.outcomes listed all 16 ids given, each succeeded with its entry count (5:1, 8-10,12-15:5, 16-20,54,55,73:4; item 81's 4 came from run-b3458413), errors {}",
       "contract_text": "h13/c10: the backfill's run lists every item id it was given with its outcome",
       "evidence_type": "observation",
       "strength": "execution",
@@ -292,7 +292,7 @@
     {
       "id": "e13",
       "obligation_ref": "o1",
-      "test_ref": "tests/node/test_http_grant_scheme.py (8 tests) + tests/actors/test_secrets_word_ref.py (6 tests)",
+      "test_ref": "tests/node/test_http_grant_scheme.py (13 collected tests) + tests/actors/test_secrets_word_ref.py (14 collected tests)",
       "behavior_text": "a '<word> grant:<NAME>' header is sent as the word plus the resolved value (policy and step), the value never appears in the step output, other shapes and a malformed reference are sent unchanged, a bare grant: still resolves, and the save-time check accepts the word form only under headers",
       "contract_text": "o1 / c25: a header '<word> grant:<NAME>' is sent as the word plus the resolved value, the value is scrubbed from every output, and any other shape is sent unchanged",
       "evidence_type": "automated",
@@ -311,7 +311,7 @@
     {
       "id": "e14",
       "obligation_ref": "o3",
-      "test_ref": "tests/node/test_sections.py (77 tests)",
+      "test_ref": "tests/node/test_sections.py (92 collected tests)",
       "behavior_text": "EPUB (spine order), HTML and Markdown give the same section shape (test_markdown_and_html_give_the_same_section_shape); split_on, paragraphs, max_chars, require_links and field names are config or input (test_input_overrides_config, test_each_excerpt_setting_is_required, test_two_configs_on_one_epub_give_two_outputs)",
       "contract_text": "o3 / c27: EPUB, HTML and Markdown give the same section shape; every rule comes from config or input, none from code",
       "evidence_type": "automated",
@@ -349,7 +349,7 @@
     {
       "id": "e16",
       "obligation_ref": "o10",
-      "test_ref": "tests/node/test_epub_bytes_pinned.py (4 tests, the #112 pins)",
+      "test_ref": "tests/node/test_epub_bytes_pinned.py (7 collected tests, the #112 pins)",
       "behavior_text": "the newspaper EPUB bytes, newspaper HTML, transcript EPUB and transcript Markdown match their pinned digests",
       "contract_text": "o10 / c12: the EPUB and email bytes are unchanged by this work; the #112 byte pins pass",
       "evidence_type": "automated",
@@ -368,7 +368,7 @@
     {
       "id": "e17",
       "obligation_ref": "o2",
-      "test_ref": "tests/node/test_http_save_to.py (39 tests), incl. ::test_an_existing_symlink_at_the_target_name_is_refused and ::test_a_symlink_at_the_target_name_leaves_no_temp_file",
+      "test_ref": "tests/node/test_http_save_to.py (62 collected tests), incl. ::test_an_existing_symlink_at_the_target_name_is_refused and ::test_a_symlink_at_the_target_name_leaves_no_temp_file",
       "behavior_text": "a body is written only under a listed save root, atomically, as <sha256>.<ext> from a known Content-Type; a symlinked root, an unlisted root, an unknown type or an oversized body writes nothing; a symlink at the target name is refused after the read with no temp file left and its destination never created",
       "contract_text": "o2 / c26: a body is written only under a root the actor's policy lists, atomically, named <sha256>.<ext> from a known Content-Type; a symlink, an unknown type or an oversized body writes nothing",
       "evidence_type": "automated",
@@ -387,7 +387,7 @@
     {
       "id": "e18",
       "obligation_ref": "o8",
-      "test_ref": "tests/engine/test_for_each_outcomes.py (43 tests)",
+      "test_ref": "tests/engine/test_for_each_outcomes.py (43 collected tests)",
       "behavior_text": "a for_each loop with an outcomes port and config.collect lists every iteration with its index, item, status, errors and collected scalar outputs; collect is refused on other loops, on unknown steps or outputs and on reserved names",
       "contract_text": "o8 / c10 (via d4, t7): every item id given is listed with its outcome, pushed with an entry count or skipped with the error; no skip is silent",
       "evidence_type": "automated",

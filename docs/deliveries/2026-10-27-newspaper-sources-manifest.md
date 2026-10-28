@@ -1,6 +1,6 @@
 # Delivery Summary — newspaper sources manifest
 
-plan: `newspaper-sources-manifest` · run: `complete` · date: `2026-10-27`
+plan: `newspaper-sources-manifest` · run: `complete` · date: `2026-10-27` (the plan's created date; the run closed on 2026-10-28)
 baseline: `devague summary skeleton`
 
 ## Intent
@@ -40,7 +40,7 @@ All 7 plan tasks are accounted for.
 ## Mid-work Decisions
 
 - `d1` — t2's criterion 'an existing symlink at the target name fails `path_refused` before any request is sent' is met after the read instead: the target name (sha256 plus extension) is known only once the body is read, so the request is sent and the body streamed to a temp file in the root; then `path_refused` fires, nothing is written through the symlink, and the temp file is removed (tested, including that the symlink's destination is never created). The other three refusals (outside `save_roots`, a symlinked root, no `save_roots`) still happen before any request — the file is named by the sha256 of its body, which does not exist before the request
-- `d2` — t4's criterion 'listed in the explain catalog' is not met: `culture_rules`/explain/catalog.py documents CLI verbs only and lists no builtin or action kind (markdown.`from_html` and http.call are absent too), and no verb was added. document.sections is documented instead where builtins live: the describe phrase (`BUILTIN_WORDS`), the editor's builtin list, the module docstring and docs/operations/sources-manifest.md; `save_to` is in the action-kinds catalog (`action_kinds.py`) and docs/actors/http.md — the plan assumed the explain catalog lists builtins; it lists CLI verbs only
+- `d2` — t4's criterion 'listed in the explain catalog' is not met: `culture_rules/explain/catalog.py` documents CLI verbs only and lists no builtin or action kind (`markdown.from_html` and `http.call` are absent too), and no verb was added. `document.sections` is documented instead where builtins live: the describe phrase (`BUILTIN_WORDS`), the editor's builtin list, the module docstring and `docs/operations/sources-manifest.md`; `save_to` is in the action-kinds catalog (`action_kinds.py`) and `docs/actors/http.md` — the plan assumed the explain catalog lists builtins; it lists CLI verbs only
 - `d4` — The plan gains task t7 (operator's decision on d3): `for_each` loop results carry each iteration's status, errors and collected outputs (a generic engine change, opt-in through an outcomes output port and config.collect), so a backfill-shaped run's outputs list every id with its outcome — a `for_each` result held only the last succeeded body step's outputs, so a skipped iteration's error could not reach the run's outputs; the operator chose the engine change in this plan over a follow-up issue
 - `d3` was rejected (recorded and not taken); `d4` is the operator's alternative.
 - An early design put a `library.sources` action kind in code. The operator ruled that code holds generic capabilities only, and flows and business logic are configuration. The design became generic steps plus live config, and claim c22 was rejected.
@@ -55,7 +55,8 @@ All 7 plan tasks are accounted for.
 | `t4` (`d2`) | the plan assumed the explain catalog lists builtins; it lists CLI verbs only | `acceptable` |
 | `t7` (`d4`) | a `for_each` result held only the last succeeded body step's outputs, so a skipped iteration's error could not reach the run's outputs; the operator chose the engine change in this plan over a follow-up issue | `acceptable` |
 | `t3` (`l1`) | its tests were not seen failing before the code existed (lapse l1, approved); a later mutation check showed they catch breakage | `acceptable` |
-| `t6` / o11 | o11's clause "a re-run whose push was skipped still PUTs the recorded item" has no test and no live observation | `needs-follow-up` |
+| `t4` (`l2`) | the wiring was written before its tests, so they were not seen failing first (lapse l2, approved); with `document.sections` unregistered, its registration test fails | `acceptable` |
+| `t6` / o11 (e10) | o11's clause "a re-run whose push was skipped still PUTs the recorded item" has no test and no live observation; e10's pass covers the rest of o11 and names this clause as not exercised | `needs-follow-up` |
 
 ## Evidence
 
@@ -69,8 +70,8 @@ Every record below is approved by the operator (evidence e1–e18, deltas b1–b
 - local match: culture-library's own extractor, chunker and matcher on the 17 backfilled EPUBs (e3) and on item 98 (e11): unmatched = 0
 - culture-library: `eval generate` on live, on items 81, 98 and 73, gave unmatched = 0 for each (culture-rules#97 comment 6473927635) (e12)
 - deltas: b1 (`d1`, amended), b2 (`d2`, amended), b3 (`d4`, added)
-- commits: `c59bb06..b568def` (`435135e` #112, `b568def` #115)
-- PRs / issues: #112, #115, #97; follow-ups #113, #114, #116, #117
+- commits: `b568def` (#115, this plan's code); `435135e` (#112, issue #87) is a prerequisite from another plan, whose byte pins o10 relies on
+- PRs / issues: #115, #97 (#112 as the prerequisite above); follow-ups #113, #114, #116, #117
 
 ## Delivery Claims
 
@@ -87,13 +88,13 @@ Every record below is approved by the operator (evidence e1–e18, deltas b1–b
 | `c18` — culture-library's newspaper eval generator matches every manifest entry, with unmatched = 0 | high | e12: culture-rules#97 comment 6473927635 (run by culture-library, not by culture-rules) |
 | `c25` — http.call resolves `<word> grant:<NAME>` headers and keeps the value out of every output | high | e13: `tests/node/test_http_grant_scheme.py` · `tests/actors/test_secrets_word_ref.py` |
 | `c26` — http.call `save_to` saves the body under a listed root; outputs are status, path, sha256 and size, never the body | high | e6: the live fetch of 17 items · e17: `tests/node/test_http_save_to.py` |
-| `c27` — The generic sections builtin splits EPUB, HTML and Markdown at a configured heading; every rule is config or input | medium | e14: `tests/node/test_sections.py` (77 tests); capped by lapse l1 (tests not seen failing first) |
+| `c27` — The generic sections builtin splits EPUB, HTML and Markdown at a configured heading; every rule is config or input | medium | e14: `tests/node/test_sections.py` (92 collected tests; t3 delivered 81, review fixes added the rest); capped by lapse l1 (tests not seen failing first) |
 
 Lapse ledger evidence:
 
 | Lapse | Code | What |
 |-------|------|------|
-| `l1` | `grader-unverified` | t3's 81 tests in tests/node/`test_sections.py` passed on their first run; the task agent never saw them fail before the code existed, so the tests were not shown to be able to fail (the agent checked the real-issue manifest by hand instead) |
+| `l1` | `grader-unverified` | t3's 81 tests in `tests/node/test_sections.py` passed on their first run; the task agent never saw them fail before the code existed, so the tests were not shown to be able to fail (the agent checked the real-issue manifest by hand instead) |
 | `l2` | `grader-unverified` | t4 wrote the wiring before its tests (Python and vitest), so the new tests were not seen failing first; mitigation run by the main agent: with document.sections unregistered from runner.py, its registration test fails (1 failed, 85 passed) |
 
 ## Remaining Work / Follow-up
