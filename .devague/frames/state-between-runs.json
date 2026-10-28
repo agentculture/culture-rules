@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-28T21:40:41Z",
+  "updated": "2026-10-28T22:13:58Z",
   "claims": [
     {
       "id": "c1",
@@ -720,7 +720,17 @@
       ]
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "grader-unverified",
+      "what": "t1's task agent returned no report, so its 45 tests in tests/test_keysets.py were never shown failing before the code existed; mitigation run by the main agent: four mutants of culture_rules/keysets.py (query drop, expiry check, insert-if-absent, key cap) each fail 1-2 tests",
+      "skipped_check": "",
+      "refs": [],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",
