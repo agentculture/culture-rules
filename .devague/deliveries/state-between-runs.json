@@ -2,7 +2,7 @@
   "plan_slug": "state-between-runs",
   "schema_version": 2,
   "created": "2026-10-28T22:27:05Z",
-  "updated": "2026-10-28T22:38:11Z",
+  "updated": "2026-10-28T22:38:19Z",
   "deviations": [
     {
       "id": "d1",
@@ -323,6 +323,35 @@
       ],
       "evidence_refs": [
         "e8"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "keyset.filter and keyset.add also take a loop's output objects through the optional items_field setting (proposed deviation d2), and None as a skipped iteration; filter keeps objects' other fields",
+      "caused_by": [
+        "c23"
+      ],
+      "evidence_refs": [
+        "e6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "keyset.add outputs a keyless count and refuses (bad_params, hint: set items_field) a keyless item holding a list-valued field; plain keyless items are skipped and counted (proposed deviation d4, refining d3)",
+      "caused_by": [
+        "c21",
+        "c4"
+      ],
+      "evidence_refs": [
+        "e7"
       ],
       "origin": "llm",
       "status": "proposed",
