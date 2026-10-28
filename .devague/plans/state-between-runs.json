@@ -3,9 +3,9 @@
   "title": "State between runs",
   "frame_slug": "state-between-runs",
   "schema_version": 5,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-28T21:40:56Z",
-  "updated": "2026-10-28T21:41:41Z",
+  "updated": "2026-10-28T21:48:36Z",
   "targets": [
     {
       "id": "c1",
@@ -307,7 +307,7 @@
       "id": "t1",
       "summary": "Generic keyset library: set-name and key rules, declarative normalisation, document ids, and the store read/add/list/clear helpers",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "culture_rules/keysets.py (stdlib only) validates a set name against letters, digits, _ : - up to 100 characters and raises a bad_params-style error otherwise",
         "normalise(value, config): with no config returns the value unchanged; with lower_host, drop_fragment, drop_trailing_slash and drop_query patterns (fnmatch, e.g. utm_*, ref) http://Example.com/a/?utm_source=x#f and https://example.com/a give one key; drop_scheme is a config switch too; no pattern list is built in",
@@ -332,7 +332,7 @@
       "id": "t2",
       "summary": "Builtins keyset.filter and keyset.add (node ports over the keyset library)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "culture_rules/node/actions/keyset.py defines KeysetFilterPort and KeysetAddPort; config (or inputs) set, key_field, normalise, window_days; add also max_keys; a missing or bad value fails bad_params",
         "keyset.filter: input items (a list, or a list of lists one level deep) returns items in the same shape and order without those whose normalised key was seen in the window; items with no or an empty key field are kept; outputs items plus kept, dropped and keyless counts and never a stored key",
@@ -360,7 +360,7 @@
       "id": "t3",
       "summary": "Admin keysets verbs: API routes, CLI noun, MCP tools, OpenAPI, explain and learn",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "GET /keysets (names with key counts), GET /keysets/{name} (keys with first_seen and expires_at), POST /keysets/{name}/clear with an optional key and dry_run; all admin-only in auth/policy.py, 403 for viewer and editor tokens",
         "culture-rules keysets list|show|clear with --json; clear is a dry run unless --apply; MCP tools keysets_list, keysets_show, keysets_clear; explain catalog entries and a learn mention; tests/test_surface_parity.py and tests/server/test_openapi_contract.py pass with api/openapi.json regenerated",
@@ -379,7 +379,7 @@
       "id": "t4",
       "summary": "Wire the builtins: runner registry, describe phrases, editor builtin list, guide, version",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "node/runner.py registers keyset.filter and keyset.add and lists them in its docstring; model/describe.py BUILTIN_WORDS has a phrase for each; tests/model/test_describe.py and the describe fixtures pass",
         "the editor's builtin list offers both (web typecheck and vitest pass); docs/operations/keysets.md explains config, list shapes, the add-before-commit placement and the admin verbs, with a worked example that is not applied; CLAUDE.md and the three harness prompt files mention the capability; version bumped minor with a CHANGELOG entry"
@@ -400,7 +400,7 @@
       "id": "t5",
       "summary": "Flow test: two-run keyset workflow, add before the commit step, and the boundaries",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "tests/rules/test_keyset_flow.py: a workflow built only from keyset.filter and keyset.add over a fixed list drops on its second run the items its first run added",
         "a run that fails before the add step leaves the set unchanged; a run that fails after the add and before its commit step, then re-runs, adds each key once",
@@ -428,7 +428,7 @@
       "id": "t6",
       "summary": "Live: roll out, seed the set, wire the daily newspaper, measure 7 issues",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "every node and the API run the new version (rollout verify ok) before any live workflow names keyset.*",
         "the 11-of-13 before-figure is reproduced by one script from runs run-498cad51, run-90056447, run-ada99021 (h15); the same script, with the live normalisation, later counts repeats",
