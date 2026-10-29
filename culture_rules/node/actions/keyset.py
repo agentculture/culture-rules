@@ -46,6 +46,7 @@ __all__ = [
 KEYSET_FILTER_BUILTIN = "keyset.filter"
 KEYSET_ADD_BUILTIN = "keyset.add"
 _DAY = 86400
+_MAX_WINDOW_DAYS = 36500  # a sanity bound (100 years), so a typo is refused, not an overflow
 
 
 class _Refused(Exception):
@@ -75,7 +76,10 @@ class _Params:
         self.rules = get("normalise")
         if not isinstance(self.rules, Mapping):
             raise _Refused("bad_params: normalise must be a mapping")
-        self.window_s = _positive_int(get("window_days"), "window_days") * _DAY
+        window_days = _positive_int(get("window_days"), "window_days")
+        if window_days > _MAX_WINDOW_DAYS:
+            raise _Refused(f"bad_params: window_days must be at most {_MAX_WINDOW_DAYS}")
+        self.window_s = window_days * _DAY
         items_field = get("items_field")
         if items_field is not None and (not isinstance(items_field, str) or not items_field):
             raise _Refused("bad_params: items_field must be a non-empty string")
@@ -105,9 +109,11 @@ def _shape(items: Any, items_field: str | None = None) -> tuple[list[Any] | None
     per-iteration entries as given, which :func:`_reshape` rebuilds around the groups."""
     if not isinstance(items, list):
         raise _Refused("bad_params: items must be a list")
-    nested = items_field is not None or any(i is None or isinstance(i, list) for i in items)
-    if not nested:
-        return None, [_group_of(items, None)]
+    lists = any(isinstance(i, list) for i in items)
+    all_none = bool(items) and all(i is None for i in items)
+    if items_field is None and not lists and not all_none:
+        # a flat list: a None in it is no item (only a per-iteration list carries None slots)
+        return None, [_group_of([i for i in items if i is not None], None)]
     return items, [_group_of(entry, items_field) for entry in items]
 
 
@@ -134,12 +140,23 @@ def _key_of(item: Mapping[str, Any], params: _Params) -> str | None:
         raise _Refused(f"bad_params: {exc}") from None
 
 
+def _holds_items(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(v, Mapping) for v in value)
+
+
 def _looks_like_loop_output(groups: list[list[Any]], keys: list[str | None]) -> bool:
-    """Whether a keyless item holds a list-valued field, as a loop's output object does."""
+    """Whether a keyless item holds a non-empty list of objects, as a loop's output object
+    does (``{results: [...]}``); a list of strings such as tags does not count."""
     flat = [i for group in groups for i in group]
-    return any(
-        k is None and any(isinstance(v, list) for v in i.values()) for i, k in zip(flat, keys)
-    )
+    return any(k is None and any(_holds_items(v) for v in i.values()) for i, k in zip(flat, keys))
+
+
+def _refuse_loop_output(groups: list[list[Any]], keys: list[str | None], key_field: str) -> None:
+    if _looks_like_loop_output(groups, keys):  # d4: most likely a missing items_field
+        raise _Refused(
+            f"bad_params: an item has no {key_field!r} key but holds a list of objects "
+            "(it looks like a loop output object: set items_field)"
+        )
 
 
 class _KeysetPort:
@@ -192,6 +209,7 @@ class KeysetFilterPort(_KeysetPort):
         result = []
         for group in groups:
             keys = [_key_of(i, params) for i in group]
+            _refuse_loop_output([group], keys, params.key_field)
             present = set(keysets.seen(self._store, params.set_name, [k for k in keys if k], now))
             survivors = [i for i, k in zip(group, keys) if k not in present]
             keyless += keys.count(None)
@@ -215,11 +233,7 @@ class KeysetAddPort(_KeysetPort):
     ) -> dict[str, Any]:
         found = [_key_of(i, params) for group in groups for i in group]
         keys = [k for k in found if k]
-        if _looks_like_loop_output(groups, found):  # d4: likely a missing items_field
-            raise _Refused(
-                f"bad_params: an item has no {params.key_field!r} key but holds a list "
-                "(it looks like a loop output object: set items_field)"
-            )
+        _refuse_loop_output(groups, found, params.key_field)
         if len(keys) > params.max_keys:
             raise _Refused(f"bad_params: {len(keys)} keys exceed max_keys {params.max_keys}")
         out = keysets.add_keys(self._store, params.set_name, keys, self._clock(), params.window_s)

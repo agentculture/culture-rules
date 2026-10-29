@@ -353,11 +353,6 @@ def test_filter_keeps_a_skipped_iteration_as_none():
     assert out["items"] == [[item("http://a/1")], None]
 
 
-def test_an_item_mixed_with_a_skipped_iteration_is_refused():
-    res = run(KeysetFilterPort, MemoryStore(), cfg(), {"items": [item("http://a/"), None]})
-    assert "bad_params" in res.error
-
-
 # ---------------------------------------------------------------- no flow in the code
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -411,3 +406,35 @@ def test_an_add_of_no_items_still_succeeds():
 def test_filter_still_passes_an_all_keyless_list():
     out = run(KeysetFilterPort, MemoryStore(), cfg(), {"items": [{"title": "t"}]}).output
     assert out["keyless"] == 1
+
+
+# ---------------------------------------------------------------- code review on PR #119
+
+
+def test_filter_also_refuses_loop_output_objects_without_items_field():
+    loop = [{"results": [item("http://a/x")]}]
+    result = run(KeysetFilterPort, MemoryStore(), cfg(), {"items": loop})
+    assert "items_field" in (result.error or "")
+
+
+def test_a_keyless_item_with_a_list_of_strings_is_counted_not_refused():
+    items = [item("http://a/x"), {"title": "t", "tags": ["a", "b"]}]
+    out = run(KeysetAddPort, MemoryStore(), cfg(max_keys=10), {"items": items}).output
+    assert out["keyless"] == 1
+
+
+def test_a_none_in_a_flat_list_is_no_item():
+    items = [item("http://a/x"), None, item("http://a/y")]
+    out = run(KeysetAddPort, MemoryStore(), cfg(max_keys=10), {"items": items}).output
+    assert out["added"] == 2
+
+
+def test_filter_drops_a_none_from_a_flat_list():
+    items = [item("http://a/x"), None]
+    out = run(KeysetFilterPort, MemoryStore(), cfg(), {"items": items}).output
+    assert out["items"] == [item("http://a/x")]
+
+
+def test_a_huge_window_is_refused_bad_params():
+    result = run(KeysetAddPort, MemoryStore(), cfg(max_keys=10, window_days=10**9), {"items": []})
+    assert "bad_params" in (result.error or "")

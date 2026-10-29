@@ -802,7 +802,7 @@ def create_app(
     _register_ops(app, store, node)
     _register_migrations(app, store, defs)
     _register_variables(app, Variables(store))
-    _register_keysets(app, Keysets(store))
+    _register_keysets(app, Keysets(store, audit=audit))
     _register_rollouts(app, Rollouts(store, audit))
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life, store, audit)

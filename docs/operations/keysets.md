@@ -26,12 +26,12 @@ A code step with `config.builtin: keyset.filter`.
 | `set` | the set name |
 | `key_field` | the item field that holds the key (for example `url`) |
 | `normalise` | normalisation rules (below); `{}` for none |
-| `window_days` | how far back a key counts as seen |
+| `window_days` | how far back a key counts as seen (1 to 36500) |
 | `items_field` | optional: the field of each loop output object that holds its items |
 
 Input `items`: a list of objects, or a list of such lists (what a `for_each` loop's
 per-port output yields, one list per iteration; `null` for an iteration that output
-nothing). With the optional setting `items_field`, `items` is instead a list of output
+nothing). A `null` inside a flat list of objects is no item and is dropped. With the optional setting `items_field`, `items` is instead a list of output
 objects, one per iteration (what a loop's `results` port yields), and each object's
 `items_field` list holds that iteration's items; an object without it (`{}`, a skipped
 iteration) holds none. The output `items` has the same shape and order (an output object
@@ -47,9 +47,10 @@ and `window_days`, plus `max_keys`, the most keys one call may add. Input `items
 the same shapes. Each item's normalised key is stored until now plus `window_days`; a key
 already there keeps its first-seen time, so a retried step adds nothing twice. More keys
 than `max_keys` fails the step `bad_params` and writes nothing. A keyless item is skipped
-and counted, but one that holds a list-valued field (it looks like a loop output object,
-`{results: [...]}`) fails the step `bad_params` with a hint to set `items_field`, so a
-missing setting never stores nothing silently. Outputs: `added`, `already_present` and
+and counted, but one that holds a non-empty list of objects (it looks like a loop output
+object, `{results: [...]}`) fails the step `bad_params` with a hint to set `items_field`,
+so a missing setting never stores nothing silently; `keyset.filter` refuses the same
+shape, so it never keeps every item silently either. A list of strings (tags) is fine. Outputs: `added`, `already_present` and
 `keyless`.
 
 Every setting may come from `config` or, per run, from an input of the same name.

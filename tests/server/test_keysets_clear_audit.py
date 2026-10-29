@@ -68,3 +68,21 @@ def test_an_applied_clear_needs_an_identity():
     _, svc = _service()
     with pytest.raises(ValueError):
         svc.clear("links", dry_run=False, identity="")
+
+
+def test_the_entry_carries_the_given_audit_log_host():
+    from culture_rules.engine.audit import AuditLog
+
+    store = MemoryStore()
+    keysets.add_keys(store, "links", ["a"], NOW, 86400)
+    svc = Keysets(store, clock=lambda: NOW, audit=AuditLog(host="rules-api"))
+    svc.clear("links", dry_run=False, identity="alice")
+    assert _entries(store)[0]["host"] == "rules-api"
+
+
+def test_the_app_hands_keysets_its_audit_log():
+    import inspect
+
+    from culture_rules.server import app
+
+    assert "Keysets(store, audit=audit)" in inspect.getsource(app)

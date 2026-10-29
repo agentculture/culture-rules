@@ -22,7 +22,7 @@ import fnmatch
 import hashlib
 import re
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -156,8 +156,8 @@ def add_keys(
         won = store.update_if(KEYSETS_COLLECTION, did, {"first_seen": None}, fields, upsert=True)
         if not won.won:
             old = won.document or {}
-            old_exp = old.get("expires_at")
-            if isinstance(old_exp, datetime) and old_exp <= now:
+            old_exp = _utc(old.get("expires_at"))
+            if old_exp is not None and old_exp <= now:
                 won = store.update_if(
                     KEYSETS_COLLECTION,
                     did,
@@ -171,9 +171,16 @@ def add_keys(
     return {"added": added, "already_present": present}
 
 
+def _utc(value: Any) -> datetime | None:
+    """A stored date as an aware UTC datetime: MongoDB hands dates back naive (UTC)."""
+    if not isinstance(value, datetime):
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
 def _live(doc: Mapping[str, Any], now: datetime) -> bool:
-    expires = doc.get("expires_at")
-    return isinstance(expires, datetime) and expires > now
+    expires = _utc(doc.get("expires_at"))
+    return expires is not None and expires > now
 
 
 def seen(store: Any, set_name: str, keys: Iterable[str], now: datetime) -> list[str]:
@@ -204,7 +211,7 @@ def show_set(store: Any, set_name: str, now: datetime) -> list[dict[str, Any]]:
     _aware(now)
     docs = [d for d in store.find(KEYSETS_COLLECTION, {"set": set_name}) if _live(d, now)]
     return [
-        {"key": d["key"], "first_seen": d["first_seen"], "expires_at": d["expires_at"]}
+        {"key": d["key"], "first_seen": _utc(d["first_seen"]), "expires_at": _utc(d["expires_at"])}
         for d in sorted(docs, key=lambda d: d["key"])
     ]
 

@@ -1050,15 +1050,20 @@ class Keysets:
                 keysets.check_key(key)
             except keysets.KeysetError as exc:
                 raise self._invalid(exc, "key") from exc
-        principal = None if dry_run else require_identity(identity)
-        live = [i["key"] for i in keysets.show_set(self._store, name, self._clock())]
-        count = len(live) if key is None else int(key in live)
-        if principal is not None:
-            self._apply_clear(principal, name, key, count)
+        if dry_run:
+            count = self._live_count(self._store, name, key)
+        else:
+            count = self._apply_clear(require_identity(identity), name, key)
         return {"set": name, "key": key, "dry_run": dry_run, "count": count}
 
-    def _apply_clear(self, principal: str, name: str, key: str | None, count: int) -> None:
+    def _live_count(self, ops: Any, name: str, key: str | None) -> int:
+        live = [i["key"] for i in keysets.show_set(ops, name, self._clock())]
+        return len(live) if key is None else int(key in live)
+
+    def _apply_clear(self, principal: str, name: str, key: str | None) -> int:
+        """Count, delete and audit in one transaction, so the count is what was cleared."""
         with self._store.transaction() as tx:
+            count = self._live_count(tx, name, key)
             if key is None:
                 keysets.clear_set(tx, name)
             else:
@@ -1072,6 +1077,7 @@ class Keysets:
                 before={"keys": count},
                 after={"keys": 0, "cleared": "the whole set" if key is None else key},
             )
+        return count
 
 
 def dumps(value: Any) -> str:
