@@ -2,7 +2,7 @@
   "plan_slug": "state-between-runs",
   "schema_version": 2,
   "created": "2026-10-28T22:27:05Z",
-  "updated": "2026-10-29T04:29:05Z",
+  "updated": "2026-10-29T05:01:53Z",
   "deviations": [
     {
       "id": "d1",
@@ -73,7 +73,7 @@
         "c23"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 18
     }
@@ -341,7 +341,7 @@
         "commit": "11d9fdc"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 19
     }

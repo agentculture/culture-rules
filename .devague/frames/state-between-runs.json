@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-29T04:28:34Z",
+  "updated": "2026-10-29T05:01:53Z",
   "claims": [
     {
       "id": "c1",
@@ -737,7 +737,7 @@
       "skipped_check": "",
       "refs": [],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
