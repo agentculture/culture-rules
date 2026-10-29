@@ -2,7 +2,7 @@
   "plan_slug": "state-between-runs",
   "schema_version": 2,
   "created": "2026-10-28T22:27:05Z",
-  "updated": "2026-10-29T04:23:48Z",
+  "updated": "2026-10-29T04:29:05Z",
   "deviations": [
     {
       "id": "d1",
@@ -61,6 +61,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Code review on PR #119 tightens d2/d4: keyset.filter refuses a loop-shaped keyless item too (it kept them all silently); only a keyless item holding a non-empty list of objects counts as loop-shaped (a tags list of strings no longer fails an add); a None inside a flat list of objects is no item (dropped) instead of refusing the step; window_days is bounded at 36500 (bad_params instead of an OverflowError)",
+      "task_ref": "t2",
+      "reason": "the review showed filter could still filter nothing silently on the shape d4 guards in add, d4's list check refused ordinary items with list fields (the d3 failure mode), and a None in a flat list or a huge window failed or crashed instead of being handled",
+      "affects": [
+        "c5",
+        "c21",
+        "c23"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 18
     }
   ],
   "evidence": [
@@ -310,6 +325,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 17
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o3",
+      "test_ref": "tests/store/test_keysets_mongo.py (4, marker mongo, real MongoDB through tests/store/mongo_rig)",
+      "behavior_text": "on MongoDB a stored key is seen within its window, an expired unreaped key is renewed, show_set gives UTC first_seen, and list_sets counts live keys; before the fix all 4 failed with TypeError (naive vs aware datetimes)",
+      "contract_text": "o3 / c6: a key older than the window is not dropped even while its document still exists; every document carries expires_at under a TTL index",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "real MongoDB via the repo's mongo rig at 11d9fdc; failing first (4 failed) then passing",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-29T04:29:05Z",
+        "commit": "11d9fdc"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
     }
   ],
   "deltas": [

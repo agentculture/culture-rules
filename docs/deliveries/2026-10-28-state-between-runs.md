@@ -42,6 +42,8 @@ All 6 plan tasks are accounted for.
 - `d3` (rejected) — keyset.add fails whenever every given item is keyless — superseded by d4 when building it showed an ordinary filter-then-add day (only keyless survivors) would fail
 - `d4` (approved) — keyset.add fails `bad_params` only when a keyless item holds a list-valued field (a loop output object), with a hint to set `items_field`; plain keyless items are skipped and counted in a new `keyless` output — re-assessed: fail_on_loop_shape 0.889, and a keyless-survivor day is ordinary (0.880)
 - t3's dry-run and applied clear reported different counts (live keys against stored documents); the applied clear now reports the live count too and still deletes expired documents not yet reaped. No deviation: it makes c18's dry run match its apply.
+- `d5` (proposed, for PR review) — the code review on PR #119 tightens d2/d4: keyset.filter refuses a loop-shaped keyless item too, only a keyless item holding a non-empty list of objects counts as loop-shaped, a None inside a flat list of objects is no item, and window_days is bounded at 36500 — filter could still filter nothing silently on the shape d4 guards in add, d4's list check refused ordinary items with list fields, and a None or a huge window failed or crashed
+- The code review on PR #119 also found that pymongo returns stored dates without a timezone, so every keyset read on MongoDB raised `TypeError`; stored dates are now read as UTC (as `discord_commands._as_utc` does), proved by the new real-Mongo tests. It also moved the clear's count inside its transaction and handed `Keysets` the app's audit log. Efficiency (a get per key) is filed as #120.
 - t1's task agent returned no report, so its tests were not shown failing first; the main agent ran four mutants instead (lapse `l1`, approved).
 
 ## Drift From Plan
@@ -53,11 +55,14 @@ All 6 plan tasks are accounted for.
 | `t2` (`d3`, rejected) | failing every all-keyless add would fail ordinary filter-then-add days; superseded by d4, not built | `acceptable` |
 | `t2` (`d4`) | refuse only the loop-output shape, count plain keyless items | `acceptable` |
 | `t1` (`l1`) | tests not seen failing before the code; mutation check run instead | `acceptable` |
+| `t2` (`d5`, proposed) | review fixes: filter guards the loop shape too, narrower shape check, None in a flat list, bounded window | `acceptable` |
+| `t1`-`t5` (`l2`, proposed) | every planned test ran on MemoryStore, so a MongoDB-only date bug reached the PR; fixed and covered by real-Mongo tests | `acceptable` |
 | `t6` | not started; needs the release on every node | `needs-follow-up` |
 
 ## Evidence
 
 - tests: 468 passed at `4f861ad` across `tests/test_keysets.py` (45), `tests/node/test_keyset_builtins.py` (88), `tests/rules/test_keyset_flow.py` (40), `tests/server/test_keysets_api.py` (28), `tests/cli/test_keysets_verbs.py` (36), `tests/server/test_keysets_clear_count.py` (4), `tests/server/test_keysets_clear_audit.py` (8), `tests/node/test_keyset_wiring.py` (5), `tests/node/test_epub_bytes_pinned.py` (7), `tests/engine/test_audit_lifecycle.py`, `tests/test_surface_parity.py`, `tests/server/test_openapi_contract.py`, `tests/model/test_describe.py` (evidence e1-e13, approved)
+- MongoDB: `tests/store/test_keysets_mongo.py` (4) on real MongoDB through the repo's mongo rig at `11d9fdc`; 4 failed before the UTC fix (evidence e14, proposed)
 - full suite: 8510 passed, 8 skipped (an absent optional events dependency and one report-only cross-repo gap) at `4f861ad`
 - web: 909 vitest and 128 Playwright passed; typecheck clean
 - lint: black, isort, flake8, `teken cli doctor . --strict`, harness smoke (6 passed), `scripts/scan-secrets.py`, portability lint, markdownlint — clean
@@ -72,7 +77,7 @@ All 6 plan tasks are accounted for.
 |-------|------------|----------|
 | `c4` — keyset.add stores one document per key with its first-seen time, insert-if-absent | high | e1 · `tests/test_keysets.py`, `tests/node/test_keyset_builtins.py` |
 | `c5` — keyset.filter drops in-window keys in order, keeps keyless items, outputs no stored key | high | e2 · `tests/node/test_keyset_builtins.py` |
-| `c6` — keys expire by window and TTL index; max_keys refuses rather than truncates | medium | e3 · the TTL index itself is only exercised against MemoryStore; a live Mongo index is checked in t6 |
+| `c6` — keys expire by window and TTL index; max_keys refuses rather than truncates | medium | e3 · e14 (real MongoDB: dates, expiry, renewal); the TTL index's deletions are not observed in a test, t6 checks the live index; capped by lapse `l2` |
 | `c12` — declarative normalisation with no built-in list | high | e4 · `tests/test_keysets.py` |
 | `c20` — key cap and hashed ids | high | e5 · `tests/test_keysets.py` |
 | `c23` — list, list-of-lists and (d2) loop output objects in, same shape out | high | e6 · `tests/rules/test_keyset_flow.py` (d2 approved) |
@@ -89,10 +94,12 @@ All 6 plan tasks are accounted for.
 | `c24` — the go-live seed | unverified | t6 not started (o14) |
 | `c14` — the 11-of-13 before-figure is reproducible | medium | measured once in the scope pass from the three stored runs; the t6 script will re-run it |
 
-Lapse ledger evidence: `l1` (grader-unverified, approved): t1's tests were not seen failing first. `c4`, `c6`, `c12`, `c19` and `c20` rest on t1's tests; the mutation check (four mutants, each failing 1-2 tests) is why they are not capped lower.
+Lapse ledger evidence: `l1` (grader-unverified, approved): t1's tests were not seen failing first. `l2` (assumption-for-measurement, proposed): MemoryStore stood in for MongoDB until the code review. `c4`, `c6`, `c12`, `c19` and `c20` rest on t1's tests; the mutation check (four mutants, each failing 1-2 tests) is why they are not capped lower.
 
 ## Remaining Work / Follow-up
 
 - `t6` — after this PR merges: release 0.37.0, roll out to every node and the API (r1), reproduce the before-figure, seed the newspaper's set from the last 14 daily runs (dry run first), wire `keyset.filter` into the search loop and `keyset.add` (with `items_field: results`) just before `record` with a raised search count, then count repeats over 7 issues (o14, o15). Operator-gated, every live write approved.
+- Decide `d5`, `l2` and evidence `e14` at the PR.
+- #120 — batch keyset reads (one `find` with `$in` and an expiry filter) instead of a get per key; needs a store-port change.
 - r2 — whether a raised search count leaves enough fresh results per section is unmeasured (c16); the first live week's No results count will show it.
 - The editor does not offer `items_field` (or any keyset setting) as a form field; it is set in the step config through the CLI or JSON, as the other builtins' settings are.

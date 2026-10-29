@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-28T19:47:55Z",
-  "updated": "2026-10-29T04:23:48Z",
+  "updated": "2026-10-29T04:28:34Z",
   "claims": [
     {
       "id": "c1",
@@ -729,6 +729,15 @@
       "refs": [],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "assumption-for-measurement",
+      "what": "the keyset plan's tests (t1-t5) all ran on MemoryStore, which keeps timezone-aware dates, so a MongoDB-only TypeError (pymongo returns naive dates) reached PR #119; found by the code review, reproduced with tests/store/test_keysets_mongo.py (4 failed), fixed by reading stored dates as UTC",
+      "skipped_check": "",
+      "refs": [],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [
