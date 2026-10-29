@@ -38,31 +38,31 @@ All 6 plan tasks are accounted for.
 ## Mid-work Decisions
 
 - `d1` (approved) — keysets clear --apply becomes an audited mutating verb (keysets.clear): its deletes run in one store transaction with exactly one audit entry (identity, set, key or whole set, count), and it joins the registry-wide audit test; t3 shipped it unaudited, like variable writes — a cleared set is destructive and hard to reverse (only a re-seed restores it) and, unlike a variable, leaves no version history of who cleared what; the decider (assess, 0.946 then 0.964 with the effort and trace facts removed) and the operator chose to audit it in this PR
-- `d2` (proposed, for PR review) — keyset.filter and keyset.add gain an optional `items_field` setting for a loop's output objects; a None entry is an iteration with no items — t5's flow test showed a for_each loop's results port carries each iteration's last step output object, not a list of items, and without it the add stored 0 keys silently
-- `d3` (proposed; recommended for rejection) — keyset.add fails whenever every given item is keyless — superseded by d4 when building it showed an ordinary filter-then-add day (only keyless survivors) would fail
-- `d4` (proposed, for PR review) — keyset.add fails `bad_params` only when a keyless item holds a list-valued field (a loop output object), with a hint to set `items_field`; plain keyless items are skipped and counted in a new `keyless` output — re-assessed: fail_on_loop_shape 0.889, and a keyless-survivor day is ordinary (0.880)
+- `d2` (approved) — keyset.filter and keyset.add gain an optional `items_field` setting for a loop's output objects; a None entry is an iteration with no items — t5's flow test showed a for_each loop's results port carries each iteration's last step output object, not a list of items, and without it the add stored 0 keys silently
+- `d3` (rejected) — keyset.add fails whenever every given item is keyless — superseded by d4 when building it showed an ordinary filter-then-add day (only keyless survivors) would fail
+- `d4` (approved) — keyset.add fails `bad_params` only when a keyless item holds a list-valued field (a loop output object), with a hint to set `items_field`; plain keyless items are skipped and counted in a new `keyless` output — re-assessed: fail_on_loop_shape 0.889, and a keyless-survivor day is ordinary (0.880)
 - t3's dry-run and applied clear reported different counts (live keys against stored documents); the applied clear now reports the live count too and still deletes expired documents not yet reaped. No deviation: it makes c18's dry run match its apply.
-- t1's task agent returned no report, so its tests were not shown failing first; the main agent ran four mutants instead (lapse `l1`, proposed).
+- t1's task agent returned no report, so its tests were not shown failing first; the main agent ran four mutants instead (lapse `l1`, approved).
 
 ## Drift From Plan
 
 | Plan item | Reason for divergence | Classification |
 |-----------|-----------------------|----------------|
 | `t3` (`d1`) | a cleared set is destructive and hard to reverse and leaves no version history; audited in this PR | `acceptable` |
-| `t2` (`d2`, proposed) | a loop's results port carries output objects, not item lists; `items_field` added, no field name in code | `acceptable` |
-| `t2` (`d3`, proposed) | failing every all-keyless add would fail ordinary filter-then-add days; superseded by d4 | `acceptable` |
-| `t2` (`d4`, proposed) | refuse only the loop-output shape, count plain keyless items | `acceptable` |
-| `t1` (`l1`, proposed) | tests not seen failing before the code; mutation check run instead | `acceptable` |
+| `t2` (`d2`) | a loop's results port carries output objects, not item lists; `items_field` added, no field name in code | `acceptable` |
+| `t2` (`d3`, rejected) | failing every all-keyless add would fail ordinary filter-then-add days; superseded by d4, not built | `acceptable` |
+| `t2` (`d4`) | refuse only the loop-output shape, count plain keyless items | `acceptable` |
+| `t1` (`l1`) | tests not seen failing before the code; mutation check run instead | `acceptable` |
 | `t6` | not started; needs the release on every node | `needs-follow-up` |
 
 ## Evidence
 
-- tests: 468 passed at `4f861ad` across `tests/test_keysets.py` (45), `tests/node/test_keyset_builtins.py` (88), `tests/rules/test_keyset_flow.py` (40), `tests/server/test_keysets_api.py` (28), `tests/cli/test_keysets_verbs.py` (36), `tests/server/test_keysets_clear_count.py` (4), `tests/server/test_keysets_clear_audit.py` (8), `tests/node/test_keyset_wiring.py` (5), `tests/node/test_epub_bytes_pinned.py` (7), `tests/engine/test_audit_lifecycle.py`, `tests/test_surface_parity.py`, `tests/server/test_openapi_contract.py`, `tests/model/test_describe.py` (evidence e1-e13, proposed)
+- tests: 468 passed at `4f861ad` across `tests/test_keysets.py` (45), `tests/node/test_keyset_builtins.py` (88), `tests/rules/test_keyset_flow.py` (40), `tests/server/test_keysets_api.py` (28), `tests/cli/test_keysets_verbs.py` (36), `tests/server/test_keysets_clear_count.py` (4), `tests/server/test_keysets_clear_audit.py` (8), `tests/node/test_keyset_wiring.py` (5), `tests/node/test_epub_bytes_pinned.py` (7), `tests/engine/test_audit_lifecycle.py`, `tests/test_surface_parity.py`, `tests/server/test_openapi_contract.py`, `tests/model/test_describe.py` (evidence e1-e13, approved)
 - full suite: 8510 passed, 8 skipped (an absent optional events dependency and one report-only cross-repo gap) at `4f861ad`
 - web: 909 vitest and 128 Playwright passed; typecheck clean
 - lint: black, isort, flake8, `teken cli doctor . --strict`, harness smoke (6 passed), `scripts/scan-secrets.py`, portability lint, markdownlint — clean
 - failing first: t2 (import error before the module), t3 (56 of 64), t4 wiring (5 of 5; the editor tests 3 of 11 without the change), d1 (9), the clear count (2 of 4), t5 (10 of 39, 8 of them the real defect)
-- deltas: b1 (`d1`, added), b2 (items_field, amended), b3 (keyless handling, amended), all proposed
+- deltas: b1 (`d1`, added), b2 (items_field, amended), b3 (keyless handling, amended), all approved
 - assessments: the decider's requests and answers for d1 and d3/d4 (job scratch files `assess-audit*.json`, `assess-keyless*.json`)
 - commits: `origin/main..rules/run-state` (29 commits, from `50c3ae2` to the summary)
 
@@ -75,8 +75,8 @@ All 6 plan tasks are accounted for.
 | `c6` — keys expire by window and TTL index; max_keys refuses rather than truncates | medium | e3 · the TTL index itself is only exercised against MemoryStore; a live Mongo index is checked in t6 |
 | `c12` — declarative normalisation with no built-in list | high | e4 · `tests/test_keysets.py` |
 | `c20` — key cap and hashed ids | high | e5 · `tests/test_keysets.py` |
-| `c23` — list, list-of-lists and (d2) loop output objects in, same shape out | medium | e6 · `tests/rules/test_keyset_flow.py`; d2 is still proposed |
-| `c21` — counts out, never keys | medium | e7 · `tests/node/test_keyset_builtins.py`; the `keyless` output on add comes from d4, still proposed |
+| `c23` — list, list-of-lists and (d2) loop output objects in, same shape out | high | e6 · `tests/rules/test_keyset_flow.py` (d2 approved) |
+| `c21` — counts out, never keys | high | e7 · `tests/node/test_keyset_builtins.py`; the `keyless` output on add comes from d4 (approved) |
 | `c18` — admin keysets verbs, dry run by default, audited clear | high | e8 · `tests/server/test_keysets_api.py`, `tests/cli/test_keysets_verbs.py`, `tests/server/test_keysets_clear_audit.py`; d1 approved |
 | `c19` — one set name, one namespace | high | e9 · `tests/test_keysets.py` |
 | `c7` — the add before the commit step marks only finished work, a re-run adds once | high | e10 · `tests/rules/test_keyset_flow.py` |
@@ -89,12 +89,10 @@ All 6 plan tasks are accounted for.
 | `c24` — the go-live seed | unverified | t6 not started (o14) |
 | `c14` — the 11-of-13 before-figure is reproducible | medium | measured once in the scope pass from the three stored runs; the t6 script will re-run it |
 
-Lapse ledger evidence: `l1` (grader-unverified, t1's tests not seen failing first) is pending approval, not yet evidence. `c4`, `c6`, `c12`, `c19` and `c20` rest on t1's tests; the mutation check (four mutants, each failing 1-2 tests) is why they are not capped lower.
+Lapse ledger evidence: `l1` (grader-unverified, approved): t1's tests were not seen failing first. `c4`, `c6`, `c12`, `c19` and `c20` rest on t1's tests; the mutation check (four mutants, each failing 1-2 tests) is why they are not capped lower.
 
 ## Remaining Work / Follow-up
 
 - `t6` — after this PR merges: release 0.37.0, roll out to every node and the API (r1), reproduce the before-figure, seed the newspaper's set from the last 14 daily runs (dry run first), wire `keyset.filter` into the search loop and `keyset.add` (with `items_field: results`) just before `record` with a raised search count, then count repeats over 7 issues (o14, o15). Operator-gated, every live write approved.
-- Decide d2-d4 at the PR: approve d2 and d4, reject d3 (recommended).
-- Decide lapse `l1`.
 - r2 — whether a raised search count leaves enough fresh results per section is unmeasured (c16); the first live week's No results count will show it.
 - The editor does not offer `items_field` (or any keyset setting) as a form field; it is set in the step config through the CLI or JSON, as the other builtins' settings are.
