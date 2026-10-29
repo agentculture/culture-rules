@@ -106,3 +106,18 @@ def _migrate_orphans(life: Any, store: Any) -> Callable[[], Any]:
 
 
 SERVER_AUDIT_SCENARIOS["definitions.migrate_orphans"] = _migrate_orphans
+
+
+def _clear_keyset(life: Any, store: Any) -> Callable[[], Any]:
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from culture_rules import keysets  # noqa: PLC0415
+    from culture_rules.server.service import Keysets  # noqa: PLC0415
+
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    keysets.add_keys(store, "links", ["a", "b"], now, 86400)
+    svc = Keysets(store, clock=lambda: now)
+    return lambda: svc.clear("links", dry_run=False, identity="alice")
+
+
+SERVER_AUDIT_SCENARIOS["keysets.clear"] = _clear_keyset

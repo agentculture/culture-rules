@@ -24,6 +24,7 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules import keysets
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
 from culture_rules.engine.lifecycle import Lifecycle
 from culture_rules.engine.ruleset import validate_rule_set
@@ -46,6 +47,7 @@ __all__ = [
     "Conflict",
     "Definitions",
     "Invalid",
+    "Keysets",
     "RevisionConflict",
     "RuleReferenced",
     "NotFound",
@@ -981,6 +983,101 @@ class Variables:
             {"id": d.get("id"), "name": d.get("name"), "enabled": d.get("enabled", True)}
             for d in sorted(hits, key=lambda d: str(d.get("id")))
         ]
+
+
+def _iso(value: Any) -> Any:
+    """A stored datetime as an ISO-8601 string in UTC (other values unchanged)."""
+    return value.astimezone(UTC).isoformat() if isinstance(value, datetime) else value
+
+
+class Keysets:
+    """Keysets behind the API (admin only, the route matrix): reads and a dry-run-first clear.
+
+    Reads and clears go only through :mod:`culture_rules.keysets`. A read sees live keys
+    (window not passed). A clear counts live keys both as a dry run and applied, so the two
+    report the same number; applied, it also deletes expired documents not yet reaped.
+    """
+
+    def __init__(
+        self,
+        store: StoragePort,
+        clock: Callable[[], datetime] | None = None,
+        audit: AuditLog | None = None,
+    ) -> None:
+        self._store = store
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._audit = audit or AuditLog(clock=self._clock)
+
+    @staticmethod
+    def _invalid(exc: keysets.KeysetError, path: str) -> Invalid:
+        return Invalid(str(exc), [{"path": path, "code": exc.code, "message": str(exc)}])
+
+    def _name(self, name: str) -> str:
+        try:
+            return keysets.check_set_name(name)
+        except keysets.KeysetError as exc:
+            raise self._invalid(exc, "name") from exc
+
+    def list(self) -> list[dict[str, Any]]:
+        """Every set with live keys, ``{set, keys}`` by name."""
+        return keysets.list_sets(self._store, self._clock())
+
+    def show(self, name: str) -> list[dict[str, Any]]:
+        """The live keys of a set, ``{key, first_seen, expires_at}`` (ISO-8601) by key."""
+        items = keysets.show_set(self._store, self._name(name), self._clock())
+        return [{k: _iso(v) for k, v in item.items()} for item in items]
+
+    @mutating_verb("keysets.clear", "Forget one key or a whole keyset (dry run unless applied)")
+    def clear(
+        self,
+        name: str,
+        key: str | None = None,
+        *,
+        dry_run: bool = True,
+        identity: str | None = None,
+    ) -> dict[str, Any]:
+        """Forget one key (``key``) or the whole set; ``{set, key, dry_run, count}``.
+
+        ``count`` is how many live keys go (for a key, 1 when it is live, else 0), the same
+        for a dry run, which deletes nothing, and an applied clear, which also deletes any
+        expired document of the set (or that key) not yet reaped. Applied, the deletes and
+        exactly one audit entry (who, the set, the key or the whole set, the count) commit in
+        one transaction (deviation d1); a dry run writes nothing.
+        """
+        self._name(name)
+        if key is not None:
+            try:
+                keysets.check_key(key)
+            except keysets.KeysetError as exc:
+                raise self._invalid(exc, "key") from exc
+        if dry_run:
+            count = self._live_count(self._store, name, key)
+        else:
+            count = self._apply_clear(require_identity(identity), name, key)
+        return {"set": name, "key": key, "dry_run": dry_run, "count": count}
+
+    def _live_count(self, ops: Any, name: str, key: str | None) -> int:
+        live = [i["key"] for i in keysets.show_set(ops, name, self._clock())]
+        return len(live) if key is None else int(key in live)
+
+    def _apply_clear(self, principal: str, name: str, key: str | None) -> int:
+        """Count, delete and audit in one transaction, so the count is what was cleared."""
+        with self._store.transaction() as tx:
+            count = self._live_count(tx, name, key)
+            if key is None:
+                keysets.clear_set(tx, name)
+            else:
+                keysets.clear_key(tx, name, key)
+            self._audit.write(
+                tx,
+                identity=principal,
+                verb="keysets.clear",
+                collection=keysets.KEYSETS_COLLECTION,
+                target_id=name,
+                before={"keys": count},
+                after={"keys": 0, "cleared": "the whole set" if key is None else key},
+            )
+        return count
 
 
 def dumps(value: Any) -> str:

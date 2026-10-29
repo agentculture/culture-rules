@@ -1,0 +1,396 @@
+{
+  "plan_slug": "state-between-runs",
+  "schema_version": 2,
+  "created": "2026-10-28T22:27:05Z",
+  "updated": "2026-10-29T05:01:53Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "keysets clear --apply becomes an audited mutating verb (keysets.clear): its deletes run in one store transaction with exactly one audit entry (identity, set, key or whole set, count), and it joins the registry-wide audit test; t3 shipped it unaudited, like variable writes",
+      "task_ref": "t3",
+      "reason": "a cleared set is destructive and hard to reverse (only a re-seed restores it) and, unlike a variable, leaves no version history of who cleared what; the decider (assess, 0.946 then 0.964 with the effort and trace facts removed) and the operator chose to audit it in this PR",
+      "affects": [
+        "c18",
+        "h17"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "keyset.filter and keyset.add gain an optional items_field setting: items may be a list of loop output objects (one per iteration, e.g. {results: [...]}), and items_field names the field holding each one's items; a None entry is an iteration with no items; filter keeps the shape (objects keep their other fields, None stays None). Without it, keyset.add placed after a for_each loop stored 0 keys silently",
+      "task_ref": "t2",
+      "reason": "t5's flow test showed a for_each loop's results port carries each iteration's last step output object, not a list of items, and per-port lists carry None for a skipped iteration; c23 assumed lists of lists. No field name is built in: the live newspaper config sets items_field: results on the add before record",
+      "affects": [
+        "c23",
+        "h21"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "keyset.add fails bad_params when it is given at least one item and none yields a key (zero items stays a success), and outputs a keyless count beside added and already_present; keyset.filter is unchanged (it keeps keyless items and counts them)",
+      "task_ref": "t2",
+      "reason": "t5 showed a misconfigured add (missing items_field) completes with added 0 and stores nothing, so the next issue repeats every link with no failure anywhere; the decider (assess: fail_all_keyless 0.789, count_only 0.148; failing filter too 0.249) favoured failing the all-keyless case; a mix with some keyless items stays normal, and a flow can still set on_error skip",
+      "affects": [
+        "c21",
+        "h20",
+        "c4"
+      ],
+      "origin": "llm",
+      "status": "rejected",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Refines d3: keyset.add does not fail on all-keyless input; it fails bad_params only when a keyless item holds a list-valued field (a loop output object, so items_field is probably missing), with a hint to set items_field; plain keyless items are skipped and counted in a new keyless output",
+      "task_ref": "t2",
+      "reason": "building d3 showed a filter-then-add run fails on an ordinary day when only keyless items survive the filter; re-assessed (fail_on_loop_shape 0.889, fail_all_keyless 0.068; the keyless-survivor case is ordinary at 0.880). d3 should be rejected in favour of this",
+      "affects": [
+        "c21",
+        "h20",
+        "c4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Code review on PR #119 tightens d2/d4: keyset.filter refuses a loop-shaped keyless item too (it kept them all silently); only a keyless item holding a non-empty list of objects counts as loop-shaped (a tags list of strings no longer fails an add); a None inside a flat list of objects is no item (dropped) instead of refusing the step; window_days is bounded at 36500 (bad_params instead of an OverflowError)",
+      "task_ref": "t2",
+      "reason": "the review showed filter could still filter nothing silently on the shape d4 guards in add, d4's list check refused ordinary items with list fields (the d3 failure mode), and a None in a flat list or a huge window failed or crashed instead of being handled",
+      "affects": [
+        "c5",
+        "c21",
+        "c23"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 18
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/test_keysets.py (45 collected) + tests/node/test_keyset_builtins.py (88 collected), incl. the concurrent-add test",
+      "behavior_text": "repeated, retried and two concurrent adds of one key leave one document with its first first_seen; the document id is sha256 over set and key",
+      "contract_text": "o1 / c4: each key is one document with its first-seen time and expires_at; a retry or two concurrent adds of the same key leave one document and keep the first-seen time",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_keyset_builtins.py (filter tests)",
+      "behavior_text": "keyset.filter drops in-window keys, keeps order, keeps and counts keyless items, and its outputs hold items and counts but no stored key",
+      "contract_text": "o2 / c5: items whose normalised key is in the set within the window are dropped, the rest kept in order; keyless items kept and counted; outputs never contain a stored key",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_keysets.py (expiry tests) + tests/node/test_keyset_builtins.py (max_keys tests) + tests/rules/test_keyset_flow.py (key back after its window)",
+      "behavior_text": "an expired key is ignored while its document still exists; documents carry expires_at; ensure_ttl_index asks for a TTL index on expires_at; over max_keys fails bad_params and writes nothing",
+      "contract_text": "o3 / c6: a key older than the window is not dropped even while its document exists; every document carries expires_at under a TTL index; an add over max_keys fails bad_params and writes nothing",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/test_keysets.py (normalise tests)",
+      "behavior_text": "no config leaves the value unchanged; lower_host, drop_scheme, drop_fragment, drop_trailing_slash and drop_query [utm_*, ref] make http://Example.com/a/?utm_source=x#f and https://example.com/a one key",
+      "contract_text": "o4 / c12: with no normalisation the key is unchanged; with the configured switches the example URLs give one key",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/test_keysets.py (key cap and id tests)",
+      "behavior_text": "a 2049-character key is refused; keys equal for 200 characters and different after get different ids; ids are hex digests, never the raw key",
+      "contract_text": "o5 / c20: a normalised key over 2048 characters fails bad_params; keys differing past character 200 are separate documents; no document id holds the raw key",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_keyset_builtins.py (shape tests) + tests/rules/test_keyset_flow.py (search loop through render, add with items_field)",
+      "behavior_text": "both builtins take a flat list, a list of lists, None for a skipped iteration, and (with items_field, d2) a loop's output objects; filter returns the shape it was given; the add after the newspaper-shaped loop stores every result's key",
+      "contract_text": "o6 / c23: a list of lists is accepted by both builtins; add adds every inner item's key and filter returns one filtered list per inner list, in order",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_keyset_builtins.py (output tests)",
+      "behavior_text": "keyset.add outputs added, already_present and keyless (d4); keyset.filter outputs items, kept, dropped and keyless; neither outputs a stored key",
+      "contract_text": "o7 / c21: keyset.add outputs added and already_present counts, keyset.filter kept, dropped and keyless counts, and neither outputs a stored key",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/server/test_keysets_api.py (28) + tests/cli/test_keysets_verbs.py (36) + tests/server/test_keysets_clear_count.py (4) + tests/server/test_keysets_clear_audit.py (8) + tests/test_surface_parity.py + tests/server/test_openapi_contract.py",
+      "behavior_text": "viewer and editor tokens get 403 on list, show and clear; clear without --apply deletes nothing; with --apply it removes one key or the set, reporting the dry run's live count, and writes one audit entry (d1); routes are in api/openapi.json and parity holds",
+      "contract_text": "o8 / c18: list, show and clear answer 403 to a non-admin; clear without --apply changes nothing and with --apply removes one key or the whole set; the routes are pinned and the parity tests pass",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_keysets.py (set name tests)",
+      "behavior_text": "two callers naming one set see each other's keys; a name outside letters, digits, _ : - or over 100 characters fails bad_params",
+      "contract_text": "o9 / c19: two workflows that name one set see each other's keys; a name outside the pattern fails bad_params",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/rules/test_keyset_flow.py (keyset-committed workflow tests)",
+      "behavior_text": "a run failing before the add leaves 0 documents; a run failing at its commit step after the add, then re-run, adds nothing twice (added 0), keeps 2 documents and the first first_seen",
+      "contract_text": "o10 / c7: a run that fails before the add leaves the set unchanged; a run that fails after the add and is re-run adds each key once",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/rules/test_keyset_flow.py (keyset-pair workflow) + tests/node/test_keyset_builtins.py (no-flow-constant source test)",
+      "behavior_text": "a workflow of only keyset.filter and keyset.add drops on its second run the two items its first run added; the new modules name no newspaper, utm or URL constant",
+      "contract_text": "o11 / c1: its second run drops the items its first run added; no new module contains a newspaper, URL-parameter or window constant",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "tests/rules/test_keyset_flow.py (boundary test, ran inside the git checkout) + tests/node/test_epub_bytes_pinned.py (7)",
+      "behavior_text": "git diff origin/main touches none of newspaper.py, newspaper_render.py, newspaper_issue.py, trusted.py, validate.py, action_kinds.py; no culture_rules/node module calls put_variable; the EPUB byte pins pass",
+      "contract_text": "o12 / c13: those six files are unchanged; no node step writes the variables collection; the EPUB byte pins pass",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "tests/node/test_keyset_wiring.py (5) + tests/model/test_describe.py + web StepEditor.builtin.test.tsx (keyset tests)",
+      "behavior_text": "both builtins are registered in node/runner.py with BUILTIN_WORDS phrases; describe tests pass; the editor offers both with their outputs",
+      "contract_text": "o13 / c11: both builtins are registered in node/runner.py and describe with BUILTIN_WORDS phrases; tests/model/test_describe.py and the describe fixtures pass",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest ran green at 4f861ad (rules/run-state, 0.37.0): 468 passed across the keyset, audit, parity, openapi and describe test files; full suite 8510 passed, 8 skipped; web 909 vitest and 128 Playwright passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T22:37:41Z",
+        "commit": "4f861ad"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o3",
+      "test_ref": "tests/store/test_keysets_mongo.py (4, marker mongo, real MongoDB through tests/store/mongo_rig)",
+      "behavior_text": "on MongoDB a stored key is seen within its window, an expired unreaped key is renewed, show_set gives UTC first_seen, and list_sets counts live keys; before the fix all 4 failed with TypeError (naive vs aware datetimes)",
+      "contract_text": "o3 / c6: a key older than the window is not dropped even while its document still exists; every document carries expires_at under a TTL index",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "real MongoDB via the repo's mongo rig at 11d9fdc; failing first (4 failed) then passing",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-29T04:29:05Z",
+        "commit": "11d9fdc"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "keysets clear --apply writes one audit entry (who, the set, the key or the whole set, the live count) in the same transaction as its deletes; a dry run writes none",
+      "caused_by": [
+        "d1",
+        "c18"
+      ],
+      "evidence_refs": [
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "keyset.filter and keyset.add also take a loop's output objects through the optional items_field setting (proposed deviation d2), and None as a skipped iteration; filter keeps objects' other fields",
+      "caused_by": [
+        "c23"
+      ],
+      "evidence_refs": [
+        "e6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "keyset.add outputs a keyless count and refuses (bad_params, hint: set items_field) a keyless item holding a list-valued field; plain keyless items are skipped and counted (proposed deviation d4, refining d3)",
+      "caused_by": [
+        "c21",
+        "c4"
+      ],
+      "evidence_refs": [
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

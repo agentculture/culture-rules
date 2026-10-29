@@ -41,8 +41,8 @@ stops being per-host glue only its author understands.
 - `culture-rules overview` — descriptive snapshot of the agent.
 - `culture-rules doctor` — check the agent-identity invariants.
 - `culture-rules cli overview` — describe the CLI surface.
-- `culture-rules rules|workflows|actors|machines|runs|variables <verb>` — the engine's nouns
-  over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
+- `culture-rules rules|workflows|actors|machines|runs|variables|keysets <verb>` — the engine's
+  nouns over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
 - `culture-rules rollout <step>` — roll this CLI's release out to every node, one
   dry-run-first step per verb (`plan`, `idle`, `pause`, `upgrade --host`, `seed`,
   `import`, `enable`, `resume`, `verify`).
@@ -240,6 +240,14 @@ _NOUN_BLURBS = {
         "inputs read; every change appends a version naming who made it, and only an admin may "
         "write. `add` / `remove` change one item of a list atomically (concurrent adds all "
         "land; a no-op writes no version)."
+    ),
+    "keysets": (
+        "Keysets are named sets of keys, each remembered for a window, that steps add to and "
+        "check. Every verb needs the admin role, reads included: `list` names the sets with "
+        "their live key counts, `show` lists one set's keys with `first_seen` and `expires_at` "
+        "(ISO-8601), and `clear` forgets one key (`--key`) or the whole set. `clear` is a dry "
+        "run unless `--apply`: it reports how many keys would go (1 or 0 for a key) and "
+        "deletes nothing. An older server lacks the routes: exit 2."
     ),
     "runs": "Runs are executions of a rule's workflow; pause and resume gate the whole engine.",
     "rollout": (
