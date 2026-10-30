@@ -2,7 +2,7 @@
   "plan_slug": "govee-lamp-actor-and-wake-up",
   "schema_version": 2,
   "created": "2026-10-30T10:09:15Z",
-  "updated": "2026-10-30T17:36:43Z",
+  "updated": "2026-10-30T18:01:51Z",
   "deviations": [
     {
       "id": "d1",
@@ -48,6 +48,19 @@
       "status": "approved",
       "classification": "risky",
       "seq": 10
+    },
+    {
+      "id": "d4",
+      "what": "set config.idempotent true on the lamp steps of the live workflows morning-wake-up (dim, white, rise) and morning-lamp-off",
+      "task_ref": "t4",
+      "reason": "code review of #123: without it a node restart or lost claim mid-step fails the step unsafe_retry (the runner cannot deduplicate); every lamp command is an idempotent setter. Operator approved 2026-10-30",
+      "affects": [
+        "t5"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 15
     }
   ],
   "evidence": [
@@ -259,6 +272,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 14
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o8",
+      "test_ref": "culture-rules workflows show morning-wake-up|morning-lamp-off --json, before vs after update (d4)",
+      "behavior_text": "rev 1 -> 2; every step config.idempotent true (dim, white, rise; off); with idempotent removed the before and after documents are equal; both workflows and both rules still enabled (cron 45 5 / 0 8, Asia/Jerusalem)",
+      "contract_text": "the wake-up workflow is configured live (o8), amended by d4",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read back from the live API after --apply and compared field by field to the pre-change read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T18:01:51Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
     }
   ],
   "deltas": [],
