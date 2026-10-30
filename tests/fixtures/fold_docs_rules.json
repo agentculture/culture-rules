@@ -277,6 +277,14 @@
       "enabled": false,
       "predecessor": null,
       "from": null
+    },
+    {
+      "rule": "repodocs-sync",
+      "workflow": "repodocs-sync",
+      "kind": "entry",
+      "enabled": false,
+      "predecessor": null,
+      "from": null
     }
   ]
 }

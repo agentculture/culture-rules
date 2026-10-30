@@ -1,0 +1,44 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: the push is the workflow's work",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "repodocs-sync",
+  "condition": null,
+  "counts_toward_budget": true,
+  "description": "culture-rules#124: every 15 minutes, runs repodocs-sync on spark, which pushes each top-level repo's specs, plans, deliveries, designs and .devague files under ~/git to culture-library (a working draft reaches the library within one cycle, 15 minutes plus the run). The concurrency key keeps one run at a time: a slot that fires while a run is going waits for it. Ships disabled: enable it after the library side is deployed and the grant LIBRARY_REPODOCS_PUSH_API_KEY is stored (docs/operations/repodocs.md). A missed slot is not caught up; the next one covers it.",
+  "enabled": false,
+  "exclusive_group": "repodocs-sync",
+  "id": "repodocs-sync",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "Push repo documents to the library every 15 minutes",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "schedule",
+    "params": {
+      "cron": "*/15 * * * *",
+      "tz": "UTC"
+    }
+  },
+  "workflow": {
+    "id": "repodocs-sync",
+    "inputs": {},
+    "version": null
+  }
+}

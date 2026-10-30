@@ -1855,6 +1855,91 @@
         "text": "It starts when github.reaction.added arrives, if its condition holds, on spark2.\nIt starts when github.comment.created arrives, if its condition holds, on spark2.\nFirst records the stop, removes the request from the queue and cancels running fixes.\nThen waits for any stage that was about to start, waiting 2 minutes; then cancels a run that started after the stop.\nThen it continues into queue-progress.\nWhen it is done, nothing else happens.\nIf it fails, it runs github.comment as github-app (only where its chain ends)."
       }
     },
+    "repodocs-sync": {
+      "description": "Pushes the specs, plans, delivery summaries, designs and devague files of every repo on this machine to the library, sending only what changed since the last run.",
+      "entries": [
+        {
+          "depth": 0,
+          "label": "1",
+          "step": "sync",
+          "text": "repodocs.sync as culture-library-repodocs"
+        }
+      ],
+      "id": "repodocs-sync",
+      "kind": "workflow",
+      "lines": [
+        "1 sync — repodocs.sync as culture-library-repodocs"
+      ],
+      "paragraph": {
+        "segments": [
+          {
+            "disabled": true,
+            "enabled": false,
+            "keys": [
+              "starts_on",
+              "rule_group",
+              "rule_where"
+            ],
+            "kind": "entry",
+            "part": "start",
+            "rule": "repodocs-sync",
+            "sentence": 0,
+            "text": "It starts on cron */15 * * * * (UTC), only if no higher-priority rule of group repodocs-sync matches (priority 0), on spark."
+          },
+          {
+            "depth": 0,
+            "fallback": false,
+            "gap": false,
+            "grouped": false,
+            "keys": [
+              "first"
+            ],
+            "name": "Push what changed",
+            "part": "step",
+            "phrase": "First",
+            "sentence": 1,
+            "shown": "sends each changed file, draft and deletion to the library and counts them",
+            "standin": false,
+            "step": "sync",
+            "tail": ".",
+            "tail_keys": [],
+            "text": "Sends each changed file, draft and deletion to the library and counts them."
+          },
+          {
+            "keys": [
+              "continues_none"
+            ],
+            "part": "then",
+            "rules": [],
+            "sentence": 2,
+            "text": "Nothing continues from here."
+          },
+          {
+            "keys": [
+              "ends_noop"
+            ],
+            "part": "then",
+            "rules": [
+              "repodocs-sync"
+            ],
+            "sentence": 3,
+            "text": "When it is done, nothing else happens."
+          },
+          {
+            "keys": [
+              "runs_key"
+            ],
+            "part": "then",
+            "rules": [
+              "repodocs-sync"
+            ],
+            "sentence": 4,
+            "text": "It runs one at a time per repodocs-sync."
+          }
+        ],
+        "text": "It starts on cron */15 * * * * (UTC), only if no higher-priority rule of group repodocs-sync matches (priority 0), on spark.\nFirst sends each changed file, draft and deletion to the library and counts them.\nNothing continues from here.\nWhen it is done, nothing else happens.\nIt runs one at a time per repodocs-sync."
+      }
+    },
     "report-secrets": {
       "description": "Reports GitGuardian's findings on a pull request head, without any secret values.",
       "entries": [
@@ -5395,6 +5480,50 @@
           "number": "trigger.data.number",
           "repo": "trigger.data.repository"
         },
+        "version": null
+      }
+    },
+    {
+      "action": {
+        "idempotent": false,
+        "kind": "noop",
+        "name": "Nothing: the push is the workflow's work",
+        "only_at_chain_end": false,
+        "params": {},
+        "retry": null,
+        "timeout_s": null
+      },
+      "concurrency_key": "repodocs-sync",
+      "condition": null,
+      "counts_toward_budget": true,
+      "description": "culture-rules#124: every 15 minutes, runs repodocs-sync on spark, which pushes each top-level repo's specs, plans, deliveries, designs and .devague files under ~/git to culture-library (a working draft reaches the library within one cycle, 15 minutes plus the run). The concurrency key keeps one run at a time: a slot that fires while a run is going waits for it. Ships disabled: enable it after the library side is deployed and the grant LIBRARY_REPODOCS_PUSH_API_KEY is stored (docs/operations/repodocs.md). A missed slot is not caught up; the next one covers it.",
+      "enabled": false,
+      "exclusive_group": "repodocs-sync",
+      "id": "repodocs-sync",
+      "max_attempts": null,
+      "may_after": [],
+      "must_after": [],
+      "name": "Push repo documents to the library every 15 minutes",
+      "on_failure": null,
+      "placement": {
+        "actor": null,
+        "machine": "spark",
+        "requirement": null
+      },
+      "priority": 0,
+      "resets_attempt_budget": false,
+      "schema_version": "1.0",
+      "supersedes": [],
+      "trigger": {
+        "kind": "schedule",
+        "params": {
+          "cron": "*/15 * * * *",
+          "tz": "UTC"
+        }
+      },
+      "workflow": {
+        "id": "repodocs-sync",
+        "inputs": {},
         "version": null
       }
     }
@@ -10496,6 +10625,125 @@
           "placement": null,
           "retry": null,
           "timeout_s": 60.0
+        }
+      ],
+      "variables": [],
+      "version": 1
+    },
+    "repodocs-sync": {
+      "description": "Pushes the specs, plans, delivery summaries, designs and devague files of every repo on this machine to the library, sending only what changed since the last run.",
+      "edges": [],
+      "enabled": true,
+      "id": "repodocs-sync",
+      "inputs": [],
+      "name": "Push repo documents to the library",
+      "notes": "One repodocs.sync step through culture-library-repodocs: every top-level repo under the actor's repos_root, each file's default-branch version, its working draft when it differs, tombstones for vanished files and spec links (docs/operations/repodocs.md). It outputs counts only.",
+      "outputs": [
+        {
+          "name": "repos",
+          "source": "steps.sync.outputs.repos",
+          "type": "integer"
+        },
+        {
+          "name": "pushed",
+          "source": "steps.sync.outputs.pushed",
+          "type": "integer"
+        },
+        {
+          "name": "skipped",
+          "source": "steps.sync.outputs.skipped",
+          "type": "integer"
+        },
+        {
+          "name": "tombstoned",
+          "source": "steps.sync.outputs.tombstoned",
+          "type": "integer"
+        },
+        {
+          "name": "errors",
+          "source": "steps.sync.outputs.errors",
+          "type": "integer"
+        },
+        {
+          "name": "duration_s",
+          "source": "steps.sync.outputs.duration_s",
+          "type": "number"
+        },
+        {
+          "name": "stopped",
+          "source": "steps.sync.outputs.stopped",
+          "type": "boolean"
+        }
+      ],
+      "schema_version": "1.0",
+      "steps": [
+        {
+          "body": [],
+          "config": {
+            "action": {
+              "kind": "repodocs.sync",
+              "params": {
+                "actor": "culture-library-repodocs"
+              }
+            },
+            "builtin": "action",
+            "idempotent": true
+          },
+          "description": "Sends each changed file, draft and deletion to the library and counts them.",
+          "enabled": true,
+          "id": "sync",
+          "inputs": [],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Push what changed",
+          "notes": "repodocs.sync: stops at the actor's max_seconds (300) and the next run resumes from the state file; per-file errors are counted, never fatal. timeout_s leaves room beyond max_seconds.",
+          "outputs": [
+            {
+              "description": "",
+              "name": "repos",
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "description": "",
+              "name": "pushed",
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "description": "",
+              "name": "skipped",
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "description": "",
+              "name": "tombstoned",
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "description": "",
+              "name": "errors",
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "description": "",
+              "name": "duration_s",
+              "required": true,
+              "type": "number"
+            },
+            {
+              "description": "",
+              "name": "stopped",
+              "required": true,
+              "type": "boolean"
+            }
+          ],
+          "placement": null,
+          "retry": null,
+          "timeout_s": 900
         }
       ],
       "variables": [],

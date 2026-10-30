@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-10-31
+
+### Added
+
+- repodocs.sync (#124): a new action kind that pushes every top-level repo's devague record (docs/specs, docs/plans, docs/deliveries, docs/design and .devague, gitignored files included) under its service actor's repos_root into culture-library's POST /api/repodocs. It sends each changed default-branch version at the head sha, the working draft when the disk differs, tombstones for vanished files (404 is done), project from culture.yaml and spec_links (Spec: trailers, else the delivering first-parent commit, followed through renames). A state file keeps unchanged cycles silent; max_seconds and max_files stop a run early and the next resumes. It outputs counts only.
+- The bundle docs/rules/repodocs: the culture-library-repodocs service actor (grant LIBRARY_REPODOCS_PUSH_API_KEY), a one-step workflow and a schedule rule every 15 minutes on spark with a concurrency key so runs never overlap. It ships disabled.
+- docs/operations/repodocs.md: what it pushes, the cycle length, setup (key, grant, import, enable) and verification with culture-library's scripts/verify-mirror.py.
+- The editor offers repodocs.sync in the action picker, with enabled service actors that have a repos_root.
+
 ## [0.37.0] - 2026-10-29
 
 ### Added
