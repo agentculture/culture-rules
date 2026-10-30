@@ -2,7 +2,7 @@
   "plan_slug": "govee-lamp-actor-and-wake-up",
   "schema_version": 2,
   "created": "2026-10-30T10:09:15Z",
-  "updated": "2026-10-30T10:50:16Z",
+  "updated": "2026-10-30T17:36:43Z",
   "deviations": [
     {
       "id": "d1",
@@ -66,7 +66,7 @@
         "commit": "ff78dac"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 1
     },
@@ -85,7 +85,7 @@
         "commit": "ff78dac"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 2
     },
@@ -104,7 +104,7 @@
         "commit": "ff78dac"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 3
     },
@@ -123,7 +123,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 4
     },
@@ -142,7 +142,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 5
     },
@@ -161,7 +161,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 6
     },
@@ -180,7 +180,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 7
     },
@@ -199,7 +199,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 11
     },
@@ -218,7 +218,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 12
     },
@@ -237,7 +237,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 13
     },
@@ -256,7 +256,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 14
     }
