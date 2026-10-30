@@ -7,8 +7,9 @@ this module says which params exist, their types and which are required.
 Actor policy: ``discord.message``, ``discord.read``, ``discord.react``, ``discord.reply``,
 ``discord.sweep``, ``github.comment``,
 ``github.push``, ``github.review_reply``, ``jira.comment``, ``http.call``, ``machine.command``,
-``email.send``, ``search.web``, ``llm.complete``, ``audio.transcribe``, ``decider.assess`` and
-``library.push`` always need ``params.actor`` (the credentialed or executing party).
+``email.send``, ``search.web``, ``llm.complete``, ``audio.transcribe``, ``decider.assess``,
+``library.push`` and ``repodocs.sync`` always need ``params.actor`` (the credentialed or
+executing party).
 ``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
 a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
@@ -40,6 +41,9 @@ an EPUB (no actor needed);
 ``kind`` (and ``visibility``) to the library its actor describes, or replaces ``item_id`` there
 through the actor's ``replace_path``, queueing a new upload for ``device_id`` when that library
 has a device queue (culture-rules#86).
+``repodocs.sync`` pushes the devague record (specs, plans, deliveries, designs, ``.devague``) of
+every top-level repo under its service actor's ``repos_root`` to the library the actor
+describes (culture-rules#124); everything but the actor is the actor's params.
 Standard-library only.
 """
 
@@ -272,6 +276,11 @@ _KINDS = (
         device_id=_S,  # used only when the actor has a queue_path
         format=_S,  # one of the actor's params.formats; epub when unset
         item_id=ParamSpec("int"),  # replace this item through the actor's replace_path
+    ),
+    _k(
+        "repodocs.sync",
+        "Push every repo's specs, plans, deliveries, designs and .devague files to the library",
+        actor=_RS,  # a service actor: base_url, api_key, repos_root, state_path, limits
     ),
 )
 

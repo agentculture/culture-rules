@@ -266,6 +266,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     renders one transcript under the transcripts root, with its summary, as an EPUB (stdlib).
     ``action:decider.assess`` (``node.actions.decider.DeciderAssessPort``) asks the mesh's
     decider for probabilities over a step's questions (``/v1/systemone``, stdlib).
+    ``action:repodocs.sync`` (``node.actions.repodocs.RepodocsSyncPort``) pushes every top-level
+    repo's devague record into the library its actor describes (git + stdlib HTTP, #124).
     """
     del host
     from culture_rules.actors.gate import GatePort  # noqa: PLC0415
@@ -357,6 +359,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         QueueProgressPort,
         QueueStopPort,
     )
+    from culture_rules.node.actions.repodocs import RepodocsSyncPort  # noqa: PLC0415
     from culture_rules.node.actions.run_read import RUN_READ_BUILTIN, RunReadPort  # noqa: PLC0415
     from culture_rules.node.actions.search import SearchWebPort  # noqa: PLC0415
     from culture_rules.node.actions.sections import (  # noqa: PLC0415
@@ -402,6 +405,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:audio.transcribe": AudioTranscribePort(store),  # file-in STT, split by ffmpeg
         "action:transcript.render": TranscriptRenderPort(store),  # one transcript as an EPUB
         "action:decider.assess": DeciderAssessPort(store),  # the mesh decider: probabilities
+        "action:repodocs.sync": RepodocsSyncPort(store),  # #124: repos' devague record -> library
         "action:http.call": HttpCallPort(store),
         "action:machine.command": MachineCommandPort(store),
         "code": BuiltinCodePort(
