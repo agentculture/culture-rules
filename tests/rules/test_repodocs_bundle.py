@@ -69,7 +69,8 @@ def test_the_workflow_is_one_sync_step_through_the_shipped_actor():
     assert [s["kind"] for s in specs] == [KIND]
     assert specs[0]["params"] == {"actor": ACTOR}
     (step,) = wf.steps
-    assert step.timeout_s and step.timeout_s > 300  # beyond the actor's max_seconds
+    assert step.timeout_s
+    assert step.timeout_s > 300  # beyond the actor's max_seconds
     assert {o.name for o in wf.outputs} >= {"pushed", "errors"}
 
 

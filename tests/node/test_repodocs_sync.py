@@ -887,3 +887,17 @@ def test_an_unwritable_state_file_fails_the_step(root):
     result = _sync(root, FakeLibrary())
     assert result.outcome == FAILED
     assert result.error.startswith("io_error")
+
+
+def test_yaml_comment_and_item_scans_match_the_old_patterns():
+    """The linear scans that replaced two backtracking regexes keep their behaviour."""
+    import re
+
+    from culture_rules.node.actions import repodocs as rd
+
+    for text in ["lib", "lib # note", "lib\t# note", "a#b", "#only", "  x  ", "", "x #"]:
+        assert rd._strip_comment(text) == re.split(r"\s+#", text, maxsplit=1)[0].strip()
+    old = re.compile(r"^\s+-\s*(.*)$")
+    for line in ["  - lib", "\t-lib", "- top", "  x", "   -   spaced  ", "  -"]:
+        match = old.match(line)
+        assert rd._yaml_item(line) == (match.group(1) if match else None)

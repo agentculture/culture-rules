@@ -165,7 +165,6 @@ _PR_SUFFIX = re.compile(r"\(#(\d+)\)\s*$")
 _PR_MERGE = re.compile(r"^Merge pull request #(\d+)\b")
 _CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _YAML_KEY = re.compile(r"^(domains|connected)\s*:(.*)$")
-_YAML_ITEM = re.compile(r"^\s+-\s*(.*)$")
 
 GitRunner = Callable[[Sequence[str], str, float], tuple[int, bytes]]
 """``runner(argv, cwd, timeout) -> (returncode, stdout bytes)``; stderr is discarded. A
@@ -219,7 +218,23 @@ def _yaml_scalar(text: str) -> str:
     if text[:1] in ("'", '"'):
         end = text.find(text[0], 1)
         return text[1:end] if end > 0 else text[1:]
-    return re.split(r"\s+#", text, maxsplit=1)[0].strip()
+    return _strip_comment(text)
+
+
+def _strip_comment(text: str) -> str:
+    """Drop a trailing ``#`` comment: a ``#`` preceded by whitespace (a linear scan)."""
+    for index in range(1, len(text)):
+        if text[index] == "#" and text[index - 1].isspace():
+            return text[:index].strip()
+    return text.strip()
+
+
+def _yaml_item(line: str) -> str | None:
+    """The value of an indented ``- item`` line, or None when the line is not one."""
+    if not line[:1].isspace():
+        return None
+    body = line.lstrip()
+    return body[1:].lstrip() if body.startswith("-") else None
 
 
 def _yaml_inline(text: str) -> list[str]:
@@ -258,10 +273,10 @@ def _yaml_block(lines: Sequence[str]) -> list[str]:
     for line in lines:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        item = _YAML_ITEM.match(line)
-        if not item:
+        item = _yaml_item(line)
+        if item is None:
             break
-        value = _yaml_scalar(item.group(1))
+        value = _yaml_scalar(item)
         if value:
             items.append(value)
     return items
@@ -835,24 +850,38 @@ class _RepoSync:
         head = self.repo.head
         assert head is not None
         pushed = entry.get("committed")
-        spec = _is_spec(rel)
         if pushed is None or pushed.get("blob") != oid:
-            data = self._blob_bytes(rel, oid, size)
-            if data is None:
-                return False
-            version = {"commit": head.sha, "committed_at": head.time}
-            body = self._commit_body(version, data)
-            links = self.repo.spec_links(rel) if spec else None
-            if links is not None:
-                body["spec_links"] = links
-            if not self._send(rel, body):
-                return False
-            entry["committed"] = {**version, "blob": oid}
-            if spec:
-                entry.update(links=_hash(links), links_at=head.sha)
-            self.run_.counts.pushed += 1
-            return True
-        if not spec or entry.get("links_at") == head.sha:
+            return self._push_changed(rel, entry, oid, size)
+        return self._refresh_links(rel, entry, pushed, oid, size)
+
+    def _push_changed(self, rel: str, entry: dict[str, Any], oid: str, size: int) -> bool:
+        """Push a committed version whose blob changed since the last push."""
+        head = self.repo.head
+        assert head is not None
+        spec = _is_spec(rel)
+        data = self._blob_bytes(rel, oid, size)
+        if data is None:
+            return False
+        version = {"commit": head.sha, "committed_at": head.time}
+        body = self._commit_body(version, data)
+        links = self.repo.spec_links(rel) if spec else None
+        if links is not None:
+            body["spec_links"] = links
+        if not self._send(rel, body):
+            return False
+        entry["committed"] = {**version, "blob": oid}
+        if spec:
+            entry.update(links=_hash(links), links_at=head.sha)
+        self.run_.counts.pushed += 1
+        return True
+
+    def _refresh_links(
+        self, rel: str, entry: dict[str, Any], pushed: dict[str, Any], oid: str, size: int
+    ) -> bool:
+        """Re-send an unchanged spec version when its spec links moved with the head."""
+        head = self.repo.head
+        assert head is not None
+        if not _is_spec(rel) or entry.get("links_at") == head.sha:
             return False
         links = self.repo.spec_links(rel)
         if links is None or _hash(links) == entry.get("links"):
