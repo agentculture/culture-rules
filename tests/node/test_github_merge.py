@@ -62,7 +62,7 @@ PROMPT = {
         }
     ],
 }
-POSTED_BY = {"run_id": PROMPT_RUN, "workflow_id": trusted.ROLE_MERGE_PROMPT}
+POSTED_BY = {"run_id": PROMPT_RUN, "workflow_id": trusted.ROLE_MERGE_PROMPT, "step": "post"}
 
 
 @pytest.fixture(scope="module")
@@ -185,6 +185,7 @@ def prompt_run(definition=None):
         "rule_id": "green-prompt",
         "workflow_id": trusted.ROLE_MERGE_PROMPT,
         "workflow": {"id": trusted.ROLE_MERGE_PROMPT, "definition": definition or PROMPT},
+        "steps": [{"key": "post", "def": "post", "status": "succeeded"}],
     }
 
 
@@ -847,3 +848,15 @@ def test_a_new_repo_for_the_pinned_app_keeps_it_trusted(pem, trust_merge):
     doc["params"]["connection"]["repos"].append("acme/other")
     store.put("actors", doc)
     assert merge(port, run_id).outcome == "completed"
+
+
+@pytest.mark.parametrize("step", ["@action", "@on_failure", "nope", "", None])
+def test_a_button_not_posted_by_a_step_of_the_prompt_workflow_is_refused(pem, trust_merge, step):
+    """The rule's own terminal action runs inside the prompt run but is not covered by the
+    workflow's digest: a button it posted (or one naming no such step) cannot merge."""
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    _stored_click(store, {**POSTED_BY, "step": step})
+    res = merge(port, run_id)
+    assert (res.error, res.retryable) == ("prompt_not_trusted", False)
+    assert resolved == [] and fake.calls == []

@@ -429,14 +429,14 @@ def test_a_valued_button_records_the_run_and_workflow_that_posted_it():
     store.put(RUNS_COLLECTION, {"id": "r", "workflow_id": "merge_prompt"})
     assert _send(port, buttons=[_btn(custom_id="merge", value=VALUE)]).outcome == "completed"
     (doc,) = _stored(store)
-    assert doc["posted_by"] == {"run_id": "r", "workflow_id": "merge_prompt"}
+    assert doc["posted_by"] == {"run_id": "r", "workflow_id": "merge_prompt", "step": "s"}
 
 
 def test_an_unknown_posting_run_records_its_id_with_no_workflow():
     port, store = _valued_port(FakeTransport())
     assert _send(port, buttons=[_btn(custom_id="merge", value=VALUE)]).outcome == "completed"
     (doc,) = _stored(store)
-    assert doc["posted_by"] == {"run_id": "r", "workflow_id": None}
+    assert doc["posted_by"] == {"run_id": "r", "workflow_id": None, "step": "s"}
 
 
 def test_a_failed_run_read_still_posts_and_records_no_workflow():
@@ -451,4 +451,4 @@ def test_a_failed_run_read_still_posts_and_records_no_workflow():
     store.get = flaky
     assert _send(port, buttons=[_btn(custom_id="merge", value=VALUE)]).outcome == "completed"
     (doc,) = _stored(store)
-    assert doc["posted_by"] == {"run_id": "r", "workflow_id": None}
+    assert doc["posted_by"] == {"run_id": "r", "workflow_id": None, "step": "s"}

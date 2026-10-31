@@ -90,13 +90,15 @@ class MessageAction:
                 components, valued = buttons_mod.prepare_buttons(input.get("buttons"))
             except ValueError as exc:
                 return _fail(f"bad_params: {exc}")
-            poster = self._posted_by(context.run_id) if valued else None
+            poster = self._posted_by(context.run_id, context.step_id) if valued else None
             return self._discord(context.actor, channel, text, components, valued, poster)
         return self._mesh(channel, text)
 
-    def _posted_by(self, run_id: str) -> dict[str, Any]:
-        """``{run_id, workflow_id}`` of the run posting valued buttons; the workflow id is read
-        from the run (``None`` when it cannot be read: github.merge then refuses the button)."""
+    def _posted_by(self, run_id: str, step: str) -> dict[str, Any]:
+        """``{run_id, workflow_id, step}`` of the run and step posting valued buttons; the
+        workflow id is read from the run (``None`` when it cannot be read: github.merge then
+        refuses the button). ``step`` is the step's key in that run, so github.merge can tell
+        a workflow step (covered by the workflow's digest) from the rule's own action."""
         workflow_id = None
         try:
             run = self._store.get(RUNS_COLLECTION, run_id)
@@ -105,7 +107,7 @@ class MessageAction:
             run = None
         if isinstance(run, Mapping) and isinstance(run.get("workflow_id"), str):
             workflow_id = run["workflow_id"]
-        return {"run_id": run_id, "workflow_id": workflow_id}
+        return {"run_id": run_id, "workflow_id": workflow_id, "step": step}
 
     def _mesh(self, channel: str, text: str) -> InvocationResult:
         executable = self._mesh_executable or shutil.which("culture")

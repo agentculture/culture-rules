@@ -88,7 +88,7 @@ from typing import Any
 from culture_rules.actors import trusted
 from culture_rules.apps.github import GitHubApp, GitHubError
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.engine.runs import ADHOC_RULE_PREFIX, RUNS_COLLECTION
+from culture_rules.engine.runs import ADHOC_RULE_PREFIX, RUNS_COLLECTION, TERMINAL_STEPS
 from culture_rules.model.discord_filters import BUTTON_CLICKED
 from culture_rules.node.actions.github import (
     ACTOR_NOT_FOUND,
@@ -176,8 +176,9 @@ def click_refusal(store: Any, run: Mapping[str, Any]) -> str | None:
 
 def prompt_refusal(store: Any, envelope: Mapping[str, Any]) -> str | None:
     """:data:`PROMPT_NOT_TRUSTED` unless the stored click ``envelope``'s ``data.posted_by``
-    names a stored run whose pinned workflow is trusted in ``merge_prompt``; ``None`` when it
-    does."""
+    names a stored run whose pinned workflow is trusted in ``merge_prompt``, and a step of that
+    run that is one of the pinned workflow's own steps (never the rule's terminal action, which
+    the workflow's digest does not cover); ``None`` when it does."""
     data = envelope.get("data")
     posted_by = data.get("posted_by") if isinstance(data, Mapping) else None
     run_id = posted_by.get("run_id") if isinstance(posted_by, Mapping) else None
@@ -188,7 +189,30 @@ def prompt_refusal(store: Any, envelope: Mapping[str, Any]) -> str | None:
         return PROMPT_NOT_TRUSTED
     if trusted.workflow_refusal(posting, (trusted.ROLE_MERGE_PROMPT,)):
         return PROMPT_NOT_TRUSTED
+    if not _workflow_step(posting, posted_by.get("step")):
+        return PROMPT_NOT_TRUSTED
     return None
+
+
+def _workflow_step(run: Mapping[str, Any], key: Any) -> bool:
+    """Whether ``key`` names a step state of ``run`` whose ``def`` is a step of the run's
+    pinned workflow definition (loop bodies included), not a terminal action."""
+    if not isinstance(key, str) or not key or key in TERMINAL_STEPS:
+        return False
+    states = [s for s in run.get("steps") or () if isinstance(s, Mapping) and s.get("key") == key]
+    if len(states) != 1 or not isinstance(states[0].get("def"), str):
+        return False
+    definition = (run.get("workflow") or {}).get("definition") or {}
+    return states[0]["def"] in _step_ids(definition.get("steps") or ())
+
+
+def _step_ids(steps: Any) -> set[str]:
+    ids: set[str] = set()
+    for s in steps if isinstance(steps, list) else ():
+        if isinstance(s, Mapping) and isinstance(s.get("id"), str):
+            ids.add(s["id"])
+            ids |= _step_ids(s.get("body"))
+    return ids
 
 
 def fence_refusal(store: Any, run_id: str | None) -> str | None:

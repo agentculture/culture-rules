@@ -47,8 +47,10 @@ prefix merges nothing. The value is
 kept for 30 days; a click after that carries `value: null`, so the merge has no
 `number` or `sha` and `github.merge` refuses it without merging.
 
-This composition is built only from documented pieces; no test drives the whole flow,
-so try it on a throwaway repo first (see [Verify](#4-verify)).
+`tests/rules/test_green_merge_flow.py` drives this composition end to end on doubles of
+GitHub and Discord, with the rules built in the test. A live setup still depends on your
+repositories' rules (branch protection, required reviews), so try it on a throwaway repo
+first (see [Verify](#4-verify)).
 
 ## 1. Rule 1: the prompt
 

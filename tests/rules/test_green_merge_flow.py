@@ -481,7 +481,7 @@ def test_a_green_pr_is_prompted_with_a_button_that_keeps_its_meaning(pem):
     assert stored == {"repo": REPO, "number": NUMBER, "sha": SHA}
     # and who posted it (d2): the prompt run and its workflow
     poster = stored_button(world.base, BOT, button["custom_id"], now=world.clock())["posted_by"]
-    assert poster == {"run_id": run["id"], "workflow_id": trusted.ROLE_MERGE_PROMPT}
+    assert poster == {"run_id": run["id"], "workflow_id": trusted.ROLE_MERGE_PROMPT, "step": "post"}
 
 
 def test_the_operator_s_click_squash_merges_the_prompted_sha_and_answers_privately(
