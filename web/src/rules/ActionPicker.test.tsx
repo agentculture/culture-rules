@@ -395,3 +395,16 @@ describe("http.call params", () => {
     expect(ACTION_KINDS["http.call"].params.save_to).toEqual({ type: "str" });
   });
 });
+
+describe("github.merge and github.pr", () => {
+  it("catalogues github.merge with repo, number and sha required and delete_branch optional", () => {
+    const p = ACTION_KINDS["github.merge"].params;
+    expect([p.actor, p.repo, p.number, p.sha].every((s) => s.required)).toBe(true);
+    expect(p.delete_branch.required).toBeFalsy();
+    expect(actionProblem({ kind: "github.merge", params: { actor: "a", repo: "o/r", number: 1 } })).toBe("empty");
+    expect(actionProblem({ kind: "github.merge", params: { actor: "a", repo: "o/r", number: 1, sha: "abc" } })).toBeNull();
+    const q = ACTION_KINDS["github.pr"].params;
+    expect([q.actor, q.repo, q.number].every((s) => s.required)).toBe(true);
+    expect(actionProblem({ kind: "github.pr", params: { actor: "a", repo: "o/r", number: 1 } })).toBeNull();
+  });
+});

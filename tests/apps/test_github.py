@@ -289,8 +289,9 @@ def test_push_token_scope_mismatch_is_refused(pem):
     assert err.value.code == "token_scope_mismatch"
 
 
-def test_app_has_no_merge_call():
-    assert not [n for n in dir(GitHubApp) if "merge" in n.lower()]
+def test_merge_pull_is_the_app_s_only_merge_call():
+    # one merge call, behind the github.merge port's fence (a click in a trusted merge workflow)
+    assert [n for n in dir(GitHubApp) if "merge" in n.lower()] == ["merge_pull"]
 
 
 def test_deadline_bounds_http_timeouts_and_refuses_when_past(pem):

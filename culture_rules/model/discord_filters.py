@@ -15,7 +15,18 @@ CUSTOM_EMOJI_RE = re.compile(r"^\w{2,32}:\d{1,25}$")
 """A server's custom emoji written ``name:id`` (Discord's 2-32 character name and its id): one
 grammar for the ``emoji`` trigger filter and ``discord.react``."""
 
-__all__ = ["CUSTOM_EMOJI_RE", "discord_channels", "emoji_admits", "emoji_ok", "filter_values"]
+BUTTON_CLICKED = "discord.button.clicked"
+"""The event a click on a bot's message button records; ``custom_id`` filters it."""
+
+__all__ = [
+    "BUTTON_CLICKED",
+    "CUSTOM_EMOJI_RE",
+    "custom_id_admits",
+    "discord_channels",
+    "emoji_admits",
+    "emoji_ok",
+    "filter_values",
+]
 
 
 def filter_values(value: Any) -> list[str]:
@@ -72,3 +83,21 @@ def emoji_admits(wanted: list[str], data: Mapping[str, Any]) -> bool:
         elif _plain(value) in {name, emoji_id} - {""}:
             return True
     return False
+
+
+def custom_id_admits(wanted: list[str], data: Mapping[str, Any]) -> bool:
+    """Whether a click's ``custom_id`` is picked by one of ``wanted`` (the ``custom_id``
+    filter, case-sensitive, since custom ids are opaque): a value ending in ``:`` is a prefix
+    (``merge:`` admits ``merge:<token>``); any other value admits the id itself or the id
+    followed by ``:`` (``merge`` admits ``merge`` and ``merge:<token>``, never
+    ``merge-later:<token>``). A click with no custom id never matches."""
+    custom_id = data.get("custom_id")
+    if not isinstance(custom_id, str) or not custom_id:
+        return False
+    return any(_custom_id_picks(value, custom_id) for value in wanted)
+
+
+def _custom_id_picks(value: str, custom_id: str) -> bool:
+    if value.endswith(":"):
+        return custom_id.startswith(value)
+    return custom_id == value or custom_id.startswith(value + ":")

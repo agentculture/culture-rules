@@ -76,12 +76,21 @@ class DiscordError(Exception):
         retryable: bool,
         retry_after: float | None = None,
         expired: bool = False,
+        outcome_unknown: bool = False,
     ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.retry_after = retry_after
         #: an interaction webhook Discord no longer accepts (401/404): the token ran out
         self.expired = expired
+        #: the request may have landed (a timeout): not retried, and not taken as refused
+        self.outcome_unknown = outcome_unknown
+
+    @property
+    def refused(self) -> bool:
+        """Whether Discord definitively did not do it: neither retryable (a 5xx, a 429, an
+        unreachable host may follow a landed post) nor of unknown outcome."""
+        return not self.retryable and not self.outcome_unknown
 
 
 def _urllib_transport(
@@ -319,19 +328,50 @@ class DiscordClient:
         the call, so no bot token is sent, and it is never logged or put in an error. Discord
         answering 401 or 404 means the token ran out: a non-retryable error with ``expired``
         set. A 429 is waited out and a 5xx is retryable."""
+        self._interaction_webhook(
+            application_id, interaction_token, "/messages/@original", "PATCH", text, {}
+        )
+        return {"edited": True}
+
+    def create_followup(
+        self, application_id: str, interaction_token: str, text: str
+    ) -> dict[str, bool]:
+        """Send ``text`` (cut to 2000 characters with an ellipsis) as a private (ephemeral)
+        follow-up message of an interaction, the way a button click is answered: after the
+        click's ``UPDATE_MESSAGE`` acknowledgement ``@original`` is the clicked message itself,
+        so it must not be edited. The interaction token authorises the call (no bot token is
+        sent; it is never logged or put in an error). 401 or 404 means the token ran out: a
+        non-retryable error with ``expired`` set. A 429 is waited out and a 5xx is retryable
+        (a retried follow-up may show twice, privately, to the one user)."""
+        self._interaction_webhook(
+            application_id, interaction_token, "", "POST", text, {"flags": 64}  # 64: ephemeral
+        )
+        return {"sent": True}
+
+    def _interaction_webhook(
+        self,
+        application_id: str,
+        interaction_token: str,
+        suffix: str,
+        method: str,
+        text: str,
+        extra: dict[str, int],
+    ) -> None:
+        """One call on an interaction's webhook (``/webhooks/{app}/{token}{suffix}``) with
+        ``text`` cut to 2000 characters, no mentions and ``extra`` body fields. Raises
+        :class:`DiscordError` unless Discord answers 2xx: 401/404 expired, 429 retryable after
+        its wait, a 5xx retryable, anything else not."""
         _check_id(application_id, "application")
         if not isinstance(interaction_token, str) or not _TOKEN_RE.match(interaction_token):
             raise DiscordError("malformed interaction token", retryable=False)
         text = str(text)
         if len(text) > MAX_CONTENT:
             text = text[: MAX_CONTENT - 1] + "\u2026"
-        body = {"content": text, "allowed_mentions": {"parse": []}}
-        path = f"/webhooks/{application_id}/{interaction_token}/messages/@original"
-        status, payload = self._send(
-            path, "PATCH", body=json.dumps(body).encode("utf-8"), bot=False
-        )
+        body = {"content": text, **extra, "allowed_mentions": {"parse": []}}
+        path = f"/webhooks/{application_id}/{interaction_token}{suffix}"
+        status, payload = self._send(path, method, body=json.dumps(body).encode("utf-8"), bot=False)
         if 200 <= status < 300:
-            return {"edited": True}
+            return
         if status in (401, 404):
             raise DiscordError("discord interaction expired", retryable=False, expired=True)
         if status == 429:
@@ -349,14 +389,18 @@ class DiscordClient:
         text: str,
         *,
         allowed_mentions_parse: Sequence[str] = (),
+        components: Sequence[Mapping[str, Any]] | None = None,
     ) -> dict[str, str]:
-        """Post ``text`` to ``channel_id``; returns ``{"message_id": ...}``."""
+        """Post ``text`` to ``channel_id``; returns ``{"message_id": ...}``. ``components``
+        (see ``button_components``) is sent as given, and left out of the body when empty."""
         if not isinstance(channel_id, str) or not _CHANNEL_RE.match(channel_id):
             raise DiscordError("channel must be a numeric Discord channel id", retryable=False)
         body = {
             "content": str(text)[:MAX_CONTENT],
             "allowed_mentions": {"parse": list(allowed_mentions_parse)},
         }
+        if components:
+            body["components"] = list(components)
         headers = self._headers()
         url = f"{self._base}/channels/{channel_id}/messages"
         try:
@@ -368,7 +412,9 @@ class DiscordClient:
                 getattr(exc, "reason", None), TimeoutError
             ):
                 # the post may have landed: a retry could duplicate the message
-                raise DiscordError("discord timed out (outcome unknown)", retryable=False)
+                raise DiscordError(
+                    "discord timed out (outcome unknown)", retryable=False, outcome_unknown=True
+                )
             raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
         if 200 <= status < 300:
             return {"message_id": str((payload or {}).get("id", ""))}
@@ -380,6 +426,49 @@ class DiscordClient:
                 retry_after=retry_after,
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
+
+
+BUTTON_STYLES = {"primary": 1, "secondary": 2, "success": 3, "danger": 4}
+MAX_BUTTONS = 5
+MAX_BUTTON_LABEL = 80
+MAX_CUSTOM_ID = 100
+
+
+def button_components(buttons: Any) -> list[dict[str, Any]]:
+    """One action row of buttons from ``[{label, style, custom_id}]``; ``[]`` for none.
+
+    Raises ``ValueError`` for anything Discord would refuse, before any network call."""
+    if buttons is None:
+        return []
+    if not isinstance(buttons, (list, tuple)):
+        raise ValueError("buttons must be a list")
+    if not buttons:
+        return []
+    if len(buttons) > MAX_BUTTONS:
+        raise ValueError(f"at most {MAX_BUTTONS} buttons")
+    row: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for i, b in enumerate(buttons):
+        button = _button(i, b)
+        if button["custom_id"] in seen:
+            raise ValueError(f"button {i} repeats custom_id {button['custom_id']!r}")
+        seen.add(button["custom_id"])
+        row.append(button)
+    return [{"type": 1, "components": row}]
+
+
+def _button(i: int, b: Any) -> dict[str, Any]:
+    """Button ``i`` as a Discord component; ``ValueError`` for anything Discord would refuse."""
+    if not isinstance(b, Mapping):
+        raise ValueError(f"button {i} must be an object")
+    label, custom_id, style = b.get("label"), b.get("custom_id"), b.get("style")
+    if not isinstance(label, str) or not label or len(label) > MAX_BUTTON_LABEL:
+        raise ValueError(f"button {i} label must be 1-{MAX_BUTTON_LABEL} characters")
+    if not isinstance(custom_id, str) or not custom_id or len(custom_id) > MAX_CUSTOM_ID:
+        raise ValueError(f"button {i} custom_id must be 1-{MAX_CUSTOM_ID} characters")
+    if not isinstance(style, str) or style not in BUTTON_STYLES:
+        raise ValueError(f"button {i} style must be one of {', '.join(BUTTON_STYLES)}")
+    return {"type": 2, "style": BUTTON_STYLES[style], "label": label, "custom_id": custom_id}
 
 
 def _retry_after(payload: Any) -> float | None:

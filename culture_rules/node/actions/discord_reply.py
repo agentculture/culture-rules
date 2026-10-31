@@ -1,4 +1,4 @@
-"""The ``discord.reply`` action: an ephemeral reply to a Discord command interaction.
+"""The ``discord.reply`` action: an ephemeral reply to a Discord command or button click.
 
 A slash or context command is acknowledged with a deferred, ephemeral "thinking" response
 (see ``apps/discord_commands.py``). This action replaces that response with ``text`` by
@@ -6,6 +6,11 @@ editing ``@original`` of the interaction webhook, so only the invoking user sees
 second message is left behind. The interaction token is read from the store by the id of
 the ``discord.command.invoked`` event (never from the event) and authorises the call: no bot
 token is used. It is never logged or echoed.
+
+A ``discord.button.clicked`` click is acknowledged differently: the gateway answers it with
+``UPDATE_MESSAGE`` (the clicked message, its buttons disabled), so its ``@original`` is the
+prompt itself. A token kept for a click (``kind: button``) is therefore answered with a new
+ephemeral follow-up message instead, seen only by the clicker; the prompt is left as it is.
 
 Input: ``event_id`` (the triggering event's id; a rule maps it from ``trigger.id``) and
 ``text`` (at most 2000 characters, longer is cut with an ellipsis). ``params.actor`` is the
@@ -24,7 +29,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from culture_rules.apps.discord_commands import interaction_token
+from culture_rules.apps.discord_commands import BUTTON_INTERACTION, interaction_token
 from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 
@@ -42,7 +47,8 @@ def _fail(error: str) -> InvocationResult:
 class DiscordReplyAction:
     """Action port for ``discord.reply``."""
 
-    # editing @original to the same text again changes nothing, so a retry is safe
+    # editing @original to the same text again changes nothing, so a retry is safe (a retried
+    # button follow-up may show twice, privately, to the clicker alone)
     supports_idempotency_key = True
 
     def __init__(
@@ -87,10 +93,14 @@ class DiscordReplyAction:
         kwargs: dict[str, Any] = {"transport": self._transport, "sleep": self._sleep}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        client = DiscordClient("", **kwargs)
+        answer = (
+            client.create_followup
+            if stored.get("kind") == BUTTON_INTERACTION
+            else client.edit_interaction_response
+        )
         try:
-            DiscordClient("", **kwargs).edit_interaction_response(
-                str(application_id), str(secret), text
-            )
+            answer(str(application_id), str(secret), text)
         except DiscordError as exc:
             log.warning("discord reply to event %s failed: %s", event_id, exc)
             if exc.expired:

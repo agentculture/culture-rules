@@ -687,9 +687,10 @@ UNTOUCHED = [
     "culture_rules/node/actions/newspaper.py",
     "culture_rules/node/actions/newspaper_render.py",
     "culture_rules/node/actions/newspaper_issue.py",
-    "culture_rules/actors/trusted.py",
-    "culture_rules/model/validate.py",
 ]
+# trusted.py and validate.py left this list with the green PR merge prompt: github.merge needs
+# the merge trust role and the click's custom_id filter needs its trigger check, so a branch
+# diff cannot tell keyset work from them either. The keysets still add no trust role or check.
 # action_kinds.py left this list in 0.38.0: the next new action kind (repodocs.sync, #124)
 # must edit the catalogue, so a branch diff cannot tell keyset work from it. The boundary
 # itself (the keysets add no action kind, h14) is checked on the catalogue below.

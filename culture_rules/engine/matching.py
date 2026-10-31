@@ -52,7 +52,12 @@ from typing import Any
 
 from culture_rules.events.emit import MAX_EVENT_HOPS, event_hops
 from culture_rules.model import condition as cond
-from culture_rules.model.discord_filters import discord_channels, emoji_admits, filter_values
+from culture_rules.model.discord_filters import (
+    custom_id_admits,
+    discord_channels,
+    emoji_admits,
+    filter_values,
+)
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
@@ -230,7 +235,10 @@ def _discord_admits(
     ``"all"`` is every channel), and who: ``users`` (ids or names, case-insensitive) and
     ``roles`` (role ids against ``data.user_roles``), ``emoji`` (a reaction's emoji,
     :func:`~culture_rules.model.discord_filters.emoji_admits`) and ``command`` (an invoked
-    command's name, case-insensitive, discord-surfaces d12). A bare string is a one-item
+    command's name, case-insensitive, discord-surfaces d12) and ``custom_id`` (a button
+    click's custom id, case-sensitive: a value ending in ``:`` is a prefix, any other is the
+    id itself or the id followed by ``:``;
+    :func:`~culture_rules.model.discord_filters.custom_id_admits`). A bare string is a one-item
     list. With both ``users`` and ``roles`` set, either admits (a listed user, or anyone holding
     a listed role); an event with no author id or name never passes a ``users`` filter, and one
     with no emoji never passes an ``emoji`` filter."""
@@ -243,6 +251,9 @@ def _discord_admits(
         return False
     emoji = filter_values(params.get("emoji"))
     if emoji and not emoji_admits(emoji, data):
+        return False
+    custom_ids = filter_values(params.get("custom_id"))
+    if custom_ids and not custom_id_admits(custom_ids, data):
         return False
     commands = {c.casefold() for c in filter_values(params.get("command"))}
     if commands and str(data.get("command") or "").casefold() not in commands:

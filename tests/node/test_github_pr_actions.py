@@ -418,10 +418,11 @@ def world(tmp_path):
 # ---------------------------------------------------------------- catalogue
 
 
-def test_no_merge_action_kind_exists():
+def test_github_merge_is_the_only_merge_kind():
+    """Neither push nor review_reply merges; the one merge kind is the fenced github.merge."""
     assert "github.push" in ACTION_KINDS
     assert "github.review_reply" in ACTION_KINDS
-    assert not [k for k in ACTION_KINDS if "merge" in k]
+    assert [k for k in ACTION_KINDS if "merge" in k] == ["github.merge"]
 
 
 # ---------------------------------------------------------------- github.push

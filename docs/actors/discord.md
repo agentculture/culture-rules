@@ -322,6 +322,77 @@ flow can so show its progress on the message: ⏳ when it starts, ⌛ (removing 
 after a meaningful middle step, then ✅ (removing ⌛ and ⏳) when it is done.
 Which marks, and at which steps, is the flow's configuration.
 
+## Buttons
+
+`discord.message` takes an optional `buttons` list: up to 5 objects, each with
+a `label` (1-80 characters), a `style` (`success`, `primary`, `secondary` or
+`danger`), a `custom_id` (1-100 characters, unique within the message) and an
+optional `value`. A bad list is refused `bad_params` before anything is posted.
+With buttons the action returns `message_id` and `custom_ids`, the ids as
+posted, in button order.
+
+A button's `value` is what the button means: a JSON object (string keys;
+strings, numbers, booleans, `null`, and nested objects or lists of those) of at
+most 4096 bytes as compact JSON, typically references the engine resolves
+before the post (`{"number": "trigger.data.number"}`). A button with a `value`
+is posted with the id `<custom_id>:<token>`, a fresh random token, so its given
+`custom_id` (then at most 77 characters) is a prefix; the meaning is not in the
+id, and nothing has to parse it. Before the message is posted, the port stores
+one document per valued button in `discord_buttons`, keyed by the actor and the
+posted id, with the value, the channel, `posted_by` and, once posted, the
+message id. `posted_by` is `{run_id, workflow_id, step}`: the run whose step
+posted the button, that run's workflow id (`null` when the run could not be
+read) and the step's key in the run (`@action` for a rule's own action).
+`github.merge` merges only a button posted by a step of a workflow trusted in
+the `merge_prompt` role ([the GitHub guide](github.md)). A post
+Discord refuses (a 4xx other than 429) deletes them again; after a timeout, a
+5xx, a 429 or a lost connection the message may be up, so they are kept. The
+documents expire after 30 days (a TTL
+index), and a click after that carries no value. A button without a `value`
+is posted with its `custom_id` unchanged.
+
+Only the bot's own `discord.message` writes a value. A click hands back only
+the posted id, so a clicker cannot change or invent what the button means.
+
+An actor that lists `discord.button.clicked` in `params.events` hears clicks. A
+click becomes a `discord.button.clicked` event with `custom_id`, `message_id`,
+`channel_id`, `guild_id`, `interaction_id`, the clicker's `user_id` and
+`username` (also as `author_id` and `author_name`), `user_roles`, `bot` and
+`value` (the stored value of that button, or `null` when it has none or it
+expired; a step reads it as `trigger.data.value.<key>`) and `posted_by` (the
+stored `{run_id, workflow_id}` of the run that posted it, or `null`; like
+`value`, never taken from the click). Like
+other Discord events it is recorded only from a channel that an enabled rule
+selects, and the interaction's token is never in the event: it is kept for 15
+minutes in `discord_interactions` (kind `button`).
+
+Every click is answered within Discord's 3 seconds:
+
+- a click an enabled rule admits **updates the message with its buttons
+  disabled** (a slow write is first acknowledged as a deferred update), so a
+  prompt is clicked once. A rule admits a click only when every filter of its
+  trigger does (`channels`, `users`, `roles`, `custom_id`, `include_bots`),
+  checked by the gateway before anything is written;
+- a click no rule admits (another user's click on a `users`-filtered rule, a
+  `custom_id` no rule picks) is answered privately "This button is not set up
+  here.": no event is recorded, no token is kept and the buttons stay enabled;
+- a click whose event could not be saved gets the same not-saved text as a
+  command.
+
+The trigger filter `custom_id` (a string or a list, case-sensitive) picks the
+button, on a `discord.button.clicked` trigger only; `users`, `roles`, `channels`
+and `include_bots` apply as for messages. A value that ends with `:` is a
+prefix: `merge:` picks every id that starts `merge:`. Any other value picks the
+id itself or the id followed by `:`: `merge` picks `merge` and `merge:<token>`
+(a valued button given `merge`), but never `merge-later:<token>`. So for a
+valued button, filter on its given `custom_id`, with or without the `:`.
+
+`discord.reply` with the click's `event_id` (`trigger.id`) answers the clicker
+with a private follow-up (it does not edit the message); after 15 minutes the
+token is gone and the reply fails `interaction_expired`.
+
+A worked example is in [the green PR merge guide](../operations/green-pr-merge.md).
+
 ## Commands
 
 Which commands a bot offers is configuration: nothing is built in. An actor

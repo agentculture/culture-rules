@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-10-31
+
+### Added
+
+- Green PR merge prompt (spec docs/specs/2026-10-31-green-pr-merge-prompt.md, plan docs/plans/2026-10-31-green-pr-merge-prompt.md): the action kind `github.merge` (squash at a required `sha`, optional `delete_branch`, a once claim so an unknown outcome is never re-sent) and the read-only `github.pr`; `discord.message` `buttons`, the event `discord.button.clicked` (answered within 3 s) and its `custom_id` trigger filter (a value ending in `:` is a prefix; any other picks the id itself or the id followed by `:`, so `merge` never picks `merge-later:<token>`), and `discord.reply` answering a click privately; the editor pickers know them. Guide docs/operations/green-pr-merge.md and the actor guides. Release step: the `merge` trust role (`actors/trusted.py`) ships with no digest, so `github.merge` refuses every run until a release pins the live merge workflow (id `merge`) v2 digest. The prompt and merge rules are configured live, never committed
+- The merge fence also pins where the button came from (deviation d2): `discord_buttons` records `posted_by` (the run and workflow whose `discord.message` posted each valued button), the click event carries it as `data.posted_by` (never from the click), and `github.merge` refuses `prompt_not_trusted` unless the stored click's posting run pinned a workflow trusted in the new `merge_prompt` role (shipped empty, like `merge`; going live pins two digests), and refuses `actor_not_app` for an actor whose `kind` is not `app`
+- A `discord.message` button may carry a `value` (a JSON object, at most 4096 bytes; deviation d1): it is posted as `<custom_id>:<token>`, its value is stored in `discord_buttons` before the post (30-day TTL, deleted again when Discord refuses the post, kept when the post may have landed) and the gateway attaches it to the click as `data.value`, so the click workflow reads `trigger.data.value.*` and no `custom_id` is parsed; the action also returns the posted `custom_ids`, and the editor has a Value field per button
+
+### Changed
+
+- `github.merge` is the one merge kind, fenced by an operator click and a trusted merge role; it replaces the earlier wording that no merge kind exists and merging stays a human gate (the gate is now the click)
+
 ## [0.38.2] - 2026-10-31
 
 ### Added

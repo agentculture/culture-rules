@@ -44,7 +44,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
-from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
+from culture_rules.apps.github import (
+    DEFAULT_API_BASE,
+    GitHubApp,
+    GitHubError,
+    Transport,
+    pr_facts,
+)
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import DuplicateKeyError
@@ -339,6 +345,84 @@ class GitHubCommentPort:
             changes = {"state": UNKNOWN, "error": result.error}
             self._store.update_if(ONCE_COLLECTION, claim_id, {"state": CLAIMED}, changes)
         return result
+
+
+class GitHubPrPort(GitHubCommentPort):
+    """Read-only ``github.pr`` port: the facts a configured prompt needs about one PR.
+
+    Input ``{repo, number}`` (the repo must be in the actor's allowlist); completes with
+    scalars only: ``title``, ``url`` (the PR's ``html_url``), ``author`` (the user login),
+    ``draft``, ``state``, ``merged``, ``head_repo`` and ``base_repo`` (``owner/name``, so a
+    fork PR is ``head_repo != base_repo``; ``None`` for a deleted fork), ``head_branch``,
+    ``head_sha``, ``base_branch`` and ``base_sha``. A fact GitHub did not report validly is
+    ``None``, never defaulted. One GET, so retrying is harmless; the whole lookup honours the
+    invocation ``deadline`` like :class:`GitHubPrHeadPort`."""
+
+    supports_idempotency_key = True
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        _idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        actor_id = context.actor or input.get("actor")
+        conn = self._connection(actor_id)
+        if conn is None:
+            self._apps.pop(str(actor_id), None)
+            return InvocationResult.failed(ACTOR_NOT_FOUND, retryable=False)
+        repo = input.get("repo")
+        allowed, refusal = repo_refusal(conn, repo)
+        if refusal:
+            return InvocationResult.failed(refusal, retryable=False)
+        number, _check = _head_request(input)
+        if number is None:
+            return InvocationResult.failed(BAD_INPUT, retryable=False)
+        try:
+            app = self._app_within(str(actor_id), conn, allowed, deadline)
+        except GitHubError as exc:
+            return InvocationResult.failed(exc.code, retryable=exc.retryable)
+        if app is None:
+            return InvocationResult.failed(SECRET_UNAVAILABLE, retryable=False)
+        try:
+            with app.deadline(deadline):
+                pull = app.get_pull(repo, number)
+        except GitHubError as exc:
+            return InvocationResult.failed(exc.code, retryable=exc.retryable)
+        out = _pr_read(pull)
+        if out is None:
+            return InvocationResult.failed("bad_response", retryable=True)
+        return InvocationResult.completed(out)
+
+
+_PR_READ_FACTS = (
+    "head_repo",
+    "base_repo",
+    "head_branch",
+    "head_sha",
+    "base_branch",
+    "base_sha",
+    "state",
+    "draft",
+)
+
+
+def _pr_read(pull: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The scalar facts of ``github.pr`` from a pull document; ``None`` when it names no
+    valid head commit."""
+    facts = pr_facts(dict(pull))
+    if "head_sha" not in facts:
+        return None
+    out: dict[str, Any] = {key: facts.get(key) for key in _PR_READ_FACTS}
+    out["author"] = facts.get("pr_author")
+    for key, field in (("title", "title"), ("url", "html_url")):
+        value = pull.get(field)
+        out[key] = value if isinstance(value, str) else None
+    merged = pull.get("merged")
+    out["merged"] = merged if isinstance(merged, bool) else None
+    return out
 
 
 class GitHubPrHeadPort(GitHubCommentPort):

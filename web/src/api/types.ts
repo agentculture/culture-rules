@@ -51,6 +51,8 @@ export interface EventTriggerParams {
   emoji?: string[];
   /** discord.command.invoked: the command name, or several (any of them matches); absent = any command. */
   command?: string | string[];
+  /** discord.button.clicked: the button custom_id, or several, matched as a prefix; absent = any button. */
+  custom_id?: string | string[];
   /** discord.* events: also fire for messages from bots (default off). */
   include_bots?: boolean;
   max_fires_per_hour?: number;
@@ -112,6 +114,8 @@ export type ActionKind =
   | "discord.reply"
   | "discord.sweep"
   | "github.comment"
+  | "github.merge"
+  | "github.pr"
   | "jira.comment"
   | "http.call"
   | "machine.command"
@@ -141,6 +145,18 @@ export interface Action {
    * the run on its concurrency key, so a chain of rules posts one comment.
    */
   only_at_chain_end?: boolean;
+}
+
+/**
+ * One `discord.message` button. With a `value` (a JSON object), the posted id is
+ * `<custom_id>:<token>` and the value is kept server-side, then carried by the click's
+ * `discord.button.clicked` event as `data.value`.
+ */
+export interface DiscordButton {
+  label: string;
+  style: string;
+  custom_id: string;
+  value?: Record<string, unknown>;
 }
 
 export interface Placement {

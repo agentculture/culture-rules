@@ -291,6 +291,85 @@ A `ping` answers `200 {"pong": true}`. A redelivery is deduplicated by
 `X-GitHub-Delivery`. It is never looked up again, so it cannot change what
 was stored.
 
+## Reading and merging a PR
+
+Two action kinds use the App beyond comments and pushes. Both take
+`params.actor` (the GitHub app actor's id, written as a plain id), `repo` (in
+the actor's `connection.repos`) and `number`.
+
+### `github.pr` (read only)
+
+Reads one PR as the App and outputs `title`, `url`, `author`, `draft`, `state`,
+`merged`, `head_repo`, `base_repo` (both `owner/name`; `head_repo` different
+from `base_repo` means a fork), `head_branch`, `head_sha`, `base_branch` and
+`base_sha`. It writes nothing.
+
+### `github.merge` (squash, fenced)
+
+The one merge kind in culture-rules. It squash-merges a PR as the App, at the
+commit a prompt was shown for. Params: `actor`, `repo`, `number` (an integer;
+a string, a float or a boolean is refused `bad_input`), `sha` (required: the
+full 40-hex head commit) and `delete_branch` (optional boolean).
+The method is always `squash`.
+
+Merging stays a human gate, fenced by an operator's click on a button a
+trusted prompt posted, in a trusted merge workflow. The fence is checked first,
+from the store only, before any secret is read or any request is made. A
+refused call fails the step without retry:
+
+| Error | Meaning |
+|---|---|
+| `actor_not_app` | The `actor`'s `kind` is not `app`. Only an App's trust digest covers its connection |
+| `not_started_by_click` | The run was not its rule firing on a stored `discord.button.clicked` event. A direct run, a scheduled run, a run started through the API and a chained run are all refused |
+| `workflow_not_trusted` | The run's pinned workflow is not trusted in the `merge` role (below) |
+| `prompt_not_trusted` | The clicked button was not posted by a trusted prompt. The **stored** click event's `data.posted_by` (copied from `discord_buttons`, never from the click, the run's inputs or its params) must name a run that is still stored, that run's pinned workflow must be trusted in the `merge_prompt` role (below), and `posted_by.step` must be one of that workflow's own steps. A click with no `posted_by`, a posting run that is gone, a button posted by any other workflow and one posted by the rule's own action (`@action`, which the workflow's digest does not cover) are all refused |
+| `actor_not_trusted` | The App actor's security fields (`kind`, `machine`, `surface`, `commit_author`, `permissions`, and `app_id`, `installation_id` and `private_key` of its connection) do not match a digest pinned in `TRUSTED_ACTOR_DIGESTS`, as for `github.push`. `github-app` is pinned; `repos` is not part of the digest |
+| `rule_disabled`, `workflow_disabled` | The run's rule or workflow is no longer enabled |
+| `run_not_found` | The run is gone |
+
+Which person may click is the click rule's `users` (or `roles`) filter, which
+is configuration (see [the merge prompt guide](../operations/green-pr-merge.md)).
+
+After the fence, the port reads the PR and refuses `pr_not_open` (closed or
+already merged) and `head_moved` (its head is no longer `sha`). Then it calls
+`PUT /repos/{repo}/pulls/{number}/merge` with `sha` and `merge_method:
+squash`. GitHub answers `409` when the head moved and `405` when it cannot
+merge the PR; every 4xx except 408 fails the step without retry. The REST
+merge has no idempotency key, so the port claims `repo#number#sha` first: an
+outcome it cannot know (a 5xx, a timeout, a lost answer) is never sent blindly.
+A later call (the engine's retry, or another click) reads the PR first:
+
+- merged, it completes with the merge commit;
+- still open at exactly `sha`, the merge did not happen, so it is sent again
+  (GitHub merges a PR once, and `sha` pins the commit), at most 3 times per
+  claim; a claim still in flight is left alone until it is 10 minutes old (a
+  crash mid-send);
+- moved or closed unmerged, it fails `head_moved` or `pr_not_open` and releases
+  the claim;
+- otherwise (the re-sends spent, a claim in flight) it fails
+  `merge_outcome_unknown`. Check the PR on GitHub; the claim is the
+  `github_merge_once` document for that repo, PR and sha.
+
+With `delete_branch: true`, after a merge and only when the PR's head is in
+`repo` itself (never a fork's), the branch is deleted. A branch already gone is
+not a failure; any other delete error is reported in `branch_delete_error`
+and the merge still counts. The result is kept on the claim. A repeat call with
+`delete_branch: true` that finds the PR merged (`merged_before` with no delete
+kept yet, or `merged_unconfirmed`) deletes the branch the same way; a delete
+already kept, or its error, is not sent again.
+
+Outputs: `merged` (boolean), `sha` (the merge commit GitHub made),
+`branch_deleted`, `branch_delete_error` (an error code, or `null`) and, on a
+repeat, `skipped` (`merged_before` or `merged_unconfirmed`).
+
+The `merge` and `merge_prompt` roles ship **with no digest**: both workflows
+are live configuration, so until a release pins their digests in
+`culture_rules/actors/trusted.py`, `github.merge` refuses every run, with
+`workflow_not_trusted` (the merge workflow, whose id must be `merge`) or
+`prompt_not_trusted` (the prompt workflow that posts the button, whose id must
+be `merge_prompt`). The release step is in
+[the guide](../operations/green-pr-merge.md#3-pin-the-merge-workflow).
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -300,6 +379,11 @@ was stored.
 | A comment fails `repo_not_allowed` | The repository is not in `connection.repos` |
 | A comment fails `actor_misconfigured` | `app_id` or `installation_id` is empty |
 | A comment fails `secret_unavailable` | The node was not started with the private-key injection |
+| A merge fails `workflow_not_trusted` | The merge workflow's digest is not pinned in the `merge` role, or the workflow was edited after the pin |
+| A merge fails `prompt_not_trusted` | The clicked button was not posted by the pinned `merge_prompt` workflow: its digest is not pinned, it was edited after the pin, another workflow posted the button, or the button predates `posted_by` |
+| A merge fails `actor_not_app` | The merge's `actor` is not an `app` actor; use `github-app` |
+| A merge fails `actor_not_trusted` | The merge's `actor` is not a pinned App actor, or its security fields changed since the pin; use `github-app` |
+| A merge fails `head_moved` or `http_409` | The PR got a new commit after the prompt; nothing was merged |
 
 ## On rules.culture.dev
 

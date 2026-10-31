@@ -134,3 +134,121 @@ describe("Release 3 kinds", () => {
     });
   });
 });
+
+describe("discord.message buttons", () => {
+  it("adds, edits and removes button rows, at most five", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await user.click(screen.getByRole("button", { name: "Add button" }));
+    await user.type(screen.getByLabelText("Button 1 label"), "Merge");
+    await user.selectOptions(screen.getByLabelText("Button 1 style"), "success");
+    await user.type(screen.getByLabelText("Button 1 custom id"), "merge:1");
+    const saved = () => JSON.parse(screen.getByTestId("saved").textContent ?? "{}").params.buttons;
+    expect(saved()).toEqual([{ label: "Merge", style: "success", custom_id: "merge:1" }]);
+    for (let i = 0; i < 4; i++) await user.click(screen.getByRole("button", { name: "Add button" }));
+    expect(screen.getByRole("button", { name: "Add button" })).toBeDisabled();
+    for (let i = 5; i > 0; i--) await user.click(screen.getByRole("button", { name: `Remove button ${i}` }));
+    expect(saved()).toBeUndefined();
+  });
+
+  it("saves a button's value as a JSON object and refuses invalid JSON", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await user.click(screen.getByRole("button", { name: "Add button" }));
+    await user.type(screen.getByLabelText("Button 1 label"), "Merge");
+    await user.type(screen.getByLabelText("Button 1 custom id"), "merge");
+    const saved = () => JSON.parse(screen.getByTestId("saved").textContent ?? "{}").params.buttons;
+    const box = screen.getByLabelText("Button 1 value");
+    await user.type(box, '{{"number": 7');
+    expect(screen.getByRole("alert")).toHaveTextContent("Button 1 value must be a JSON object");
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge" }]);
+    await user.type(box, "}");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge", value: { number: 7 } }]);
+    await user.type(box, "x");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(saved()[0].value).toEqual({ number: 7 });
+    await user.clear(box);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge" }]);
+    await user.type(box, "[[1]");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge" }]);
+  });
+
+  it("shows a stored value as JSON", () => {
+    const action: Action = {
+      kind: "discord.message",
+      params: { actor: "discord-bot", buttons: [{ label: "Merge", style: "success", custom_id: "merge", value: { n: 1 } }] },
+    };
+    render(<ActionPicker value={action} actors={[BOT]} triggerType="discord.message.created" onChange={() => {}}
+      loadDiscordTargets={async () => TARGETS} />);
+    expect(JSON.parse((screen.getByLabelText("Button 1 value") as HTMLTextAreaElement).value)).toEqual({ n: 1 });
+  });
+
+  const two: Action = {
+    kind: "discord.message",
+    params: {
+      actor: "discord-bot",
+      buttons: [
+        { label: "A", style: "primary", custom_id: "a", value: { n: 1 } },
+        { label: "B", style: "primary", custom_id: "b", value: { n: 2 } },
+      ],
+    },
+  };
+  const picker = (value: Action) => (
+    <ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={() => {}}
+      loadDiscordTargets={async () => TARGETS} />
+  );
+  const valueOf = (n: number) => JSON.parse((screen.getByLabelText(`Button ${n} value`) as HTMLTextAreaElement).value);
+
+  it("shows the next button's value after the first is removed", async () => {
+    function Keep() {
+      const [value, setValue] = useState<Action>(two);
+      return <>{<ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
+        loadDiscordTargets={async () => TARGETS} />}<output data-testid="saved">{JSON.stringify(value)}</output></>;
+    }
+    const user = userEvent.setup();
+    render(<Keep />);
+    await user.click(screen.getByRole("button", { name: "Remove button 1" }));
+    expect(valueOf(1)).toEqual({ n: 2 });
+    expect(JSON.parse(screen.getByTestId("saved").textContent ?? "{}").params.buttons).toEqual([(two.params as { buttons: unknown[] }).buttons[1]]);
+  });
+
+  it("shows new values when params are reset from outside", () => {
+    const { rerender } = render(picker(two));
+    const reset: Action = { ...two, params: { ...two.params, buttons: [{ label: "C", custom_id: "c", value: { n: 9 } }] } };
+    rerender(picker(reset));
+    expect(valueOf(1)).toEqual({ n: 9 });
+  });
+
+  it("limits a valued button's custom id to 77 characters and flags a longer one", async () => {
+    const long = "x".repeat(90);
+    const withLong = (value?: object): Action => ({
+      kind: "discord.message",
+      params: { actor: "discord-bot", channel: "101", text: "hi", buttons: [{ label: "A", style: "primary", custom_id: long, ...(value ? { value } : {}) }] },
+    });
+    expect(actionProblem(withLong())).toBeNull();
+    expect(actionProblem(withLong({ n: 1 }))).toBe("invalid_value");
+    const first = render(picker(withLong({ n: 1 })));
+    expect(screen.getByRole("alert")).toHaveTextContent("at most 77");
+    const user = userEvent.setup();
+    function Fresh() {
+      const [value, setValue] = useState<Action>({
+        kind: "discord.message",
+        params: { actor: "discord-bot", buttons: [{ label: "A", style: "primary", custom_id: "", value: { n: 1 } }] },
+      });
+      return <ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
+        loadDiscordTargets={async () => TARGETS} />;
+    }
+    first.unmount();
+    render(<Fresh />);
+    const input = screen.getByLabelText("Button 1 custom id") as HTMLInputElement;
+    await user.type(input, "y".repeat(90));
+    expect(input.value).toHaveLength(77);
+  });
+});

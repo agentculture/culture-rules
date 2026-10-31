@@ -1,8 +1,8 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { getDiscordTargets } from "../api/actors";
 import { useDiscordTargets, type LoadTargets } from "./useDiscordTargets";
 import type { Actor, HttpPolicy, RunnerActorParams } from "../api/actors";
-import type { Action, Workflow } from "../api/types";
+import type { Action, DiscordButton, Workflow } from "../api/types";
 
 type ParamType = "str" | "int" | "number" | "bool" | "dict" | "list" | "any";
 
@@ -63,7 +63,7 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   message: { label: "Send a message on the mesh", params: { channel: RS, text: RS } },
   "discord.message": {
     label: "Post a message on Discord",
-    params: { actor: RS, guild: S, channel: RS, text: RS },
+    params: { actor: RS, guild: S, channel: RS, text: RS, buttons: { type: "list" } },
   },
   "discord.read": {
     label: "Read a Discord message in full",
@@ -93,6 +93,14 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   "github.comment": {
     label: "Comment on GitHub",
     params: { actor: RS, repo: RS, number: RI, body: RS },
+  },
+  "github.merge": {
+    label: "Merge a GitHub PR",
+    params: { actor: RS, repo: RS, number: RI, sha: RS, delete_branch: { type: "bool" } },
+  },
+  "github.pr": {
+    label: "Read a GitHub PR",
+    params: { actor: RS, repo: RS, number: RI },
   },
   "github.push": {
     label: "Push a fix to a GitHub PR",
@@ -287,13 +295,17 @@ export function actionProblem(stored: Action): "no_actor_port" | "empty" | "inva
   for (const [name, p] of Object.entries(spec.params)) {
     if (name !== "actor" && p.required && isEmpty(params[name])) return "empty";
   }
-  for (const group of spec.anyOf ?? []) {
-    if (group.every((name) => isEmpty(params[name]))) return "empty";
-  }
+  if ((spec.anyOf ?? []).some((group) => group.every((name) => isEmpty(params[name])))) return "empty";
   for (const [name, p] of Object.entries(spec.params)) {
     if (!isEmpty(params[name]) && !typeOk(p, params[name])) return "invalid_value";
   }
-  return null;
+  return buttonsTooLong(action.kind, params) ? "invalid_value" : null;
+}
+
+/** A discord.message button whose posted id would pass Discord's 100 characters. */
+function buttonsTooLong(kind: string, params: Record<string, unknown>): boolean {
+  if (canonical(kind) !== "discord.message" || !Array.isArray(params.buttons)) return false;
+  return (params.buttons as DiscordButton[]).some((b) => buttonIdTooLong(b));
 }
 
 const enabled = (a: Actor) => a.enabled !== false;
@@ -869,6 +881,158 @@ function ChoiceField({ id, name, p, value, onPick }: Readonly<ChoiceFieldProps>)
   );
 }
 
+const BUTTON_STYLES = ["success", "primary", "secondary", "danger"] as const;
+const MAX_BUTTONS = 5;
+type ButtonSpec = DiscordButton;
+
+/** The server appends `:<22-char token>` to a valued button's id, so it may be 77 long at most. */
+const MAX_CUSTOM_ID = 100;
+const MAX_VALUED_CUSTOM_ID = 77;
+const hasValue = (b: ButtonSpec) => b.value !== undefined && b.value !== null;
+const idLimit = (b: ButtonSpec) => (hasValue(b) ? MAX_VALUED_CUSTOM_ID : MAX_CUSTOM_ID);
+function buttonIdTooLong(b: ButtonSpec): boolean {
+  return (b.custom_id ?? "").length > idLimit(b);
+}
+
+function isJsonObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * A button's optional `value`: JSON text, saved only when it parses to an object (empty text
+ * removes it). The bot's own post keeps it server-side; a clicker cannot change it.
+ */
+function ButtonValueField({
+  index,
+  value,
+  onChange,
+}: Readonly<{ index: number; value: unknown; onChange: (v: Record<string, unknown> | undefined) => void }>) {
+  const [text, setText] = useState(() => (value === undefined ? "" : JSON.stringify(value)));
+  const [problem, setProblem] = useState(false);
+  const id = `button-${index}-value-problem`;
+  // Follow the prop when it changes to something the text does not already stand for (a row
+  // removed above, params reset from outside); an invalid in-progress edit leaves the prop alone.
+  const key = JSON.stringify(value) ?? "";
+  useEffect(() => {
+    let parsed: unknown;
+    try {
+      parsed = text.trim() ? JSON.parse(text) : undefined;
+    } catch {
+      parsed = undefined;
+    }
+    if (JSON.stringify(parsed) !== (key || undefined)) {
+      setText(key);
+      setProblem(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const change = (next: string) => {
+    setText(next);
+    if (!next.trim()) {
+      setProblem(false);
+      onChange(undefined);
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(next);
+    } catch {
+      parsed = undefined;
+    }
+    if (isJsonObject(parsed)) {
+      setProblem(false);
+      onChange(parsed);
+    } else {
+      setProblem(true);
+    }
+  };
+  return (
+    <label>
+      <span>{`Button ${index + 1} value`}</span>
+      <textarea
+        value={text}
+        rows={2}
+        aria-invalid={problem}
+        aria-describedby={problem ? id : undefined}
+        placeholder='{"number": 12}'
+        onChange={(e) => change(e.target.value)}
+      />
+      {problem ? (
+        <span id={id} className="notice notice--error" role="alert">
+          {`Button ${index + 1} value must be a JSON object`}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+/**
+ * discord.message `buttons`: up to five rows of label, style, custom id and an optional value,
+ * with add and remove.
+ */
+function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: (v: unknown) => void }>) {
+  const rows: ButtonSpec[] = Array.isArray(value) ? (value as ButtonSpec[]) : [];
+  const save = (next: ButtonSpec[]) => onChange(next.length ? next : undefined);
+  const edit = (i: number, patch: Partial<ButtonSpec>) =>
+    save(
+      rows.map((r, j) => {
+        if (j !== i) return r;
+        const next = { ...r, ...patch };
+        if ("value" in patch && patch.value === undefined) delete next.value;
+        return next;
+      }),
+    );
+  return (
+    <fieldset className="action-picker__buttons">
+      <legend>Buttons</legend>
+      {rows.map((r, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <div key={i} className="action-picker__button-row">
+          <label>
+            <span>{`Button ${i + 1} label`}</span>
+            <input value={r.label ?? ""} maxLength={80} onChange={(e) => edit(i, { label: e.target.value })} />
+          </label>
+          <label>
+            <span>{`Button ${i + 1} style`}</span>
+            <select value={r.style ?? "primary"} onChange={(e) => edit(i, { style: e.target.value })}>
+              {BUTTON_STYLES.map((s) => (
+                <option key={s} value={s}>
+                  {cap(s)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{`Button ${i + 1} custom id`}</span>
+            <input
+              value={r.custom_id ?? ""}
+              maxLength={Math.max(idLimit(r), (r.custom_id ?? "").length)}
+              aria-invalid={buttonIdTooLong(r)}
+              onChange={(e) => edit(i, { custom_id: e.target.value })}
+            />
+            {buttonIdTooLong(r) ? (
+              <span className="notice notice--error" role="alert">
+                {`Button ${i + 1} custom id must be at most ${MAX_VALUED_CUSTOM_ID} characters when it has a value`}
+              </span>
+            ) : null}
+          </label>
+          <ButtonValueField index={i} value={r.value} onChange={(v) => edit(i, { value: v })} />
+          <button type="button" onClick={() => save(rows.filter((_, j) => j !== i))}>
+            {`Remove button ${i + 1}`}
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        disabled={rows.length >= MAX_BUTTONS}
+        onClick={() => save([...rows, { label: "", style: "primary", custom_id: "" }])}
+      >
+        Add button
+      </button>
+    </fieldset>
+  );
+}
+
 /** A single param's field: the command / args / choice selects, the headers rows, or a value. */
 function ParamField({
   id,
@@ -939,6 +1103,9 @@ function ParamField({
         <span>{BOOL_LABELS[name] ?? cap(name)}</span>
       </label>
     );
+  }
+  if (name === "buttons") {
+    return <ButtonsField value={params[name]} onChange={(v) => setParam(name, v)} />;
   }
   if (p.type === "dict") {
     return <HeadersField key={name} value={params[name]} onChange={(v) => setParam(name, v)} />;

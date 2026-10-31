@@ -140,9 +140,28 @@ def test_the_token_is_kept_by_event_id_and_expires():
     assert doc["expires_at"] == now + dc.INTERACTION_TOKEN_TTL
     assert dc.INTERACTION_TOKEN_TTL == timedelta(minutes=15)
     got = dc.interaction_token(store, "hook_discord_x", now=now + timedelta(minutes=14))
-    assert got == {"token": secret, "application_id": APP_ID, "actor": "bot"}
+    assert got == {"token": secret, "application_id": APP_ID, "actor": "bot", "kind": "command"}
     assert dc.interaction_token(store, "hook_discord_x", now=now + timedelta(minutes=15)) is None
     assert dc.interaction_token(store, "missing", now=now) is None
+
+
+def test_a_button_token_is_kept_with_its_kind():
+    store = MemoryStore()
+    now = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
+    dc.remember_interaction(store, "e", "t", APP_ID, "bot", now=now, kind=dc.BUTTON_INTERACTION)
+    assert store.get(dc.INTERACTIONS_COLLECTION, "e")["kind"] == "button"
+    assert dc.interaction_token(store, "e", now=now)["kind"] == "button"
+
+
+def test_a_token_kept_before_kinds_existed_reads_as_a_command():
+    store = MemoryStore()
+    now = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
+    store.put(
+        dc.INTERACTIONS_COLLECTION,
+        {"id": "e", "token": "t", "application_id": APP_ID, "actor": "bot", "expires_at": now},
+    )
+    got = dc.interaction_token(store, "e", now=now - timedelta(minutes=1))
+    assert got["kind"] == dc.COMMAND_INTERACTION
 
 
 def test_a_naive_stored_expiry_is_read_as_utc():

@@ -49,7 +49,7 @@ def test_valid_action_step_in_a_loop_body_passes():
 
 
 def test_unknown_action_kind_is_refused():
-    found = codes(action_wf("github.merge", {"actor": "gh-app"}))
+    found = codes(action_wf("github.rebase", {"actor": "gh-app"}))
     assert ("steps[0].config.action.kind", "action_kind_unknown") in found
 
 
