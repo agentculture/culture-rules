@@ -326,15 +326,33 @@ Which marks, and at which steps, is the flow's configuration.
 
 `discord.message` takes an optional `buttons` list: up to 5 objects, each with
 a `label` (1-80 characters), a `style` (`success`, `primary`, `secondary` or
-`danger`) and a `custom_id` (1-100 characters, unique within the message). A
-bad list is refused `bad_params` before anything is posted; the action still
-returns `message_id`. A `custom_id` is opaque to Discord and to the engine: it
-is only handed back when the button is clicked.
+`danger`), a `custom_id` (1-100 characters, unique within the message) and an
+optional `value`. A bad list is refused `bad_params` before anything is posted.
+With buttons the action returns `message_id` and `custom_ids`, the ids as
+posted, in button order.
+
+A button's `value` is what the button means: a JSON object (string keys;
+strings, numbers, booleans, `null`, and nested objects or lists of those) of at
+most 4096 bytes as compact JSON, typically references the engine resolves
+before the post (`{"number": "trigger.data.number"}`). A button with a `value`
+is posted with the id `<custom_id>:<token>`, a fresh random token, so its given
+`custom_id` (then at most 77 characters) is a prefix; the meaning is not in the
+id, and nothing has to parse it. Before the message is posted, the port stores
+one document per valued button in `discord_buttons`, keyed by the actor and the
+posted id, with the value, the channel and, once posted, the message id. A post
+that fails deletes them again. The documents expire after 30 days (a TTL
+index), and a click after that carries no value. A button without a `value`
+is posted with its `custom_id` unchanged.
+
+Only the bot's own `discord.message` writes a value. A click hands back only
+the posted id, so a clicker cannot change or invent what the button means.
 
 An actor that lists `discord.button.clicked` in `params.events` hears clicks. A
 click becomes a `discord.button.clicked` event with `custom_id`, `message_id`,
 `channel_id`, `guild_id`, `interaction_id`, the clicker's `user_id` and
-`username` (also as `author_id` and `author_name`), `user_roles` and `bot`. Like
+`username` (also as `author_id` and `author_name`), `user_roles`, `bot` and
+`value` (the stored value of that button, or `null` when it has none or it
+expired; a step reads it as `trigger.data.value.<key>`). Like
 other Discord events it is recorded only from a channel that an enabled rule
 selects, and the interaction's token is never in the event: it is kept for 15
 minutes in `discord_interactions` (kind `button`).
@@ -352,7 +370,9 @@ Every click is answered within Discord's 3 seconds:
 The trigger filter `custom_id` (a string or a list; a **prefix** match,
 case-sensitive) picks the button, on a `discord.button.clicked` trigger only;
 `users`, `roles`, `channels` and `include_bots` apply as for messages. Because
-the match is a prefix, give every button of a flow a distinct fixed prefix.
+the match is a prefix, give every button of a flow a distinct fixed prefix;
+for a valued button, filter on the given `custom_id` and the `:` after it
+(`merge:` for a button given `merge`).
 
 `discord.reply` with the click's `event_id` (`trigger.id`) answers the clicker
 with a private follow-up (it does not edit the message); after 15 minutes the

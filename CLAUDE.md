@@ -249,12 +249,15 @@ plan. What exists today:
   - the role `merge` (`actors/trusted.py`, `ROLE_MERGE`) ships with **no digest**: until a
     release pins the live merge workflow's v2 digest (its id must be `merge`), every merge
     is refused; a change to that workflow needs a new pin;
-  - `discord.message` takes `buttons` (at most 5: `label`, `style`, `custom_id`), the
-    gateway turns a click into `discord.button.clicked` (the actor lists it in
-    `params.events`), answers every click within 3 s (an admitted click disables the
-    buttons), `custom_id` is a trigger filter (prefix), and `discord.reply` with the click's
-    `event_id` answers the clicker privately; no step can split a `custom_id`, so the guide
-    carries a run id in it and reads the prompt run back with `run.read`.
+  - `discord.message` takes `buttons` (at most 5: `label`, `style`, `custom_id`, an
+    optional `value`), the gateway turns a click into `discord.button.clicked` (the actor
+    lists it in `params.events`), answers every click within 3 s (an admitted click
+    disables the buttons), `custom_id` is a trigger filter (prefix), and `discord.reply`
+    with the click's `event_id` answers the clicker privately;
+  - a button's `value` (a JSON object, deviation d1) is its meaning, kept in the store:
+    it is posted as `<custom_id>:<token>`, the port stores the value in `discord_buttons`
+    before the post (30 days), and the click carries it as `data.value`, so the guide's
+    click workflow reads `trigger.data.value.repo|number|sha` and no id is parsed.
 - **Repo documents** (culture-rules#124, guide `docs/operations/repodocs.md`; the contract
   is culture-library's `docs/api/repodocs.md`):
   - the action kind `repodocs.sync` (`node/actions/repodocs.py`, stdlib, git as argv lists)

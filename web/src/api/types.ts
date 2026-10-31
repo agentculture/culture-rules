@@ -147,6 +147,18 @@ export interface Action {
   only_at_chain_end?: boolean;
 }
 
+/**
+ * One `discord.message` button. With a `value` (a JSON object), the posted id is
+ * `<custom_id>:<token>` and the value is kept server-side, then carried by the click's
+ * `discord.button.clicked` event as `data.value`.
+ */
+export interface DiscordButton {
+  label: string;
+  style: string;
+  custom_id: string;
+  value?: Record<string, unknown>;
+}
+
 export interface Placement {
   machine?: string | null;
   actor?: string | null;

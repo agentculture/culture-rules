@@ -152,4 +152,41 @@ describe("discord.message buttons", () => {
     for (let i = 5; i > 0; i--) await user.click(screen.getByRole("button", { name: `Remove button ${i}` }));
     expect(saved()).toBeUndefined();
   });
+
+  it("saves a button's value as a JSON object and refuses invalid JSON", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await user.click(screen.getByRole("button", { name: "Add button" }));
+    await user.type(screen.getByLabelText("Button 1 label"), "Merge");
+    await user.type(screen.getByLabelText("Button 1 custom id"), "merge");
+    const saved = () => JSON.parse(screen.getByTestId("saved").textContent ?? "{}").params.buttons;
+    const box = screen.getByLabelText("Button 1 value");
+    await user.type(box, '{{"number": 7');
+    expect(screen.getByRole("alert")).toHaveTextContent("Button 1 value must be a JSON object");
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge" }]);
+    await user.type(box, "}");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge", value: { number: 7 } }]);
+    await user.type(box, "x");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(saved()[0].value).toEqual({ number: 7 });
+    await user.clear(box);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge" }]);
+    await user.type(box, "[[1]");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge" }]);
+  });
+
+  it("shows a stored value as JSON", () => {
+    const action: Action = {
+      kind: "discord.message",
+      params: { actor: "discord-bot", buttons: [{ label: "Merge", style: "success", custom_id: "merge", value: { n: 1 } }] },
+    };
+    render(<ActionPicker value={action} actors={[BOT]} triggerType="discord.message.created" onChange={() => {}}
+      loadDiscordTargets={async () => TARGETS} />);
+    expect(JSON.parse((screen.getByLabelText("Button 1 value") as HTMLTextAreaElement).value)).toEqual({ n: 1 });
+  });
 });

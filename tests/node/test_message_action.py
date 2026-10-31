@@ -208,7 +208,7 @@ def test_discord_message_with_buttons_posts_components_and_keeps_message_id():
     t = FakeTransport()
     res = _send(_discord_kind(t), buttons=[_btn(), _btn(style="danger", custom_id="no")])
     assert res.outcome == "completed"
-    assert res.output == {"message_id": "m9"}
+    assert res.output == {"message_id": "m9", "custom_ids": ["go:1", "no"]}
     assert t.calls[0][1]["components"] == [
         {
             "type": 1,
@@ -254,3 +254,111 @@ def test_discord_message_button_limits_are_inclusive():
     t = FakeTransport()
     buttons = [_btn(custom_id="z" * 100 if i == 0 else str(i)) for i in range(5)]
     assert _send(_discord_kind(t), buttons=buttons).outcome == "completed"
+
+
+# ---------------------------------------------------------------- valued buttons (d1)
+
+VALUE = {"repo": "o/r", "number": 7, "sha": "a" * 40}
+
+
+def _valued_port(t, secrets_seen=None):
+    port = _discord_kind(t, secrets_seen)
+    return port, port._store
+
+
+def _stored(store):
+    from culture_rules.apps.discord_buttons import BUTTONS_COLLECTION
+
+    return store.find(BUTTONS_COLLECTION)
+
+
+def test_a_valued_button_posts_a_generated_id_and_stores_its_value():
+    t = FakeTransport()
+    port, store = _valued_port(t)
+    res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE), _btn(custom_id="no")])
+    assert res.outcome == "completed"
+    posted = [c["custom_id"] for c in t.calls[0][1]["components"][0]["components"]]
+    assert posted[0].startswith("merge:")
+    assert posted[1] == "no"
+    assert res.output == {"message_id": "m9", "custom_ids": posted}
+    (doc,) = _stored(store)
+    assert doc["id"] == f"disc:{posted[0]}"
+    assert (doc["actor_id"], doc["custom_id"], doc["channel_id"]) == ("disc", posted[0], "42")
+    assert doc["value"] == VALUE
+    assert doc["message_id"] == "m9"
+    assert "value" not in json.dumps(t.calls[0][1]["components"])
+
+
+def test_the_value_is_stored_before_the_post():
+    port, store = _valued_port(None)
+    seen = []
+
+    def transport(url, data, headers, timeout):
+        seen.append([d["value"] for d in _stored(store)])
+        return 200, {"id": "m9"}, {}
+
+    port._transport = transport
+    assert _send(port, buttons=[_btn(custom_id="merge", value=VALUE)]).outcome == "completed"
+    assert seen == [[VALUE]]
+
+
+def test_a_failed_post_drops_the_stored_values_and_fails_as_before():
+    t = FakeTransport(status=500, body={})
+    port, store = _valued_port(t)
+    res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    assert res.outcome == FAILED
+    assert res.retryable
+    assert _stored(store) == []
+
+
+def test_a_store_failure_before_the_post_fails_without_posting():
+    t = FakeTransport()
+    port, store = _valued_port(t)
+
+    def broken(*_a, **_k):
+        raise RuntimeError("store down")
+
+    store.insert = broken
+    res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    assert res.outcome == FAILED
+    assert res.retryable
+    assert t.calls == []
+
+
+def test_buttons_without_value_store_nothing_and_post_their_ids():
+    t = FakeTransport()
+    port, store = _valued_port(t)
+    res = _send(port, buttons=[_btn()])
+    assert res.output == {"message_id": "m9", "custom_ids": ["go:1"]}
+    assert _stored(store) == []
+
+
+def test_bad_values_are_refused_before_any_secret_or_post():
+    bad = [
+        [_btn(value="not an object")],
+        [_btn(value={"n": float("nan")})],
+        [_btn(value={"big": "x" * 5000})],
+        [_btn(custom_id="p" * 90, value={})],
+    ]
+    for buttons in bad:
+        t, seen = FakeTransport(), []
+        port, store = _valued_port(t, seen)
+        res = _send(port, buttons=buttons)
+        assert res.outcome == FAILED
+        assert res.error.startswith("bad_params")
+        assert not res.retryable
+        assert t.calls == []
+        assert seen == []
+        assert _stored(store) == []
+
+
+def test_the_port_ensures_the_buttons_ttl_index_once():
+    from culture_rules.apps.discord_buttons import BUTTONS_COLLECTION, BUTTONS_TTL_INDEX
+
+    t = FakeTransport()
+    port, store = _valued_port(t)
+    calls = []
+    store.ensure_index = lambda collection, keys, **kw: calls.append((collection, kw["name"]))
+    _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    assert calls == [(BUTTONS_COLLECTION, BUTTONS_TTL_INDEX)]

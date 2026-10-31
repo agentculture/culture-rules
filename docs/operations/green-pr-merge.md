@@ -5,11 +5,11 @@ channel; the operator's click squash-merges that PR at the commit the prompt was
 This guide builds that flow from generic pieces (spec
 `docs/specs/2026-10-31-green-pr-merge-prompt.md`, plan
 `docs/plans/2026-10-31-green-pr-merge-prompt.md`). culture-rules ships the pieces only:
-`github.pr`, `github.merge`, the `buttons` of `discord.message`, the
-`discord.button.clicked` event with its `custom_id` filter, and the click answer. The
-two rules and the workflows below are **configuration, created live with `--apply` and
-never committed**, so everything here is an example: every id is a placeholder in
-backticks.
+`github.pr`, `github.merge`, the `buttons` of `discord.message` (with a stored
+`value`), the `discord.button.clicked` event with its `custom_id` filter and `value`,
+and the click answer. The two rules and the workflow below are **configuration,
+created live with `--apply` and never committed**, so everything here is an example:
+every id is a placeholder in backticks.
 
 The pieces are documented in [the GitHub actor guide](../actors/github.md#reading-and-merging-a-pr)
 and [the Discord actor guide](../actors/discord.md#buttons).
@@ -24,21 +24,20 @@ and [the Discord actor guide](../actors/discord.md#buttons).
   (rule 2's `channels` does that).
 - Your Discord user id, `<operator-discord-id>`, for rule 2's `users` filter.
 
-## The gap: a click cannot parse its `custom_id`
+## The button carries its meaning in the store
 
-A button's `custom_id` is at most 100 characters, so it can hold `repo`, `number` and
-a 40-character `sha` (for example `merge:<owner>/<repo>#<number>@<sha>`), but **no
-existing step can split such a string back apart**: a reference or `{{ }}` template
-only substitutes a whole value or pastes values in, there is no substring or split, and
-`matches` only tests. `github.merge` needs `number` and `sha` as separate inputs, so a
-packed `custom_id` is of no use to the click workflow.
-
-What the pieces can do is carry a **lookup key** instead. The prompt rule's action may
-read its own run's id (`run.id`), so the button's `custom_id` is that run id, and the
-click workflow reads the prompt run's recorded step outputs back with the `run.read`
-builtin (`run_id` input). That is the route below. The same action text can still show
-the repo, number and sha to the operator; only the button carries the key. A run id is
-`run-` and 32 hex digits (36 characters).
+The click workflow needs the PR's `repo`, `number` and `sha` as separate values.
+They are not packed into the button's `custom_id`: no step can split a string,
+and the id would be capped at 100 characters. Instead the prompt's button carries
+a `value`, a JSON object built from the PR facts. The `discord.message` port
+posts the button with the id `merge:<token>` (the given `custom_id` `merge`, a
+`:` and a random token), and stores the value under that id in `discord_buttons`
+before the message goes out. When the button is clicked, the gateway reads the
+stored value and puts it in the click's event as `data.value`, so the click
+workflow reads `trigger.data.value.repo`, `.number` and `.sha` directly. Only the
+bot's own post writes the value, and a clicker cannot change it. The value is
+kept for 30 days; a click after that carries `value: null`, so the merge has no
+`number` or `sha` and `github.merge` refuses it without merging.
 
 This composition is built only from documented pieces; no test drives the whole flow,
 so try it on a throwaway repo first (see [Verify](#4-verify)).
@@ -60,47 +59,45 @@ so try it on a throwaway repo first (see [Verify](#4-verify)).
 
   A comparison on a missing fact is false, so a PR whose facts are missing is never
   prompted.
-- **Workflow `green-pr-facts`:** inputs `repository` (string), `number` (integer) and
-  `head_sha` (string), mapped from `trigger.data.repository`, `trigger.data.number` and
-  `trigger.data.head_sha`. One step, `facts`, a code step with `config.builtin:
-  select`, `config.sources: {"pr": "pr"}` and `config.ports: ["repository", "number",
-  "head_sha"]`, so its inputs are `pr_repository`, `pr_number` and `pr_head_sha` (each
-  an edge from the workflow input) and its outputs are the three values. It exists so
-  the run records them for the click workflow.
-- **Action:** `discord.message`. The text comes from the trigger's PR facts, and the
-  one button's `custom_id` is the whole-value reference `{"$ref": "run.id"}`:
+- **Action:** `discord.message`, with no workflow. The text and the button's `value`
+  both come from the trigger's PR facts:
 
   ```json
   {"kind": "discord.message", "params": {
     "actor": "<discord-actor-id>",
     "channel": "<channel-id>",
     "text": "Green: {{ trigger.data.repository }}#{{ trigger.data.number }} {{ trigger.data.title }} by {{ trigger.data.author }}\n{{ trigger.data.url }}\nhead {{ trigger.data.head_sha }}",
-    "buttons": [{"label": "Merge", "style": "success", "custom_id": {"$ref": "run.id"}}]
+    "buttons": [{"label": "Merge", "style": "success", "custom_id": "merge",
+                 "value": {"repo": "trigger.data.repository",
+                           "number": "trigger.data.number",
+                           "sha": "trigger.data.head_sha"}}]
   }}
   ```
 
-If you want the title or the draft flag read fresh rather than from the event, add a
-`github.pr` step to the workflow (`actor`, `repo`, `number`) and use its outputs;
-`head_repo != base_repo` there is also how it tells a fork.
+  The engine resolves the three references before the post, so the stored value
+  holds the PR's repo, number and head sha. The action's outputs are `message_id`
+  and `custom_ids` (here one id, `merge:<token>`).
+
+If you want the title or the draft flag read fresh rather than from the event, give
+the rule a workflow with a `github.pr` step (`actor`, `repo`, `number`) and build the
+text and the value from its outputs (`workflow.outputs.<name>`); `head_repo !=
+base_repo` there is also how it tells a fork.
 
 ## 2. Rule 2: the click
 
 - **Trigger:** event `discord.button.clicked`, with params `users:
-  ["<operator-discord-id>"]`, `channels: ["<channel-id>"]` and `custom_id: "run-"`
+  ["<operator-discord-id>"]`, `channels: ["<channel-id>"]` and `custom_id: "merge:"`
   (a prefix, case-sensitive). `users` is what limits who may merge; a click by anyone
   else is answered privately "This button is not set up here." and starts nothing.
-  Use a different prefix per flow if other buttons also carry run ids.
+  Give other flows' buttons a different `custom_id`.
 - **Workflow `merge`** (its id must be exactly `merge`, see
-  [step 3](#3-pin-the-merge-workflow)): inputs `prompt_run` (string), mapped from
-  `trigger.data.custom_id`. Two steps:
-  1. `prompt`, a code step with `config.builtin: run.read`, `config.step: "facts"` and
-     `config.fields: ["repository", "number", "head_sha"]`, its `run_id` input an edge
-     from `prompt_run`. It reads the prompt run's step outputs from the store and fails
-     `run_not_found` or `run_not_succeeded` for a key that is not a finished run.
-  2. `merge`, a built-in action step (`config.builtin: action`) of kind `github.merge`
-     with params `actor: "github-app"`, `repo: "inputs.repository"`, `number:
-     "inputs.number"`, `sha: "inputs.head_sha"` and `delete_branch: true`, its inputs
-     edges from `prompt`'s outputs.
+  [step 3](#3-pin-the-merge-workflow)): inputs `repository` (string), `number`
+  (integer) and `head_sha` (string), mapped from `trigger.data.value.repo`,
+  `trigger.data.value.number` and `trigger.data.value.sha`. One step, `merge`, a
+  built-in action step (`config.builtin: action`) of kind `github.merge` with params
+  `actor: "github-app"`, `repo: "inputs.repository"`, `number: "inputs.number"`,
+  `sha: "inputs.head_sha"` and `delete_branch: true`, its inputs edges from the
+  workflow inputs.
 
   Workflow outputs `merged`, `sha` and `branch_deleted` come from the `merge` step.
 - **Action:** `discord.reply` answers the clicker privately with the outcome, using the

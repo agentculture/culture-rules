@@ -180,7 +180,9 @@ a `discord.button.clicked` event (`not_started_by_click`) or whose workflow is n
 in role `merge` (`workflow_not_trusted`). The role ships with no digest: a release pins the
 live merge workflow's v2 digest (its id must be `merge`). `github.pr` reads one PR's facts.
 `discord.message` takes `buttons`, the gateway emits `discord.button.clicked`, the trigger
-filter `custom_id` is a prefix match, and `discord.reply` answers a click privately. The
+filter `custom_id` is a prefix match, and `discord.reply` answers a click privately. A
+button's optional `value` is kept in the store (`discord_buttons`, posted as
+`<custom_id>:<token>`) and carried by its click as `data.value`, so no id is parsed. The
 prompt and merge rules are configured live, never committed.
 
 **Repo documents** (#124, guide `docs/operations/repodocs.md`). The action kind
