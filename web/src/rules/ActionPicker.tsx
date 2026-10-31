@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { getDiscordTargets } from "../api/actors";
 import { useDiscordTargets, type LoadTargets } from "./useDiscordTargets";
 import type { Actor, HttpPolicy, RunnerActorParams } from "../api/actors";
-import type { Action, Workflow } from "../api/types";
+import type { Action, DiscordButton, Workflow } from "../api/types";
 
 type ParamType = "str" | "int" | "number" | "bool" | "dict" | "list" | "any";
 
@@ -879,18 +879,80 @@ function ChoiceField({ id, name, p, value, onPick }: Readonly<ChoiceFieldProps>)
 
 const BUTTON_STYLES = ["success", "primary", "secondary", "danger"] as const;
 const MAX_BUTTONS = 5;
-interface ButtonSpec {
-  label: string;
-  style: string;
-  custom_id: string;
+type ButtonSpec = DiscordButton;
+
+function isJsonObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** discord.message `buttons`: up to five rows of label, style and custom id, with add and remove. */
+/**
+ * A button's optional `value`: JSON text, saved only when it parses to an object (empty text
+ * removes it). The bot's own post keeps it server-side; a clicker cannot change it.
+ */
+function ButtonValueField({
+  index,
+  value,
+  onChange,
+}: Readonly<{ index: number; value: unknown; onChange: (v: Record<string, unknown> | undefined) => void }>) {
+  const [text, setText] = useState(() => (value === undefined ? "" : JSON.stringify(value)));
+  const [problem, setProblem] = useState(false);
+  const id = `button-${index}-value-problem`;
+  const change = (next: string) => {
+    setText(next);
+    if (!next.trim()) {
+      setProblem(false);
+      onChange(undefined);
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(next);
+    } catch {
+      parsed = undefined;
+    }
+    if (isJsonObject(parsed)) {
+      setProblem(false);
+      onChange(parsed);
+    } else {
+      setProblem(true);
+    }
+  };
+  return (
+    <label>
+      <span>{`Button ${index + 1} value`}</span>
+      <textarea
+        value={text}
+        rows={2}
+        aria-invalid={problem}
+        aria-describedby={problem ? id : undefined}
+        placeholder='{"number": 12}'
+        onChange={(e) => change(e.target.value)}
+      />
+      {problem ? (
+        <span id={id} className="notice notice--error" role="alert">
+          {`Button ${index + 1} value must be a JSON object`}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+/**
+ * discord.message `buttons`: up to five rows of label, style, custom id and an optional value,
+ * with add and remove.
+ */
 function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: (v: unknown) => void }>) {
   const rows: ButtonSpec[] = Array.isArray(value) ? (value as ButtonSpec[]) : [];
   const save = (next: ButtonSpec[]) => onChange(next.length ? next : undefined);
   const edit = (i: number, patch: Partial<ButtonSpec>) =>
-    save(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    save(
+      rows.map((r, j) => {
+        if (j !== i) return r;
+        const next = { ...r, ...patch };
+        if ("value" in patch && patch.value === undefined) delete next.value;
+        return next;
+      }),
+    );
   return (
     <fieldset className="action-picker__buttons">
       <legend>Buttons</legend>
@@ -915,6 +977,7 @@ function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: 
             <span>{`Button ${i + 1} custom id`}</span>
             <input value={r.custom_id ?? ""} maxLength={100} onChange={(e) => edit(i, { custom_id: e.target.value })} />
           </label>
+          <ButtonValueField index={i} value={r.value} onChange={(v) => edit(i, { value: v })} />
           <button type="button" onClick={() => save(rows.filter((_, j) => j !== i))}>
             {`Remove button ${i + 1}`}
           </button>

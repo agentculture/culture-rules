@@ -8,6 +8,13 @@ no shell) through :class:`~culture_rules.node.mesh.MeshPoster`.
 
 Mass mentions are always suppressed on Discord (``allowed_mentions.parse`` is empty). The
 token and the message text are never logged or echoed in errors.
+
+``buttons`` put one row of buttons under a Discord message. A button with a ``value`` (a JSON
+object) is posted as ``<custom_id>:<token>`` and its value is kept in ``discord_buttons``
+before the post (:mod:`culture_rules.apps.discord_buttons`), so the click's event carries it as
+``data.value``; only this port writes it, a clicker cannot. A failed post deletes the kept
+values. With buttons the output is ``{"message_id", "custom_ids"}`` (the posted ids, in button
+order).
 """
 
 from __future__ import annotations
@@ -16,16 +23,12 @@ import logging
 import shutil
 import subprocess  # nosec B404 - only for TimeoutExpired; the CLI runs in node.mesh
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_rest import (
-    DiscordClient,
-    DiscordError,
-    Transport,
-    button_components,
-)
+from culture_rules.apps import discord_buttons as buttons_mod
+from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.mesh import MeshPoster
 
@@ -53,8 +56,11 @@ class MessageAction:
         discord_base_url: str | None = None,
         mesh_executable: str | None = None,
         mesh_run: Callable[..., Any] | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._indexed = False
         self._resolve = resolve_secret or secrets.resolve_or_literal
         self._transport = transport
         self._base_url = discord_base_url
@@ -75,10 +81,10 @@ class MessageAction:
             return _fail("message needs a non-empty channel and text")
         if context.actor:
             try:
-                components = button_components(input.get("buttons"))
+                components, valued = buttons_mod.prepare_buttons(input.get("buttons"))
             except ValueError as exc:
                 return _fail(f"bad_params: {exc}")
-            return self._discord(context.actor, channel, text, components)
+            return self._discord(context.actor, channel, text, components, valued)
         return self._mesh(channel, text)
 
     def _mesh(self, channel: str, text: str) -> InvocationResult:
@@ -102,7 +108,12 @@ class MessageAction:
         return InvocationResult.completed({})
 
     def _discord(
-        self, actor_id: str, channel: str, text: str, components: list[dict[str, Any]]
+        self,
+        actor_id: str,
+        channel: str,
+        text: str,
+        components: list[dict[str, Any]],
+        valued: list[tuple[str, Any]],
     ) -> InvocationResult:
         actor = self._store.get(ACTORS_COLLECTION, actor_id)
         if actor is None:
@@ -127,13 +138,45 @@ class MessageAction:
         kwargs: dict[str, Any] = {"transport": self._transport}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        kept: list[str] = []
+        if valued:
+            try:
+                kept = self._keep_values(actor_id, channel, valued)
+            except Exception as exc:  # noqa: BLE001 - nothing was posted: retry later
+                log.warning("keeping button values failed (%s)", type(exc).__name__)
+                return InvocationResult.failed(
+                    f"keeping button values failed ({type(exc).__name__})", retryable=True
+                )
         try:
             out = DiscordClient(token, **kwargs).post_message(channel, text, components=components)
         except DiscordError as exc:
+            buttons_mod.forget_buttons(self._store, kept)
             log.warning("discord message to %s failed: %s", channel, exc)
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
+        except Exception:
+            buttons_mod.forget_buttons(self._store, kept)
+            raise
+        if kept:
+            try:
+                buttons_mod.set_message_id(self._store, kept, out["message_id"])
+            except Exception as exc:  # noqa: BLE001 - the values stand without it
+                log.warning("recording the buttons' message id failed (%s)", type(exc).__name__)
         log.info("discord message posted to %s", channel)
+        if components:
+            out = {**out, "custom_ids": [b["custom_id"] for b in components[0]["components"]]}
         return InvocationResult.completed(out)
+
+    def _keep_values(self, actor_id: str, channel: str, valued: list[tuple[str, Any]]) -> list[str]:
+        """Store the valued buttons' meaning before the post (the TTL index first, once)."""
+        if not self._indexed:
+            try:
+                buttons_mod.ensure_buttons_ttl(self._store)
+                self._indexed = True
+            except Exception as exc:  # noqa: BLE001 - a missing index must not stop the post
+                log.warning("ensuring the buttons TTL index failed (%s)", type(exc).__name__)
+        return buttons_mod.remember_buttons(
+            self._store, actor_id, channel, valued, now=self._clock()
+        )
 
 
 class DiscordMessageAction(MessageAction):

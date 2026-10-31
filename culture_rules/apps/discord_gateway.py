@@ -17,10 +17,14 @@ An actor that declares ``discord.button.clicked`` turns a click on a button of a
 (a component interaction; no discord.py ``View`` is needed, the client's ``on_interaction``
 sees every click) into that event (:func:`button_data`, delivery id
 ``actor:interaction:<interaction id>``), its token kept apart the same way
-(``kind: button``). The click is acknowledged inside Discord's 3 s: an admitted one with
-``UPDATE_MESSAGE``, its message re-rendered with every button disabled; one no rule admits
-with a private :data:`BUTTON_NOT_HERE`, the message unchanged. A hand-over slower than
-:data:`BUTTON_ACK_WAIT_S` is first acknowledged as a deferred update, then answered the same.
+(``kind: button``). The event's ``data.value`` is the value the bot's own ``discord.message``
+stored for that button (:mod:`culture_rules.apps.discord_buttons`, one read by
+``<actor>:<custom_id>`` inside the hand-over, so inside the acknowledgement window), or
+``None``; a clicker cannot supply or change it. The click is acknowledged inside Discord's
+3 s: an admitted one with ``UPDATE_MESSAGE``, its message re-rendered with every button
+disabled; one no rule admits with a private :data:`BUTTON_NOT_HERE`, the message unchanged.
+A hand-over slower than :data:`BUTTON_ACK_WAIT_S` is first acknowledged as a deferred update,
+then answered the same.
 Every engine node runs a :class:`GatewaySupervisor` from a stage of its cycle
 (:meth:`~culture_rules.node.daemon.Node.run_once`, right after the probe stage); the
 supervisors coordinate through a mesh-wide :class:`~culture_rules.engine.named_lease.NamedLease`
@@ -91,6 +95,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from culture_rules.actors import secrets
+from culture_rules.apps import discord_buttons as buttons_mod
 from culture_rules.apps import discord_commands as commands_mod
 from culture_rules.apps.discord_rest import guild_ids
 from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, LeaseKeeper
@@ -705,7 +710,9 @@ def reaction_data(reaction: Mapping[str, Any]) -> dict[str, Any]:
 
 def button_data(raw: Mapping[str, Any]) -> dict[str, Any]:
     """The event ``data`` for one button click: only these keys, never the token. The clicker
-    also fills ``author_id`` / ``author_name``, which the ``users`` trigger filter reads."""
+    also fills ``author_id`` / ``author_name``, which the ``users`` trigger filter reads.
+    ``value`` is always ``None`` here (never read from the click); the gateway fills it from
+    the button's stored value."""
 
     def opt(key: str) -> str | None:
         value = raw.get(key)
@@ -723,6 +730,7 @@ def button_data(raw: Mapping[str, Any]) -> dict[str, Any]:
         "author_name": opt("username"),
         "user_roles": _str_list(raw.get("user_roles")),
         "bot": bool(raw.get("bot", False)),
+        "value": None,  # filled from discord_buttons by the gateway, never from the click
     }
 
 
@@ -863,7 +871,11 @@ class GatewaySupervisor:
         self._unavailable_logged = False
         # per event type; a type absent here selects nothing (until the first tick)
         self._selection: dict[str, frozenset[str] | None] = {}
-        for ensure in (ensure_discord_event_ttl, commands_mod.ensure_interaction_ttl):
+        for ensure in (
+            ensure_discord_event_ttl,
+            commands_mod.ensure_interaction_ttl,
+            buttons_mod.ensure_buttons_ttl,
+        ):
             try:
                 ensure(store)
             except Exception as exc:  # noqa: BLE001 - a missing index must not stop the node
@@ -1233,9 +1245,25 @@ class GatewaySupervisor:
         data = button_data(raw)
         if not data["interaction_id"] or not data["custom_id"]:
             return False
+        data["value"] = self._button_value(session, data["custom_id"])
         return self._sink_interaction(
             session, BUTTON_EVENT, data, token, app_id, commands_mod.BUTTON_INTERACTION
         )
+
+    def _button_value(self, session: _Session, custom_id: str) -> Any:
+        """The value the bot's ``discord.message`` stored for this button (one read by id), or
+        ``None``: none stored, expired, or the read failed (logged; the click still lands)."""
+        try:
+            return buttons_mod.button_value(
+                self._store, session.actor_id, custom_id, now=self._clock()
+            )
+        except Exception as exc:  # noqa: BLE001 - never fail a click over its value
+            log.warning(
+                "discord gateway %s: reading a button value failed (%s)",
+                session.actor_id,
+                type(exc).__name__,
+            )
+            return None
 
     def _sink_interaction(
         self,

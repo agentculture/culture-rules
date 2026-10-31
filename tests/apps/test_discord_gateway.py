@@ -837,9 +837,62 @@ def test_button_data_carries_only_the_documented_keys():
         "author_name",
         "user_roles",
         "bot",
+        "value",
     }
+    assert data["value"] is None  # never from the click itself, only from the store
     assert "token" not in data
     assert "application_id" not in data
+
+
+def test_a_clicker_cannot_supply_the_value():
+    raw = click(1)
+    raw["value"] = {"number": 666}
+    assert dg.button_data(raw)["value"] is None
+
+
+def _store_value(r, custom_id, value):
+    from culture_rules.apps.discord_buttons import remember_buttons
+
+    remember_buttons(r.store, "bot", "100", [(custom_id, value)], now=r.sup._clock())
+
+
+def test_a_click_carries_the_stored_value_as_data_value(rig):
+    r = _click_rig(rig)
+    value = {"repo": "o/r", "number": 12, "sha": "abc123"}
+    _store_value(r, "merge:tok1", value)
+    r.hub.click(click(1, custom_id="merge:tok1"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.events(BUTTON)[0]["envelope"]["data"]["value"] == value
+
+
+def test_a_click_without_a_stored_value_carries_none(rig):
+    r = _click_rig(rig)
+    _store_value(r, "merge:other", {"n": 1})
+    r.hub.click(click(1, custom_id="merge:tok1"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.events(BUTTON)[0]["envelope"]["data"]["value"] is None
+
+
+def test_a_failed_value_lookup_still_records_the_click(rig, monkeypatch, caplog):
+    r = _click_rig(rig)
+
+    def broken(*_a, **_k):
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(dg.buttons_mod, "button_value", broken)
+    r.hub.click(click(1, custom_id="merge:tok1"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.hub.answers == [True]
+    assert r.events(BUTTON)[0]["envelope"]["data"]["value"] is None
+    assert "button value" in caplog.text
+
+
+def test_the_supervisor_ensures_the_buttons_ttl_index(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dg.buttons_mod, "ensure_buttons_ttl", calls.append)
+    store = MemoryStore()
+    dg.GatewaySupervisor(store, "engine@spark", gateway=FakeGateway(FakeHub(), "spark"))
+    assert calls == [store]
 
 
 def test_a_repeated_click_delivery_is_a_duplicate(rig):

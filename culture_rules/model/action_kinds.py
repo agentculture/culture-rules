@@ -14,7 +14,8 @@ executing party).
 ``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
 a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
-the server the channel was picked from, and ``buttons`` (a list) puts buttons under the text.
+the server the channel was picked from, and ``buttons`` (a list) puts buttons under the text;
+a button's optional ``value`` is kept in the store and carried by its click as ``data.value``.
 ``discord.read`` reads one message in full (its
 text untruncated and its attachments) with the same actor's token, within its allow-list;
 ``discord.react`` adds the bot's reaction (a unicode emoji or a custom ``name:id``) to one
