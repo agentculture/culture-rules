@@ -130,6 +130,18 @@ STEWARD_WAIVED_PORTABILITY_PATHS = frozenset(
         # /challenge's measurement probe actually read (~/.local/share/pocketsync/files)
         "docs/specs/2026-10-22-file-in-transcription.md",
         ".devague/frames/file-in-transcription.json",
+        # the Govee lamp guide installs and runs govee-cli as the node's user (~/.local/bin,
+        # ~/.config/systemd/user, ~/.config/govee-cli/env): those per-user paths are the
+        # instructions themselves; its devague records quote the same surfaces as read
+        "docs/operations/govee-lamp.md",
+        "docs/specs/2026-10-30-govee-lamp-actor-and-wake-up.md",
+        ".devague/frames/govee-lamp-actor-and-wake-up.json",
+        ".devague/deliveries/govee-lamp-actor-and-wake-up.json",
+        # repodocs.sync's actor keeps its clones and cursor under the node user's home
+        # (repos_root ~/git, state_path ~/.local/state/...): the shipped bundle and its guide
+        # name the paths the actor uses
+        "docs/operations/repodocs.md",
+        "docs/rules/repodocs/actors/culture-library-repodocs.json",
     }
 )
 
