@@ -15,7 +15,10 @@ allowlist is enforced *before* any network call, and secrets are held only in me
 * Review threads: :meth:`GitHubApp.reply_review_comment` (REST) and
   :meth:`GitHubApp.resolve_review_thread` (GraphQL ``resolveReviewThread``), both as the App;
   :meth:`GitHubApp.list_review_threads` reads the unresolved ones (GraphQL, bounded pages).
-* There is deliberately no merge call: merging stays a human gate.
+* Exactly one merge call, :meth:`GitHubApp.merge_pull` (a squash at a given head sha), used
+  only by the ``github.merge`` port, which is fenced to a run started by a
+  ``discord.button.clicked`` event in a workflow trusted in the ``merge`` role: merging stays
+  a human gate. :meth:`GitHubApp.delete_ref` removes the merged PR's same-repo head branch.
 * Neither the key, the JWT nor the token is ever logged or put in an error message.
 
 The HTTP transport is injectable: ``transport(method, url, headers, body, timeout) ->
@@ -58,6 +61,7 @@ API_VERSION = "2022-11-28"
 _REFRESH_MARGIN = timedelta(minutes=5)
 _TIMEOUT_S = 15
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
+_BRANCH_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$")
 
 #: The current call's ``(deadline, clock)`` (see :meth:`GitHubApp.deadline`).
@@ -524,6 +528,29 @@ class GitHubApp:
         """The pull request ``number`` of ``repo`` (REST ``GET /repos/{repo}/pulls/{n}``)."""
         self._require_allowed(repo, "pull read")
         return self._call("GET", f"/repos/{repo}/pulls/{int(number)}", None)
+
+    def merge_pull(self, repo: str, number: int, sha: str) -> dict[str, Any]:
+        """Squash-merge PR ``number`` of ``repo`` at head ``sha`` (REST ``PUT
+        /repos/{repo}/pulls/{n}/merge`` with ``{sha, merge_method: squash}``): GitHub refuses
+        a head that moved (``http_409``) or a PR it cannot merge (``http_405``). Returns
+        ``{merged, sha}`` (``sha`` is the merge commit). Only ``github.merge`` calls it."""
+        self._require_allowed(repo, "merge")
+        if not _is_full_sha(sha):
+            raise GitHubError("bad_input", "sha must be a full commit sha")
+        payload = {"sha": sha, "merge_method": "squash"}
+        data = self._call("PUT", f"/repos/{repo}/pulls/{int(number)}/merge", payload)
+        merged, commit = data.get("merged"), data.get("sha")
+        return {"merged": merged is True, "sha": commit if isinstance(commit, str) else None}
+
+    def delete_ref(self, repo: str, branch: str) -> None:
+        """Delete branch ``branch`` of ``repo`` (REST ``DELETE
+        /repos/{repo}/git/refs/heads/{branch}``); a branch already gone answers ``http_422``
+        or ``http_404``."""
+        self._require_allowed(repo, "ref delete")
+        if not isinstance(branch, str) or not _BRANCH_RE.fullmatch(branch) or ".." in branch:
+            raise GitHubError("bad_input", "branch")
+        quoted = urllib.parse.quote(branch, safe="/")
+        self._call("DELETE", f"/repos/{repo}/git/refs/heads/{quoted}", None)
 
     def branch_tip(self, repo: str, branch: str) -> str:
         """The commit branch ``branch`` of ``repo`` points at now (REST ``GET

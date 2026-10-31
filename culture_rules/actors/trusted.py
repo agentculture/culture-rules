@@ -41,6 +41,7 @@ from typing import Any
 
 __all__ = [
     "ROLE_FIX",
+    "ROLE_MERGE",
     "ROLE_PUBLISH",
     "ROLE_REVIEW",
     "ROLE_SINGLE",
@@ -71,6 +72,11 @@ ROLE_REVIEW = "review-commit"
 """d21: the independent review of a ``pr-fix`` run's gated commit; records the verdict."""
 ROLE_PUBLISH = "publish-fix"
 """d21: pushes a commit a ``review-commit`` run approved, then answers the threads."""
+ROLE_MERGE = "merge"
+"""Green PR merge prompt: the workflow a ``discord.button.clicked`` rule starts to run
+``github.merge`` (:mod:`culture_rules.node.actions.github_merge`). It is live configuration
+(never committed), so no digest ships pinned: no merge can run until a release pins the live
+workflow's digest here (its id must be ``merge``)."""
 
 TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     # docs/rules/pr-fixer/workflows/pr-fixer.json as shipped in 0.13.0 (d20 round 2); a copy
@@ -113,6 +119,8 @@ TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     ROLE_PUBLISH: frozenset(
         {"sha256:0fa92074e1cfa67c1388f0423fc379063fd82c5886bc619c5ef4ffcc83c23680"}
     ),
+    # the merge workflow is live configuration: pinned in V2 only, by a release
+    ROLE_MERGE: frozenset(),
 }
 """Per role, the digests of the workflow definitions trusted in it (d21). A digest belongs
 to one role: the role says what a run of that workflow may do - record a review, build the
@@ -147,6 +155,10 @@ TRUSTED_WORKFLOWS_V2: dict[str, frozenset[str]] = {
     ROLE_PUBLISH: frozenset(
         {"sha256:540cb216fcc1ccccf8d5b7d29abd07427e9a22f6ad40bd930c3036890a3f9c84"}
     ),
+    # the green PR merge prompt's ``merge`` workflow (live configuration, never committed):
+    # empty until a release pins the live definition's v2 digest; github.merge refuses
+    # every run until then
+    ROLE_MERGE: frozenset(),
 }
 """Per role, the v2 digests trusted in it (spec c16). Same roles as :data:`TRUSTED_WORKFLOWS`;
 a definition must come out in one role whichever version matched."""
