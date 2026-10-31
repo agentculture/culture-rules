@@ -342,6 +342,14 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
             "http.call as h POST http://localhost/x",
         ),
         (
+            {"kind": "github.pr", "params": {"actor": "gh", "repo": "o/r", "number": 3}},
+            "github.pr as gh",
+        ),
+        (
+            {"kind": "github.merge", "params": {"actor": "gh", "repo": "o/r", "number": 3}},
+            "github.merge as gh (only on a button click, in a workflow trusted for merging)",
+        ),
+        (
             {"kind": "machine.command", "params": {"actor": "thor", "command": "reboot"}},
             "machine.command as thor `reboot`",
         ),

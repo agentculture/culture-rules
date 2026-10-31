@@ -39,7 +39,7 @@ from culture_rules.model.action_step import (
 from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
-from culture_rules.model.discord_filters import emoji_ok
+from culture_rules.model.discord_filters import BUTTON_CLICKED, emoji_ok
 from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine, MachineInstall
 from culture_rules.model.placement import PLACEMENT_FORMS, Placement
@@ -504,6 +504,7 @@ def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
         _check_discord_filters(params, pp, errors)
     if obj.kind == "event":
         _check_command_filter(params, pp, errors)
+        _check_custom_id_filter(params, pp, errors)
 
 
 def _filter_item(value: Any) -> bool:
@@ -575,6 +576,29 @@ def _check_command_filter(params: dict, pp: str, errors: Errors) -> None:
             _join(pp, "command"),
             "trigger_param_invalid",
             "params.command is a command name, or a list of them",
+        )
+
+
+def _check_custom_id_filter(params: dict, pp: str, errors: Errors) -> None:
+    """``custom_id``: one string or a list (prefix match), on a discord.button.clicked trigger."""
+    if "custom_id" not in params:
+        return
+    if params.get("type") != BUTTON_CLICKED:
+        _err(
+            errors,
+            _join(pp, "custom_id"),
+            "trigger_param_invalid",
+            f"params.custom_id picks a button: only a {BUTTON_CLICKED} trigger takes it",
+        )
+        return
+    value = params["custom_id"]
+    items = value if isinstance(value, (list, tuple)) else [value]
+    if not items or not all(isinstance(i, str) and i for i in items):
+        _err(
+            errors,
+            _join(pp, "custom_id"),
+            "trigger_param_invalid",
+            "params.custom_id is a custom id prefix, or a list of them",
         )
 
 

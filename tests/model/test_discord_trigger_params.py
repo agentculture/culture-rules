@@ -131,6 +131,32 @@ def test_only_a_command_trigger_takes_a_command_filter():
     assert codes({"command": "deploy"}, "github.issue_comment.created") == {"trigger_param_invalid"}
 
 
+CLICK = "discord.button.clicked"
+
+
+@pytest.mark.parametrize("custom_id", ["merge:", ["merge:", "close:"]])
+def test_a_custom_id_filter_is_a_string_or_a_list_of_them(custom_id):
+    assert codes({"custom_id": custom_id}, CLICK) == set()
+
+
+@pytest.mark.parametrize("custom_id", [7, "", [""], ["merge:", 3], {"id": "x"}, []])
+def test_a_badly_typed_custom_id_filter_is_refused(custom_id):
+    assert codes({"custom_id": custom_id}, CLICK) == {"trigger_param_invalid"}
+
+
+def test_only_a_button_trigger_takes_a_custom_id_filter():
+    assert codes({"custom_id": "merge:"}) == {"trigger_param_invalid"}
+    assert codes({"custom_id": "merge:"}, "github.issue_comment.created") == {
+        "trigger_param_invalid"
+    }
+    assert codes({"custom_id": "merge:"}, "discord.command.invoked") == {"trigger_param_invalid"}
+
+
+def test_trigger_text_names_the_custom_id_prefix():
+    trig = Trigger(kind="event", params={"type": CLICK, "custom_id": ["merge:", "close:"]})
+    assert "with button merge: or close:" in trigger_text(trig)
+
+
 def test_trigger_text_names_the_command():
     trig = Trigger(
         kind="event",

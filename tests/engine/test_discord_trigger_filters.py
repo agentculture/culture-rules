@@ -181,6 +181,46 @@ def test_a_skin_tone_is_a_different_emoji():
     assert not trigger_matches(rtrig(emoji="👍"), react(emoji_name="👍🏽"))
 
 
+# --- the custom_id filter picks a flow's button ----------------------------------------
+
+CLICK = "discord.button.clicked"
+
+
+def btrig(**params) -> Trigger:
+    return Trigger(kind="event", params={"type": CLICK, **params})
+
+
+def clicked(custom_id: str | None = "merge:o/r#3", **data) -> dict:
+    base = {"custom_id": custom_id, "channel_id": "20", "author_id": "30", "bot": False}
+    base.update(data)
+    return {"kind": "event", "type": CLICK, "data": base}
+
+
+def test_no_custom_id_filter_admits_every_click():
+    assert trigger_matches(btrig(), clicked("anything"))
+
+
+def test_a_custom_id_filter_is_a_prefix_match():
+    assert trigger_matches(btrig(custom_id="merge:"), clicked("merge:o/r#3"))
+    assert trigger_matches(btrig(custom_id=["close:", "merge:"]), clicked("merge:o/r#3"))
+    assert not trigger_matches(btrig(custom_id="merge:"), clicked("close:o/r#3"))
+    assert not trigger_matches(btrig(custom_id="merge:o/r#3"), clicked("merge:"))
+
+
+def test_a_custom_id_filter_is_case_sensitive():
+    assert not trigger_matches(btrig(custom_id="Merge:"), clicked("merge:o/r#3"))
+
+
+def test_a_custom_id_filter_admits_no_click_without_a_custom_id():
+    assert not trigger_matches(btrig(custom_id="merge:"), clicked(None))
+
+
+def test_a_custom_id_filter_still_honours_users_and_roles():
+    trig = btrig(custom_id="merge:", roles=["r1"])
+    assert trigger_matches(trig, clicked(user_roles=["r1"]))
+    assert not trigger_matches(trig, clicked(user_roles=["r2"]))
+
+
 # --- d12: the command filter picks a flow's command ------------------------------------
 
 COMMAND = "discord.command.invoked"
