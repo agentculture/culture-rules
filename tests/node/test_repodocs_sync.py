@@ -1121,7 +1121,8 @@ def test_spec_links_applied_true_or_absent_records_the_links(root):
     repo.commit("Build foo\n\nSpec: foo")
     _sync(root, FakeLibrary())
     entry = _spec_entry(root, repo)
-    assert entry["links"] and entry["links_at"] == repo.head()
+    assert entry["links"]
+    assert entry["links_at"] == repo.head()
 
 
 def test_an_unwritable_state_file_fails_the_step(root):

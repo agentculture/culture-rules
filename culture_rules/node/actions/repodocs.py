@@ -1035,6 +1035,24 @@ class _RepoSync:
             return None
         return _blob_id(len(data), [data], self.repo.fmt), data
 
+    def _draft_bytes(
+        self,
+        rel: str,
+        in_tree: tuple[str, int] | None,
+        on_disk: bool,
+        oid: str,
+        data: bytes | None,
+    ) -> tuple[str, bytes] | None:
+        """The draft's blob id and bytes: the disk bytes already hashed, the disk read now
+        (after a stat-cache hit, sending what was hashed), or the committed blob."""
+        if not on_disk:
+            assert in_tree is not None
+            blob = self._blob_bytes(rel, *in_tree)
+            return None if blob is None else (oid, blob)
+        if data is not None:
+            return oid, data
+        return self._disk_bytes(rel)
+
     def _working(
         self, rel: str, entry: dict[str, Any], in_tree: tuple[str, int] | None, on_disk: bool
     ) -> bool:
@@ -1048,17 +1066,10 @@ class _RepoSync:
         last = (entry.get("working") or {}).get("blob")
         if oid is None or (last if last is not None else committed_oid) == oid:
             return False
-        if on_disk:
-            if data is None:  # a stat-cache hit: read now, and send what was hashed
-                read = self._disk_bytes(rel)
-                if read is None:
-                    return False
-                oid, data = read
-        else:
-            assert in_tree is not None
-            data = self._blob_bytes(rel, *in_tree)
-            if data is None:
-                return False
+        loaded = self._draft_bytes(rel, in_tree, on_disk, oid, data)
+        if loaded is None:
+            return False
+        oid, data = loaded
         body = {"commit": WORKING, "content_b64": base64.b64encode(data).decode("ascii")}
         if self._send(rel, body) is None:
             return False
