@@ -940,7 +940,9 @@ def test_base_url_defaults_to_the_spark_loopback(root):
     library = FakeLibrary()
     params = _params(root)
     del params["base_url"]
-    port = RepodocsSyncPort(_store(params), transport=library, secret_runner=lambda name: KEY_VALUE)
+    port = RepodocsSyncPort(
+        _store(params), transport=library, secret_runner=lambda name: KEY_VALUE, clock=StepClock()
+    )
     assert port.invoke({"actor": ACTOR_ID}, "k", DEADLINE, context=_ctx()).outcome == COMPLETED
     assert library.calls  # FakeLibrary asserts the url is PUSH_URL
 

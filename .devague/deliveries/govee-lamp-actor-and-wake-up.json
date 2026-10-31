@@ -1,0 +1,317 @@
+{
+  "plan_slug": "govee-lamp-actor-and-wake-up",
+  "schema_version": 2,
+  "created": "2026-10-30T10:09:15Z",
+  "updated": "2026-10-31T09:54:56Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Before t4, add a govee-cli change: 'govee light on --brightness N' and a rules-actor command lamp_fade_on_to {pct, seconds} (govee light on --brightness {pct} --fade {seconds}); then regenerate the actor with govee rules actor and update spark-govee live so o2 stays exact (9 commands)",
+      "task_ref": "t4",
+      "reason": "Live t3 test: lamp_fade_on fades to the brightness the last fade-out remembered (1 % on 2026-10-30), so a wake-up cannot choose its target; govee-cli owns the command list (c5). Operator chose this option on 2026-10-30",
+      "affects": [
+        "t3",
+        "c2",
+        "h1",
+        "c5"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
+    },
+    {
+      "id": "d2",
+      "what": "The wake-up starts at 05:45 Asia/Jerusalem (cron 45 5 * * *) and fades over 2100 s so it reaches full light at 06:20, in white (lamp_temp 5000 K), instead of a 06:20 start; the workflow is three steps: lamp_brightness 1, lamp_temp 5000, lamp_fade_on_to 100 over 2100 s",
+      "task_ref": "t4",
+      "reason": "Operator asked on 2026-10-30: 'a daily wakeup for 5:45 to 6:20 with white morning hue; it starts at 5:45 and ends at 6:20 with fade of that hue'. Brightness 1 first, so the fade always starts from 1 % (code review finding 4: on a lit lamp lamp_fade_on_to would dim)",
+      "affects": [
+        "c6",
+        "h4",
+        "c13"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
+    },
+    {
+      "id": "d3",
+      "what": "Add a second live rule and workflow, morning-lamp-off: every day at 08:00 Asia/Jerusalem, lamp_off on spark-govee; and enable morning-wake-up now, before govee-cli PR #4 is merged",
+      "task_ref": "t4",
+      "reason": "Operator asked on 2026-10-30: 'Please apply the rule, and another rule to turn the lamp off at 8:00'. Until PR #4 merges and spark-govee is updated, the wake-up's rise step (lamp_fade_on_to) fails",
+      "affects": [
+        "c6",
+        "c10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 10
+    },
+    {
+      "id": "d4",
+      "what": "set config.idempotent true on the lamp steps of the live workflows morning-wake-up (dim, white, rise) and morning-lamp-off",
+      "task_ref": "t4",
+      "reason": "code review of #123: without it a node restart or lost claim mid-step fails the step unsafe_retry (the runner cannot deduplicate); every lamp command is an idempotent setter. Operator approved 2026-10-30",
+      "affects": [
+        "t5"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 15
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o9",
+      "test_ref": "govee rules actor --json; govee --version (spark, 2026-10-30)",
+      "behavior_text": "govee rules actor exits 0 with 8 commands, each argv[0] absolute and ending --source rules --apply --json; govee-cli 0.11.0 installed from the checkout at main ff78dac = origin/main",
+      "contract_text": "govee rules actor runs (no invalid choice) and govee --version matches govee-cli main",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "run on spark after the operator's reinstall",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:09:15Z",
+        "commit": "ff78dac"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 1
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o5",
+      "test_ref": "systemctl --user is-enabled/is-active govee-serve, before and after restart (spark)",
+      "behavior_text": "govee-serve.service enabled and active, still active after systemctl --user restart; listens on 0.0.0.0:8742 with trust lan,tailscale from ~/.config/govee-cli/env. The 600 s fade timing part is t3's",
+      "contract_text": "govee-serve is active and enabled, survives a restart",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the hand-started serve (pid 1013856) was stopped with operator approval first",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:12:23Z",
+        "commit": "ff78dac"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 2
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o6",
+      "test_ref": "env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 govee light state --json; govee token list --json",
+      "behavior_text": "with the runner's minimal env, govee reads the lamp through serve; token culture-rules last_used updates; cli-spark revoked by operator choice",
+      "contract_text": "a token named culture-rules exists and the runner's commands route through serve with it",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "run on spark",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:12:23Z",
+        "commit": "ff78dac"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 3
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o2",
+      "test_ref": "culture-rules actors show spark-govee vs govee rules actor --bin ... --machine spark --json",
+      "behavior_text": "stored params.commands == generated (python equality True): 8 commands, absolute path of govee in the user bin dir (~/.local/bin), each ending --source rules --apply --json; enabled, machine spark",
+      "contract_text": "the stored actor's params.commands equal what govee rules actor prints",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live on rules.culture.dev, spark, 2026-10-30",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:15:19Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o1",
+      "test_ref": "workflows run scratch-lamp-test lamp_color FF6A2B (run-aa4703d2aa99471eb30f8936d8069ec4) + govee stats recent_events id 67",
+      "behavior_text": "run succeeded on host spark; govee status confirmed over LAN; lamp on #FF6A2B; event 67 source rules",
+      "contract_text": "a lamp_* step run by the engine changes the real lamp and the event is logged with source rules",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live on rules.culture.dev, spark, 2026-10-30",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:15:19Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o3",
+      "test_ref": "runs lamp_color, lamp_off, lamp_fade_on via machine.command on spark-govee",
+      "behavior_text": "all three succeeded with exit_code 0; no InlineCommandDenied; the other 5 commands share the same argv shape (govee binary, no shell)",
+      "contract_text": "every one of the 8 commands is admitted at run time",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live on rules.culture.dev, spark, 2026-10-30",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:15:19Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o5",
+      "test_ref": "run-16d7e88f79854ea29f56bca724fa41f2 lamp_fade_on seconds 600; govee light fade-status",
+      "behavior_text": "the step returned in 2.5 s wall (with polling) while fade-status showed fade_on, seconds 600, progress 0.001",
+      "contract_text": "a lamp_fade_on step with seconds 600 returns in under 10 s while the fade continues",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live on rules.culture.dev, spark, 2026-10-30",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:15:19Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o2",
+      "test_ref": "actors show spark-govee vs govee rules actor (0.12.0)",
+      "behavior_text": "after actors update: 9 commands incl. lamp_fade_on_to, equal to the generated definition, enabled",
+      "contract_text": "the stored actor's params.commands equal what govee rules actor prints",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live on rules.culture.dev, spark, 2026-10-30, after govee-cli #4 (1c20c44)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:50:15Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o10",
+      "test_ref": "culture-rules actors references spark-govee",
+      "behavior_text": "enabled on spark; references morning-wake-up at dim, white and rise (and morning-lamp-off since d3)",
+      "contract_text": "the lamp actor is enabled on spark and its references list the wake-up workflow",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live on rules.culture.dev, spark, 2026-10-30, after govee-cli #4 (1c20c44)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:50:15Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o8",
+      "test_ref": "culture-rules rules show morning-wake-up",
+      "behavior_text": "trigger schedule, cron 45 5 * * * (d2 moved it from 20 6), tz Asia/Jerusalem, enabled, placement spark; every step placed on spark",
+      "contract_text": "the trigger is kind schedule, cron 20 6 * * *, tz Asia/Jerusalem, and the workflow's lamp step is placed on spark",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live on rules.culture.dev, spark, 2026-10-30, after govee-cli #4 (1c20c44)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:50:15Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o1",
+      "test_ref": "run-d0ad2a2be2164c4182f8044fa92098b1 (30 s copy of morning-wake-up) + govee events 79-81",
+      "behavior_text": "3 steps succeeded on spark in 5 s; lamp went off -> 1 % white 5000 K -> 100 % white 5000 K over 30 s; events 79-81 source rules",
+      "contract_text": "a lamp_* step run by the engine changes the real lamp and the event is logged with source rules",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live on rules.culture.dev, spark, 2026-10-30, after govee-cli #4 (1c20c44)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T10:50:15Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o8",
+      "test_ref": "culture-rules workflows show morning-wake-up|morning-lamp-off --json, before vs after update (d4)",
+      "behavior_text": "rev 1 -> 2; every step config.idempotent true (dim, white, rise; off); with idempotent removed the before and after documents are equal; both workflows and both rules still enabled (cron 45 5 / 0 8, Asia/Jerusalem)",
+      "contract_text": "the wake-up workflow is configured live (o8), amended by d4",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read back from the live API after --apply and compared field by field to the pre-change read",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T18:01:51Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o11",
+      "test_ref": "culture-rules runs list --rule-id morning-wake-up|morning-lamp-off --json; govee stats --json events 83-86; journalctl --user -u govee-serve 05:40-08:05 (2026-10-31)",
+      "behavior_text": "run-e1e2f1ed8e883a8e416f6dde83bba949 started 05:45:03 IST (3 s after the 05:45 cron, d2) on spark and succeeded in 0.8 s; govee events 83 brightness 1, 84 temp 5000, 85 fade_on to 100 over 2100 s, all source rules, confirmed; serve answered no request between 05:45:04 and 08:00:14, so nothing cancelled the fade; run-d819b3244c0e52ee12397d736d1176d7 at 08:00:07 succeeded and event 86 fades the lamp off (d3). Reaching 100 % at 06:20 is inferred from the uninterrupted fade, not read from the lamp",
+      "contract_text": "the first scheduled wake-up starts on time, succeeds, and govee's events show the fade with source rules and the lamp on (o11, timing per d2)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "the first real scheduled runs, read back from the run store, govee's event log and serve's journal; the end brightness was not sampled",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T03:45:03Z",
+        "commit": "48942c3"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    }
+  ],
+  "deltas": [],
+  "supersessions": []
+}
