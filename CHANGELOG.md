@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.1] - 2026-10-31
+
+### Added
+
+- The green PR merge prompt is pinned: the live merge_prompt and merge workflows' v2 digests are in TRUSTED_WORKFLOWS_V2 (roles merge_prompt and merge), so github.merge merges on the operator's click
+
+### Fixed
+
+- docs/operations/green-pr-merge.md step 1: the settled event carries no title, link or author, so merge_prompt reads the PR with github.pr before it posts (the workflow the end-to-end test builds)
+
 ## [0.39.0] - 2026-10-31
 
 ### Added
