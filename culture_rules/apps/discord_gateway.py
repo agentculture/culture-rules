@@ -13,6 +13,14 @@ first, then its token is kept apart (``discord_interactions``, keyed by the even
 event - without the token - is sunk (delivery id ``actor:interaction:<interaction id>``),
 through the same channel selection. An invocation whose event is not written (an unselected
 channel) gets no reply: the deferral stays "thinking" until Discord times it out.
+An actor that declares ``discord.button.clicked`` turns a click on a button of a bot message
+(a component interaction; no discord.py ``View`` is needed, the client's ``on_interaction``
+sees every click) into that event (:func:`button_data`, delivery id
+``actor:interaction:<interaction id>``), its token kept apart the same way
+(``kind: button``). The click is acknowledged inside Discord's 3 s: an admitted one with
+``UPDATE_MESSAGE``, its message re-rendered with every button disabled; one no rule admits
+with a private :data:`BUTTON_NOT_HERE`, the message unchanged. A hand-over slower than
+:data:`BUTTON_ACK_WAIT_S` is first acknowledged as a deferred update, then answered the same.
 Every engine node runs a :class:`GatewaySupervisor` from a stage of its cycle
 (:meth:`~culture_rules.node.daemon.Node.run_once`, right after the probe stage); the
 supervisors coordinate through a mesh-wide :class:`~culture_rules.engine.named_lease.NamedLease`
@@ -97,11 +105,14 @@ from culture_rules.events.hook_sink import (
     sink,
 )
 from culture_rules.model.discord_command_config import command_problems, definitions, not_here
-from culture_rules.model.discord_filters import discord_channels, filter_values
+from culture_rules.model.discord_filters import BUTTON_CLICKED, discord_channels, filter_values
 from culture_rules.model.rule import Rule
 
 __all__ = [
     "ACTORS_COLLECTION",
+    "BUTTON_ACK_WAIT_S",
+    "BUTTON_EVENT",
+    "BUTTON_NOT_HERE",
     "COMMAND_EVENT",
     "GATEWAY_EVENT",
     "LEASE_PREFIX",
@@ -112,6 +123,7 @@ __all__ = [
     "GatewayOptions",
     "GatewaySupervisor",
     "build_command_tree",
+    "button_data",
     "gateway_intents",
     "message_data",
     "reaction_data",
@@ -127,10 +139,16 @@ DISCORD_TYPE_PREFIX = "discord."
 GATEWAY_EVENT = "discord.message.created"
 REACTION_EVENT = "discord.reaction.added"
 COMMAND_EVENT = "discord.command.invoked"
+BUTTON_EVENT = BUTTON_CLICKED
+BUTTON_NOT_HERE = "This button is not set up here."
+"""The private answer to a click no rule (or filter) admits; the message stays as it was."""
+BUTTON_ACK_WAIT_S = 2.0
+"""How long a click waits for its event to be written before it is acknowledged as a
+deferred update anyway: Discord drops an interaction not answered within 3 s."""
 NOT_ADMITTED = "not_admitted"
 """:meth:`GatewaySupervisor._deliver`'s answer when no rule selects the channel or the actor's
 channel and guild filters keep the event out (nothing was written)."""
-LISTENED_EVENTS = (GATEWAY_EVENT, REACTION_EVENT, COMMAND_EVENT)
+LISTENED_EVENTS = (GATEWAY_EVENT, REACTION_EVENT, COMMAND_EVENT, BUTTON_EVENT)
 """Declaring any of them in ``params.events`` makes an app actor listen over the Gateway."""
 LEASE_PREFIX = "discord-gateway:"
 MAX_CONTENT = 2000
@@ -139,6 +157,7 @@ _SINK_ATTEMPTS = 3
 
 OnMessage = Callable[[Mapping[str, Any]], None]
 OnReaction = Callable[[Mapping[str, Any]], None]
+OnButton = Callable[[Mapping[str, Any]], "bool | None"]
 
 
 class Gateway(Protocol):
@@ -155,6 +174,7 @@ class Gateway(Protocol):
         on_reaction: OnReaction | None = None,
         commands: commands_mod.CommandRegistration | None = None,
         events: Iterable[str] = LISTENED_EVENTS,
+        on_button: OnButton | None = None,
     ) -> None:
         """Connect (asking Discord only for the intents ``events`` need) and call
         ``on_message`` with each created message (a mapping with ``id``,
@@ -165,8 +185,13 @@ class Gateway(Protocol):
         the message need not be cached) until ``should_stop()`` is true - then disconnect and
         return. With ``commands``, register the commands in each of its guilds whose
         ``needs_sync`` is true (then call ``synced``) once per connect, and hand each invocation
-        to ``commands.invoke`` after deferring it ephemerally. Raise (or return) when the
-        connection is lost for good; the supervisor reconnects."""
+        to ``commands.invoke`` after deferring it ephemerally. With ``on_button``, hand each
+        button click (``interaction_id``, ``application_id``, ``token``, ``custom_id``,
+        ``message_id``, ``channel_id``, ``guild_id``, ``user_id``, ``username``,
+        ``user_roles``, ``bot``) to it and acknowledge the click by what it answers (``True``:
+        the message's buttons disabled; ``False``: :data:`BUTTON_NOT_HERE`; ``None``:
+        :data:`~culture_rules.apps.discord_commands.NOT_SAVED`), within Discord's 3 s. Raise
+        (or return) when the connection is lost for good; the supervisor reconnects."""
 
 
 def gateway_intents(events: Iterable[str] = LISTENED_EVENTS) -> Any:
@@ -257,6 +282,83 @@ def _interaction_dict(
         "channel_id": None if channel_id is None else str(channel_id),
         "guild_id": None if guild_id is None else str(guild_id),
     }
+
+
+def _is_button_click(discord: Any, interaction: Any) -> bool:
+    """A component interaction on a button (not a command, a select menu or a modal)."""
+    if getattr(interaction, "type", None) != discord.InteractionType.component:
+        return False
+    data = getattr(interaction, "data", None) or {}
+    return data.get("component_type") == discord.ComponentType.button.value
+
+
+def _button_dict(interaction: Any) -> dict[str, Any]:
+    """One click as a plain mapping (token included: the supervisor keeps it apart)."""
+    data = getattr(interaction, "data", None) or {}
+    message = getattr(interaction, "message", None)
+    user = getattr(interaction, "user", None)
+    guild_id = getattr(interaction, "guild_id", None)
+    app_id = getattr(interaction, "application_id", None)
+    custom_id = data.get("custom_id")
+    return {
+        "interaction_id": str(interaction.id),
+        "application_id": None if app_id is None else str(app_id),
+        "token": interaction.token,
+        "custom_id": None if custom_id is None else str(custom_id),
+        "message_id": None if message is None else str(message.id),
+        "channel_id": _channel(interaction),
+        "guild_id": None if guild_id is None else str(guild_id),
+        "user_id": None if user is None else str(user.id),
+        "username": str(getattr(user, "name", "") or ""),
+        "user_roles": _role_ids(user),
+        "bot": bool(getattr(user, "bot", False)),
+    }
+
+
+def _disabled_view(discord: Any, message: Any) -> Any:
+    """The message's buttons as a discord.py ``View``, each disabled and otherwise as it was
+    (label, style, ``custom_id`` or url, emoji, row). The view is stopped at once, so
+    discord.py does not keep it in its view store (nothing on it can be clicked)."""
+    view = discord.ui.View(timeout=None)
+    for row, component in enumerate(getattr(message, "components", None) or ()):
+        for child in getattr(component, "children", None) or ():
+            if getattr(child, "type", None) != discord.ComponentType.button:
+                continue
+            view.add_item(
+                discord.ui.Button(
+                    style=child.style,
+                    label=child.label,
+                    custom_id=child.custom_id,
+                    url=child.url,
+                    emoji=child.emoji,
+                    sku_id=getattr(child, "sku_id", None),
+                    disabled=True,
+                    row=row,
+                )
+            )
+    view.stop()
+    return view
+
+
+async def _answer_click(discord: Any, interaction: Any, written: bool | None) -> None:
+    """Acknowledge a click by its hand-over's answer; after a deferred update, edit the
+    message (``@original``) or send a private follow-up instead."""
+    deferred = interaction.response.is_done()
+    try:
+        if written is True:
+            view = _disabled_view(discord, interaction.message)
+            if deferred:
+                await interaction.edit_original_response(view=view)
+            else:
+                await interaction.response.edit_message(view=view)  # UPDATE_MESSAGE
+            return
+        answer = BUTTON_NOT_HERE if written is False else commands_mod.NOT_SAVED
+        if deferred:
+            await interaction.followup.send(answer, ephemeral=True)
+        else:
+            await interaction.response.send_message(answer, ephemeral=True)
+    except Exception as exc:  # noqa: BLE001 - the answer is a courtesy; type logged
+        log.warning("discord gateway: answering a button click failed (%s)", type(exc).__name__)
 
 
 def _slash_target(
@@ -461,6 +563,36 @@ class DiscordPyGateway:
 
         return on_raw_reaction_add
 
+    @staticmethod
+    def _interaction_handler(on_button: OnButton, *, ack_wait: float = BUTTON_ACK_WAIT_S) -> Any:
+        """The ``on_interaction`` coroutine: a button click is handed to ``on_button`` (in a
+        thread) and acknowledged by its answer; one that takes longer than ``ack_wait`` is
+        acknowledged first as a deferred update (the message unchanged), inside Discord's
+        3 s. Commands (the ``CommandTree`` answers them) and other components are ignored."""
+        import asyncio  # noqa: PLC0415
+
+        import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
+
+        async def on_interaction(interaction: Any) -> None:
+            if not _is_button_click(discord, interaction):
+                return
+            handed = asyncio.ensure_future(asyncio.to_thread(on_button, _button_dict(interaction)))
+            written: bool | None = None
+            try:
+                try:
+                    written = await asyncio.wait_for(asyncio.shield(handed), ack_wait)
+                except TimeoutError:
+                    await interaction.response.defer()  # DEFERRED_UPDATE_MESSAGE
+                    written = await handed
+            except Exception as exc:  # noqa: BLE001 - answered "try again"; type logged
+                log.warning(
+                    "discord gateway: handing over a button click failed (%s)",
+                    type(exc).__name__,
+                )
+            await _answer_click(discord, interaction, written)
+
+        return on_interaction
+
     def connect(
         self,
         token: str,
@@ -469,6 +601,7 @@ class DiscordPyGateway:
         on_reaction: OnReaction | None = None,
         commands: commands_mod.CommandRegistration | None = None,
         events: Iterable[str] = LISTENED_EVENTS,
+        on_button: OnButton | None = None,
     ) -> None:
         import asyncio  # noqa: PLC0415
 
@@ -497,6 +630,8 @@ class DiscordPyGateway:
             client.event(_named(on_message_event, "on_message"))
             if on_reaction is not None:
                 client.event(self._raw_reaction_handler(on_reaction))
+            if on_button is not None:  # clicks need no application_id or View
+                client.event(_named(self._interaction_handler(on_button), "on_interaction"))
 
             async def watchdog() -> None:
                 while not should_stop():
@@ -565,6 +700,29 @@ def reaction_data(reaction: Mapping[str, Any]) -> dict[str, Any]:
         "bot": bool(reaction.get("bot", False)),
         "author_id": opt("user_id"),
         "author_name": opt("username"),
+    }
+
+
+def button_data(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """The event ``data`` for one button click: only these keys, never the token. The clicker
+    also fills ``author_id`` / ``author_name``, which the ``users`` trigger filter reads."""
+
+    def opt(key: str) -> str | None:
+        value = raw.get(key)
+        return None if value is None else str(value)
+
+    return {
+        "custom_id": opt("custom_id"),
+        "message_id": opt("message_id"),
+        "channel_id": opt("channel_id"),
+        "guild_id": opt("guild_id"),
+        "interaction_id": opt("interaction_id"),
+        "user_id": opt("user_id"),
+        "username": opt("username"),
+        "author_id": opt("user_id"),
+        "author_name": opt("username"),
+        "user_roles": _str_list(raw.get("user_roles")),
+        "bot": bool(raw.get("bot", False)),
     }
 
 
@@ -767,7 +925,7 @@ class GatewaySupervisor:
         return selection is None or channel_id in selection
 
     def _listens_here(self, doc: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
-        """An enabled Discord app declaring a gateway event (a message or a reaction), on this
+        """An enabled Discord app declaring a gateway event (:data:`LISTENED_EVENTS`), on this
         node's machine (its bot token is injected on its own machine only)."""
         if (doc.get("surface") or params.get("surface")) != "discord":
             return False
@@ -934,6 +1092,7 @@ class GatewaySupervisor:
                         lambda rx: self._on_reaction(session, rx),
                         commands=self._registration(session),
                         events=self._declared(session),
+                        on_button=lambda raw: self._on_button(session, raw),
                     )
                     failures = 0
                 except Exception as exc:  # noqa: BLE001 - reconnect; the type only is logged
@@ -1042,7 +1201,7 @@ class GatewaySupervisor:
             delivery = f"{session.actor_id}:{data['message_id']}:{data['user_id']}:{emoji}"
             self._deliver(session, REACTION_EVENT, data, delivery)
 
-    def _on_command(self, session: _Session, raw: Mapping[str, Any]) -> bool:
+    def _on_command(self, session: _Session, raw: Mapping[str, Any]) -> bool | None:
         """Keep the invocation's token apart (keyed by the event id), then sink the event
         without it; the token is dropped again when the event is not written. Says whether
         the event was written (a duplicate counts): ``True``; ``False`` when nothing admits it
@@ -1057,6 +1216,38 @@ class GatewaySupervisor:
         key = session.command_key
         if key is None or not key[0] or data["guild_id"] not in key[1]:  # e.g. not yet dropped
             return False
+        return self._sink_interaction(
+            session, COMMAND_EVENT, data, token, app_id, commands_mod.COMMAND_INTERACTION
+        )
+
+    def _on_button(self, session: _Session, raw: Mapping[str, Any]) -> bool | None:
+        """A button click, as :meth:`_on_command` takes an invocation: its token kept apart
+        (``kind: button``), the event sunk without it; ``True`` when written (a duplicate
+        counts), ``False`` when nothing admits it (an undeclared type included), ``None`` when
+        every write failed."""
+        if BUTTON_EVENT not in self._declared(session):
+            return False  # undeclared: no token, no stamp, no sink
+        raw = dict(raw)
+        token = raw.pop("token", None)
+        app_id = raw.pop("application_id", None)
+        data = button_data(raw)
+        if not data["interaction_id"] or not data["custom_id"]:
+            return False
+        return self._sink_interaction(
+            session, BUTTON_EVENT, data, token, app_id, commands_mod.BUTTON_INTERACTION
+        )
+
+    def _sink_interaction(
+        self,
+        session: _Session,
+        event_type: str,
+        data: dict[str, Any],
+        token: Any,
+        app_id: Any,
+        kind: str,
+    ) -> bool | None:
+        """Sink an interaction's event (delivery id ``actor:interaction:<id>``), keeping its
+        token apart once admitted and dropping it again when the event is not written."""
         delivery = f"{session.actor_id}:interaction:{data['interaction_id']}"
         event_id = event_id_for("discord", delivery)
         kept = False
@@ -1073,6 +1264,7 @@ class GatewaySupervisor:
                     str(app_id or ""),
                     session.actor_id,
                     now=self._clock(),
+                    kind=kind,
                 )
                 kept = True
             except Exception as exc:  # noqa: BLE001 - the event still lands; no reply then
@@ -1082,9 +1274,9 @@ class GatewaySupervisor:
                     type(exc).__name__,
                 )
 
-        outcome = self._deliver(session, COMMAND_EVENT, data, delivery, before_sink=keep)
+        outcome = self._deliver(session, event_type, data, delivery, before_sink=keep)
         written = outcome in (ACCEPTED, DUPLICATE)
-        if kept and outcome not in (ACCEPTED, DUPLICATE):
+        if kept and not written:
             try:
                 commands_mod.forget_interaction(self._store, event_id)
             except Exception as exc:  # noqa: BLE001 - the TTL index deletes it anyway

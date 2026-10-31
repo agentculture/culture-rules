@@ -6,6 +6,7 @@ import asyncio
 import logging
 import subprocess
 import sys
+import threading
 import time
 import types
 import uuid
@@ -25,7 +26,7 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.store.memory import MemoryStore
 from culture_rules.store.port import TransientStoreError
-from tests.apps.discord_fakes import FakeGateway, FakeHub, eventually, message, reaction
+from tests.apps.discord_fakes import FakeGateway, FakeHub, click, eventually, message, reaction
 from tests.engine.run_helpers import Clock
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -763,3 +764,328 @@ def test_raw_reaction_payload_not_in_cache_raises_the_event():
     assert got[1]["user_id"] == "42"
     assert got[1]["user_roles"] == []
     assert got[1]["emoji_id"] is None
+
+
+# ---------------------------------------------------------------- button clicks
+
+BUTTON = "discord.button.clicked"
+MERGE_ID = "merge:agentculture/culture-rules:12:abc123"
+
+
+def _click_rig(rig, **rule_params):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("on-click", type=BUTTON, **rule_params))
+    r.store.put("actors", discord_actor(events=(BUTTON,)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    return r
+
+
+def _kept(r):
+    from culture_rules.apps.discord_commands import INTERACTIONS_COLLECTION
+
+    return list(r.store.find(INTERACTIONS_COLLECTION))
+
+
+def test_the_button_event_is_a_listened_event():
+    assert dg.BUTTON_EVENT == BUTTON
+    assert BUTTON in dg.LISTENED_EVENTS
+
+
+def test_an_actor_declaring_only_clicks_is_listened_for(rig):
+    r = rig(rule=False)
+    r.store.put("actors", discord_actor(events=(BUTTON,)))
+    assert r.sup.tick() == ["bot"]
+
+
+def test_a_click_becomes_one_button_event_and_its_token_is_kept_apart(rig):
+    r = _click_rig(rig)
+    secret = "itok-" + uuid.uuid4().hex
+    r.hub.click(click(1, token=secret))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.hub.answers == [True]
+    event = r.events(BUTTON)[0]
+    d = event["envelope"]["data"]
+    assert d["delivery_id"] == "bot:interaction:5001"
+    assert d["custom_id"] == MERGE_ID
+    assert d["message_id"] == "9001"
+    assert (d["channel_id"], d["guild_id"]) == ("100", "1")
+    assert (d["author_id"], d["author_name"]) == ("42", "alice")
+    assert d["user_roles"] == ["7", "8"]
+    assert secret not in repr(event)
+    assert event["id"] == dg.event_id_for("discord", "bot:interaction:5001")
+    (kept,) = _kept(r)
+    assert kept["id"] == event["id"]
+    assert kept["token"] == secret
+    assert kept["application_id"] == "777000"
+    assert kept["kind"] == "button"
+
+
+def test_button_data_carries_only_the_documented_keys():
+    raw = click(1)
+    raw["extra"] = "x"
+    data = dg.button_data(raw)
+    assert set(data) == {
+        "custom_id",
+        "message_id",
+        "channel_id",
+        "guild_id",
+        "interaction_id",
+        "user_id",
+        "username",
+        "author_id",
+        "author_name",
+        "user_roles",
+        "bot",
+    }
+    assert "token" not in data
+    assert "application_id" not in data
+
+
+def test_a_repeated_click_delivery_is_a_duplicate(rig):
+    r = _click_rig(rig)
+    r.hub.click(click(1))
+    r.hub.click(click(1))
+    assert eventually(lambda: len(r.hub.answers) == 2)
+    assert r.hub.answers == [True, True]
+    assert len(r.events(BUTTON)) == 1
+
+
+def test_a_click_no_rule_admits_writes_neither_event_nor_token(rig):
+    r = _click_rig(rig, channels=["100"])
+    r.hub.click(click(1, channel="999"))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert r.hub.answers == [False]
+    assert r.events(BUTTON) == []
+    assert _kept(r) == []
+
+
+def test_a_click_for_an_actor_not_declaring_the_event_is_not_admitted(rig):
+    r = rig(rule=False)
+    r.store.put("rules", discord_rule("on-click", type=BUTTON))
+    r.store.put("actors", discord_actor(events=(EVENT,)))
+    r.sup.tick()
+    assert eventually(lambda: r.hub.live_now() == ["spark"])
+    r.hub.click(click(1))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert r.hub.answers == [False]
+    assert r.events(BUTTON) == []
+    assert _kept(r) == []
+
+
+def test_a_click_never_logs_its_token(rig, caplog):
+    caplog.set_level(logging.DEBUG)
+    r = _click_rig(rig)
+    secret = "itok-" + uuid.uuid4().hex
+    r.hub.click(click(1, token=secret))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert secret not in caplog.text
+
+
+def test_a_click_whose_write_fails_answers_none_and_drops_the_token(rig, monkeypatch):
+    r = _click_rig(rig)
+
+    def broken(*a, **kw):
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(dg, "sink", broken)
+    monkeypatch.setattr(dg.time, "sleep", lambda s: None)
+    r.hub.click(click(1))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert r.hub.answers == [None]
+    assert _kept(r) == []
+
+
+# ---------------------------------------------------------------- clicks: discord.py glue
+
+
+class _ClickResponse:
+    def __init__(self, order):
+        self.order = order
+        self.done = False
+
+    def is_done(self):
+        return self.done
+
+    async def edit_message(self, **kw):
+        self.done = True
+        self.order.append(("update", kw))
+
+    async def send_message(self, *args, **kw):
+        self.done = True
+        self.order.append(("send", args, kw))
+
+    async def defer(self, **kw):
+        self.done = True
+        self.order.append(("defer", kw))
+
+
+def _click_interaction(order, *, token="itok-1", component_type=2, kind=None):
+    discord = pytest.importorskip("discord")
+    row = discord.ActionRow(
+        {
+            "type": 1,
+            "components": [
+                {"type": 2, "style": 3, "label": "Merge", "custom_id": MERGE_ID},
+                {"type": 2, "style": 5, "label": "PR", "url": "https://github.com/x/y/pull/1"},
+            ],
+        }
+    )
+    message = types.SimpleNamespace(id=9001, components=[row])
+
+    async def edit_original_response(**kw):
+        order.append(("edit_original", kw))
+
+    async def followup_send(*args, **kw):
+        order.append(("followup", args, kw))
+
+    return types.SimpleNamespace(
+        id=5001,
+        type=kind if kind is not None else discord.InteractionType.component,
+        application_id=777000,
+        token=token,
+        guild_id=1,
+        channel_id=100,
+        data={"custom_id": MERGE_ID, "component_type": component_type},
+        message=message,
+        user=types.SimpleNamespace(
+            id=42, name="alice", bot=False, roles=[types.SimpleNamespace(id=7)]
+        ),
+        response=_ClickResponse(order),
+        edit_original_response=edit_original_response,
+        followup=types.SimpleNamespace(send=followup_send),
+    )
+
+
+def _buttons(view):
+    return [(b.label, b.style.value, b.custom_id, b.url, b.disabled) for b in view.children]
+
+
+def test_an_admitted_click_is_answered_by_updating_the_message_with_its_buttons_disabled():
+    pytest.importorskip("discord")
+    order: list = []
+    seen: list = []
+
+    def handed(raw):
+        seen.append(dict(raw))
+        return True
+
+    handler = dg.DiscordPyGateway._interaction_handler(handed)  # noqa: SLF001
+    asyncio.run(handler(_click_interaction(order, token="itok-x")))
+    (raw,) = seen
+    assert raw["token"] == "itok-x"
+    assert raw["application_id"] == "777000"
+    assert raw["custom_id"] == MERGE_ID
+    assert (raw["message_id"], raw["channel_id"], raw["guild_id"]) == ("9001", "100", "1")
+    assert (raw["interaction_id"], raw["user_id"], raw["username"]) == ("5001", "42", "alice")
+    assert raw["user_roles"] == ["7"]
+    (answer,) = order
+    assert answer[0] == "update"
+    view = answer[1]["view"]
+    assert _buttons(view) == [
+        ("Merge", 3, MERGE_ID, None, True),
+        ("PR", 5, None, "https://github.com/x/y/pull/1", True),
+    ]
+    assert view.is_finished()  # not kept in discord.py's view store
+
+
+def test_a_click_no_rule_admits_is_answered_privately_and_leaves_the_prompt():
+    pytest.importorskip("discord")
+    order: list = []
+    handler = dg.DiscordPyGateway._interaction_handler(lambda raw: False)  # noqa: SLF001
+    asyncio.run(handler(_click_interaction(order)))
+    assert order == [("send", (dg.BUTTON_NOT_HERE,), {"ephemeral": True})]
+
+
+def test_a_click_whose_write_failed_is_told_to_try_again():
+    pytest.importorskip("discord")
+    from culture_rules.apps.discord_commands import NOT_SAVED
+
+    order: list = []
+    handler = dg.DiscordPyGateway._interaction_handler(lambda raw: None)  # noqa: SLF001
+    asyncio.run(handler(_click_interaction(order)))
+    assert order == [("send", (NOT_SAVED,), {"ephemeral": True})]
+
+
+def test_a_hand_over_that_raises_is_answered_not_saved():
+    pytest.importorskip("discord")
+    from culture_rules.apps.discord_commands import NOT_SAVED
+
+    def boom(raw):
+        raise RuntimeError("x")
+
+    order: list = []
+    handler = dg.DiscordPyGateway._interaction_handler(boom)  # noqa: SLF001
+    asyncio.run(handler(_click_interaction(order)))
+    assert order == [("send", (NOT_SAVED,), {"ephemeral": True})]
+
+
+def test_a_slow_hand_over_is_acknowledged_inside_the_window_then_disables_the_buttons():
+    pytest.importorskip("discord")
+    order: list = []
+    release = threading.Event()
+
+    def slow(raw):
+        assert release.wait(5)  # held until the click is acknowledged
+        return True
+
+    interaction = _click_interaction(order)
+    real_defer = interaction.response.defer
+
+    async def defer(**kw):
+        await real_defer(**kw)
+        release.set()
+
+    interaction.response.defer = defer
+    handler = dg.DiscordPyGateway._interaction_handler(slow, ack_wait=0.01)  # noqa: SLF001
+    asyncio.run(handler(interaction))
+    assert order[0] == ("defer", {})  # a deferred update: the prompt is unchanged so far
+    assert order[1][0] == "edit_original"
+    assert [b[-1] for b in _buttons(order[1][1]["view"])] == [True, True]
+
+
+def test_a_slow_hand_over_not_admitted_answers_with_a_private_follow_up():
+    pytest.importorskip("discord")
+    order: list = []
+
+    def slow(raw):
+        time.sleep(0.05)
+        return False
+
+    handler = dg.DiscordPyGateway._interaction_handler(slow, ack_wait=0.01)  # noqa: SLF001
+    asyncio.run(handler(_click_interaction(order)))
+    assert order == [("defer", {}), ("followup", (dg.BUTTON_NOT_HERE,), {"ephemeral": True})]
+
+
+def test_the_ack_wait_stays_well_inside_discord_s_three_seconds():
+    assert 0 < dg.BUTTON_ACK_WAIT_S <= 2.0
+
+
+def test_commands_and_other_components_are_not_clicks():
+    discord = pytest.importorskip("discord")
+    seen: list = []
+    handler = dg.DiscordPyGateway._interaction_handler(seen.append)  # noqa: SLF001
+    order: list = []
+    command = _click_interaction(order, kind=discord.InteractionType.application_command)
+    asyncio.run(handler(command))
+    select = _click_interaction(order, component_type=3)  # a select menu
+    asyncio.run(handler(select))
+    assert seen == []
+    assert order == []
+
+
+def test_a_sunk_click_is_matched_by_the_custom_id_and_users_filters(rig):
+    from culture_rules.engine.matching import trigger_matches
+
+    r = _click_rig(rig)
+    r.hub.click(click(1))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    envelope = r.events(BUTTON)[0]["envelope"]
+
+    def trig(**params):
+        return Trigger(kind="event", params={"type": BUTTON, **params})
+
+    assert trigger_matches(trig(custom_id="merge:", users=["42"]), envelope)
+    assert trigger_matches(trig(roles=["8"]), envelope)
+    assert not trigger_matches(trig(custom_id="close:"), envelope)
+    assert not trigger_matches(trig(users=["someone-else"]), envelope)

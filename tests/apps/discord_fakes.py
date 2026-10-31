@@ -92,6 +92,31 @@ def interaction(
     }
 
 
+def click(
+    n: int,
+    *,
+    channel: str = "100",
+    guild: str = "1",
+    token: str | None = None,
+    custom_id: str = "merge:agentculture/culture-rules:12:abc123",
+    user: str = "42",
+) -> dict:
+    """A raw button click as a gateway hands it over (token included)."""
+    return {
+        "interaction_id": str(5000 + n),
+        "application_id": "777000",
+        "token": token if token is not None else "itok-" + str(n),
+        "custom_id": custom_id,
+        "message_id": str(9000 + n),
+        "channel_id": channel,
+        "guild_id": guild,
+        "user_id": user,
+        "username": "alice",
+        "user_roles": ["7", "8"],
+        "bot": False,
+    }
+
+
 class FakeHub:
     def __init__(self, *, replay: int = 3) -> None:
         self._lock = threading.Lock()
@@ -124,6 +149,9 @@ class FakeHub:
     def command(self, raw: Mapping[str, Any]) -> None:
         self.inbox.put(("command", dict(raw)))
 
+    def click(self, raw: Mapping[str, Any]) -> None:
+        self.inbox.put(("button", dict(raw)))
+
     def react(self, reaction: Mapping[str, Any]) -> None:
         self.inbox.put(("reaction", dict(reaction)))
 
@@ -154,6 +182,7 @@ class FakeGateway:
         on_reaction: Callable[[Mapping[str, Any]], None] | None = None,
         commands: Any = None,
         events: Any = (),
+        on_button: Callable[[Mapping[str, Any]], Any] | None = None,
     ) -> None:
         replayed = self.hub.enter(self.name, token)
         self.hub.registrations.append(commands)
@@ -178,6 +207,10 @@ class FakeGateway:
                 if kind == "command":
                     if commands is not None:
                         self.hub.answers.append(commands.invoke(payload))
+                    continue
+                if kind == "button":
+                    if on_button is not None:
+                        self.hub.answers.append(on_button(payload))
                     continue
                 if kind == "reaction":
                     if on_reaction is not None:

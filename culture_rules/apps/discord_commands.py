@@ -38,7 +38,10 @@ option parsed by :func:`parse_message_ref`), ``interaction_id``,
 The interaction token
 =====================
 The token is **never** in the event. It is kept in :data:`INTERACTIONS_COLLECTION` as
-``{id: <event id>, token, application_id, actor, expires_at}`` - the event id is
+``{id: <event id>, token, application_id, actor, kind, expires_at}`` - ``kind`` is
+:data:`COMMAND_INTERACTION` or :data:`BUTTON_INTERACTION` (a ``discord.button.clicked`` click,
+whose ``@original`` is the clicked message, so ``discord.reply`` answers it with a follow-up;
+a token kept without one reads as a command) - and the event id is
 :func:`~culture_rules.events.hook_sink.event_id_for` ``("discord", <delivery id>)`` - with
 ``expires_at`` :data:`INTERACTION_TOKEN_TTL` (Discord's own 15 minutes) after it was written;
 the TTL index :data:`INTERACTIONS_TTL_INDEX` deletes it then, and :func:`interaction_token`
@@ -59,7 +62,9 @@ from typing import Any
 from culture_rules.apps.discord_rest import guild_ids
 
 __all__ = [
+    "BUTTON_INTERACTION",
     "CHAT_INPUT",
+    "COMMAND_INTERACTION",
     "COMMAND_SYNC_COLLECTION",
     "INTERACTIONS_COLLECTION",
     "INTERACTIONS_TTL_INDEX",
@@ -89,6 +94,8 @@ INTERACTIONS_COLLECTION = "discord_interactions"
 INTERACTIONS_TTL_INDEX = "discord_interactions_ttl"
 INTERACTION_TOKEN_TTL = timedelta(minutes=15)
 _EXPIRES_AT = "expires_at"
+COMMAND_INTERACTION, BUTTON_INTERACTION = "command", "button"
+"""The ``kind`` a kept token carries: a command invocation, or a message button's click."""
 
 _LINK = re.compile(
     r"^https?://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/channels/(?:\d+|@me)/(\d+)/(\d+)/?$"
@@ -249,8 +256,10 @@ def remember_interaction(
     actor_id: str,
     *,
     now: datetime,
+    kind: str = COMMAND_INTERACTION,
 ) -> None:
-    """Keep an interaction's token for the reply action, keyed by the event id."""
+    """Keep an interaction's token for the reply action, keyed by the event id; ``kind`` says
+    whether it answers a command or a button click."""
     store.put(
         INTERACTIONS_COLLECTION,
         {
@@ -258,6 +267,7 @@ def remember_interaction(
             "token": token,
             "application_id": application_id,
             "actor": actor_id,
+            "kind": kind,
             _EXPIRES_AT: now + INTERACTION_TOKEN_TTL,  # a date: the TTL index deletes it then
         },
     )
@@ -282,8 +292,8 @@ def _as_utc(value: Any) -> datetime | None:
 def interaction_token(
     store: Any, event_id: str, *, now: datetime | None = None
 ) -> dict[str, Any] | None:
-    """``{token, application_id, actor}`` for the event's interaction, or ``None`` when there
-    is none or it has expired."""
+    """``{token, application_id, actor, kind}`` for the event's interaction, or ``None`` when
+    there is none or it has expired."""
     doc = store.get(INTERACTIONS_COLLECTION, event_id)
     if doc is None:
         return None
@@ -294,4 +304,5 @@ def interaction_token(
         "token": doc.get("token"),
         "application_id": doc.get("application_id"),
         "actor": doc.get("actor"),
+        "kind": doc.get("kind") or COMMAND_INTERACTION,
     }
