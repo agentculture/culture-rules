@@ -20,7 +20,12 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport
+from culture_rules.apps.discord_rest import (
+    DiscordClient,
+    DiscordError,
+    Transport,
+    button_components,
+)
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.mesh import MeshPoster
 
@@ -69,7 +74,11 @@ class MessageAction:
         if not isinstance(channel, str) or not channel or not isinstance(text, str) or not text:
             return _fail("message needs a non-empty channel and text")
         if context.actor:
-            return self._discord(context.actor, channel, text)
+            try:
+                components = button_components(input.get("buttons"))
+            except ValueError as exc:
+                return _fail(f"bad_params: {exc}")
+            return self._discord(context.actor, channel, text, components)
         return self._mesh(channel, text)
 
     def _mesh(self, channel: str, text: str) -> InvocationResult:
@@ -92,7 +101,9 @@ class MessageAction:
         log.info("mesh message posted to %s", channel)
         return InvocationResult.completed({})
 
-    def _discord(self, actor_id: str, channel: str, text: str) -> InvocationResult:
+    def _discord(
+        self, actor_id: str, channel: str, text: str, components: list[dict[str, Any]]
+    ) -> InvocationResult:
         actor = self._store.get(ACTORS_COLLECTION, actor_id)
         if actor is None:
             return _fail(f"actor {actor_id!r} not found")
@@ -117,7 +128,7 @@ class MessageAction:
         if self._base_url:
             kwargs["base_url"] = self._base_url
         try:
-            out = DiscordClient(token, **kwargs).post_message(channel, text)
+            out = DiscordClient(token, **kwargs).post_message(channel, text, components=components)
         except DiscordError as exc:
             log.warning("discord message to %s failed: %s", channel, exc)
             return InvocationResult.failed(str(exc), retryable=exc.retryable)

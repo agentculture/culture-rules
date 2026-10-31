@@ -349,14 +349,18 @@ class DiscordClient:
         text: str,
         *,
         allowed_mentions_parse: Sequence[str] = (),
+        components: Sequence[Mapping[str, Any]] | None = None,
     ) -> dict[str, str]:
-        """Post ``text`` to ``channel_id``; returns ``{"message_id": ...}``."""
+        """Post ``text`` to ``channel_id``; returns ``{"message_id": ...}``. ``components``
+        (see ``button_components``) is sent as given, and left out of the body when empty."""
         if not isinstance(channel_id, str) or not _CHANNEL_RE.match(channel_id):
             raise DiscordError("channel must be a numeric Discord channel id", retryable=False)
         body = {
             "content": str(text)[:MAX_CONTENT],
             "allowed_mentions": {"parse": list(allowed_mentions_parse)},
         }
+        if components:
+            body["components"] = list(components)
         headers = self._headers()
         url = f"{self._base}/channels/{channel_id}/messages"
         try:
@@ -380,6 +384,45 @@ class DiscordClient:
                 retry_after=retry_after,
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
+
+
+BUTTON_STYLES = {"primary": 1, "secondary": 2, "success": 3, "danger": 4}
+MAX_BUTTONS = 5
+MAX_BUTTON_LABEL = 80
+MAX_CUSTOM_ID = 100
+
+
+def button_components(buttons: Any) -> list[dict[str, Any]]:
+    """One action row of buttons from ``[{label, style, custom_id}]``; ``[]`` for none.
+
+    Raises ``ValueError`` for anything Discord would refuse, before any network call."""
+    if buttons is None:
+        return []
+    if not isinstance(buttons, (list, tuple)):
+        raise ValueError("buttons must be a list")
+    if not buttons:
+        return []
+    if len(buttons) > MAX_BUTTONS:
+        raise ValueError(f"at most {MAX_BUTTONS} buttons")
+    row: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for i, b in enumerate(buttons):
+        if not isinstance(b, Mapping):
+            raise ValueError(f"button {i} must be an object")
+        label, custom_id, style = b.get("label"), b.get("custom_id"), b.get("style")
+        if not isinstance(label, str) or not label or len(label) > MAX_BUTTON_LABEL:
+            raise ValueError(f"button {i} label must be 1-{MAX_BUTTON_LABEL} characters")
+        if not isinstance(custom_id, str) or not custom_id or len(custom_id) > MAX_CUSTOM_ID:
+            raise ValueError(f"button {i} custom_id must be 1-{MAX_CUSTOM_ID} characters")
+        if not isinstance(style, str) or style not in BUTTON_STYLES:
+            raise ValueError(f"button {i} style must be one of {', '.join(BUTTON_STYLES)}")
+        if custom_id in seen:
+            raise ValueError(f"button {i} repeats custom_id {custom_id!r}")
+        seen.add(custom_id)
+        row.append(
+            {"type": 2, "style": BUTTON_STYLES[style], "label": label, "custom_id": custom_id}
+        )
+    return [{"type": 1, "components": row}]
 
 
 def _retry_after(payload: Any) -> float | None:

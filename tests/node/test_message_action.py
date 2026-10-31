@@ -181,3 +181,76 @@ def test_discord_message_kind_without_an_actor_never_falls_back_to_the_mesh():
     assert res.outcome == FAILED
     assert not res.retryable
     assert calls == []
+
+
+def _discord_kind(t, secrets_seen=None):
+    from culture_rules.node.actions.message import DiscordMessageAction
+
+    def resolve(ref):
+        if secrets_seen is not None:
+            secrets_seen.append(ref)
+        return "tok-xyz"
+
+    return DiscordMessageAction(store_with(), resolve_secret=resolve, transport=t)
+
+
+def _btn(**kw):
+    return {"label": "Go", "style": "success", "custom_id": "go:1", **kw}
+
+
+def _send(port, **extra):
+    return port.invoke(
+        {"actor": "disc", "channel": "42", "text": "hi", **extra}, "k", NOW, context=ctx("disc")
+    )
+
+
+def test_discord_message_with_buttons_posts_components_and_keeps_message_id():
+    t = FakeTransport()
+    res = _send(_discord_kind(t), buttons=[_btn(), _btn(style="danger", custom_id="no")])
+    assert res.outcome == "completed"
+    assert res.output == {"message_id": "m9"}
+    assert t.calls[0][1]["components"] == [
+        {
+            "type": 1,
+            "components": [
+                {"type": 2, "style": 3, "label": "Go", "custom_id": "go:1"},
+                {"type": 2, "style": 4, "label": "Go", "custom_id": "no"},
+            ],
+        }
+    ]
+
+
+def test_discord_message_without_buttons_body_is_unchanged():
+    expected = {"content": "hi", "allowed_mentions": {"parse": []}}
+    for extra in ({}, {"buttons": []}, {"buttons": None}):
+        t = FakeTransport()
+        assert _send(_discord_kind(t), **extra).outcome == "completed"
+        assert t.calls[0][1] == expected
+
+
+def test_discord_message_bad_buttons_are_refused_before_any_secret_or_post():
+    bad = [
+        [_btn(custom_id="x" * 101)],
+        [_btn(custom_id=str(i)) for i in range(6)],
+        [_btn(style="purple")],
+        [_btn(label="")],
+        [_btn(label="y" * 81)],
+        [{"label": "a", "style": "success"}],
+        [_btn(), _btn()],
+        ["go"],
+        "go",
+    ]
+    for buttons in bad:
+        t, seen = FakeTransport(), []
+        res = _send(_discord_kind(t, seen), buttons=buttons)
+        assert res.outcome == FAILED
+        assert res.error.startswith("bad_params")
+        assert not res.retryable
+        assert t.calls == []
+        assert seen == []
+
+
+def test_discord_message_button_limits_are_inclusive():
+    t = FakeTransport()
+    buttons = [_btn(custom_id="z" * 100 if i == 0 else str(i)) for i in range(5)]
+    assert _send(_discord_kind(t), buttons=buttons).outcome == "completed"
