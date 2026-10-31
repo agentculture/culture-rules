@@ -686,3 +686,108 @@ def test_a_slow_key_resolve_never_holds_the_status_stage_past_its_budget(pem):
     (doc,) = store.find("fixer_status_comments")
     assert doc["last_error"] == "deadline_exceeded"
     assert doc["state"] == "none"  # nothing was sent: posted on a later tick
+
+
+# --------------------------------------------------------------------------- github.pr
+
+PULL = {
+    "title": "Add the thing",
+    "html_url": "https://github.com/acme/widgets/pull/3",
+    "user": {"login": "octo"},
+    "draft": False,
+    "state": "open",
+    "merged": False,
+    "head": {"sha": "c" * 40, "ref": "feature", "repo": {"full_name": "fork/widgets"}},
+    "base": {"sha": "b" * 40, "ref": "main", "repo": {"full_name": "acme/widgets"}},
+}
+
+
+class PullFake(HeadFake):
+    def __init__(self, pull=None, status=200):
+        super().__init__(status=status)
+        self.pull = PULL if pull is None else pull
+
+    def __call__(self, method, url, headers, body, timeout):
+        if "/pulls/" in url:
+            self.calls.append(f"{method} {url}")
+            if self.status != 200:
+                return self.status, b"{}"
+            return 200, json.dumps(self.pull).encode()
+        return Fake.__call__(self, method, url, headers, body, timeout)
+
+
+def _pr_port(pem, fake):
+    from culture_rules.node.actions.github import GitHubPrPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    return GitHubPrPort(store, transport=fake, secrets=lambda ref: pem)
+
+
+def test_github_pr_returns_the_facts_a_prompt_needs(pem):
+    fake = PullFake()
+    port = _pr_port(pem, fake)
+    inp = {"repo": "acme/widgets", "number": 3}
+    res = port.invoke(inp, "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+    assert dict(res.output) == {
+        "title": "Add the thing",
+        "url": "https://github.com/acme/widgets/pull/3",
+        "author": "octo",
+        "draft": False,
+        "state": "open",
+        "merged": False,
+        "head_repo": "fork/widgets",
+        "base_repo": "acme/widgets",
+        "head_branch": "feature",
+        "head_sha": "c" * 40,
+        "base_branch": "main",
+        "base_sha": "b" * 40,
+    }
+    assert all(isinstance(v, (str, bool)) for v in res.output.values())
+
+
+def test_github_pr_is_read_only_and_safe_to_retry(pem):
+    fake = PullFake()
+    port = _pr_port(pem, fake)
+    inp = {"repo": "acme/widgets", "number": 3}
+    first = port.invoke(inp, "k", DEADLINE, context=ctx())
+    second = port.invoke(inp, "k", DEADLINE, context=ctx())
+    assert dict(first.output) == dict(second.output)
+    reads = [c for c in fake.calls if "/pulls/" in c]
+    assert reads == ["GET https://api.github.com/repos/acme/widgets/pulls/3"] * 2
+    assert not [c for c in fake.calls if c.startswith(("POST /", "PUT", "PATCH", "DELETE"))]
+    assert port.supports_idempotency_key is True
+
+
+def test_github_pr_a_deleted_fork_has_no_head_repo(pem):
+    pull = {**PULL, "head": {"sha": "c" * 40, "ref": "feature", "repo": None}}
+    res = _pr_port(pem, PullFake(pull)).invoke(
+        {"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx()
+    )
+    assert res.output["head_repo"] is None
+    assert res.output["base_repo"] == "acme/widgets"
+
+
+def test_github_pr_refusals(pem):
+    fake = PullFake()
+    port = _pr_port(pem, fake)
+    bad = port.invoke({"repo": "evil/repo", "number": 3}, "k", DEADLINE, context=ctx())
+    assert (bad.error, bad.retryable) == ("repo_not_allowed", False)
+    num = port.invoke({"repo": "acme/widgets", "number": "x"}, "k", DEADLINE, context=ctx())
+    assert (num.error, num.retryable) == ("bad_input", False)
+    assert fake.calls == []
+
+
+def test_github_pr_without_a_head_is_a_retryable_bad_response(pem):
+    res = _pr_port(pem, PullFake({"title": "x"})).invoke(
+        {"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx()
+    )
+    assert (res.error, res.retryable) == ("bad_response", True)
+
+
+def test_github_pr_surfaces_a_server_error_as_retryable(pem):
+    res = _pr_port(pem, PullFake(status=500)).invoke(
+        {"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx()
+    )
+    assert (res.outcome, res.retryable) == ("failed", True)
