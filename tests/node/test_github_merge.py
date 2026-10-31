@@ -560,3 +560,98 @@ def test_a_repeat_after_a_merge_reports_the_merge_commit(pem, trust_merge):
     again = merge(port, run_id, delete_branch=True)
     assert again.output["sha"] == MERGED_SHA
     assert again.output["branch_deleted"] is True
+
+
+# --------------------------------------------------------------------------- delete on a repeat
+
+
+def _deletes(fake):
+    return [u for (m, u) in fake.calls if m == "DELETE"]
+
+
+def test_a_merged_before_repeat_deletes_a_branch_not_yet_deleted(pem, trust_merge):
+    fake = Fake()
+    port, _, _, run_id = world(pem, fake)
+    merge(port, run_id)  # merged, no delete asked
+    again = merge(port, run_id, delete_branch=True)
+    assert again.output["skipped"] == "merged_before"
+    assert _deletes(fake) == [f"https://api.github.com/repos/{REPO}/git/refs/heads/fix/x"]
+
+
+def test_a_merged_before_repeat_reports_the_delete(pem, trust_merge):
+    port, _, _, run_id = world(pem, Fake())
+    merge(port, run_id)
+    again = merge(port, run_id, delete_branch=True)
+    assert again.output["branch_deleted"] is True
+
+
+def test_a_merged_before_repeat_records_the_delete_on_the_claim(pem, trust_merge):
+    port, store, _, run_id = world(pem, Fake())
+    merge(port, run_id)
+    merge(port, run_id, delete_branch=True)
+    [claim] = store.find(MERGE_ONCE_COLLECTION)
+    assert claim["branch_deleted"] is True
+
+
+def test_a_merged_before_repeat_never_deletes_twice(pem, trust_merge):
+    fake = Fake()
+    port, _, _, run_id = world(pem, fake)
+    merge(port, run_id, delete_branch=True)
+    merge(port, run_id, delete_branch=True)
+    assert len(_deletes(fake)) == 1
+
+
+def test_a_merged_before_repeat_does_not_retry_a_recorded_delete_error(pem, trust_merge):
+    fake = Fake(delete_status=422)
+    port, _, _, run_id = world(pem, fake)
+    merge(port, run_id, delete_branch=True)
+    again = merge(port, run_id, delete_branch=True)
+    assert len(_deletes(fake)) == 1
+    assert again.output["branch_delete_error"] == "http_422"
+
+
+def test_a_merged_before_repeat_without_delete_branch_deletes_nothing(pem, trust_merge):
+    fake = Fake()
+    port, _, _, run_id = world(pem, fake)
+    merge(port, run_id)
+    merge(port, run_id)
+    assert _deletes(fake) == []
+
+
+def test_a_merged_unconfirmed_outcome_deletes_the_branch(pem, trust_merge):
+    fake = Fake(merge_status=502)
+    port, _, _, run_id = world(pem, fake)
+    merge(port, run_id, delete_branch=True)
+    fake.merged, fake.state = True, "closed"  # GitHub did merge before the 502
+    res = merge(port, run_id, delete_branch=True)
+    assert res.output["skipped"] == "merged_unconfirmed"
+    assert len(_deletes(fake)) == 1
+
+
+def test_a_merged_unconfirmed_outcome_reports_the_delete(pem, trust_merge):
+    fake = Fake(merge_status=502)
+    port, _, _, run_id = world(pem, fake)
+    merge(port, run_id, delete_branch=True)
+    fake.merged, fake.state = True, "closed"
+    res = merge(port, run_id, delete_branch=True)
+    assert res.output["branch_deleted"] is True
+
+
+def test_a_merged_unconfirmed_outcome_records_the_delete_on_the_claim(pem, trust_merge):
+    fake = Fake(merge_status=502)
+    port, store, _, run_id = world(pem, fake)
+    merge(port, run_id, delete_branch=True)
+    fake.merged, fake.state = True, "closed"
+    merge(port, run_id, delete_branch=True)
+    [claim] = store.find(MERGE_ONCE_COLLECTION)
+    assert claim["branch_deleted"] is True
+
+
+def test_a_merged_unconfirmed_outcome_leaves_a_fork_head_alone(pem, trust_merge):
+    fake = Fake(merge_status=502, head_repo="someone/widgets")
+    port, _, _, run_id = world(pem, fake)
+    merge(port, run_id, delete_branch=True)
+    fake.merged, fake.state = True, "closed"
+    res = merge(port, run_id, delete_branch=True)
+    assert _deletes(fake) == []
+    assert res.output["branch_delete_error"] == "not_same_repo_pr"

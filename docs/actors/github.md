@@ -348,7 +348,10 @@ A later call (the engine's retry, or another click) reads the PR first:
 With `delete_branch: true`, after a merge and only when the PR's head is in
 `repo` itself (never a fork's), the branch is deleted. A branch already gone is
 not a failure; any other delete error is reported in `branch_delete_error`
-and the merge still counts.
+and the merge still counts. The result is kept on the claim. A repeat call with
+`delete_branch: true` that finds the PR merged (`merged_before` with no delete
+kept yet, or `merged_unconfirmed`) deletes the branch the same way; a delete
+already kept, or its error, is not sent again.
 
 Outputs: `merged` (boolean), `sha` (the merge commit GitHub made),
 `branch_deleted`, `branch_delete_error` (an error code, or `null`) and, on a

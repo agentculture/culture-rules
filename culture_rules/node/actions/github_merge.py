@@ -37,7 +37,11 @@ store, so a refusal reads no secret and makes no network call:
 6. with ``delete_branch: true``, after a merged answer, and only when the PR's head repo is
    ``repo`` (never a fork's), ``DELETE /repos/{repo}/git/refs/heads/<head>``. A failed
    delete (a branch already gone answers 404/422) is not a failed merge: it is reported in
-   ``branch_delete_error``.
+   ``branch_delete_error``. The result is recorded on the claim; a repeat that finds a
+   merged claim with no recorded delete (``merged_before``, e.g. the first call did not ask
+   for one or stopped before it) or reconciles a merge by a read (``merged_unconfirmed``)
+   deletes the same way when ``delete_branch`` is true; a recorded delete (or delete
+   error) is not sent again.
 
 Outputs: ``merged`` (bool), ``sha`` (the merge commit GitHub made), ``branch_deleted``
 (bool) and ``branch_delete_error`` (the delete's error code, or ``None``); a repeat adds
@@ -263,14 +267,29 @@ class GitHubMergePort(GitHubCommentPort):
         merged = {"state": _MERGED, "merge_sha": answer["sha"]}  # ``sha`` stays the head's
         self._store.update_if(MERGE_ONCE_COLLECTION, claim_id, {"state": _CLAIMED}, merged)
         if delete:
-            out.update(_delete_head(app, repo, pull))
-            self._store.update_if(
-                MERGE_ONCE_COLLECTION,
-                claim_id,
-                {"state": _MERGED},
-                {k: out[k] for k in ("branch_deleted", "branch_delete_error")},
-            )
+            out.update(self._delete_recorded(app, repo, number, claim_id, pull))
         return InvocationResult.completed(out)
+
+    def _delete_recorded(
+        self,
+        app: GitHubApp,
+        repo: str,
+        number: int,
+        claim_id: str,
+        pull: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Delete the merged PR's same-repo head (:func:`_delete_head`, reading the PR when
+        ``pull`` is not given) and record the result on the ``merged`` claim, so a repeat
+        neither skips a delete nor sends it twice. A failed read is reported, not recorded:
+        a later repeat tries again."""
+        if pull is None:
+            try:
+                pull = app.get_pull(repo, number)
+            except GitHubError as exc:  # the merge stands; the delete waits for a repeat
+                return {"branch_deleted": False, "branch_delete_error": exc.code}
+        result = _delete_head(app, repo, pull)
+        self._store.update_if(MERGE_ONCE_COLLECTION, claim_id, {"state": _MERGED}, result)
+        return result
 
     def _settle_failure(self, claim_id: str, code: str) -> None:
         """A merge GitHub refused releases the claim; any other failure keeps it."""
@@ -292,6 +311,8 @@ class GitHubMergePort(GitHubCommentPort):
                 "branch_deleted": prior.get("branch_deleted") is True,
                 "branch_delete_error": prior.get("branch_delete_error"),
             }
+            if delete and not done["branch_deleted"] and done["branch_delete_error"] is None:
+                done.update(self._delete_recorded(app, repo, number, claim_id))
             return InvocationResult.completed({**done, "skipped": "merged_before"})
         pull = app.get_pull(repo, number)  # a read: safe to retry on its own error
         commit = pull.get("merge_commit_sha")
@@ -304,6 +325,8 @@ class GitHubMergePort(GitHubCommentPort):
                 {"state": prior.get("state")},
                 {"state": _MERGED, "merge_sha": commit},
             )
+            if delete:
+                out.update(self._delete_recorded(app, repo, number, claim_id, pull))
             return InvocationResult.completed({**out, "skipped": "merged_unconfirmed"})
         refusal = _pull_refusal(pull, sha)
         if refusal is not None:  # moved or closed unmerged: nothing was merged at this sha
