@@ -580,7 +580,8 @@ def _check_command_filter(params: dict, pp: str, errors: Errors) -> None:
 
 
 def _check_custom_id_filter(params: dict, pp: str, errors: Errors) -> None:
-    """``custom_id``: one string or a list (prefix match), on a discord.button.clicked trigger."""
+    """``custom_id``: one string or a list, on a discord.button.clicked trigger (a value ending
+    in ``:`` is a prefix; any other is the id itself or the id followed by ``:``)."""
     if "custom_id" not in params:
         return
     if params.get("type") != BUTTON_CLICKED:
@@ -598,7 +599,8 @@ def _check_custom_id_filter(params: dict, pp: str, errors: Errors) -> None:
             errors,
             _join(pp, "custom_id"),
             "trigger_param_invalid",
-            "params.custom_id is a custom id prefix, or a list of them",
+            "params.custom_id is a button's custom id (or a prefix ending in ':'), "
+            "or a list of them",
         )
 
 

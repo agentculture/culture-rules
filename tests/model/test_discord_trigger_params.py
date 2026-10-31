@@ -163,3 +163,12 @@ def test_trigger_text_names_the_command():
         params={"type": "discord.command.invoked", "command": ["save", "Save to library"]},
     )
     assert "for command save or Save to library" in trigger_text(trig)
+
+
+def test_a_bare_custom_id_filter_is_valid():
+    assert codes({"custom_id": "merge"}, CLICK) == set()
+
+
+def test_a_bad_custom_id_filter_names_the_colon_prefix_form():
+    trig = Trigger(kind="event", params={"type": CLICK, "custom_id": 7})
+    assert "a prefix ending in ':'" in " ".join(e.message for e in validate(trig))

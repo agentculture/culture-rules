@@ -4,8 +4,10 @@ A ``discord.message`` button may carry a ``value``: a JSON object (string keys; 
 numbers, booleans, ``null`` and nested objects or lists of those; at most
 :data:`MAX_VALUE_BYTES` bytes as compact JSON). The given ``custom_id`` is then a **prefix**:
 the posted id is ``<custom_id>:<token>`` (:func:`posted_id`, a fresh
-``secrets.token_urlsafe(16)``), so the ``custom_id`` trigger filter's prefix match still selects
-the button by the prefix it was given, and no step ever has to parse an id. A button without
+``secrets.token_urlsafe(16)``), so the ``custom_id`` trigger filter still selects the button
+by the id it was given (``merge`` or ``merge:``,
+:func:`~culture_rules.model.discord_filters.custom_id_admits`), and no step ever has to parse
+an id. A button without
 a ``value`` posts its ``custom_id`` unchanged.
 
 The value is written to :data:`BUTTONS_COLLECTION` **before** the message is posted (so a fast

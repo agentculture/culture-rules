@@ -370,12 +370,13 @@ Every click is answered within Discord's 3 seconds:
 - a click whose event could not be saved gets the same not-saved text as a
   command.
 
-The trigger filter `custom_id` (a string or a list; a **prefix** match,
-case-sensitive) picks the button, on a `discord.button.clicked` trigger only;
-`users`, `roles`, `channels` and `include_bots` apply as for messages. Because
-the match is a prefix, give every button of a flow a distinct fixed prefix;
-for a valued button, filter on the given `custom_id` and the `:` after it
-(`merge:` for a button given `merge`).
+The trigger filter `custom_id` (a string or a list, case-sensitive) picks the
+button, on a `discord.button.clicked` trigger only; `users`, `roles`, `channels`
+and `include_bots` apply as for messages. A value that ends with `:` is a
+prefix: `merge:` picks every id that starts `merge:`. Any other value picks the
+id itself or the id followed by `:`: `merge` picks `merge` and `merge:<token>`
+(a valued button given `merge`), but never `merge-later:<token>`. So for a
+valued button, filter on its given `custom_id`, with or without the `:`.
 
 `discord.reply` with the click's `event_id` (`trigger.id`) answers the clicker
 with a private follow-up (it does not edit the message); after 15 minutes the

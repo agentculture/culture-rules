@@ -236,7 +236,9 @@ def _discord_admits(
     ``roles`` (role ids against ``data.user_roles``), ``emoji`` (a reaction's emoji,
     :func:`~culture_rules.model.discord_filters.emoji_admits`) and ``command`` (an invoked
     command's name, case-insensitive, discord-surfaces d12) and ``custom_id`` (a button
-    click's custom id starts with a listed prefix, case-sensitive). A bare string is a one-item
+    click's custom id, case-sensitive: a value ending in ``:`` is a prefix, any other is the
+    id itself or the id followed by ``:``;
+    :func:`~culture_rules.model.discord_filters.custom_id_admits`). A bare string is a one-item
     list. With both ``users`` and ``roles`` set, either admits (a listed user, or anyone holding
     a listed role); an event with no author id or name never passes a ``users`` filter, and one
     with no emoji never passes an ``emoji`` filter."""
