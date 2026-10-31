@@ -229,3 +229,34 @@ describe("discord.command.invoked (d12)", () => {
     expect(saved()).toEqual({ kind: "event", params: { type: "discord.message.created", users: ["ori"] } });
   });
 });
+
+describe("discord.button.clicked", () => {
+  const CLICKER: Actor = { ...BOT, params: { ...BOT.params, events: ["discord.message.created", "discord.button.clicked"] } };
+  const start: Trigger = { kind: "event", params: { type: "discord.button.clicked" } };
+  function ClickHarness({ initial = start }: Readonly<{ initial?: Trigger }>) {
+    const [value, setValue] = useState<Trigger>(initial);
+    return (
+      <>
+        <TriggerPicker value={value} actors={[CLICKER]} onChange={setValue} loadDiscordTargets={async () => TARGETS} />
+        <output data-testid="saved">{JSON.stringify(value)}</output>
+      </>
+    );
+  }
+
+  it("offers a button id field and saves one id as a string, several as a list", async () => {
+    const user = userEvent.setup();
+    render(<ClickHarness />);
+    await user.type(await screen.findByLabelText("Button id"), "merge:");
+    expect(saved()).toEqual({ kind: "event", params: { type: "discord.button.clicked", custom_id: "merge:" } });
+    await user.type(screen.getByLabelText("Button id"), ", skip:");
+    expect(saved()).toEqual({ kind: "event", params: { type: "discord.button.clicked", custom_id: ["merge:", "skip:"] } });
+  });
+
+  it("shows no button id field on another event, and clears it on a type change", async () => {
+    const user = userEvent.setup();
+    render(<ClickHarness initial={{ kind: "event", params: { type: "discord.button.clicked", custom_id: "merge:" } }} />);
+    await user.selectOptions(await screen.findByLabelText("Event"), "discord.message.created");
+    expect(screen.queryByLabelText("Button id")).not.toBeInTheDocument();
+    expect(saved()).toEqual({ kind: "event", params: { type: "discord.message.created" } });
+  });
+});
