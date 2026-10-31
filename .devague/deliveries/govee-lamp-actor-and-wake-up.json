@@ -125,7 +125,7 @@
       "id": "e4",
       "obligation_ref": "o2",
       "test_ref": "culture-rules actors show spark-govee vs govee rules actor --bin ... --machine spark --json",
-      "behavior_text": "stored params.commands == generated (python equality True): 8 commands, absolute /home/spark/.local/bin/govee, each ending --source rules --apply --json; enabled, machine spark",
+      "behavior_text": "stored params.commands == generated (python equality True): 8 commands, absolute path of govee in the user bin dir (~/.local/bin), each ending --source rules --apply --json; enabled, machine spark",
       "contract_text": "the stored actor's params.commands equal what govee rules actor prints",
       "evidence_type": "integration",
       "strength": "execution",
