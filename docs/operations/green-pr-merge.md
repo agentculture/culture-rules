@@ -88,7 +88,8 @@ base_repo` there is also how it tells a fork.
 - **Trigger:** event `discord.button.clicked`, with params `users:
   ["<operator-discord-id>"]`, `channels: ["<channel-id>"]` and `custom_id: "merge:"`
   (a prefix, case-sensitive). `users` is what limits who may merge; a click by anyone
-  else is answered privately "This button is not set up here." and starts nothing.
+  else is answered privately "This button is not set up here.", records nothing and
+  leaves the Merge button enabled for you.
   Give other flows' buttons a different `custom_id`.
 - **Workflow `merge`** (its id must be exactly `merge`, see
   [step 3](#3-pin-the-merge-workflow)): inputs `repository` (string), `number`

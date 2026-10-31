@@ -913,6 +913,73 @@ def test_a_click_no_rule_admits_writes_neither_event_nor_token(rig):
     assert _kept(r) == []
 
 
+def test_another_users_click_on_a_users_filtered_rule_is_answered_privately(rig):
+    r = _click_rig(rig, users=["42"])
+    r.hub.click(click(1, user="43"))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert r.hub.answers == [False]  # private "not set up here", the buttons left enabled
+
+
+def test_another_users_click_on_a_users_filtered_rule_writes_no_event(rig):
+    r = _click_rig(rig, users=["42"])
+    r.hub.click(click(1, user="43"))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert r.events(BUTTON) == []
+
+
+def test_another_users_click_on_a_users_filtered_rule_keeps_no_token(rig):
+    r = _click_rig(rig, users=["42"])
+    r.hub.click(click(1, user="43"))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert _kept(r) == []
+
+
+def test_the_listed_users_click_on_a_users_filtered_rule_is_admitted(rig):
+    r = _click_rig(rig, users=["42"])
+    r.hub.click(click(1, user="42"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.hub.answers == [True]
+
+
+def test_a_click_a_roles_filtered_rule_admits_by_role_is_admitted(rig):
+    r = _click_rig(rig, users=["99"], roles=["8"])
+    r.hub.click(click(1, user="43"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.hub.answers == [True]
+
+
+def test_a_click_whose_custom_id_no_rule_admits_is_not_admitted(rig):
+    r = _click_rig(rig, custom_id="merge:")
+    r.hub.click(click(1, custom_id="close:tok1"))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert r.hub.answers == [False]
+
+
+def test_a_click_whose_custom_id_no_rule_admits_writes_no_event(rig):
+    r = _click_rig(rig, custom_id="merge:")
+    r.hub.click(click(1, custom_id="close:tok1"))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert r.events(BUTTON) == []
+
+
+def test_a_click_one_of_several_rules_admits_is_admitted(rig):
+    r = _click_rig(rig, custom_id="merge:")
+    r.store.put("rules", discord_rule("on-close", type=BUTTON, custom_id="close:"))
+    r.sup.tick()
+    r.hub.click(click(1, custom_id="close:tok1"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.hub.answers == [True]
+
+
+def test_a_disabled_rule_admitting_the_click_does_not_admit_it(rig):
+    r = _click_rig(rig, users=["42"])
+    r.store.put("rules", discord_rule("anyone", type=BUTTON, enabled=False))
+    r.sup.tick()
+    r.hub.click(click(1, user="43"))
+    assert eventually(lambda: len(r.hub.answers) == 1)
+    assert r.hub.answers == [False]
+
+
 def test_a_click_for_an_actor_not_declaring_the_event_is_not_admitted(rig):
     r = rig(rule=False)
     r.store.put("rules", discord_rule("on-click", type=BUTTON))

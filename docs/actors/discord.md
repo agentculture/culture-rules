@@ -361,9 +361,12 @@ Every click is answered within Discord's 3 seconds:
 
 - a click an enabled rule admits **updates the message with its buttons
   disabled** (a slow write is first acknowledged as a deferred update), so a
-  prompt is clicked once;
-- a click no rule admits is answered privately "This button is not set up
-  here." and the message is unchanged;
+  prompt is clicked once. A rule admits a click only when every filter of its
+  trigger does (`channels`, `users`, `roles`, `custom_id`, `include_bots`),
+  checked by the gateway before anything is written;
+- a click no rule admits (another user's click on a `users`-filtered rule, a
+  `custom_id` no rule picks) is answered privately "This button is not set up
+  here.": no event is recorded, no token is kept and the buttons stay enabled;
 - a click whose event could not be saved gets the same not-saved text as a
   command.
 
