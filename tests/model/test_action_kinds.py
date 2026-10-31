@@ -199,7 +199,41 @@ def test_github_push_accepts_references_and_review_reply_resolve_is_bool() -> No
 
 
 def test_no_merge_kind_is_catalogued() -> None:
-    assert not [k for k in ACTION_KINDS if "merge" in k]
+    # merging stays a human gate: github.merge is the one merge kind, fenced by the port
+    assert [k for k in ACTION_KINDS if "merge" in k] == ["github.merge"]
+
+
+def test_github_merge_params() -> None:
+    params = ACTION_KINDS["github.merge"].params
+    assert {n for n, p in params.items() if p.required} == {"actor", "repo", "number", "sha"}
+    assert (params["number"].type, params["sha"].type) == ("int", "str")
+    assert params["delete_branch"].type == "bool"
+    assert not params["delete_branch"].required
+
+
+def test_github_merge_validates() -> None:
+    ok = {"actor": "gh", "repo": "o/r", "number": 3, "sha": "abc", "delete_branch": True}
+    assert _errs("github.merge", ok) == set()
+    assert ("action.params.number", "action_param_type") in _errs(
+        "github.merge", {**ok, "number": "x"}
+    )
+    assert ("action.params.delete_branch", "action_param_type") in _errs(
+        "github.merge", {**ok, "delete_branch": "yes"}
+    )
+
+
+def test_github_pr_reads_one_pr() -> None:
+    params = ACTION_KINDS["github.pr"].params
+    assert {n for n, p in params.items() if p.required} == {"actor", "repo", "number"}
+    assert params["number"].type == "int"
+
+
+def test_discord_message_takes_buttons_as_a_list() -> None:
+    assert ACTION_KINDS["discord.message"].params["buttons"].type == "list"
+    params = {"actor": "d", "channel": "1", "text": "t", "buttons": [{"label": "x"}]}
+    assert _errs("discord.message", params) == set()
+    params["buttons"] = "x"
+    assert ("action.params.buttons", "action_param_type") in _errs("discord.message", params)
 
 
 def test_github_push_has_no_mutable_ref_param() -> None:

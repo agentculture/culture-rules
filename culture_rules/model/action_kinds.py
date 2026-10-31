@@ -6,14 +6,16 @@ this module says which params exist, their types and which are required.
 
 Actor policy: ``discord.message``, ``discord.read``, ``discord.react``, ``discord.reply``,
 ``discord.sweep``, ``github.comment``,
-``github.push``, ``github.review_reply``, ``jira.comment``, ``http.call``, ``machine.command``,
+``github.push``, ``github.review_reply``, ``github.merge``, ``github.pr``, ``jira.comment``,
+``http.call``, ``machine.command``,
 ``email.send``, ``search.web``, ``llm.complete``, ``audio.transcribe``, ``decider.assess``,
 ``library.push`` and ``repodocs.sync`` always need ``params.actor`` (the credentialed or
 executing party).
 ``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
 a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
-the server the channel was picked from. ``discord.read`` reads one message in full (its
+the server the channel was picked from, and ``buttons`` (a list) puts buttons under the text.
+``discord.read`` reads one message in full (its
 text untruncated and its attachments) with the same actor's token, within its allow-list;
 ``discord.react`` adds the bot's reaction (a unicode emoji or a custom ``name:id``) to one
 and takes back its own earlier ones (``remove``, a list); it needs ``emoji`` or ``remove``.
@@ -28,7 +30,10 @@ Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`
 ``github.push`` fast-forwards a same-repo PR's head branch to a local commit, as the App and
 never with force (and, with ``gate_verdict`` wired in, only after a test gate ``pass``);
 ``github.review_reply`` replies in a PR review thread and optionally resolves it. There is
-deliberately **no merge kind**: merging stays a human gate.
+exactly **one merge kind**, ``github.merge`` (``sha`` pins the head commit, ``delete_branch``
+removes the branch after): merging stays a human gate, fenced by the click and a trusted merge
+role. The port runs it only in a run started by a ``discord.button.clicked`` event whose
+workflow is trusted in a merge role; ``github.pr`` reads one PR's state (no write).
 
 The daily-newspaper kinds (#53): ``email.send`` sends through an ``email`` app actor to
 addresses on its recipient allowlist; ``search.web`` queries through a ``search`` app actor;
@@ -102,6 +107,7 @@ _KINDS = (
         guild=_S,
         channel=_RS,
         text=_RS,
+        buttons=ParamSpec("list"),
     ),
     _k(
         "discord.read",
@@ -174,6 +180,22 @@ _KINDS = (
         body=_RS,
         thread_id=_S,
         resolve=ParamSpec("bool"),
+    ),
+    _k(
+        "github.merge",
+        "Merge a PR as the GitHub App, only from a button click in a merge-trusted workflow",
+        actor=_RS,
+        repo=_RS,
+        number=ParamSpec("int", True),
+        sha=_RS,
+        delete_branch=ParamSpec("bool"),
+    ),
+    _k(
+        "github.pr",
+        "Read one PR's state (head, mergeability, checks) as the GitHub App",
+        actor=_RS,
+        repo=_RS,
+        number=ParamSpec("int", True),
     ),
     _k("jira.comment", "Comment on a Jira issue", actor=_RS, issue=_RS, body=_RS),
     _k(
