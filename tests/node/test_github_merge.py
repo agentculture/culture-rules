@@ -589,6 +589,69 @@ def test_a_code_another_run_used_is_refused(pem):
     assert _nothing_touched(fake, resolved)
 
 
+@pytest.mark.parametrize("status", [409, 405])
+def test_a_merge_github_refused_hands_the_code_back(pem, status):
+    port, store, _, run_id = world(pem, Fake(merge_status=status))
+    assert merge(port, run_id).error == f"http_{status}"
+    assert _code_doc(store)["used_by"] is None
+
+
+def test_after_a_refused_merge_the_same_button_can_merge_on_a_new_click(pem):
+    fake = Fake(merge_status=405)  # e.g. branch protection, fixed afterwards
+    port, store, _, run_id = world(pem, fake)
+    merge(port, run_id)
+    fake.merge_status = 200
+    click = click_envelope(code=_code_doc(store)["id"])
+    click["id"] = EVENT + "-again"  # a second interaction on the same button
+    store.put("events", {"id": click["id"], "envelope": click})
+    again = {**store.get("runs", run_id), "id": run_id_for(RULE, click["id"]), "trigger": click}
+    store.put("runs", again)
+    assert merge(port, again["id"]).outcome == "completed"
+
+
+def test_a_closed_pr_hands_the_code_back(pem):
+    port, store, _, run_id = world(pem, Fake(state="closed"))
+    assert merge(port, run_id).error == "pr_not_open"
+    assert _code_doc(store)["used_by"] is None
+
+
+def test_a_secret_failure_hands_the_code_back(pem):
+    port, store, _, run_id = world(pem, Fake())
+
+    def boom(ref):
+        raise RuntimeError("no grant")
+
+    port._secrets = boom
+    assert merge(port, run_id).error == "secret_unavailable"
+    assert _code_doc(store)["used_by"] is None
+
+
+def test_an_unknown_outcome_keeps_the_code_used(pem):
+    port, store, _, run_id = world(pem, Fake(merge_raises=OSError("reset")))
+    assert merge(port, run_id).error == "network_error"
+    assert _code_doc(store)["used_by"] == run_id
+
+
+def test_a_merged_pr_keeps_the_code_used(pem):
+    port, store, _, run_id = world(pem, Fake())
+    assert merge(port, run_id).outcome == "completed"
+    assert _code_doc(store)["used_by"] == run_id
+
+
+def test_a_store_failure_in_the_fence_is_retryable(pem, monkeypatch):
+    from culture_rules.store.port import StoreError
+
+    port, _, resolved, run_id = world(pem, Fake())
+
+    def contended(*_a, **_k):
+        raise StoreError("too much contention")
+
+    monkeypatch.setattr(db, "use_code", contended)
+    res = merge(port, run_id)
+    assert (res.error, res.retryable) == ("store_unavailable", True)
+    assert resolved == []
+
+
 def test_a_refusal_before_the_code_leaves_it_unused(pem):
     port, store, _, run_id = world(pem, Fake(), rule_enabled=False)
     assert merge(port, run_id).error == "rule_disabled"

@@ -323,7 +323,8 @@ every other check passed. A refused call fails the step without retry:
 | `not_started_by_click` | The run was not its rule firing on a stored `discord.button.clicked` event. A direct run, a scheduled run, a run started through the API and a chained run are all refused |
 | `code_not_found` | The **stored** click event carries no `data.code` (the gateway copies it from `discord_buttons`, never from the click, the run's inputs or its params), or a code that was never issued or has expired (30 days). A button posted without `code: true` has none |
 | `code_mismatch` | The code belongs to another button, or its stored value does not hold this merge's `repo`, `number` and `sha` |
-| `code_used` | Another run already used the code: a second click, or a replayed one. The same run's retry passes |
+| `code_used` | Another run already used the code: a second click, or a replayed one. The same run's retry passes. A merge that merged nothing (the App's secret, `pr_not_open`, `head_moved`, a merge GitHub refused) hands the code back, so the button can be clicked again once the cause is fixed; an unknown outcome keeps it used |
+| `store_unavailable` | The store failed while the fence ran (retryable) |
 | `actor_not_trusted` | The App actor's security fields (`kind`, `machine`, `surface`, `commit_author`, `permissions`, and `app_id`, `installation_id` and `private_key` of its connection) do not match a digest pinned in `TRUSTED_ACTOR_DIGESTS`, as for `github.push`. `github-app` is pinned; `repos` is not part of the digest |
 | `rule_disabled`, `workflow_disabled` | The run's rule or workflow is no longer enabled |
 | `run_not_found` | The run is gone |

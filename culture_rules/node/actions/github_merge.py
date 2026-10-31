@@ -37,8 +37,13 @@ store, so a refusal reads no secret and makes no network call:
      merge's (``code_mismatch``), and be unused (``code_used``); it is then used up by this
      run. So a button posted without ``code: true``, a second click, a replayed click and a
      button naming another PR or commit all merge nothing. Neither the merge workflow nor
-     the workflow posting the button is pinned: both are configuration; it is checked
-     last, so a refusal of any other check leaves the code unused;
+     the workflow posting the button is pinned: both are configuration. It is checked
+     last, so a refusal of any other check leaves the code unused; and a later failure
+     that merged nothing (the App's secret, the PR read, ``pr_not_open``, ``head_moved``,
+     a merge GitHub refused) hands it back (:func:`~culture_rules.apps.discord_buttons.
+     release_code`), so the same button can be clicked again once the cause is fixed. A
+     failure whose outcome is unknown keeps its claim (below), and the code stays used. A
+     store failure here is ``store_unavailable``, retryable;
 
 3. the App (``secret_unavailable``; ``deadline_exceeded`` / ``lookup_busy`` retryable);
 4. the installation token, then the once claim (below), then the PR read: it must be open
@@ -101,13 +106,14 @@ from culture_rules.node.actions.github import (
 )
 from culture_rules.node.actions.github_pr import source_rule_refusal
 from culture_rules.node.actors import ACTORS_COLLECTION
-from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError
+from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError, StoreError
 
 __all__ = [
     "MERGE_ONCE_COLLECTION",
     "NOT_APP",
     "NOT_CLICK",
     "OUTCOME_UNKNOWN",
+    "STORE_UNAVAILABLE",
     "GitHubMergePort",
 ]
 
@@ -117,6 +123,8 @@ MERGE_ONCE_COLLECTION = "github_merge_once"
 """Claims of ``github.merge`` calls (one document per repo, PR and sha)."""
 NOT_CLICK = "not_started_by_click"
 """The run was not started by a ``discord.button.clicked`` event through its rule."""
+STORE_UNAVAILABLE = "store_unavailable"
+"""The store failed during the fence (retryable)."""
 NOT_APP = "actor_not_app"
 """The actor's ``kind`` is not ``app`` (its trust digest would not cover the connection)."""
 OUTCOME_UNKNOWN = "merge_outcome_unknown"
@@ -207,6 +215,11 @@ def fence_refusal(
     return code_refusal(store, envelope, str(run_id), value, now)
 
 
+def _claim_id(repo: str, number: int, sha: str) -> str:
+    """The once claim's id for a merge of ``repo``'s PR ``number`` at ``sha``."""
+    return hashlib.sha256(f"{repo.lower()}#{number}#{sha}".encode()).hexdigest()
+
+
 def _same(a: Any, b: str) -> bool:
     return isinstance(a, str) and a.lower() == b.lower()
 
@@ -246,28 +259,64 @@ class GitHubMergePort(GitHubCommentPort):
         if not refusal:
             number, sha, _delete = request
             value = {"repo": repo, "number": number, "sha": sha}
-            refusal = fence_refusal(self._store, context.run_id, value, self._now())
+            try:
+                refusal = fence_refusal(self._store, context.run_id, value, self._now())
+            except StoreError as exc:  # e.g. the code's compare-and-set gave up under contention
+                log.warning("github.merge fence: store failed (%s)", type(exc).__name__)
+                return InvocationResult.failed(STORE_UNAVAILABLE, retryable=True)
         if refusal:
             log.info(_REFUSED, refusal)
             return InvocationResult.failed(refusal, retryable=False)
+        result = self._merge(str(actor_id), conn, allowed, deadline, str(repo), request)
+        if result.outcome != "completed":
+            self._release_code(str(context.run_id), str(repo), request)
+        return result
+
+    def _merge(
+        self,
+        actor_id: str,
+        conn: Mapping[str, Any],
+        allowed: Any,
+        deadline: datetime,
+        repo: str,
+        request: tuple[int, str, bool],
+    ) -> InvocationResult:
+        """Steps 3 to 6 of the module doc, once the fence passed."""
         try:
-            app = self._app_within(str(actor_id), conn, allowed, deadline)
+            app = self._app_within(actor_id, conn, allowed, deadline)
         except GitHubError as exc:
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
         if app is None:
             return InvocationResult.failed(SECRET_UNAVAILABLE, retryable=False)
         try:
             with app.deadline(deadline):
-                return self._merge_once(app, str(repo), *request)
+                return self._merge_once(app, repo, *request)
         except GitHubError as exc:  # the token, before any claim
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
+
+    def _release_code(self, run_id: str, repo: str, request: tuple[int, str, bool]) -> None:
+        """Hand the click's code back when nothing was merged: no claim is left for this
+        repo, PR and sha (a claim that stays means the outcome is unknown). Two attempts of the
+        same run may both pass the code (it is used by that run); the claim still lets only one
+        merge through. Best effort: a code left used only means a fresh prompt is needed."""
+        number, sha, _delete = request
+        try:
+            if self._store.get(MERGE_ONCE_COLLECTION, _claim_id(repo, number, sha)) is not None:
+                return
+            run = self._store.get(RUNS_COLLECTION, run_id) or {}
+            envelope = stored_click(self._store, run) or {}
+            data = envelope.get("data") if isinstance(envelope.get("data"), Mapping) else {}
+            if buttons_mod.release_code(self._store, data.get("code"), run_id):
+                log.info("github.merge: nothing merged, the button's code was handed back")
+        except Exception as exc:  # noqa: BLE001 - the failure stands either way
+            log.warning("github.merge: handing the code back failed (%s)", type(exc).__name__)
 
     def _merge_once(
         self, app: GitHubApp, repo: str, number: int, sha: str, delete: bool
     ) -> InvocationResult:
         """The merge, at most once per (repo, PR, sha) (module doc)."""
         app.installation_token()  # before the claim: a token failure sends nothing
-        claim_id = hashlib.sha256(f"{repo.lower()}#{number}#{sha}".encode()).hexdigest()
+        claim_id = _claim_id(repo, number, sha)
         claim = {
             "id": claim_id,
             "repo": repo,

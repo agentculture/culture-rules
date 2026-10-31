@@ -147,6 +147,14 @@ plan). What gates the merge is your click and the button's code:
   compare-and-set. The same run's retry passes; a second click, a replayed click, or a
   button another workflow posted without a code merges nothing.
 
+A merge that merged nothing (a missing App secret, a closed PR, a moved head, a merge
+GitHub refused, e.g. for branch protection) hands the code back, so you can click the same
+button again once the cause is fixed.
+
+**Upgrading from 0.39:** buttons posted before 0.40.0 have no code, and their clicks fail
+`code_not_found`. Add `code: true` to the live prompt's button (an edit) during the
+rollout; a PR prompted before it needs a fresh green run to be prompted again.
+
 Who may click is rule 2's `users` filter. Keep it to yourself: with no workflow pinned,
 any workflow that posts a coded `merge` button for a PR is offered to you, and your click
 is the approval.

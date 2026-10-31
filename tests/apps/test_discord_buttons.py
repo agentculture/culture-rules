@@ -364,3 +364,25 @@ def test_of_two_runs_racing_one_wins():
 
     s.update_if = race
     assert _use(s, code) == db.CODE_USED
+
+
+def test_a_stored_true_is_not_the_number_one():
+    s = MemoryStore()
+    code = _coded(s, value={**VALUE, "number": True})
+    assert _use(s, code, value={**VALUE, "number": 1}) == db.CODE_MISMATCH
+
+
+def test_release_gives_the_code_back_to_be_used_again():
+    s = MemoryStore()
+    code = _coded(s)
+    _use(s, code)
+    assert db.release_code(s, code, "run-1") is True
+    assert _use(s, code, run="run-2") is None
+
+
+def test_only_the_run_holding_a_code_can_release_it():
+    s = MemoryStore()
+    code = _coded(s)
+    _use(s, code)
+    assert db.release_code(s, code, "run-2") is False
+    assert s.get(db.CODES_COLLECTION, code)["used_by"] == "run-1"

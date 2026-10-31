@@ -2,13 +2,13 @@
 
 A ``github.pr.checks_settled`` success starts the prompt workflow (id ``merge_prompt``):
 ``github.pr`` reads the PR, then ``discord.message`` posts it with one success button whose
-value (repo, number, sha) is kept in ``discord_buttons`` (d1) with the run that posted it (d2).
-The operator's click is the ``discord.button.clicked`` event the gateway records
-(``button_data`` plus the stored value and poster); it starts the ``merge`` workflow. For the
-test the release step pins both digests (the prompt in ``merge_prompt``, the merge workflow in
-``merge``): ``github.merge`` squash-merges at the prompted sha and deletes the same-repo
-branch, then ``discord.reply`` answers the clicker privately. One node
-runs it on doubles of GitHub and Discord. Nothing here is committed configuration (c12, c24).
+value (repo, number, sha) is kept in ``discord_buttons`` (d1) with the run that posted it (d2)
+and a one-time code (d3). The operator's click is the ``discord.button.clicked`` event the
+gateway records (``button_data`` plus the stored value, poster and code); it starts the
+``merge`` workflow. Nothing is pinned for either workflow: ``github.merge`` uses the click's
+code, squash-merges at the prompted sha and deletes the same-repo branch, then
+``discord.reply`` answers the clicker privately. One node runs it on doubles of GitHub and
+Discord. Nothing here is committed configuration (c12, c24).
 """
 
 from __future__ import annotations

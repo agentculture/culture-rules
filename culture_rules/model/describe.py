@@ -393,8 +393,8 @@ def action_text(action: Any, where: str = "") -> str:
     if kind == "github.push":  # the push port always requires an approving review (d20)
         gate = "a passing gate and " if params.get("gate_verdict") else ""
         words.append(f"(only on {gate}an approving review of exactly that commit)")
-    if kind == "github.merge":  # the port runs it only from a click, in a merge-trusted workflow
-        words.append("(only on a button click, in a workflow trusted for merging)")
+    if kind == "github.merge":  # the port runs it only from a click with the button's code
+        words.append("(only on a button click, with the button's one-time code)")
     if kind == "github.review_reply" and params.get("resolve") is True:
         words.append("and resolve")
     if kind == "github.comment":

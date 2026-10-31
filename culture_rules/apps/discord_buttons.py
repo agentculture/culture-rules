@@ -80,6 +80,7 @@ __all__ = [
     "prepare_buttons",
     "remember_buttons",
     "set_message_id",
+    "release_code",
     "stored_button",
     "use_code",
 ]
@@ -320,7 +321,7 @@ def use_code(
     stored = doc.get("value")
     if doc.get("custom_id") != custom_id or not isinstance(stored, Mapping):
         return CODE_MISMATCH
-    if any(k not in stored or stored[k] != v for k, v in value.items()):
+    if any(k not in stored or not _same(stored[k], v) for k, v in value.items()):
         return CODE_MISMATCH
     if doc.get("used_by") == run_id:
         return None
@@ -336,3 +337,21 @@ def use_code(
         return None
     current = result.document or {}
     return None if current.get("used_by") == run_id else CODE_USED
+
+
+def _same(a: Any, b: Any) -> bool:
+    """Equal and of the same type: a stored ``true`` is not the number 1, nor ``1.0`` the
+    integer 1."""
+    return type(a) is type(b) and a == b
+
+
+def release_code(store: Any, code: Any, run_id: str) -> bool:
+    """Give the code ``run_id`` used back (unused again), when that run's action did nothing
+    with it, e.g. a merge GitHub refused; ``True`` when it was released. Only the run holding
+    it can release it (compare-and-set), so a code another run used stays used."""
+    if not isinstance(code, str) or not code:
+        return False
+    result = store.update_if(
+        CODES_COLLECTION, code, {"used_by": run_id}, {"used_at": None, "used_by": None}
+    )
+    return bool(result.won)

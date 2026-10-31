@@ -16,6 +16,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - github.merge is fenced by the operator click plus the clicked button's unused code, bound to the repo, number and sha it merges (code_not_found, code_mismatch, code_used), instead of workflow digest pins: the merge and merge_prompt trust roles are removed, so both workflows are configuration and editing them needs no release
 - posted_by on a stored button is a record only; nothing trusts it
+- A github.merge that merged nothing (secret, pr_not_open, head_moved, a merge GitHub refused) hands the button's code back, so the button can be clicked again; an unknown outcome keeps it used. A store failure in the fence is store_unavailable (retryable). Codes compare type-strictly (a stored true is not PR 1)
+- Upgrading: buttons posted before 0.40.0 have no code and fail code_not_found; add code: true to the live prompt's button during the rollout
 
 ### Removed
 
