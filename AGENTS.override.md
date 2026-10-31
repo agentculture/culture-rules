@@ -158,19 +158,19 @@ live.
 
 **Green PR merge prompt** (spec `docs/specs/2026-10-31-green-pr-merge-prompt.md`, guide
 `docs/operations/green-pr-merge.md`). There is one merge kind, fenced by an operator click
-and a trusted merge role: `github.merge` squash-merges at a required `sha` (optional
-`delete_branch`), and refuses before any network call a run that is not its rule firing on
-a `discord.button.clicked` event (`not_started_by_click`), whose workflow is not trusted
-in role `merge` (`workflow_not_trusted`), whose clicked button was not posted by a run of a
-workflow trusted in role `merge_prompt` (`prompt_not_trusted`, deviation d2: the stored
-click's `data.posted_by`), or whose actor is not an `app` (`actor_not_app`). Both roles
-ship with no digest: a release pins the live prompt and merge workflows' v2 digests (ids
-`merge_prompt` and `merge`). `github.pr` reads one PR's facts.
+and a one-time button code: `github.merge` squash-merges at a required `sha` (optional
+`delete_branch`), and refuses before any network call an actor that is not an `app`
+(`actor_not_app`), a run that is not its rule firing on a `discord.button.clicked` event
+(`not_started_by_click`), and a click whose stored `data.code` is missing
+(`code_not_found`), bound to another button, repo, number or sha (`code_mismatch`) or used by
+another run (`code_used`); the code is used up by compare-and-set (deviation d3). No
+workflow is pinned for it: the prompt and merge workflows are configuration. `github.pr`
+reads one PR's facts.
 `discord.message` takes `buttons`, the gateway emits `discord.button.clicked`, the trigger
 filter `custom_id` is a prefix match, and `discord.reply` answers a click privately. A
 button's optional `value` is kept in the store (`discord_buttons`, posted as
-`<custom_id>:<token>`, with `posted_by`) and carried by its click as `data.value` and
-`data.posted_by`, so no id is parsed. The
+`<custom_id>:<token>`, with `posted_by` and, with `code: true`, a one-time code) and carried
+by its click as `data.value`, `data.posted_by` and `data.code`, so no id is parsed. The
 prompt and merge rules are configured live, never committed.
 
 **Repo documents** (#124, guide `docs/operations/repodocs.md`). The action kind

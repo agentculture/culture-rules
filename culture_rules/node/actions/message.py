@@ -135,7 +135,7 @@ class MessageAction:
         channel: str,
         text: str,
         components: list[dict[str, Any]],
-        valued: list[tuple[str, Any]],
+        valued: list[tuple[str, Any, bool]],
         posted_by: Mapping[str, Any] | None = None,
     ) -> InvocationResult:
         bot = self._discord_token(actor_id, channel)
@@ -201,7 +201,7 @@ class MessageAction:
         self,
         actor_id: str,
         channel: str,
-        valued: list[tuple[str, Any]],
+        valued: list[tuple[str, Any, bool]],
         posted_by: Mapping[str, Any] | None,
     ) -> list[str]:
         """Store the valued buttons' meaning before the post (the TTL index first, once)."""

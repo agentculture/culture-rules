@@ -1,7 +1,7 @@
 """``github.merge`` action port: squash-merge a PR as the GitHub App at the prompted sha.
 
 The only merge in culture-rules, and merging stays a human gate: the port runs a merge only
-in a run an operator's click started, in a workflow trusted to merge. It reuses
+in a run an operator's click started, with the clicked button's one-time code. It reuses
 :class:`~culture_rules.node.actions.github.GitHubCommentPort`'s actor resolution (a stored,
 enabled App actor with ``params.surface == "github"``), its repo allowlist, its per-actor App
 cache and its deadline-bounded resolve (``_app_within``). Params: ``actor``, ``repo``,
@@ -14,31 +14,31 @@ store, so a refusal reads no secret and makes no network call:
 1. actor (``actor_not_found``; :data:`NOT_APP`, ``actor_not_app``, for an actor whose
    ``kind`` is not ``app``: only an App's trust digest covers its connection), allowlist
    (``repo_not_allowed``, ``actor_misconfigured``) and input shape (``bad_input``);
-2. the fence (``run_not_found`` when the run is gone):
+2. the App actor's digest, then the fence (``run_not_found`` when the run is gone):
 
+   * the App actor's document (the one snapshot whose connection is used) matches a digest
+     pinned in :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS`
+     (``actor_not_trusted``, :func:`~culture_rules.actors.trusted.doc_refusal`), as
+     ``github.push`` checks it: only a pinned App merges (``github-app`` is pinned). It is the
+     App actor that is pinned, not a workflow;
    * the run was started by a ``discord.button.clicked`` event (:data:`NOT_CLICK`,
      ``not_started_by_click``, otherwise): its trigger is an event of that type, its id is
      its rule's firing on that event (:func:`~culture_rules.node.firing.run_id_for`), and
      the stored event (``events``) has that type too. A direct workflow run, a scheduled
      run, a run started through the API and a run chained from another rule are all
      refused. Which user may click is the click rule's ``users`` filter (configuration);
-   * its **pinned** workflow is trusted in the ``merge`` role
-     (:data:`~culture_rules.actors.trusted.ROLE_MERGE`, ``workflow_not_trusted``), as
-     ``github.push``'s chain checks its roles. That role ships with no digest: a release
-     pins the live merge workflow's;
-   * the clicked button was posted by a trusted prompt (deviation d2,
-     :data:`PROMPT_NOT_TRUSTED`, ``prompt_not_trusted``): the **stored** click event's
-     ``data.posted_by`` (the gateway copies it from ``discord_buttons``, never from the
-     click; never read from the run's inputs or params) names a ``run_id``, that run is in
-     the store, and its pinned workflow is trusted in the ``merge_prompt`` role
-     (:data:`~culture_rules.actors.trusted.ROLE_MERGE_PROMPT`, shipped empty like ``merge``).
-     So an untrusted workflow cannot post a merge-prefixed button naming another PR;
    * its source rule is still live and enabled, read now (``rule_disabled``,
      :func:`~culture_rules.node.actions.github_pr.source_rule_refusal`);
-   * the App actor's document (the one snapshot whose connection is used) matches a digest
-     pinned in :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS`
-     (``actor_not_trusted``, :func:`~culture_rules.actors.trusted.doc_refusal`), as
-     ``github.push`` checks it: only a pinned App merges (``github-app`` is pinned);
+   * the clicked button's one-time code (deviation d3,
+     :func:`~culture_rules.apps.discord_buttons.use_code`): the **stored** click event's
+     ``data.code`` (the gateway copies it from ``discord_buttons``, never from the click;
+     never read from the run's inputs or params) must be issued (``code_not_found``), belong
+     to the clicked ``custom_id`` and hold ``repo``, ``number`` and ``sha`` equal to this
+     merge's (``code_mismatch``), and be unused (``code_used``); it is then used up by this
+     run. So a button posted without ``code: true``, a second click, a replayed click and a
+     button naming another PR or commit all merge nothing. Neither the merge workflow nor
+     the workflow posting the button is pinned: both are configuration; it is checked
+     last, so a refusal of any other check leaves the code unused;
 
 3. the App (``secret_unavailable``; ``deadline_exceeded`` / ``lookup_busy`` retryable);
 4. the installation token, then the once claim (below), then the PR read: it must be open
@@ -86,9 +86,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors import trusted
+from culture_rules.apps import discord_buttons as buttons_mod
 from culture_rules.apps.github import GitHubApp, GitHubError
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.engine.runs import ADHOC_RULE_PREFIX, RUNS_COLLECTION, TERMINAL_STEPS
+from culture_rules.engine.runs import ADHOC_RULE_PREFIX, RUNS_COLLECTION
 from culture_rules.model.discord_filters import BUTTON_CLICKED
 from culture_rules.node.actions.github import (
     ACTOR_NOT_FOUND,
@@ -107,7 +108,6 @@ __all__ = [
     "NOT_APP",
     "NOT_CLICK",
     "OUTCOME_UNKNOWN",
-    "PROMPT_NOT_TRUSTED",
     "GitHubMergePort",
 ]
 
@@ -117,8 +117,6 @@ MERGE_ONCE_COLLECTION = "github_merge_once"
 """Claims of ``github.merge`` calls (one document per repo, PR and sha)."""
 NOT_CLICK = "not_started_by_click"
 """The run was not started by a ``discord.button.clicked`` event through its rule."""
-PROMPT_NOT_TRUSTED = "prompt_not_trusted"
-"""The clicked button was not posted by a run of a workflow trusted in ``merge_prompt``."""
 NOT_APP = "actor_not_app"
 """The actor's ``kind`` is not ``app`` (its trust digest would not cover the connection)."""
 OUTCOME_UNKNOWN = "merge_outcome_unknown"
@@ -175,62 +173,38 @@ def click_refusal(store: Any, run: Mapping[str, Any]) -> str | None:
     return None if stored_click(store, run) is not None else NOT_CLICK
 
 
-def prompt_refusal(store: Any, envelope: Mapping[str, Any]) -> str | None:
-    """:data:`PROMPT_NOT_TRUSTED` unless the stored click ``envelope``'s ``data.posted_by``
-    names a stored run whose pinned workflow is trusted in ``merge_prompt``, and a step of that
-    run that is one of the pinned workflow's own steps (never the rule's terminal action, which
-    the workflow's digest does not cover); ``None`` when it does."""
+def code_refusal(
+    store: Any, envelope: Mapping[str, Any], run_id: str, value: Mapping[str, Any], now: datetime
+) -> str | None:
+    """Use up the stored click ``envelope``'s one-time code for ``value`` (``{repo, number,
+    sha}``), or say why not (:func:`~culture_rules.apps.discord_buttons.use_code`)."""
     data = envelope.get("data")
-    posted_by = data.get("posted_by") if isinstance(data, Mapping) else None
-    run_id = posted_by.get("run_id") if isinstance(posted_by, Mapping) else None
-    if not isinstance(run_id, str) or not run_id:
-        return PROMPT_NOT_TRUSTED
-    posting = store.get(RUNS_COLLECTION, run_id)
-    if not isinstance(posting, Mapping):
-        return PROMPT_NOT_TRUSTED
-    if trusted.workflow_refusal(posting, (trusted.ROLE_MERGE_PROMPT,)):
-        return PROMPT_NOT_TRUSTED
-    if not _workflow_step(posting, posted_by.get("step")):
-        return PROMPT_NOT_TRUSTED
-    return None
+    data = data if isinstance(data, Mapping) else {}
+    return buttons_mod.use_code(
+        store,
+        data.get("code"),
+        custom_id=data.get("custom_id"),
+        value=value,
+        run_id=run_id,
+        now=now,
+    )
 
 
-def _workflow_step(run: Mapping[str, Any], key: Any) -> bool:
-    """Whether ``key`` names a step state of ``run`` whose ``def`` is a step of the run's
-    pinned workflow definition (loop bodies included), not a terminal action."""
-    if not isinstance(key, str) or not key or key in TERMINAL_STEPS:
-        return False
-    states = [s for s in run.get("steps") or () if isinstance(s, Mapping) and s.get("key") == key]
-    if len(states) != 1 or not isinstance(states[0].get("def"), str):
-        return False
-    definition = (run.get("workflow") or {}).get("definition") or {}
-    return states[0]["def"] in _step_ids(definition.get("steps") or ())
-
-
-def _step_ids(steps: Any) -> set[str]:
-    ids: set[str] = set()
-    for s in steps if isinstance(steps, list) else ():
-        if isinstance(s, Mapping) and isinstance(s.get("id"), str):
-            ids.add(s["id"])
-            ids |= _step_ids(s.get("body"))
-    return ids
-
-
-def fence_refusal(store: Any, run_id: str | None) -> str | None:
-    """Why the run ``run_id`` may not merge (module doc, step 2), or ``None``."""
+def fence_refusal(
+    store: Any, run_id: str | None, value: Mapping[str, Any], now: datetime
+) -> str | None:
+    """Why the run ``run_id`` may not merge the PR ``value`` names (module doc, step 2), or
+    ``None``; the click's code is used up last, once every other check passed."""
     run = store.get(RUNS_COLLECTION, run_id) if run_id else None
     if not run:
         return "run_not_found"
     envelope = stored_click(store, run)
     if envelope is None:
         return NOT_CLICK
-    refusal = trusted.workflow_refusal(run, (trusted.ROLE_MERGE,))
+    refusal = source_rule_refusal(store, str(run_id))
     if refusal:
         return refusal
-    refusal = prompt_refusal(store, envelope)
-    if refusal:
-        return refusal
-    return source_rule_refusal(store, str(run_id))
+    return code_refusal(store, envelope, str(run_id), value, now)
 
 
 def _same(a: Any, b: str) -> bool:
@@ -267,10 +241,12 @@ class GitHubMergePort(GitHubCommentPort):
         request = _merge_input(input)
         if request is None:
             return InvocationResult.failed(BAD_INPUT, retryable=False)
-        refusal = fence_refusal(self._store, context.run_id)
+        # as github.push: the App actor's security fields must match a digest pinned in code
+        refusal, _digest = trusted.doc_refusal(actor_id, snapshot)
         if not refusal:
-            # as github.push: the App actor's security fields must match a digest pinned in code
-            refusal, _digest = trusted.doc_refusal(actor_id, snapshot)
+            number, sha, _delete = request
+            value = {"repo": repo, "number": number, "sha": sha}
+            refusal = fence_refusal(self._store, context.run_id, value, self._now())
         if refusal:
             log.info(_REFUSED, refusal)
             return InvocationResult.failed(refusal, retryable=False)

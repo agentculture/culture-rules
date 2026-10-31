@@ -978,7 +978,11 @@ function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: 
       rows.map((r, j) => {
         if (j !== i) return r;
         const next = { ...r, ...patch };
-        if ("value" in patch && patch.value === undefined) delete next.value;
+        if ("value" in patch && patch.value === undefined) {
+          delete next.value;
+          delete next.code; // a code is bound to the value
+        }
+        if ("code" in patch && patch.code === undefined) delete next.code;
         return next;
       }),
     );
@@ -1017,6 +1021,16 @@ function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: 
             ) : null}
           </label>
           <ButtonValueField index={i} value={r.value} onChange={(v) => edit(i, { value: v })} />
+          {r.value === undefined ? null : (
+            <label>
+              <input
+                type="checkbox"
+                checked={r.code === true}
+                onChange={(e) => edit(i, { code: e.target.checked || undefined })}
+              />
+              <span>{`Button ${i + 1} gets a one-time code`}</span>
+            </label>
+          )}
           <button type="button" onClick={() => save(rows.filter((_, j) => j !== i))}>
             {`Remove button ${i + 1}`}
           </button>

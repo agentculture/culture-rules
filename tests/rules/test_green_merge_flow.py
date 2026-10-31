@@ -85,9 +85,9 @@ def _workflow(id_: str, inputs: list[dict], steps: list[dict], edges: list[dict]
     return wf
 
 
-def prompt_workflow(id_: str = trusted.ROLE_MERGE_PROMPT) -> dict:
+def prompt_workflow(id_: str = "merge_prompt", code: bool = True) -> dict:
     """Read the PR, then post it with a Merge button whose value is the PR's identity. Its id
-    is its trust role's name (``merge_prompt``), as every trusted workflow's is."""
+    and the click rule's names are configuration: nothing is pinned for them (d3)."""
     read = step(
         "pr",
         action("github.pr", {"actor": GH, "repo": "inputs.repo", "number": "inputs.number"}),
@@ -100,6 +100,8 @@ def prompt_workflow(id_: str = trusted.ROLE_MERGE_PROMPT) -> dict:
         "custom_id": "merge",
         "value": {"repo": "inputs.repo", "number": "inputs.number", "sha": "inputs.sha"},
     }
+    if code:
+        button["code"] = True  # the one-time code github.merge needs (d3)
     post = step(
         "post",
         action(
@@ -179,7 +181,7 @@ def _eq(field: str, literal) -> dict:
     return {"op": "compare", "cmp": "==", "left": {"field": field}, "right": {"literal": literal}}
 
 
-def prompt_rule(id_: str = "green-pr-prompt", workflow_id: str = trusted.ROLE_MERGE_PROMPT) -> dict:
+def prompt_rule(id_: str = "green-pr-prompt", workflow_id: str = "merge_prompt") -> dict:
     """Green, not a draft, not a fork (the data facts the settler carries)."""
     condition = {
         "op": "and",
@@ -412,6 +414,7 @@ class World:
             "actor": BOT,
             "value": stored["value"] if stored else None,
             "posted_by": stored["posted_by"] if stored else None,
+            "code": stored["code"] if stored else None,
         }
         event_id = f"evt_{self.sent + 1}"
         remember_interaction(
@@ -434,16 +437,6 @@ def pin_test_app(monkeypatch):
         GH: frozenset({trusted.actor_digest(github_actor())}),
     }
     monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", pinned)
-
-
-@pytest.fixture
-def trust_merge(monkeypatch):
-    """The release step: pin the live prompt workflow's v2 digest in the merge_prompt role
-    and the live merge workflow's in the merge role (d2: two digests)."""
-    roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
-    roles[trusted.ROLE_MERGE] = frozenset({trusted.workflow_digest_v2(merge_workflow())})
-    roles[trusted.ROLE_MERGE_PROMPT] = frozenset({trusted.workflow_digest_v2(prompt_workflow())})
-    monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
 
 
 def _ok(run: dict) -> None:
@@ -484,11 +477,15 @@ def test_a_green_pr_is_prompted_with_a_button_that_keeps_its_meaning(pem):
     assert stored == {"repo": REPO, "number": NUMBER, "sha": SHA}
     # and who posted it (d2): the prompt run and its workflow
     poster = stored_button(world.base, BOT, button["custom_id"], now=world.clock())["posted_by"]
-    assert poster == {"run_id": run["id"], "workflow_id": trusted.ROLE_MERGE_PROMPT, "step": "post"}
+    assert poster == {"run_id": run["id"], "workflow_id": "merge_prompt", "step": "post"}
+    # and its one-time code (d3), which never appears on the button
+    code = stored_button(world.base, BOT, button["custom_id"], now=world.clock())["code"]
+    assert code
+    assert code not in json.dumps(post)
 
 
 def test_the_operator_s_click_squash_merges_the_prompted_sha_and_answers_privately(
-    pem, trust_merge
+    pem,
 ):
     world = World(pem)
     world.green()
@@ -506,7 +503,7 @@ def test_the_operator_s_click_squash_merges_the_prompted_sha_and_answers_private
 # --------------------------------------------------------------------------- nothing merges
 
 
-def test_a_click_by_anyone_else_starts_nothing(pem, trust_merge):
+def test_a_click_by_anyone_else_starts_nothing(pem):
     world = World(pem)
     world.green()
     world.click(user=OTHER)
@@ -514,7 +511,7 @@ def test_a_click_by_anyone_else_starts_nothing(pem, trust_merge):
     assert world.github.puts() == []
 
 
-def test_a_head_that_moved_since_the_prompt_merges_nothing(pem, trust_merge):
+def test_a_head_that_moved_since_the_prompt_merges_nothing(pem):
     github = GitHub()
     world = World(pem, github)
     world.green()
@@ -527,54 +524,54 @@ def test_a_head_that_moved_since_the_prompt_merges_nothing(pem, trust_merge):
     assert world.discord.followups == []
 
 
-def test_an_untrusted_merge_workflow_merges_nothing(pem):
-    world = World(pem)  # no digest pinned in the merge role: the shipped state
-    world.green()
-    world.click()
-    (run,) = world.runs("merge-on-click")
-    assert run["status"] == "failed"
-    assert "workflow_not_trusted" in json.dumps(run.get("error") or run["steps"])
-    assert world.github.puts() == []
-
-
-def test_an_untrusted_prompt_workflow_merges_nothing(pem, trust_merge, monkeypatch):
-    roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
-    roles[trusted.ROLE_MERGE_PROMPT] = frozenset()  # the merge role pinned, the prompt not
-    monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
+def test_a_second_click_on_the_same_button_merges_once(pem):
     world = World(pem)
     world.green()
     world.click()
-    (run,) = world.runs("merge-on-click")
-    assert run["status"] == "failed"
-    assert "prompt_not_trusted" in json.dumps(run.get("error") or run["steps"])
-    assert world.github.puts() == []
+    world.click()  # a second interaction on the same button (e.g. before it was disabled)
+    first, second = world.runs("merge-on-click")
+    _ok(first)
+    assert second["status"] == "failed"
+    assert "code_used" in json.dumps(second.get("error") or second["steps"])
+    assert len(world.github.puts()) == 1
 
 
-def test_a_button_posted_by_an_untrusted_workflow_merges_nothing(pem, trust_merge):
-    """A second workflow posts a button with the same ``merge`` prefix; the operator's click
-    on it is admitted by the click rule and starts the trusted merge workflow, but the
-    button's origin is not a trusted prompt, so nothing merges."""
+def test_a_button_posted_without_a_code_merges_nothing(pem):
+    """A workflow posting a ``merge``-prefixed button without ``code: true``: the click rule
+    admits the operator's click and starts the merge workflow, but there is no code."""
     world = World(pem)
-    world.base.put("workflows", prompt_workflow("rogue-prompt"))
-    world.base.put("rules", prompt_rule("rogue-rule", "rogue-prompt"))
+    world.base.put("workflows", prompt_workflow("plain-prompt", code=False))
+    world.base.put("rules", prompt_rule("plain-rule", "plain-prompt"))
     real = world.base.get("rules", "green-pr-prompt")
-    world.base.put("rules", {**real, "enabled": False})  # only the rogue posts
+    world.base.put("rules", {**real, "enabled": False})  # only the plain one posts
     world.green()
-    assert world.runs("green-pr-prompt") == []
-    (posting,) = world.runs("rogue-rule")
+    (posting,) = world.runs("plain-rule")
     _ok(posting)
-    (row,) = world.discord.posts[0]["components"]
-    assert row["components"][0]["custom_id"].startswith("merge:")
     world.click()
     (run,) = world.runs("merge-on-click")
     assert run["status"] == "failed"
-    assert "prompt_not_trusted" in json.dumps(run.get("error") or run["steps"])
+    assert "code_not_found" in json.dumps(run.get("error") or run["steps"])
     assert world.github.puts() == []
     assert world.github.deletes() == []
     assert world.discord.followups == []
 
 
-def test_an_unpinned_app_actor_merges_nothing(pem, trust_merge, monkeypatch):
+def test_a_renamed_prompt_workflow_still_merges(pem):
+    """Neither workflow is pinned (d3): a prompt configured under another id, posting to its
+    own channel, merges on the operator's click as the original does."""
+    world = World(pem)
+    world.base.put("workflows", prompt_workflow("pr-prompt"))
+    world.base.put("rules", prompt_rule("pr-rule", "pr-prompt"))
+    real = world.base.get("rules", "green-pr-prompt")
+    world.base.put("rules", {**real, "enabled": False})
+    world.green()
+    world.click()
+    (run,) = world.runs("merge-on-click")
+    _ok(run)
+    assert world.github.puts() == [{"sha": SHA, "merge_method": "squash"}]
+
+
+def test_an_unpinned_app_actor_merges_nothing(pem, monkeypatch):
     unpinned = {k: v for k, v in trusted.TRUSTED_ACTOR_DIGESTS.items() if k != GH}
     monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", unpinned)
     world = World(pem)

@@ -239,29 +239,30 @@ plan. What exists today:
   `docs/plans/2026-10-31-green-pr-merge-prompt.md`, guide `docs/operations/green-pr-merge.md`,
   actor guides `docs/actors/github.md` and `docs/actors/discord.md`): generic surfaces only;
   the prompt and merge rules are configured live, never committed:
-  - there is **one merge kind, fenced by an operator click and a trusted merge role**:
+  - there is **one merge kind, fenced by an operator click and a one-time button code**:
     `github.merge` (`node/actions/github_merge.py`) squash-merges at `sha` (required; the
     head moving is refused `head_moved`, GitHub's 409/405 fail without retry, a once claim
     in `github_merge_once` never re-sends an unknown outcome) and may delete a same-repo
-    branch; before any secret or request it refuses a run that is not its rule firing on a
-    stored `discord.button.clicked` event (`not_started_by_click`), whose workflow is not
-    trusted in role `merge` (`workflow_not_trusted`), whose clicked button was not posted
-    by a run of a workflow trusted in role `merge_prompt` (`prompt_not_trusted`, deviation
-    d2: the stored click's `data.posted_by`), or whose actor is not an `app`
-    (`actor_not_app`); `github.pr` is the read-only PR facts;
-  - the roles `merge` and `merge_prompt` (`actors/trusted.py`, `ROLE_MERGE`,
-    `ROLE_MERGE_PROMPT`) ship with **no digest**: until a release pins both live
-    workflows' v2 digests (ids `merge` and `merge_prompt`), every merge is refused; a
-    change to either workflow needs a new pin;
+    branch; before any secret or request it refuses an actor that is not an `app`
+    (`actor_not_app`) or not pinned (`actor_not_trusted`), a run that is not its rule firing
+    on a stored `discord.button.clicked` event (`not_started_by_click`), and a click whose
+    stored `data.code` is missing (`code_not_found`), belongs to another button or another
+    repo, number or sha (`code_mismatch`) or was used by another run (`code_used`); the code
+    is used up by compare-and-set (deviation d3). `github.pr` is the read-only PR facts;
+  - **no workflow is pinned for it** (d3 replaced d2's `merge` and `merge_prompt` roles):
+    both workflows are configuration, so moving the prompt's channel or text is an edit, not
+    a release; the gate is the operator's click (the click rule's `users` filter) plus the
+    code;
   - `discord.message` takes `buttons` (at most 5: `label`, `style`, `custom_id`, an
-    optional `value`), the gateway turns a click into `discord.button.clicked` (the actor
+    optional `value`, and `code: true` for a one-time code bound to the value), the gateway turns a click into `discord.button.clicked` (the actor
     lists it in `params.events`), answers every click within 3 s (an admitted click
     disables the buttons), `custom_id` is a trigger filter (prefix), and `discord.reply`
     with the click's `event_id` answers the clicker privately;
   - a button's `value` (a JSON object, deviation d1) is its meaning, kept in the store:
     it is posted as `<custom_id>:<token>`, the port stores the value in `discord_buttons`
-    before the post (30 days) with `posted_by` (the posting run and its workflow), and the
-    click carries them as `data.value` and `data.posted_by`, so the guide's click workflow
+    before the post (30 days) with `posted_by` (the posting run and its workflow, a record
+    only) and a coded button's code (also in `discord_button_codes`), and the click carries
+    them as `data.value`, `data.posted_by` and `data.code`, so the guide's click workflow
     reads `trigger.data.value.repo|number|sha` and no id is parsed.
 - **Repo documents** (culture-rules#124, guide `docs/operations/repodocs.md`; the contract
   is culture-library's `docs/api/repodocs.md`):

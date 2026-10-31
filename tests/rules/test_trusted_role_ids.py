@@ -22,13 +22,9 @@ SOURCES = {
 }
 
 
-LIVE_ONLY = {trusted.ROLE_MERGE, trusted.ROLE_MERGE_PROMPT}
-"""Roles whose workflow is live configuration with no committed source (the merge prompt's
-``merge`` workflow and, deviation d2, its ``merge_prompt`` workflow)."""
-
-
 def test_every_role_has_a_trusted_source():
-    assert set(SOURCES) == set(trusted.TRUSTED_WORKFLOWS) - LIVE_ONLY
+    # no role is live-only: the green PR merge prompt's workflows are not pinned (d3)
+    assert set(SOURCES) == set(trusted.TRUSTED_WORKFLOWS)
 
 
 def test_each_trusted_definition_is_stored_under_its_role_name():
