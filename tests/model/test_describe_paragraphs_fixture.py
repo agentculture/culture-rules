@@ -117,7 +117,7 @@ def test_the_fixture_has_a_workflow_and_a_step_with_no_description():
 def test_c9_no_committed_workflow_falls_back_to_a_generated_line():
     """c9: the twelve committed workflows all read with a joining phrase and no fallback."""
     data = build()
-    assert len(data["workflows"]) == 13
+    assert len(data["workflows"]) == 14
     fallbacks = {
         wid: [s["step"] for s in a["paragraph"]["segments"] if s.get("fallback")]
         for wid, a in data["describe"].items()

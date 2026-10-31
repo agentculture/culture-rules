@@ -31,6 +31,7 @@ import pytest
 from culture_rules import keysets
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import RUNS_COLLECTION, step_key, step_state
+from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.model.validate import validate
 from culture_rules.model.workflow import Workflow
 from culture_rules.node.actions.keyset import (
@@ -688,8 +689,10 @@ UNTOUCHED = [
     "culture_rules/node/actions/newspaper_issue.py",
     "culture_rules/actors/trusted.py",
     "culture_rules/model/validate.py",
-    "culture_rules/model/action_kinds.py",
 ]
+# action_kinds.py left this list in 0.38.0: the next new action kind (repodocs.sync, #124)
+# must edit the catalogue, so a branch diff cannot tell keyset work from it. The boundary
+# itself (the keysets add no action kind, h14) is checked on the catalogue below.
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
@@ -715,6 +718,10 @@ def _changed_files() -> set[str]:
 
 def test_the_work_touches_no_newspaper_trust_or_validation_module():  # c13, h14
     assert sorted(_changed_files() & set(UNTOUCHED)) == []
+
+
+def test_the_keysets_add_no_action_kind():  # h14: they are builtin code steps
+    assert [kind for kind in ACTION_KINDS if "keyset" in kind] == []
 
 
 def test_no_node_module_calls_put_variable():  # h9

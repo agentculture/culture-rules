@@ -118,6 +118,10 @@ On disk today:
 - State between runs (guide `docs/operations/keysets.md`): `keyset.filter` and
   `keyset.add` keep named key sets for a configured window (one document per key, TTL
   index, config-only rules); admin verbs `keysets list|show|clear`.
+- Repo documents (guide `docs/operations/repodocs.md`): `repodocs.sync` pushes each
+  top-level repo's devague record (default-branch versions, working drafts, tombstones,
+  spec links) to culture-library; the bundle `docs/rules/repodocs` runs it every 15
+  minutes (disabled).
 
 GitHub issue #1 was the build brief, and #2 the product model and UX. The
 spec is `docs/specs/2026-10-03-culture-rules-engine-editor.md`; the operator

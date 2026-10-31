@@ -156,6 +156,13 @@ key field, normalisation and window are step config. One document per key in `ke
 under a TTL index; admin verbs `keysets list|show|clear`. Flows using them are configured
 live.
 
+**Repo documents** (#124, guide `docs/operations/repodocs.md`). The action kind
+`repodocs.sync` pushes every top-level repo's specs, plans, deliveries, designs and
+`.devague` files under its service actor's `repos_root` to culture-library: each file's
+default-branch version at the head sha, its working draft when the disk differs, tombstones
+for vanished files and spec links. A state file keeps unchanged cycles silent; outputs are
+counts only. The bundle `docs/rules/repodocs` runs it every 15 minutes on spark (disabled).
+
 Two GitHub issues carried the design:
 
 - **#1** is the build brief: repo shape, packaging/CI pitfalls, and the

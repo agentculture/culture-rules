@@ -235,6 +235,21 @@ plan. What exists today:
   - admin verbs `keysets list|show|clear` (API, CLI, MCP; reads are admin too, `clear` dry
     runs unless `--apply`, and an applied clear is audited, deviation d1); flows that use them (the newspaper not repeating links) are
     configured live, never committed.
+- **Repo documents** (culture-rules#124, guide `docs/operations/repodocs.md`; the contract
+  is culture-library's `docs/api/repodocs.md`):
+  - the action kind `repodocs.sync` (`node/actions/repodocs.py`, stdlib, git as argv lists)
+    pushes every top-level repo under its `service` actor's `repos_root` (worktree dirs,
+    symlinks and linked worktrees skipped): every file under `docs/specs|plans|deliveries|design`
+    and `.devague` (gitignored ones too), with `project` from `culture.yaml`;
+  - a changed default-branch blob goes out at the head sha (`commit == default_branch_head`,
+    so it becomes current; no backfill), bytes that differ on disk as the `working` draft, a
+    vanished file as a tombstone (404 is done), and specs carry `spec_links` (`Spec:`
+    trailers, else the first-parent commit that added the delivery summary, followed through
+    renames);
+  - a state file keeps unchanged cycles silent; `max_seconds`/`max_files` stop a run early
+    and the next resumes; outputs are counts only;
+  - the bundle `docs/rules/repodocs` runs it every 15 minutes on spark, one run at a time,
+    and ships disabled.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

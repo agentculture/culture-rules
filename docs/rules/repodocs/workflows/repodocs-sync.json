@@ -1,0 +1,119 @@
+{
+  "description": "",
+  "edges": [],
+  "enabled": true,
+  "id": "repodocs-sync",
+  "inputs": [],
+  "name": "Push repo documents to the library",
+  "notes": "One repodocs.sync step through culture-library-repodocs: every top-level repo under the actor's repos_root, each file's default-branch version, its working draft when it differs, tombstones for vanished files and spec links (docs/operations/repodocs.md). It outputs counts only.",
+  "outputs": [
+    {
+      "name": "repos",
+      "source": "steps.sync.outputs.repos",
+      "type": "integer"
+    },
+    {
+      "name": "pushed",
+      "source": "steps.sync.outputs.pushed",
+      "type": "integer"
+    },
+    {
+      "name": "skipped",
+      "source": "steps.sync.outputs.skipped",
+      "type": "integer"
+    },
+    {
+      "name": "tombstoned",
+      "source": "steps.sync.outputs.tombstoned",
+      "type": "integer"
+    },
+    {
+      "name": "errors",
+      "source": "steps.sync.outputs.errors",
+      "type": "integer"
+    },
+    {
+      "name": "duration_s",
+      "source": "steps.sync.outputs.duration_s",
+      "type": "number"
+    },
+    {
+      "name": "stopped",
+      "source": "steps.sync.outputs.stopped",
+      "type": "boolean"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "repodocs.sync",
+          "params": {
+            "actor": "culture-library-repodocs"
+          }
+        },
+        "builtin": "action",
+        "idempotent": true
+      },
+      "description": "",
+      "enabled": true,
+      "id": "sync",
+      "inputs": [],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Push what changed",
+      "notes": "repodocs.sync: stops at the actor's max_seconds (300) and the next run resumes from the state file; per-file errors are counted, never fatal. timeout_s leaves room beyond max_seconds.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "repos",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "pushed",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "skipped",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "tombstoned",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "errors",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "duration_s",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "description": "",
+          "name": "stopped",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 900
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

@@ -116,5 +116,11 @@
       "render": "Writes the message as a Markdown page.",
       "push": "Adds the page to the library as a private document."
     }
+  },
+  "repodocs-sync": {
+    "description": "Pushes the specs, plans, delivery summaries, designs and devague files of every repo on this machine to the library, sending only what changed since the last run.",
+    "steps": {
+      "sync": "Sends each changed file, draft and deletion to the library and counts them."
+    }
   }
 }
