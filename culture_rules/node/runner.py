@@ -306,6 +306,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         GitHubCommentPort,
         GitHubPrHeadPort,
     )
+    from culture_rules.node.actions.github_merge import GitHubMergePort  # noqa: PLC0415
     from culture_rules.node.actions.github_pr import (  # noqa: PLC0415
         ADDRESSED_BUILTIN,
         THREADS_BUILTIN,
@@ -377,6 +378,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     has_github = importlib.util.find_spec("cryptography") is not None
     github: Any = GitHubCommentPort(store) if has_github else MissingExtraPort("github")
     push: Any = GitHubPushPort(store) if has_github else MissingExtraPort("github")
+    merge: Any = GitHubMergePort(store) if has_github else MissingExtraPort("github")
     reply: Any = GitHubReviewReplyPort(store) if has_github else MissingExtraPort("github")
     head: Any = GitHubPrHeadPort(store) if has_github else MissingExtraPort("github")
     threads: Any = GitHubThreadsPort(store) if has_github else MissingExtraPort("github")
@@ -394,6 +396,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:discord.sweep": DiscordSweepAction(store),  # a channel since its cursor
         "action:github.comment": github,
         "action:github.push": push,
+        "action:github.merge": merge,  # the one merge: a click in a merge-trusted workflow
         "action:github.review_reply": reply,
         "action:jira.comment": JiraCommentPort(store),
         "action:email.send": EmailSendPort(store),  # #53: Resend

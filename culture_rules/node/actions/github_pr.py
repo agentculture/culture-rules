@@ -2,7 +2,10 @@
 
 Both reuse :class:`~culture_rules.node.actions.github.GitHubCommentPort`'s actor resolution
 (a stored, enabled App actor with ``params.surface == "github"`` and a ``connection``), its
-repo allowlist and its per-actor App cache. There is deliberately no merge port.
+repo allowlist and its per-actor App cache. Neither merges: there is exactly one merge port,
+``github.merge`` (:mod:`culture_rules.node.actions.github_merge`), fenced to a run started by a
+``discord.button.clicked`` event in a workflow trusted in the ``merge`` role, so merging stays
+a human gate.
 
 ``github.push``
     Fast-forwards a same-repo PR's head branch to a local commit. Params: ``repo``
