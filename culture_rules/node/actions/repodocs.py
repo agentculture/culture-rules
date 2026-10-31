@@ -47,6 +47,31 @@ and linked worktrees (``.git`` is a file). Per repo (git runs with explicit ``--
   every regular file on disk (tracked, untracked and gitignored alike; symlinks never
   followed).
 
+Clones of one origin
+====================
+Before syncing, one pass reads every repo's ``git remote get-url origin`` and groups repos by
+origin: the host lowercased, the scp form (``git@host:org/repo``) equal to the URL forms
+(``https://[creds@]host[:port]/org/repo``), a trailing ``.git`` or ``/`` dropped, the path
+compared case-insensitively. Local-path origins and repos without one are never grouped. In
+a group of two or more full clones, the **owner** is the clone whose directory name is the
+origin's repo name (case-insensitive, ``-`` and ``_`` equal); with several or no such names,
+the first by directory name among them (or among all). Every clone keeps the origin as its
+identity (one org-wide corpus); the owner syncs as above. Every other clone (a **copy**,
+logged once per run by name) sends only default-branch versions, their spec links and their
+tombstones: never a working draft and never a ``working`` tombstone. Its committed pushes
+are normally no-ops (the owner sent the same blob at the same head). A copy whose head is
+older or newer than the owner's still sends what it sees; the library's current version is
+the newest by ``committed_at`` among versions pushed with ``commit == default_branch_head``,
+so a stale copy never rolls it back.
+
+Migration: the drafts a copy pushed before it was one (its state entries with a draft) are
+handed to the owner's state in that pass, with a draft blob no file has. The owner then
+re-sends its own draft of each such path once (its bytes on disk, or its committed bytes when
+the file is only in its tree), replacing the copy's bytes in the library's one draft; a path
+the owner has neither in its tree nor on disk gets a ``working`` tombstone, so a copy-only
+draft leaves the owner's project. The copy keeps only its committed versions. A later run
+sends nothing for these paths.
+
 Per file, against the state file (:func:`load_state`), in path order:
 
 1. **committed version**: when the default branch holds the file and its blob differs from the
@@ -191,6 +216,9 @@ _DEFAULT_REFS = (
 """Tried in order when ``refs/remotes/origin/HEAD`` is unset, before the checked-out branch."""
 _LOCAL_ORIGINS = ("/", "./", "../", "~", "file:")
 """An origin URL starting with one of these is a path on this host, not a shareable identity."""
+_HANDED_OVER = ""
+"""The draft blob a copy's handed-over draft gets in its owner's state: no file hashes to it,
+so the owner re-sends that path's draft (or tombstones it) once."""
 _OVERSIZE = "oversize"
 """The stat cache's blob id for a file over :data:`MAX_BYTES` (skipped until it changes)."""
 
@@ -529,11 +557,15 @@ class _Repo:
     def text(self, *args: str) -> str:
         return self.run(*args)[1].decode("utf-8", errors="surrogateescape")
 
+    def origin(self) -> str:
+        """``git remote get-url origin``, or ``""`` without one."""
+        code, out = self.run("remote", "get-url", "origin", ok=(0, 1, 2, 128))
+        return out.decode("utf-8", errors="replace").strip() if code == 0 else ""
+
     def inspect(self, host: str) -> None:
         self.fmt = self.text("rev-parse", "--show-object-format").strip() or "sha1"
-        code, out = self.run("remote", "get-url", "origin", ok=(0, 1, 2, 128))
-        url = out.decode("utf-8", errors="replace").strip()
-        shared = code == 0 and url and not url.lower().startswith(_LOCAL_ORIGINS)
+        url = self.origin()
+        shared = url and not url.lower().startswith(_LOCAL_ORIGINS)
         self.remote = url if shared else f"{host}:{self.path}"
         self.head = self._head()
         if self.head is not None:
@@ -697,6 +729,46 @@ def _repos(root: Path) -> Iterator[Path]:
             yield Path(entry.path)
 
 
+def _remote_key(url: str) -> str | None:
+    """The origin URL as one comparable key, ``host/org/repo`` lowercased: the scp form
+    (``git@host:org/repo``) and the URL forms (``https://[creds@]host[:port]/org/repo``)
+    agree, and a trailing ``.git`` or ``/`` is dropped. ``None`` for a local-path origin or a
+    URL with no host or path (never grouped)."""
+    raw = url.strip()
+    if not raw or raw.lower().startswith(_LOCAL_ORIGINS):
+        return None
+    if "://" in raw:
+        try:
+            parts = urlsplit(raw)
+            host = parts.hostname or ""
+        except ValueError:
+            return None
+        path = parts.path
+    else:
+        authority, sep, path = raw.partition(":")
+        if not sep:
+            return None
+        host = authority.rsplit("@", 1)[-1]
+    path = path.strip("/")
+    if path.lower().endswith(".git"):
+        path = path[:-4].rstrip("/")
+    if not host or not path:
+        return None
+    return f"{host.lower()}/{path.lower()}"
+
+
+def _fold(name: str) -> str:
+    return name.lower().replace("_", "-")
+
+
+def _owner(key: str, members: Sequence[tuple[Path, str]]) -> tuple[Path, str]:
+    """The clone that owns a shared origin: the one whose directory name is the origin's repo
+    name (case-insensitive, ``-`` = ``_``); among several or none, the first by name."""
+    wanted = _fold(key.rsplit("/", 1)[-1])
+    matching = [m for m in members if _fold(m[0].name) == wanted]
+    return min(matching or members, key=lambda m: m[0].name)
+
+
 def _disk(repo: Path) -> dict[str, os.stat_result]:
     """Regular files under the in-scope prefixes, by repo-relative path; no symlinks."""
     found: dict[str, os.stat_result] = {}
@@ -799,16 +871,74 @@ class _Run:
         if not root.is_dir():
             raise _Refused("repos_root_missing", "repos_root is not a directory")
         try:
-            for repo in _repos(root):
+            paths = list(_repos(root))
+            copies = self._clones(paths)
+            for repo in paths:
                 self._remaining()
-                self._sync_repo(repo)
+                self._sync_repo(repo, copy=repo in copies)
         except _Stop:
             self.counts.stopped = True
         finally:
             _save_state(self.config.state_path, self.state)
         return self.counts
 
-    def _sync_repo(self, path: Path) -> None:
+    def _clones(self, paths: Sequence[Path]) -> set[Path]:
+        """The pre-pass: group the repos by origin (:func:`_remote_key`, one git call each)
+        and return the copies, the clones of a shared origin other than its owner
+        (:func:`_owner`). Each copy is logged once, and the drafts it pushed before are
+        handed to its owner (:meth:`_hand_over_drafts`)."""
+        groups: dict[str, list[tuple[Path, str]]] = {}
+        for path in paths:
+            try:
+                url = _Repo(path, self.git).origin()
+            except _GitFailed:
+                continue  # the repo's own sync reports it
+            key = _remote_key(url)
+            if key is not None:
+                groups.setdefault(key, []).append((path, url))
+        copies: set[Path] = set()
+        for key, members in groups.items():
+            if len(members) < 2:
+                continue
+            owner, owner_url = _owner(key, members)
+            for path, url in members:
+                if path == owner:
+                    continue
+                copies.add(path)
+                log.info(
+                    "repodocs.sync: %s is a copy of %s (same origin); committed versions only",
+                    path.name,
+                    owner.name,
+                )
+                self._hand_over_drafts(path, url, owner, owner_url)
+        return copies
+
+    def _hand_over_drafts(self, copy: Path, url: str, owner: Path, owner_url: str) -> None:
+        """Migration: a copy that pushed working drafts under the shared origin left them in
+        the library. Its draft entries move to the owner's state with a blob no file has, so
+        the owner re-sends its own draft of each path once (its bytes replace the copy's), or
+        tombstones it as ``working`` when the owner has no such file. The copy keeps only its
+        committed versions."""
+        repos = self.state["repos"]
+        cst = repos.get(str(copy))
+        if not isinstance(cst, dict) or cst.get("remote") != url:
+            return
+        files = cst.get("files") or {}
+        drafted = sorted(r for r, e in files.items() if isinstance(e, dict) and e.get("working"))
+        if not drafted:
+            return
+        ost = repos.get(str(owner))
+        if not isinstance(ost, dict) or ost.get("remote") != owner_url:
+            ost = repos[str(owner)] = {"remote": owner_url, "files": {}, "stat": {}}
+        owner_files = ost.setdefault("files", {})
+        for rel in drafted:
+            owner_files.setdefault(rel, {})["working"] = {"blob": _HANDED_OVER}
+            entry = files[rel]
+            entry.pop("working")
+            if not entry:
+                del files[rel]
+
+    def _sync_repo(self, path: Path, *, copy: bool = False) -> None:
         self.counts.repos += 1
         repo = _Repo(path, self.git)
         try:
@@ -821,7 +951,7 @@ class _Run:
         st = repos.get(str(path))
         if not isinstance(st, dict) or st.get("remote") != repo.remote:
             st = {"remote": repo.remote, "files": {}, "stat": {}}
-        sync = _RepoSync(self, repo, st, disk, read_project(path))
+        sync = _RepoSync(self, repo, st, disk, read_project(path), copy=copy)
         try:
             sync.run()
         finally:
@@ -861,8 +991,11 @@ class _RepoSync:
         st: dict[str, Any],
         disk: dict[str, os.stat_result],
         project: dict[str, list[str]],
+        *,
+        copy: bool = False,
     ) -> None:
         self.run_ = run
+        self.copy = copy
         self.repo = repo
         self.st = st
         self.files: dict[str, Any] = st.setdefault("files", {})
@@ -877,7 +1010,9 @@ class _RepoSync:
         return f"{self.repo.path.name}/{rel}"
 
     def run(self) -> None:
-        for rel in sorted(set(self.repo.tree) | set(self.disk) | set(self.files)):
+        # a copy sends no drafts, so files only on its disk are not its business
+        disk = set() if self.copy else set(self.disk)
+        for rel in sorted(set(self.repo.tree) | disk | set(self.files)):
             self._file(rel)
         if self.st.get("project") != self.project_key and not self.pushed_here:
             self._refresh_project()
@@ -1056,6 +1191,8 @@ class _RepoSync:
     def _working(
         self, rel: str, entry: dict[str, Any], in_tree: tuple[str, int] | None, on_disk: bool
     ) -> bool:
+        if self.copy:
+            return False  # the owner clone sends the drafts
         committed_oid = in_tree[0] if in_tree else (entry.get("gone") or {}).get("blob")
         data: bytes | None = None
         oid = committed_oid
@@ -1081,8 +1218,9 @@ class _RepoSync:
         """A file gone from the tree and the disk. An entry left only by
         :meth:`_tombstone_committed` (no draft since) was already tombstoned: dropped."""
         head = self.repo.head
-        if not entry.get("committed") and not entry.get("working") and entry.get("gone"):
-            self.files.pop(rel, None)
+        uncommitted = not entry.get("committed")
+        if uncommitted and (self.copy or (not entry.get("working") and entry.get("gone"))):
+            self.files.pop(rel, None)  # a copy never sends a working tombstone
             return
         commit = head.sha if entry.get("committed") and head is not None else WORKING
         if self._send(rel, {"commit": commit, "tombstone": True}, tombstone=True) is not None:

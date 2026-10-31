@@ -45,6 +45,29 @@ files, and repos that ignore `.devague` entirely.
 - **A repo with no remote**, or whose `origin` is a path on this host (`/…`,
   `./…`, `../…`, `~…` or a `file:` URL), is identified as
   `spark:<absolute path>`.
+- **Two full clones of one origin** (for example `~/git/lobes-cli` and
+  `~/git/model-gear`, both `https://github.com/agentculture/lobes-cli`) both
+  push under that origin, because the library is one org-wide corpus. Origins
+  are compared with the host lowercased, the scp and https forms equal, and
+  `.git`, a trailing `/` and case in the path ignored. One clone, the
+  **owner**, syncs as usual. The owner is the clone whose directory name is
+  the origin's repo name (case-insensitive, `-` and `_` equal). With several
+  such names, or none, it is the first by directory name. Every other clone
+  is a **copy**, logged once per run by name. A copy sends only
+  default-branch versions, their spec links and their tombstones. It never
+  sends a working draft or a `working` tombstone, so the library's one draft
+  per path is the owner's and no longer flips between clones every cycle. A
+  copy's committed pushes are normally no-ops. A copy with an older head
+  never rolls a version back: the library keeps the newest `committed_at`
+  among default-branch versions. Repos with no remote, or with a local-path
+  origin, are never grouped.
+- **Migration from shared drafts.** The drafts a copy pushed before it was a
+  copy are handed to its owner. In that run the owner re-sends its own
+  draft of each of those paths once, which replaces the copy's bytes. A path
+  the owner has neither in its default branch nor on disk gets a `working`
+  tombstone, so a copy-only draft leaves the owner's project. The one-time
+  cost is one request per path the copy had drafted. Nothing needs cleaning
+  up by hand.
 - **`spec_links`** go with each `docs/specs/**.md` version:
   - `trailer_commits` are the commits with a `Spec: <slug>` trailer;
   - `merge_commit` and `pr` come from the first first-parent commit that
