@@ -361,8 +361,9 @@ def test_an_unreachable_post_keeps_the_stored_values():
 def test_an_unexpected_post_error_keeps_the_stored_values():
     port, store = _valued_port(None)
     port._transport = _raising(RuntimeError("odd"))
+    buttons = [_btn(custom_id="merge", value=VALUE)]
     with pytest.raises(RuntimeError):
-        _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+        _send(port, buttons=buttons)
     assert [d["value"] for d in _stored(store)] == [VALUE]
 
 

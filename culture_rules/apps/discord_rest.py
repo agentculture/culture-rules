@@ -449,22 +449,26 @@ def button_components(buttons: Any) -> list[dict[str, Any]]:
     row: list[dict[str, Any]] = []
     seen: set[str] = set()
     for i, b in enumerate(buttons):
-        if not isinstance(b, Mapping):
-            raise ValueError(f"button {i} must be an object")
-        label, custom_id, style = b.get("label"), b.get("custom_id"), b.get("style")
-        if not isinstance(label, str) or not label or len(label) > MAX_BUTTON_LABEL:
-            raise ValueError(f"button {i} label must be 1-{MAX_BUTTON_LABEL} characters")
-        if not isinstance(custom_id, str) or not custom_id or len(custom_id) > MAX_CUSTOM_ID:
-            raise ValueError(f"button {i} custom_id must be 1-{MAX_CUSTOM_ID} characters")
-        if not isinstance(style, str) or style not in BUTTON_STYLES:
-            raise ValueError(f"button {i} style must be one of {', '.join(BUTTON_STYLES)}")
-        if custom_id in seen:
-            raise ValueError(f"button {i} repeats custom_id {custom_id!r}")
-        seen.add(custom_id)
-        row.append(
-            {"type": 2, "style": BUTTON_STYLES[style], "label": label, "custom_id": custom_id}
-        )
+        button = _button(i, b)
+        if button["custom_id"] in seen:
+            raise ValueError(f"button {i} repeats custom_id {button['custom_id']!r}")
+        seen.add(button["custom_id"])
+        row.append(button)
     return [{"type": 1, "components": row}]
+
+
+def _button(i: int, b: Any) -> dict[str, Any]:
+    """Button ``i`` as a Discord component; ``ValueError`` for anything Discord would refuse."""
+    if not isinstance(b, Mapping):
+        raise ValueError(f"button {i} must be an object")
+    label, custom_id, style = b.get("label"), b.get("custom_id"), b.get("style")
+    if not isinstance(label, str) or not label or len(label) > MAX_BUTTON_LABEL:
+        raise ValueError(f"button {i} label must be 1-{MAX_BUTTON_LABEL} characters")
+    if not isinstance(custom_id, str) or not custom_id or len(custom_id) > MAX_CUSTOM_ID:
+        raise ValueError(f"button {i} custom_id must be 1-{MAX_CUSTOM_ID} characters")
+    if not isinstance(style, str) or style not in BUTTON_STYLES:
+        raise ValueError(f"button {i} style must be one of {', '.join(BUTTON_STYLES)}")
+    return {"type": 2, "style": BUTTON_STYLES[style], "label": label, "custom_id": custom_id}
 
 
 def _retry_after(payload: Any) -> float | None:

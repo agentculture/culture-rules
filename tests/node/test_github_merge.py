@@ -308,7 +308,8 @@ def test_an_unknown_outcome_is_sent_again_only_after_a_read_shows_it_did_not_mer
     fake.merge_status = 200  # the PR is still open at SHA: the merge did not happen
     second = merge(port, run_id)
     assert len(fake.methods("PUT", "/merge")) == 2
-    assert second.outcome == "completed" and second.output["merged"] is True
+    assert second.outcome == "completed"
+    assert second.output["merged"] is True
     [claim] = store.find(MERGE_ONCE_COLLECTION)
     assert (claim["state"], claim["resends"]) == ("merged", 1)
 
@@ -859,4 +860,5 @@ def test_a_button_not_posted_by_a_step_of_the_prompt_workflow_is_refused(pem, tr
     _stored_click(store, {**POSTED_BY, "step": step})
     res = merge(port, run_id)
     assert (res.error, res.retryable) == ("prompt_not_trusted", False)
-    assert resolved == [] and fake.calls == []
+    assert resolved == []
+    assert fake.calls == []

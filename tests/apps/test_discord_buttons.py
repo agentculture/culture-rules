@@ -45,8 +45,9 @@ def test_the_posted_id_never_exceeds_100_characters():
 
 
 def test_a_prefix_too_long_for_a_token_is_refused():
+    buttons = [_btn(custom_id="p" * (db.MAX_VALUED_PREFIX + 1), value={})]
     with pytest.raises(ValueError, match="custom_id"):
-        db.prepare_buttons([_btn(custom_id="p" * (db.MAX_VALUED_PREFIX + 1), value={})])
+        db.prepare_buttons(buttons)
 
 
 def test_the_same_long_prefix_without_value_is_still_fine():
@@ -69,8 +70,9 @@ def test_the_same_long_prefix_without_value_is_still_fine():
     ],
 )
 def test_bad_values_are_refused(value):
+    buttons = [_btn(value=value)]
     with pytest.raises(ValueError, match="value"):
-        db.prepare_buttons([_btn(value=value)])
+        db.prepare_buttons(buttons)
 
 
 def test_nested_json_values_up_to_4096_bytes_are_accepted():

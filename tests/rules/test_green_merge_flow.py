@@ -470,13 +470,16 @@ def test_a_green_pr_is_prompted_with_a_button_that_keeps_its_meaning(pem):
     (run,) = world.runs("green-pr-prompt")
     _ok(run)
     (post,) = world.discord.posts
-    assert "Fix the widget" in post["content"] and f"{REPO}#{NUMBER}" in post["content"]
+    assert "Fix the widget" in post["content"]
+    assert f"{REPO}#{NUMBER}" in post["content"]
     (row,) = post["components"]
     (button,) = row["components"]
-    assert button["style"] == 3 and button["label"] == "Merge"
+    assert button["style"] == 3
+    assert button["label"] == "Merge"
     assert button["custom_id"].startswith("merge:")
     # the meaning is in the db, not in the id (d1)
-    assert SHA not in button["custom_id"] and REPO not in button["custom_id"]
+    assert SHA not in button["custom_id"]
+    assert REPO not in button["custom_id"]
     stored = button_value(world.base, BOT, button["custom_id"], now=world.clock())
     assert stored == {"repo": REPO, "number": NUMBER, "sha": SHA}
     # and who posted it (d2): the prompt run and its workflow
@@ -496,7 +499,8 @@ def test_the_operator_s_click_squash_merges_the_prompted_sha_and_answers_private
     assert world.github.deletes() == [f"/repos/{REPO}/git/refs/heads/fix/x"]
     ((path, body),) = world.discord.followups
     assert path == f"/api/v10/webhooks/{APP}/{TOKEN}" or path.endswith(f"/webhooks/{APP}/{TOKEN}")
-    assert body["flags"] == 64 and MERGED_SHA in body["content"]
+    assert body["flags"] == 64
+    assert MERGED_SHA in body["content"]
 
 
 # --------------------------------------------------------------------------- nothing merges
@@ -518,7 +522,8 @@ def test_a_head_that_moved_since_the_prompt_merges_nothing(pem, trust_merge):
     world.click()
     (run,) = world.runs("merge-on-click")
     assert run["status"] == "failed"
-    assert github.puts() == [] and github.deletes() == []
+    assert github.puts() == []
+    assert github.deletes() == []
     assert world.discord.followups == []
 
 
@@ -564,7 +569,8 @@ def test_a_button_posted_by_an_untrusted_workflow_merges_nothing(pem, trust_merg
     (run,) = world.runs("merge-on-click")
     assert run["status"] == "failed"
     assert "prompt_not_trusted" in json.dumps(run.get("error") or run["steps"])
-    assert world.github.puts() == [] and world.github.deletes() == []
+    assert world.github.puts() == []
+    assert world.github.deletes() == []
     assert world.discord.followups == []
 
 

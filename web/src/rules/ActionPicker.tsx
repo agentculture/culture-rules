@@ -295,16 +295,17 @@ export function actionProblem(stored: Action): "no_actor_port" | "empty" | "inva
   for (const [name, p] of Object.entries(spec.params)) {
     if (name !== "actor" && p.required && isEmpty(params[name])) return "empty";
   }
-  for (const group of spec.anyOf ?? []) {
-    if (group.every((name) => isEmpty(params[name]))) return "empty";
-  }
+  if ((spec.anyOf ?? []).some((group) => group.every((name) => isEmpty(params[name])))) return "empty";
   for (const [name, p] of Object.entries(spec.params)) {
     if (!isEmpty(params[name]) && !typeOk(p, params[name])) return "invalid_value";
   }
-  if (canonical(action.kind) === "discord.message" && Array.isArray(params.buttons)) {
-    if ((params.buttons as DiscordButton[]).some((b) => buttonIdTooLong(b))) return "invalid_value";
-  }
-  return null;
+  return buttonsTooLong(action.kind, params) ? "invalid_value" : null;
+}
+
+/** A discord.message button whose posted id would pass Discord's 100 characters. */
+function buttonsTooLong(kind: string, params: Record<string, unknown>): boolean {
+  if (canonical(kind) !== "discord.message" || !Array.isArray(params.buttons)) return false;
+  return (params.buttons as DiscordButton[]).some((b) => buttonIdTooLong(b));
 }
 
 const enabled = (a: Actor) => a.enabled !== false;

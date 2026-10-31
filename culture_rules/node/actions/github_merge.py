@@ -148,7 +148,8 @@ def _merge_input(input: Mapping[str, Any]) -> tuple[int, str, bool] | None:
 def stored_click(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The stored ``discord.button.clicked`` envelope ``run`` is its rule's firing on, or
     ``None`` when it is not such a run."""
-    from culture_rules.node.firing import run_id_for  # noqa: PLC0415 - node layer, lazily
+    # the node layer, imported lazily
+    from culture_rules.node.firing import run_id_for  # noqa: PLC0415
 
     trigger = run.get("trigger")
     rule_id = run.get("rule_id")

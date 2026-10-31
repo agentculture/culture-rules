@@ -138,26 +138,9 @@ class MessageAction:
         valued: list[tuple[str, Any]],
         posted_by: Mapping[str, Any] | None = None,
     ) -> InvocationResult:
-        actor = self._store.get(ACTORS_COLLECTION, actor_id)
-        if actor is None:
-            return _fail(f"actor {actor_id!r} not found")
-        params = actor.get("params") if isinstance(actor.get("params"), Mapping) else {}
-        surface = actor.get("surface") or params.get("surface")
-        if surface != "discord":
-            return _fail(f"actor {actor_id!r} is not a discord app actor")
-        connection = actor.get("connection") or params.get("connection") or {}
-        allowed = connection.get("channels")
-        if isinstance(allowed, str):  # one channel, not a set of characters
-            allowed = [allowed]
-        if allowed and channel not in {str(c) for c in allowed}:
-            return _fail(f"channel {channel!r} is not in actor {actor_id!r} allow-list")
-        ref = connection.get("bot_token")
-        if not isinstance(ref, str) or not ref:
-            return _fail(f"actor {actor_id!r} has no bot_token reference")
-        try:
-            token = self._resolve(ref)
-        except secrets.SecretError as exc:
-            return InvocationResult.failed(str(exc), retryable=True)
+        bot = self._discord_token(actor_id, channel)
+        if isinstance(bot, InvocationResult):
+            return bot
         kwargs: dict[str, Any] = {"transport": self._transport}
         if self._base_url:
             kwargs["base_url"] = self._base_url
@@ -171,7 +154,7 @@ class MessageAction:
                     f"keeping button values failed ({type(exc).__name__})", retryable=True
                 )
         try:
-            out = DiscordClient(token, **kwargs).post_message(channel, text, components=components)
+            out = DiscordClient(bot, **kwargs).post_message(channel, text, components=components)
         except DiscordError as exc:
             # only a definite refusal drops the values: after a timeout, a 5xx, a 429 or a
             # lost connection the message may be up, and its buttons keep their meaning
@@ -189,6 +172,30 @@ class MessageAction:
         if components:
             out = {**out, "custom_ids": [b["custom_id"] for b in components[0]["components"]]}
         return InvocationResult.completed(out)
+
+    def _discord_token(self, actor_id: str, channel: str) -> str | InvocationResult:
+        """The bot token of the Discord app actor ``actor_id`` when it may post to ``channel``,
+        else the failed result."""
+        actor = self._store.get(ACTORS_COLLECTION, actor_id)
+        if actor is None:
+            return _fail(f"actor {actor_id!r} not found")
+        params = actor.get("params") if isinstance(actor.get("params"), Mapping) else {}
+        surface = actor.get("surface") or params.get("surface")
+        if surface != "discord":
+            return _fail(f"actor {actor_id!r} is not a discord app actor")
+        connection = actor.get("connection") or params.get("connection") or {}
+        allowed = connection.get("channels")
+        if isinstance(allowed, str):  # one channel, not a set of characters
+            allowed = [allowed]
+        if allowed and channel not in {str(c) for c in allowed}:
+            return _fail(f"channel {channel!r} is not in actor {actor_id!r} allow-list")
+        ref = connection.get("bot_token")
+        if not isinstance(ref, str) or not ref:
+            return _fail(f"actor {actor_id!r} has no bot_token reference")
+        try:
+            return self._resolve(ref)
+        except secrets.SecretError as exc:
+            return InvocationResult.failed(str(exc), retryable=True)
 
     def _keep_values(
         self,
