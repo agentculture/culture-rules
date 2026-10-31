@@ -33,7 +33,8 @@ never with force (and, with ``gate_verdict`` wired in, only after a test gate ``
 exactly **one merge kind**, ``github.merge`` (``sha`` pins the head commit, ``delete_branch``
 removes the branch after): merging stays a human gate, fenced by the click and a trusted merge
 role. The port runs it only in a run started by a ``discord.button.clicked`` event whose
-workflow is trusted in a merge role; ``github.pr`` reads one PR's state (no write).
+workflow is trusted in a merge role; ``github.pr`` reads one PR's title, link, author, state,
+repos, branch and head sha (no write).
 
 The daily-newspaper kinds (#53): ``email.send`` sends through an ``email`` app actor to
 addresses on its recipient allowlist; ``search.web`` queries through a ``search`` app actor;
@@ -192,7 +193,8 @@ _KINDS = (
     ),
     _k(
         "github.pr",
-        "Read one PR's state (head, mergeability, checks) as the GitHub App",
+        "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
+        " as the GitHub App",
         actor=_RS,
         repo=_RS,
         number=ParamSpec("int", True),
