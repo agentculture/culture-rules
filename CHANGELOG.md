@@ -14,6 +14,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - docs/operations/repodocs.md: what it pushes, the cycle length, setup (key, grant, import, enable) and verification with culture-library's scripts/verify-mirror.py.
 - The editor offers repodocs.sync in the action picker, with enabled service actors that have a repos_root.
 
+### Fixed
+
+- repodocs.sync review round (PR #127): without refs/remotes/origin/HEAD the default branch is origin/main, origin/master, the local main or the local master before the checked-out branch, so a feature branch is no longer pushed as the default-branch head (docs/operations/repodocs.md updated)
+- repodocs.sync: an origin that is a local path (/, ./, ../, ~) or a file: URL is identified as `<host>:<abs path>`, like a repo with no origin, instead of being sent and refused 400 on every push
+- repodocs.sync: culture.yaml block lists at the key's own indentation (`domains:` then `- library`) are read instead of erasing the project's domains; connected `org/repo` entries are sent as `https://github.com/org/repo` and bare single names are dropped with a warning
+- repodocs.sync: a committed file deleted on the default branch but left on disk is tombstoned at the head sha; a draft follows only when the bytes on disk differ from the last committed version
+- repodocs.sync: a changed file is read once and the hashed bytes are sent; a file over 16 MiB on disk is cached as oversize (one error until it changes); a run stopped early merges its stat cache instead of dropping the rest
+- repodocs.sync: a push answer with spec_links_applied: false leaves the links hash unrecorded (the head is still recorded, as the library would ignore the same head again); an answer without the field behaves as before
+
 ## [0.37.0] - 2026-10-29
 
 ### Added

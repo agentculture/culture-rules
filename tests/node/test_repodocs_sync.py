@@ -310,6 +310,51 @@ def test_a_repo_without_a_remote_sends_host_and_absolute_path(root):
     assert call["remote"] == f"spark:{repo.path}"
 
 
+@pytest.mark.parametrize("branch", ["main", "master"])
+def test_without_origin_head_a_checked_out_feature_branch_is_not_the_default(root, branch):
+    repo = Repo(root / "local", origin_head=False)
+    if branch != "main":
+        repo.git("checkout", "-q", "-b", branch)
+    repo.write(PLAN, "# on the default branch\n")
+    default = repo.commit("first")  # on an unborn repo, checkout -b renames main away
+    repo.git("checkout", "-q", "-b", "feature")
+    repo.write(PLAN, "# on a feature branch\n")
+    repo.commit("branch work")
+    library = FakeLibrary()
+    _sync(root, library)
+    (call,) = library.by(PLAN, "sha")
+    assert call["commit"] == default == call["default_branch_head"]
+    assert library.content(call) == b"# on the default branch\n"
+
+
+@pytest.mark.parametrize("branch", ["main", "master"])
+def test_without_origin_head_origin_main_wins_over_the_local_branch(root, branch):
+    repo = Repo(root / "local", origin_head=False)
+    repo.write(PLAN, "# pushed\n")
+    pushed = repo.commit("first")
+    repo.git("update-ref", f"refs/remotes/origin/{branch}", pushed)
+    repo.write(PLAN, "# local only\n")
+    repo.commit("not pushed yet")
+    library = FakeLibrary()
+    _sync(root, library)
+    (call,) = library.by(PLAN, "sha")
+    assert call["commit"] == pushed == call["default_branch_head"]
+
+
+@pytest.mark.parametrize(
+    "origin",
+    ["/srv/git/demo.git", "./demo", "../demo.git", "~/repos/demo", "file:///srv/git/demo.git"],
+)
+def test_a_local_path_origin_is_identified_as_host_and_absolute_path(root, origin):
+    repo = Repo(root / "mirror", remote=origin, origin_head=False)
+    repo.write(PLAN, "x\n")
+    repo.commit("first")
+    library = FakeLibrary()
+    _sync(root, library)
+    (call,) = library.calls
+    assert call["remote"] == f"spark:{repo.path}"
+
+
 def test_an_empty_repo_pushes_its_files_as_drafts(root):
     repo = Repo(root / "fresh")
     repo.write(FRAME, "{}\n")
@@ -454,6 +499,57 @@ def test_culture_yaml_domains_and_connected_are_sent_as_project(root):
         }
 
 
+def test_block_lists_at_the_keys_own_indent_are_read(root):
+    repo = _demo(root)
+    repo.write(
+        "culture.yaml",
+        "suffix: demo\n"
+        "domains:\n"
+        "- library\n"
+        "# a comment\n"
+        "- 'media'  # quoted\n"
+        "connected:\n"
+        "- github.com/agentculture/culture-rules\n"
+        "backend: claude\n"
+        "- not-a-domain\n",
+    )
+    repo.commit("yaml")
+    library = FakeLibrary()
+    _sync(root, library)
+    assert library.calls
+    for call in library.calls:
+        assert call["project"] == {
+            "domains": ["library", "media"],
+            "connected": ["github.com/agentculture/culture-rules"],
+        }
+
+
+def test_connected_org_repo_becomes_a_github_url_and_bare_names_are_dropped(root, caplog):
+    repo = _demo(root)
+    repo.write(
+        "culture.yaml",
+        "connected:\n"
+        "  - agentculture/culture-rules\n"
+        "  - culture-library\n"
+        "  - https://github.com/agentculture/steward\n"
+        "  - github.com/agentculture/teken\n"
+        "  - git@github.com:agentculture/devex.git\n",
+    )
+    repo.commit("yaml")
+    library = FakeLibrary()
+    with caplog.at_level("WARNING", logger=repodocs_mod.__name__):
+        _sync(root, library)
+    assert library.calls
+    for call in library.calls:
+        assert call["project"]["connected"] == [
+            "https://github.com/agentculture/culture-rules",
+            "https://github.com/agentculture/steward",
+            "github.com/agentculture/teken",
+            "git@github.com:agentculture/devex.git",
+        ]
+    assert any("culture-library" in r.getMessage() for r in caplog.records)
+
+
 def test_a_repo_without_those_keys_sends_empty_lists(root):
     _demo(root)
     library = FakeLibrary()
@@ -587,17 +683,60 @@ def test_a_tombstone_answered_404_counts_as_done(root):
     assert again.calls == []
 
 
-def test_a_file_deleted_on_main_but_still_on_disk_is_not_tombstoned(root):
-    repo = _demo(root)
-    _sync(root, FakeLibrary())
+def _untrack_plan(repo: Repo) -> str:
     repo.git("rm", "-q", "--cached", PLAN)
     repo.git("commit", "-q", "-m", "untrack plan")
     repo.publish()
+    return repo.head()
+
+
+def test_a_file_deleted_on_main_but_still_on_disk_is_tombstoned_without_a_draft(root):
+    repo = _demo(root)
+    _sync(root, FakeLibrary())
+    head = _untrack_plan(repo)
+    library = FakeLibrary()
+    result = _sync(root, library)
+    assert [(c["path"], c["commit"], c.get("tombstone")) for c in library.calls] == [
+        (PLAN, head, True)
+    ]  # the leftover bytes equal the last committed version: no draft
+    assert result.output["tombstoned"] == 1
+    again = FakeLibrary()
+    _sync(root, again)
+    assert again.calls == []
+
+
+def test_a_file_deleted_on_main_with_other_bytes_on_disk_is_tombstoned_then_drafted(root):
+    repo = _demo(root)
+    _sync(root, FakeLibrary())
+    head = _untrack_plan(repo)
+    repo.write(PLAN, "# Foo plan, left over and edited\n")
     library = FakeLibrary()
     _sync(root, library)
-    assert all(not c.get("tombstone") for c in library.calls)
-    (draft,) = library.by(PLAN, WORKING)
-    assert library.content(draft) == b"# Foo plan\n"
+    assert [(c["path"], c["commit"], c.get("tombstone")) for c in library.calls] == [
+        (PLAN, head, True),
+        (PLAN, WORKING, None),
+    ]
+    assert library.content(library.calls[1]) == b"# Foo plan, left over and edited\n"
+    again = FakeLibrary()
+    _sync(root, again)
+    assert again.calls == []
+    (repo.path / PLAN).unlink()  # the leftover goes too: its draft is tombstoned
+    gone = FakeLibrary()
+    _sync(root, gone)
+    assert [(c["path"], c["commit"], c.get("tombstone")) for c in gone.calls] == [
+        (PLAN, WORKING, True)
+    ]
+
+
+def test_a_tombstoned_leftover_removed_from_disk_sends_nothing_more(root):
+    repo = _demo(root)
+    _sync(root, FakeLibrary())
+    _untrack_plan(repo)
+    _sync(root, FakeLibrary())
+    (repo.path / PLAN).unlink()
+    library = FakeLibrary()
+    _sync(root, library)
+    assert library.calls == []
 
 
 # ------------------------------------------------------------------ limits and errors
@@ -611,6 +750,71 @@ def test_a_file_over_16_mib_is_counted_as_an_error_and_not_sent(root):
     assert library.by(".devague/huge.bin") == []
     assert result.output["errors"] == 1
     assert result.output["pushed"] == 3
+
+
+class ReadCounter:
+    """Wraps ``_read_file`` and records the repo-relative path of every read."""
+
+    def __init__(self, monkeypatch, repo_path: Path):
+        self.reads: list[str] = []
+        real = repodocs_mod._read_file
+
+        def counted(path):
+            self.reads.append(Path(path).relative_to(repo_path).as_posix())
+            return real(path)
+
+        monkeypatch.setattr(repodocs_mod, "_read_file", counted)
+
+
+def test_a_changed_file_is_read_once_and_the_hashed_bytes_are_sent(root, monkeypatch):
+    repo = _demo(root)
+    repo.write(FRAME, '{"slug": "foo", "edited": true}\n')
+    counter = ReadCounter(monkeypatch, repo.path)
+    library = FakeLibrary()
+    _sync(root, library)
+    assert counter.reads.count(FRAME) == 1
+    (draft,) = library.by(FRAME, WORKING)
+    assert library.content(draft) == b'{"slug": "foo", "edited": true}\n'
+
+
+def test_an_oversize_file_is_one_error_until_it_changes(root, monkeypatch):
+    repo = _demo(root)
+    huge = ".devague/huge.bin"
+    repo.write(huge, b"\0" * (MAX_BYTES + 1))
+    counter = ReadCounter(monkeypatch, repo.path)
+    assert _sync(root, FakeLibrary()).output["errors"] == 1
+    second = _sync(root, FakeLibrary())
+    assert second.output["errors"] == 0
+    assert huge not in counter.reads
+    repo.write(huge, b"\0" * (MAX_BYTES + 2))
+    assert _sync(root, FakeLibrary()).output["errors"] == 1
+
+
+def test_a_stopped_run_keeps_the_stat_cache_of_the_files_it_did_not_reach(root, monkeypatch):
+    repo = _demo(root)
+    for n in range(6):
+        repo.write(f".devague/frames/f{n}.json", f'{{"n": {n}}}\n')
+    repo.commit("more frames")
+    _sync(root, FakeLibrary())
+    repo.write(".devague/frames/f0.json", '{"n": "zero, edited"}\n')
+    repo.write(".devague/frames/f5.json", '{"n": "five, edited"}\n')
+    stopped = _sync(root, FakeLibrary(), max_files=1)
+    assert stopped.output["stopped"] is True
+    counter = ReadCounter(monkeypatch, repo.path)
+    library = FakeLibrary()
+    _sync(root, library)
+    assert [c["path"] for c in library.calls] == [".devague/frames/f5.json"]
+    assert set(counter.reads) == {".devague/frames/f5.json"}
+
+
+def test_a_stat_cache_entry_for_a_vanished_file_is_dropped(root):
+    repo = _demo(root)
+    repo.write(".devague/questions/q.md", "?\n")
+    _sync(root, FakeLibrary())
+    (repo.path / ".devague/questions/q.md").unlink()
+    _sync(root, FakeLibrary())
+    state = json.loads((root.parent / "state" / "repodocs.json").read_text())
+    assert ".devague/questions/q.md" not in state["repos"][str(repo.path)]["stat"]
 
 
 def test_the_run_deadline_stops_early_and_the_next_run_resumes(root):
@@ -878,6 +1082,46 @@ def test_changed_spec_links_are_resent_with_the_same_version(root):
     again = FakeLibrary()
     _sync(root, again)
     assert again.calls == []
+
+
+class LinksIgnored(FakeLibrary):
+    """Answers every spec_links push with ``spec_links_applied: false``."""
+
+    def __call__(self, method, url, headers, body, timeout):
+        status, raw = super().__call__(method, url, headers, body, timeout)
+        if "spec_links" in json.loads(body):
+            return status, json.dumps({"created": False, "spec_links_applied": False}).encode()
+        return status, raw
+
+
+def _spec_entry(root: Path, repo: Repo) -> dict:
+    state = json.loads((root.parent / "state" / "repodocs.json").read_text())
+    return state["repos"][str(repo.path)]["files"][SPEC]
+
+
+def test_spec_links_the_library_did_not_apply_are_not_recorded_as_sent(root):
+    repo = _demo(root)
+    repo.write("src/feature.py", "x = 1\n")
+    repo.commit("Build foo\n\nSpec: foo")
+    library = LinksIgnored()
+    _sync(root, library)
+    (call,) = library.by(SPEC, "sha")
+    assert "spec_links" in call
+    entry = _spec_entry(root, repo)
+    assert entry["committed"]["blob"]  # the version itself was stored
+    assert "links" not in entry  # but not the links
+    again = FakeLibrary()
+    _sync(root, again)  # the same head: the library would ignore them again
+    assert again.calls == []
+
+
+def test_spec_links_applied_true_or_absent_records_the_links(root):
+    repo = _demo(root)
+    repo.write("src/feature.py", "x = 1\n")
+    repo.commit("Build foo\n\nSpec: foo")
+    _sync(root, FakeLibrary())
+    entry = _spec_entry(root, repo)
+    assert entry["links"] and entry["links_at"] == repo.head()
 
 
 def test_an_unwritable_state_file_fails_the_step(root):

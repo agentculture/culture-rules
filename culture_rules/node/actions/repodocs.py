@@ -25,15 +25,22 @@ real directory. Skipped: names starting ``.worktrees.`` or ending ``-worktrees``
 and linked worktrees (``.git`` is a file). Per repo (git runs with explicit ``--git-dir`` and
 ``--work-tree``, so a broken repo never falls back to a parent):
 
-* **identity**: ``git remote get-url origin``; without one, ``<host>:<abs path>`` (the node's
-  host name), as the contract asks;
-* **default branch**: ``git symbolic-ref --quiet refs/remotes/origin/HEAD`` (the remote's
-  default branch as last fetched; nothing is fetched here), else the checked-out branch
-  (``git symbolic-ref --quiet HEAD``), else ``HEAD``; its head sha and committer time come
-  from ``git log -1 --format=%H%x00%cI <ref>``. A repo with no commit has only drafts;
+* **identity**: ``git remote get-url origin``; without one, or when origin is a path on this
+  host (it starts with ``/``, ``./``, ``../`` or ``~``, or is a ``file:`` URL, which the
+  library refuses), ``<host>:<abs path>`` (the node's host name), as the contract asks;
+* **default branch**: the first that resolves to a commit of
+  ``git symbolic-ref --quiet refs/remotes/origin/HEAD`` (the remote's default branch as last
+  fetched; nothing is fetched here), ``refs/remotes/origin/main``,
+  ``refs/remotes/origin/master``, ``refs/heads/main``, ``refs/heads/master``, and only then
+  the checked-out branch (``git symbolic-ref --quiet HEAD``), else ``HEAD``, so a feature
+  branch's commits are never pushed as the default branch while a main or master exists; its
+  head sha and committer time come from ``git log -1 --format=%H%x00%cI <ref>``. A repo with
+  no commit has only drafts;
 * **project**: ``domains:`` and ``connected:`` from the working tree's ``culture.yaml``, read
-  by hand (an inline ``[a, b]`` list, a block ``- a`` list or one scalar; quotes and ``#``
-  comments dropped); empty lists when absent;
+  by hand (an inline ``[a, b]`` list, a block ``- a`` list, indented or at the key's own
+  indentation, or one scalar; quotes and ``#`` comments dropped); empty lists when absent. A
+  ``connected`` entry that is a bare ``org/repo`` (no scheme, no dot in ``org``) is sent as
+  ``https://github.com/org/repo``; a bare single name is dropped with a warning naming it;
 * **files in scope**: under ``docs/specs``, ``docs/plans``, ``docs/deliveries``,
   ``docs/design`` and ``.devague``: the default branch's tree
   (``git ls-tree -r -l -z --full-tree <head> -- <prefixes>``, blobs only, no symlinks) and
@@ -54,10 +61,14 @@ Per file, against the state file (:func:`load_state`), in path order:
    with no draft pushed yet, from the default-branch version (or there is none). That covers
    uncommitted edits, files committed only on the checked-out branch, untracked and gitignored
    files, and a discarded draft (reset to the committed bytes so the library's draft is no
-   longer ahead). Files are compared by git blob id, cached by size and mtime.
+   longer ahead). Files are compared by git blob id, cached by size and mtime; a changed
+   file is read once, and the bytes hashed are the bytes sent.
 3. **tombstone**: a file the state records as pushed that is neither in the default branch's
    tree nor on disk gets ``tombstone: true`` at the head sha (or ``"working"`` if it was never
-   committed). A ``404 not_found`` counts as done.
+   committed). A file whose pushed committed version is gone from the default branch but is
+   still on disk (an untracked leftover, an older branch checked out) gets the tombstone at
+   the head sha first; the library drops the draft with it, so a draft follows only when the
+   bytes on disk differ from that last committed blob. A ``404 not_found`` counts as done.
 
 Every request carries ``project``. A changed project with no other push for that repo
 re-sends one already-pushed file (a 200 no-op) to carry it.
@@ -85,14 +96,20 @@ At the head ``H``:
 
 With neither trailers nor a delivering merge, ``spec_links`` is omitted. Links are sent with a
 spec's committed version; when the head moves and a spec's links change, the same version is
-re-sent (a 200 no-op) with the new links.
+re-sent (a 200 no-op) with the new links. An answer with ``spec_links_applied: false`` (the
+library kept links with a later or equal ``at_committed_at``) leaves the links' hash
+unrecorded; the head they were sent at is still recorded, because the library would ignore
+the same head again. An answer without the field records both.
 
 Idempotency, limits and output
 ==============================
 The state file (JSON, written atomically through a temp file and ``os.replace`` after each
 repo and at the end) records per repo and path the committed version pushed (commit, time,
 blob), the draft's blob and the spec links' hash, so an unchanged run sends nothing. A file
-over :data:`MAX_BYTES` (16 MiB, the library's cap) is a counted error and is not sent.
+over :data:`MAX_BYTES` (16 MiB, the library's cap) is a counted error and is not sent; on disk
+it is cached as oversize by size and mtime, so it is one error until it changes. A run that
+stops early merges its stat cache into the stored one (files no longer on disk dropped), so
+the files it did not reach stay cached.
 Per-file failures (git, a non-2xx answer) are counted and logged by path and status, never
 by content, and never stop the run; the next run retries them. A network error stops the run
 (the library is unreachable); so do ``max_seconds``, ``max_files`` and the attempt deadline:
@@ -165,6 +182,17 @@ _PR_SUFFIX = re.compile(r"\(#(\d+)\)\s*$")
 _PR_MERGE = re.compile(r"^Merge pull request #(\d+)\b")
 _CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _YAML_KEY = re.compile(r"^(domains|connected)\s*:(.*)$")
+_DEFAULT_REFS = (
+    "refs/remotes/origin/main",
+    "refs/remotes/origin/master",
+    "refs/heads/main",
+    "refs/heads/master",
+)
+"""Tried in order when ``refs/remotes/origin/HEAD`` is unset, before the checked-out branch."""
+_LOCAL_ORIGINS = ("/", "./", "../", "~", "file:")
+"""An origin URL starting with one of these is a path on this host, not a shareable identity."""
+_OVERSIZE = "oversize"
+"""The stat cache's blob id for a file over :data:`MAX_BYTES` (skipped until it changes)."""
 
 GitRunner = Callable[[Sequence[str], str, float], tuple[int, bytes]]
 """``runner(argv, cwd, timeout) -> (returncode, stdout bytes)``; stderr is discarded. A
@@ -237,6 +265,16 @@ def _yaml_item(line: str) -> str | None:
     return body[1:].lstrip() if body.startswith("-") else None
 
 
+def _yaml_block_item(line: str) -> str | None:
+    """A block-list item under a top-level key: an indented ``- item`` line, or a ``- item``
+    line at the key's own (zero) indentation, which YAML also allows. ``---`` and a new
+    ``key:`` line are not items, so they end the block."""
+    item = _yaml_item(line)
+    if item is None and line.startswith("-") and (len(line) == 1 or line[1].isspace()):
+        item = line[1:].lstrip()
+    return item
+
+
 def _yaml_inline(text: str) -> list[str]:
     inner = text.strip()[1:]
     inner = inner.split("]", 1)[0]
@@ -265,7 +303,28 @@ def read_project(repo: Path) -> dict[str, list[str]]:
             project[match.group(1)] = [value] if value else []
         else:
             project[match.group(1)] = _yaml_block(lines[index + 1 :])
+    project["connected"] = _connected(project["connected"], repo.name)
     return project
+
+
+def _connected(entries: Sequence[str], repo_name: str) -> list[str]:
+    """``connected`` as the library can resolve it: a bare ``org/repo`` (two segments, no
+    scheme, no dot in the first) becomes ``https://github.com/org/repo``; a bare single name
+    is dropped with a warning (by name); anything else is sent as written."""
+    kept: list[str] = []
+    for entry in entries:
+        if "/" not in entry and ":" not in entry:
+            log.warning(
+                "repodocs.sync: %s: culture.yaml connected entry %r is a bare name; not sent",
+                repo_name,
+                entry,
+            )
+            continue
+        org, _, name = entry.partition("/")
+        if ":" not in entry and "." not in org and org and name and "/" not in name:
+            entry = f"https://github.com/{entry}"
+        kept.append(entry)
+    return kept
 
 
 def _yaml_block(lines: Sequence[str]) -> list[str]:
@@ -273,7 +332,7 @@ def _yaml_block(lines: Sequence[str]) -> list[str]:
     for line in lines:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        item = _yaml_item(line)
+        item = _yaml_block_item(line)
         if item is None:
             break
         value = _yaml_scalar(item)
@@ -474,18 +533,27 @@ class _Repo:
         self.fmt = self.text("rev-parse", "--show-object-format").strip() or "sha1"
         code, out = self.run("remote", "get-url", "origin", ok=(0, 1, 2, 128))
         url = out.decode("utf-8", errors="replace").strip()
-        self.remote = url if code == 0 and url else f"{host}:{self.path}"
+        shared = code == 0 and url and not url.lower().startswith(_LOCAL_ORIGINS)
+        self.remote = url if shared else f"{host}:{self.path}"
         self.head = self._head()
         if self.head is not None:
             self.tree = self._tree(self.head.sha)
 
+    def _symbolic(self, ref: str) -> list[str]:
+        code, out = self.run("symbolic-ref", "--quiet", ref, ok=(0, 1, 128))
+        target = out.decode("utf-8", errors="replace").strip()
+        return [target] if code == 0 and target else []
+
     def _head(self) -> _Head | None:
-        candidates = []
-        for ref in ("refs/remotes/origin/HEAD", "HEAD"):
-            code, out = self.run("symbolic-ref", "--quiet", ref, ok=(0, 1, 128))
-            if code == 0 and out.strip():
-                candidates.append(out.decode("utf-8", errors="replace").strip())
-        candidates.append("HEAD")
+        """The default branch's head: origin/HEAD, else origin's or the local main/master,
+        and only then the checked-out branch (a feature branch is never taken while a
+        main or master exists)."""
+        candidates = [
+            *self._symbolic("refs/remotes/origin/HEAD"),
+            *_DEFAULT_REFS,
+            *self._symbolic("HEAD"),
+            "HEAD",
+        ]
         for ref in candidates:
             code, _ = self.run(
                 "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", ok=(0, 1, 128)
@@ -691,7 +759,11 @@ class _Run:
             raise _Stop("deadline")
         return left
 
-    def _post(self, label: str, body: dict[str, Any], *, tombstone: bool = False) -> bool:
+    def _post(
+        self, label: str, body: dict[str, Any], *, tombstone: bool = False
+    ) -> dict[str, Any] | None:
+        """POST one push: the parsed answer (``{}`` when it is not a JSON object) on success,
+        ``None`` on a non-2xx answer (counted and logged)."""
         if self.config.max_files is not None and self.sent >= self.config.max_files:
             raise _Stop("max_files")
         timeout = min(HTTP_TIMEOUT_S, self._remaining())
@@ -711,10 +783,10 @@ class _Run:
             log.warning("repodocs.sync: %s: library unreachable (%s)", label, type(exc).__name__)
             raise _Stop("network") from exc
         if 200 <= status < 300 or (tombstone and status == 404):
-            return True
+            return _json_object(raw)
         self.counts.errors += 1
         log.warning("repodocs.sync: %s: http %d %s", label, status, _error_code(raw))
-        return False
+        return None
 
     def _error(self, label: str, why: str) -> None:
         self.counts.errors += 1
@@ -753,9 +825,19 @@ class _Run:
         try:
             sync.run()
         finally:
-            st["stat"] = sync.new_stat
+            # merge, so a run stopped early keeps the cache of the files it did not reach;
+            # entries for files no longer on disk are dropped
+            st["stat"] = {k: v for k, v in sync.old_stat.items() if k in disk} | sync.new_stat
             repos[str(path)] = st
             _save_state(self.config.state_path, self.state)
+
+
+def _json_object(raw: bytes) -> dict[str, Any]:
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _error_code(raw: bytes) -> str:
@@ -800,13 +882,30 @@ class _RepoSync:
         if self.st.get("project") != self.project_key and not self.pushed_here:
             self._refresh_project()
 
-    def _send(self, rel: str, body: dict[str, Any], *, tombstone: bool = False) -> bool:
+    def _send(
+        self, rel: str, body: dict[str, Any], *, tombstone: bool = False
+    ) -> dict[str, Any] | None:
+        """Push one request; the library's parsed answer, or ``None`` when it failed."""
         body = {"remote": self.repo.remote, "path": rel, **body, "project": self.project}
-        if not self.run_._post(self._label(rel), body, tombstone=tombstone):
-            return False
+        answer = self.run_._post(self._label(rel), body, tombstone=tombstone)
+        if answer is None:
+            return None
         self.pushed_here = True
         self.st["project"] = self.project_key
-        return True
+        return answer
+
+    def _record_links(
+        self, entry: dict[str, Any], links: dict[str, Any] | None, answer: Mapping[str, Any]
+    ) -> None:
+        """Record the links as sent at this head. The library answers ``spec_links_applied:
+        false`` when it kept newer (or equal) links; their hash is then not recorded. The head
+        is, so the same head is not re-sent: the library would ignore it again."""
+        assert self.repo.head is not None
+        entry["links_at"] = self.repo.head.sha
+        if answer.get("spec_links_applied") is False:
+            entry.pop("links", None)
+        else:
+            entry["links"] = _hash(links)
 
     # --- one file
 
@@ -819,6 +918,12 @@ class _RepoSync:
                 self._tombstone(rel, entry)
             return
         did = False
+        if in_tree is None and entry.get("committed"):
+            # gone from the default branch, still on disk: the committed version must not
+            # stay current, so tombstone it first; a draft follows only if the bytes differ
+            if not self._tombstone_committed(rel, entry):
+                return
+            did = True
         try:
             if in_tree is not None:
                 did = self._committed(rel, entry, *in_tree)
@@ -867,11 +972,13 @@ class _RepoSync:
         links = self.repo.spec_links(rel) if spec else None
         if links is not None:
             body["spec_links"] = links
-        if not self._send(rel, body):
+        answer = self._send(rel, body)
+        if answer is None:
             return False
         entry["committed"] = {**version, "blob": oid}
+        entry.pop("gone", None)
         if spec:
-            entry.update(links=_hash(links), links_at=head.sha)
+            self._record_links(entry, links, answer)
         self.run_.counts.pushed += 1
         return True
 
@@ -888,59 +995,103 @@ class _RepoSync:
             entry["links_at"] = head.sha
             return False
         data = self._blob_bytes(rel, oid, size)
-        if data is None or not self._send(
-            rel, {**self._commit_body(pushed, data), "spec_links": links}
-        ):
+        if data is None:
             return False
-        entry.update(links=_hash(links), links_at=head.sha)
+        answer = self._send(rel, {**self._commit_body(pushed, data), "spec_links": links})
+        if answer is None:
+            return False
+        self._record_links(entry, links, answer)
         self.run_.counts.pushed += 1
         return True
 
-    def _working_blob(self, rel: str) -> str:
+    def _working_blob(self, rel: str) -> tuple[str, bytes | None]:
+        """The on-disk file's blob id, and its bytes when this call read them (``None`` on a
+        stat-cache hit). A file over :data:`MAX_BYTES` is one counted error, cached as
+        :data:`_OVERSIZE` by size and mtime, so later runs skip it silently until it
+        changes."""
         info = self.disk[rel]
         stamp = [info.st_size, info.st_mtime_ns, info.st_ctime_ns]
         cached = self.old_stat.get(rel)
         if isinstance(cached, list) and len(cached) == 4 and cached[:3] == stamp:
             self.new_stat[rel] = cached
-            return cached[3]
+            return cached[3], None
         if info.st_size > MAX_BYTES:
-            return f"oversize:{info.st_size}"
+            self.run_._error(self._label(rel), f"too_large: {info.st_size} bytes")
+            self.new_stat[rel] = [*stamp, _OVERSIZE]
+            return _OVERSIZE, None
         data = _read_file(self.repo.path / rel)
+        if len(data) > MAX_BYTES:  # grew after the stat: not cached, retried next run
+            self.run_._error(self._label(rel), "too_large")
+            return _OVERSIZE, None
         oid = _blob_id(len(data), [data], self.repo.fmt)
         self.new_stat[rel] = [*stamp, oid]
-        return oid
+        return oid, data
+
+    def _disk_bytes(self, rel: str) -> tuple[str, bytes] | None:
+        """Read an on-disk file for sending (after a stat-cache hit), with its blob id."""
+        data = _read_file(self.repo.path / rel)
+        if len(data) > MAX_BYTES:
+            self.run_._error(self._label(rel), "too_large")
+            return None
+        return _blob_id(len(data), [data], self.repo.fmt), data
 
     def _working(
         self, rel: str, entry: dict[str, Any], in_tree: tuple[str, int] | None, on_disk: bool
     ) -> bool:
-        committed_oid = in_tree[0] if in_tree else None
-        oid = self._working_blob(rel) if on_disk else committed_oid
+        committed_oid = in_tree[0] if in_tree else (entry.get("gone") or {}).get("blob")
+        data: bytes | None = None
+        oid = committed_oid
+        if on_disk:
+            oid, data = self._working_blob(rel)
+            if oid == _OVERSIZE:
+                return False
         last = (entry.get("working") or {}).get("blob")
         if oid is None or (last if last is not None else committed_oid) == oid:
             return False
         if on_disk:
-            data = _read_file(self.repo.path / rel)
-            if len(data) > MAX_BYTES:
-                self.run_._error(self._label(rel), "too_large")
-                return False
+            if data is None:  # a stat-cache hit: read now, and send what was hashed
+                read = self._disk_bytes(rel)
+                if read is None:
+                    return False
+                oid, data = read
         else:
             assert in_tree is not None
             data = self._blob_bytes(rel, *in_tree)
             if data is None:
                 return False
         body = {"commit": WORKING, "content_b64": base64.b64encode(data).decode("ascii")}
-        if not self._send(rel, body):
+        if self._send(rel, body) is None:
             return False
         entry["working"] = {"blob": oid}
         self.run_.counts.pushed += 1
         return True
 
     def _tombstone(self, rel: str, entry: dict[str, Any]) -> None:
+        """A file gone from the tree and the disk. An entry left only by
+        :meth:`_tombstone_committed` (no draft since) was already tombstoned: dropped."""
         head = self.repo.head
+        if not entry.get("committed") and not entry.get("working") and entry.get("gone"):
+            self.files.pop(rel, None)
+            return
         commit = head.sha if entry.get("committed") and head is not None else WORKING
-        if self._send(rel, {"commit": commit, "tombstone": True}, tombstone=True):
+        if self._send(rel, {"commit": commit, "tombstone": True}, tombstone=True) is not None:
             self.files.pop(rel, None)
             self.run_.counts.tombstoned += 1
+
+    def _tombstone_committed(self, rel: str, entry: dict[str, Any]) -> bool:
+        """Tombstone a committed version deleted on the default branch but left on disk. The
+        library drops the doc's draft with it, so the entry keeps only the last committed
+        blob (``gone``), which the leftover's bytes are compared against."""
+        head = self.repo.head
+        assert head is not None
+        if self._send(rel, {"commit": head.sha, "tombstone": True}, tombstone=True) is None:
+            return False
+        entry["gone"] = {"blob": entry["committed"].get("blob"), "at": head.sha}
+        for key in ("committed", "working", "links", "links_at"):
+            entry.pop(key, None)
+        self.files[rel] = entry
+        self.run_.counts.tombstoned += 1
+        return True
 
     def _refresh_project(self) -> None:
         """Carry a changed project on a re-send of one already-pushed file (a 200 no-op)."""

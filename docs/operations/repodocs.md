@@ -21,17 +21,30 @@ files, and repos that ignore `.devague` entirely.
 |------|-----------------|----------|
 | the default-branch version | its blob differs from the one last sent | the default branch's head sha (also `default_branch_head`; `committed_at` is the head's committer time) |
 | the working draft | the bytes on disk differ from the last draft sent (or, with none sent, from the default-branch version) | `working` |
-| a tombstone | a file sent before is neither on the default branch nor on disk | the head sha, or `working` for a file never committed |
+| a tombstone | a file sent before is neither on the default branch nor on disk, or its committed version left the default branch while the file stays on disk | the head sha, or `working` for a file never committed |
 
 - **The default branch** is `refs/remotes/origin/HEAD` as last fetched; the
-  run never fetches. Without it, the checked-out branch is used.
+  run never fetches. Without it, the first of `origin/main`, `origin/master`,
+  the local `main` and the local `master` that exists is used, and only then
+  the checked-out branch. So a feature branch checked out in a repo without
+  `origin/HEAD` is never pushed as the default branch.
+- **A file deleted on the default branch but still on disk** (an untracked
+  leftover, or an older branch checked out) is tombstoned at the head sha, so
+  its old committed version stops being current. The library drops the draft
+  with the tombstone; a draft is sent again only when the bytes on disk differ
+  from the last committed version.
 - **History accrues from the first run.** The run sends no older commits.
   A version is pinned to the head the run saw, because the library makes a
   version current only when `commit == default_branch_head`.
 - **`project`** is `domains:` and `connected:` from the repo's
   `culture.yaml`, sent with every request. A repo without them sends empty
-  lists.
-- **A repo with no remote** is identified as `spark:<absolute path>`.
+  lists. A block list may be indented or at the key's own indentation. A
+  `connected` entry written `org/repo` is sent as
+  `https://github.com/org/repo`; a bare name such as `culture-rules` is not
+  sent, and the run logs a warning naming it.
+- **A repo with no remote**, or whose `origin` is a path on this host (`/…`,
+  `./…`, `../…`, `~…` or a `file:` URL), is identified as
+  `spark:<absolute path>`.
 - **`spec_links`** go with each `docs/specs/**.md` version:
   - `trailer_commits` are the commits with a `Spec: <slug>` trailer;
   - `merge_commit` and `pr` come from the first first-parent commit that
@@ -56,7 +69,8 @@ may take a few cycles.
 
 **Failures.** A file over 16 MiB, a git error on one file or a non-2xx answer
 is counted in `errors` and logged by repo and path, never by content. Such
-failures don't stop the run, and the next cycle retries them. A
+failures don't stop the run, and the next cycle retries them, except a file
+over 16 MiB on disk: it is one error, then skipped until it changes. A
 `404 not_found` for a tombstone counts as done. A network error stops the run
 (the library is down). A bad actor, an unresolvable grant or a missing
 `repos_root` fails the step.
