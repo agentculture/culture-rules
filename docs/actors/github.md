@@ -319,6 +319,7 @@ read or any request is made. A refused call fails the step without retry:
 |---|---|
 | `not_started_by_click` | The run was not its rule firing on a stored `discord.button.clicked` event. A direct run, a scheduled run, a run started through the API and a chained run are all refused |
 | `workflow_not_trusted` | The run's pinned workflow is not trusted in the `merge` role (below) |
+| `actor_not_trusted` | The App actor's security fields (`kind`, `machine`, `surface`, `commit_author`, `permissions`, and `app_id`, `installation_id` and `private_key` of its connection) do not match a digest pinned in `TRUSTED_ACTOR_DIGESTS`, as for `github.push`. `github-app` is pinned; `repos` is not part of the digest |
 | `rule_disabled`, `workflow_disabled` | The run's rule or workflow is no longer enabled |
 | `run_not_found` | The run is gone |
 
@@ -373,6 +374,7 @@ in [the guide](../operations/green-pr-merge.md#3-pin-the-merge-workflow).
 | A comment fails `actor_misconfigured` | `app_id` or `installation_id` is empty |
 | A comment fails `secret_unavailable` | The node was not started with the private-key injection |
 | A merge fails `workflow_not_trusted` | The merge workflow's digest is not pinned in the `merge` role, or the workflow was edited after the pin |
+| A merge fails `actor_not_trusted` | The merge's `actor` is not a pinned App actor, or its security fields changed since the pin; use `github-app` |
 | A merge fails `head_moved` or `http_409` | The PR got a new commit after the prompt; nothing was merged |
 
 ## On rules.culture.dev

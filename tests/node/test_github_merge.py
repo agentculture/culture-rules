@@ -68,6 +68,16 @@ def trust_merge(monkeypatch):
     monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
 
 
+@pytest.fixture(autouse=True)
+def pin_test_app(monkeypatch):
+    """Pin the test App actor's digest, as a release pins ``github-app``'s."""
+    pinned = {
+        **trusted.TRUSTED_ACTOR_DIGESTS,
+        "gh-app": frozenset({trusted.actor_digest(actor_doc())}),
+    }
+    monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", pinned)
+
+
 class Fake:
     """GitHub: the token exchange, the PR read, the merge and the ref delete."""
 
@@ -128,7 +138,7 @@ def actor_doc():
     return {
         "id": "gh-app",
         "name": "gh",
-        "kind": "service",
+        "kind": "app",
         "params": {
             "surface": "github",
             "connection": {
@@ -655,3 +665,39 @@ def test_a_merged_unconfirmed_outcome_leaves_a_fork_head_alone(pem, trust_merge)
     res = merge(port, run_id, delete_branch=True)
     assert _deletes(fake) == []
     assert res.output["branch_delete_error"] == "not_same_repo_pr"
+
+
+# --------------------------------------------------------------------------- the pinned App
+
+
+def test_an_app_actor_with_no_pinned_digest_is_refused_before_any_secret_or_call(
+    pem, trust_merge, monkeypatch
+):
+    unpinned = {k: v for k, v in trusted.TRUSTED_ACTOR_DIGESTS.items() if k != "gh-app"}
+    monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", unpinned)
+    fake = Fake()
+    port, _, resolved, run_id = world(pem, fake)
+    res = merge(port, run_id)
+    assert (res.error, res.retryable) == ("actor_not_trusted", False)
+    assert _nothing_touched(fake, resolved)
+
+
+def test_an_app_actor_whose_security_fields_changed_is_refused_before_any_secret_or_call(
+    pem, trust_merge
+):
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    doc = actor_doc()
+    doc["params"]["connection"]["private_key"] = "grant:OTHER_KEY"
+    store.put("actors", doc)
+    res = merge(port, run_id)
+    assert (res.error, res.retryable) == ("actor_not_trusted", False)
+    assert _nothing_touched(fake, resolved)
+
+
+def test_a_new_repo_for_the_pinned_app_keeps_it_trusted(pem, trust_merge):
+    port, store, _, run_id = world(pem, Fake())
+    doc = actor_doc()
+    doc["params"]["connection"]["repos"].append("acme/other")
+    store.put("actors", doc)
+    assert merge(port, run_id).outcome == "completed"

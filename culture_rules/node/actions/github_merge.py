@@ -27,6 +27,10 @@ store, so a refusal reads no secret and makes no network call:
      pins the live merge workflow's;
    * its source rule is still live and enabled, read now (``rule_disabled``,
      :func:`~culture_rules.node.actions.github_pr.source_rule_refusal`);
+   * the App actor's document (the one snapshot whose connection is used) matches a digest
+     pinned in :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS`
+     (``actor_not_trusted``, :func:`~culture_rules.actors.trusted.doc_refusal`), as
+     ``github.push`` checks it: only a pinned App merges (``github-app`` is pinned);
 
 3. the App (``secret_unavailable``; ``deadline_exceeded`` / ``lookup_busy`` retryable);
 4. the installation token, then the once claim (below), then the PR read: it must be open
@@ -87,6 +91,7 @@ from culture_rules.node.actions.github import (
     repo_refusal,
 )
 from culture_rules.node.actions.github_pr import source_rule_refusal
+from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError
 
 __all__ = ["MERGE_ONCE_COLLECTION", "NOT_CLICK", "OUTCOME_UNKNOWN", "GitHubMergePort"]
@@ -178,7 +183,9 @@ class GitHubMergePort(GitHubCommentPort):
         context: InvocationContext,
     ) -> InvocationResult:
         actor_id = context.actor or input.get("actor")
-        conn = self._connection(actor_id)
+        # one snapshot of the actor: its digest is checked and its connection is what is used
+        snapshot = self._store.get(ACTORS_COLLECTION, actor_id) if actor_id else None
+        conn = self._connection_of(snapshot)
         if conn is None:
             self._apps.pop(str(actor_id), None)
             return InvocationResult.failed(ACTOR_NOT_FOUND, retryable=False)
@@ -190,6 +197,9 @@ class GitHubMergePort(GitHubCommentPort):
         if request is None:
             return InvocationResult.failed(BAD_INPUT, retryable=False)
         refusal = fence_refusal(self._store, context.run_id)
+        if not refusal:
+            # as github.push: the App actor's security fields must match a digest pinned in code
+            refusal, _digest = trusted.doc_refusal(actor_id, snapshot)
         if refusal:
             log.info(_REFUSED, refusal)
             return InvocationResult.failed(refusal, retryable=False)

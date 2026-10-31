@@ -17,7 +17,10 @@ and [the Discord actor guide](../actors/discord.md#buttons).
 ## Before you start
 
 - A GitHub app actor (`github-app` below) whose `connection.repos` lists the repos, with
-  Pull requests and Contents write on the App.
+  Pull requests and Contents write on the App. The merge runs only as an App actor whose
+  digest is pinned in `culture_rules/actors/trusted.py` (`TRUSTED_ACTOR_DIGESTS`), as a
+  push does; `github-app` is pinned, so another actor, or `github-app` with changed
+  security fields, fails `actor_not_trusted`. Adding a repo keeps it pinned.
 - A Discord app actor (`<discord-actor-id>`) that lists `discord.button.clicked` in
   `params.events`, in the server and channel `<channel-id>`.
 - The channel must be selected by an enabled rule, or the click is never recorded
