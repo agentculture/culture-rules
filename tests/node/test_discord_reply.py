@@ -126,6 +126,66 @@ def test_input_refusals_never_call_discord():
     assert t.calls == []
 
 
+# ------------------------------------------------- a button click's reply
+
+
+def button_store():
+    s = make_store()
+    doc = s.get(INTERACTIONS_COLLECTION, EVENT)
+    s.put(INTERACTIONS_COLLECTION, {**doc, "kind": "button"})
+    return s
+
+
+def test_a_button_event_is_answered_with_a_private_follow_up_not_the_prompt():
+    # after the click's UPDATE_MESSAGE ack, @original is the prompt itself: never edit it
+    t = FakeTransport()
+    res = action(button_store(), t).invoke(
+        {"event_id": EVENT, "text": "Merged"}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == COMPLETED, res.error
+    assert res.output == {"replied": True, "event_id": EVENT}
+    (call,) = t.calls
+    assert call["method"] == "POST"
+    assert call["url"].endswith(f"/webhooks/9001/{KEPT}")
+    body = json.loads(call["data"])
+    assert body["content"] == "Merged"
+    assert body["flags"] == 64  # ephemeral: only the clicker sees it
+    assert "Authorization" not in call["headers"]
+
+
+def test_a_button_reply_after_the_token_expired_is_interaction_expired():
+    t = FakeTransport((404, {}, {}))
+    res = action(button_store(), t).invoke(INPUT, "k", NOW, context=ctx())
+    assert res.outcome == FAILED
+    assert res.retryable is False
+    assert "interaction_expired" in res.error
+
+
+def test_a_click_event_from_the_gateway_is_answered_by_discord_reply():
+    from tests.apps.discord_fakes import click, eventually
+    from tests.apps.test_discord_gateway import Rig, discord_actor, discord_rule
+
+    r = Rig(rule=False)
+    try:
+        r.store.put("rules", discord_rule("on-click", type="discord.button.clicked"))
+        r.store.put("actors", discord_actor(events=("discord.button.clicked",)))
+        r.sup.tick()
+        assert eventually(lambda: r.hub.live_now() == ["spark"])
+        r.hub.click(click(1, token=KEPT))
+        assert eventually(lambda: len(r.events("discord.button.clicked")) == 1)
+        event_id = r.events("discord.button.clicked")[0]["id"]
+    finally:
+        r.sup.shutdown()
+    t = FakeTransport()
+    res = DiscordReplyAction(r.store, transport=t, clock=r.clock).invoke(
+        {"event_id": event_id, "text": "Merged"}, "k", NOW, context=ctx("bot")
+    )
+    assert res.outcome == COMPLETED, res.error
+    (call,) = t.calls
+    assert call["method"] == "POST"
+    assert call["url"].endswith(f"/webhooks/777000/{KEPT}")
+
+
 # ------------------------------------------------- a workflow step with a `when` condition
 
 SAVED = {"op": "compare", "cmp": "==", "left": {"field": "outcome"}, "right": {"literal": "saved"}}

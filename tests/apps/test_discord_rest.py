@@ -470,6 +470,62 @@ def test_edit_interaction_response_refuses_bad_ids():
     assert t.calls == []
 
 
+# ------------------------------------------------------------ create_followup
+
+
+def test_create_followup_posts_a_private_message_without_a_bot_token():
+    t = PutTransport((200, {"id": "1"}, {}))
+    out = DiscordClient(TOKEN, transport=t).create_followup("9001", "itok", "Merged")
+    assert out == {"sent": True}
+    (call,) = t.calls
+    assert call["method"] == "POST"
+    assert call["url"].endswith("/webhooks/9001/itok")
+    assert json.loads(call["data"]) == {
+        "content": "Merged",
+        "flags": 64,
+        "allowed_mentions": {"parse": []},
+    }
+    assert "Authorization" not in call["headers"]
+
+
+def test_create_followup_cuts_long_text():
+    t = PutTransport((200, {}, {}))
+    DiscordClient(TOKEN, transport=t).create_followup("9001", "itok", "x" * 3000)
+    content = json.loads(t.calls[0]["data"])["content"]
+    assert len(content) == 2000
+    assert content.endswith("…")
+
+
+@pytest.mark.parametrize(
+    ("status", "retryable", "expired"),
+    [
+        (401, False, True),
+        (404, False, True),
+        (429, True, False),
+        (503, True, False),
+        (400, False, False),
+    ],
+)
+def test_create_followup_errors(status, retryable, expired):
+    t = PutTransport((status, {"retry_after": 0}, {}))
+    client = DiscordClient(TOKEN, transport=t, sleep=lambda s: None)
+    with pytest.raises(DiscordError) as err:
+        client.create_followup("9001", "itok", "hi")
+    assert err.value.retryable is retryable
+    assert getattr(err.value, "expired", False) is expired
+    assert "itok" not in str(err.value)
+
+
+def test_create_followup_refuses_bad_ids():
+    t = PutTransport()
+    client = DiscordClient(TOKEN, transport=t)
+    with pytest.raises(DiscordError):
+        client.create_followup("90/01", "itok", "hi")
+    with pytest.raises(DiscordError):
+        client.create_followup("9", "bad/tok", "hi")
+    assert t.calls == []
+
+
 # --------------------------------------------------------------------------- remove_reaction
 
 

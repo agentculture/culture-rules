@@ -343,6 +343,38 @@ class DiscordClient:
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
+    def create_followup(
+        self, application_id: str, interaction_token: str, text: str
+    ) -> dict[str, bool]:
+        """Send ``text`` (cut to 2000 characters with an ellipsis) as a private (ephemeral)
+        follow-up message of an interaction, the way a button click is answered: after the
+        click's ``UPDATE_MESSAGE`` acknowledgement ``@original`` is the clicked message itself,
+        so it must not be edited. The interaction token authorises the call (no bot token is
+        sent; it is never logged or put in an error). 401 or 404 means the token ran out: a
+        non-retryable error with ``expired`` set. A 429 is waited out and a 5xx is retryable
+        (a retried follow-up may show twice, privately, to the one user)."""
+        _check_id(application_id, "application")
+        if not isinstance(interaction_token, str) or not _TOKEN_RE.match(interaction_token):
+            raise DiscordError("malformed interaction token", retryable=False)
+        text = str(text)
+        if len(text) > MAX_CONTENT:
+            text = text[: MAX_CONTENT - 1] + "\u2026"
+        body = {"content": text, "flags": 64, "allowed_mentions": {"parse": []}}  # 64: ephemeral
+        path = f"/webhooks/{application_id}/{interaction_token}"
+        status, payload = self._send(path, "POST", body=json.dumps(body).encode("utf-8"), bot=False)
+        if 200 <= status < 300:
+            return {"sent": True}
+        if status in (401, 404):
+            raise DiscordError("discord interaction expired", retryable=False, expired=True)
+        if status == 429:
+            retry_after = _retry_after(payload)
+            raise DiscordError(
+                f"discord rate limited (retry_after={retry_after})",
+                retryable=True,
+                retry_after=retry_after,
+            )
+        raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
+
     def post_message(
         self,
         channel_id: str,
