@@ -76,12 +76,21 @@ class DiscordError(Exception):
         retryable: bool,
         retry_after: float | None = None,
         expired: bool = False,
+        outcome_unknown: bool = False,
     ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.retry_after = retry_after
         #: an interaction webhook Discord no longer accepts (401/404): the token ran out
         self.expired = expired
+        #: the request may have landed (a timeout): not retried, and not taken as refused
+        self.outcome_unknown = outcome_unknown
+
+    @property
+    def refused(self) -> bool:
+        """Whether Discord definitively did not do it: neither retryable (a 5xx, a 429, an
+        unreachable host may follow a landed post) nor of unknown outcome."""
+        return not self.retryable and not self.outcome_unknown
 
 
 def _urllib_transport(
@@ -403,7 +412,9 @@ class DiscordClient:
                 getattr(exc, "reason", None), TimeoutError
             ):
                 # the post may have landed: a retry could duplicate the message
-                raise DiscordError("discord timed out (outcome unknown)", retryable=False)
+                raise DiscordError(
+                    "discord timed out (outcome unknown)", retryable=False, outcome_unknown=True
+                )
             raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
         if 200 <= status < 300:
             return {"message_id": str((payload or {}).get("id", ""))}

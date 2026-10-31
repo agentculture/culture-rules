@@ -290,7 +290,7 @@ def github_actor() -> dict:
     return {
         "id": GH,
         "name": GH,
-        "kind": "service",
+        "kind": "app",
         "enabled": True,
         "params": {
             "surface": "github",
@@ -417,6 +417,16 @@ class World:
         return sorted(docs, key=lambda d: d["created_at"])
 
 
+@pytest.fixture(autouse=True)
+def pin_test_app(monkeypatch):
+    """Pin the test App actor's digest, as a release pins ``github-app``'s."""
+    pinned = {
+        **trusted.TRUSTED_ACTOR_DIGESTS,
+        GH: frozenset({trusted.actor_digest(github_actor())}),
+    }
+    monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", pinned)
+
+
 @pytest.fixture
 def trust_merge(monkeypatch):
     """The release step: pin the live merge workflow's v2 digest in the merge role."""
@@ -505,6 +515,18 @@ def test_an_untrusted_merge_workflow_merges_nothing(pem):
     (run,) = world.runs("merge-on-click")
     assert run["status"] == "failed"
     assert "workflow_not_trusted" in json.dumps(run.get("error") or run["steps"])
+    assert world.github.puts() == []
+
+
+def test_an_unpinned_app_actor_merges_nothing(pem, trust_merge, monkeypatch):
+    unpinned = {k: v for k, v in trusted.TRUSTED_ACTOR_DIGESTS.items() if k != GH}
+    monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", unpinned)
+    world = World(pem)
+    world.green()
+    world.click()
+    (run,) = world.runs("merge-on-click")
+    assert run["status"] == "failed"
+    assert "actor_not_trusted" in json.dumps(run.get("error") or run["steps"])
     assert world.github.puts() == []
 
 

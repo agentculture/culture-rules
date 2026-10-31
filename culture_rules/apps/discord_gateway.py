@@ -23,6 +23,11 @@ stored for that button (:mod:`culture_rules.apps.discord_buttons`, one read by
 ``None``; a clicker cannot supply or change it. The click is acknowledged inside Discord's
 3 s: an admitted one with ``UPDATE_MESSAGE``, its message re-rendered with every button
 disabled; one no rule admits with a private :data:`BUTTON_NOT_HERE`, the message unchanged.
+A click is admitted only when an enabled ``discord.button.clicked`` rule's trigger admits it
+with every Discord filter (``channels``, ``users``, ``roles``, ``custom_id``,
+``include_bots``; the engine's own :func:`~culture_rules.engine.matching.trigger_matches`, on
+the rules the last tick read), so another user's click on a users-filtered rule writes no
+event, keeps no token and leaves the buttons enabled.
 A hand-over slower than :data:`BUTTON_ACK_WAIT_S` is first acknowledged as a deferred update,
 then answered the same.
 Every engine node runs a :class:`GatewaySupervisor` from a stage of its cycle
@@ -99,6 +104,7 @@ from culture_rules.apps import discord_buttons as buttons_mod
 from culture_rules.apps import discord_commands as commands_mod
 from culture_rules.apps.discord_rest import guild_ids
 from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, LeaseKeeper
+from culture_rules.engine.matching import trigger_matches
 from culture_rules.engine.named_lease import NamedLease
 from culture_rules.events.hook_sink import (
     ACCEPTED,
@@ -111,7 +117,7 @@ from culture_rules.events.hook_sink import (
 )
 from culture_rules.model.discord_command_config import command_problems, definitions, not_here
 from culture_rules.model.discord_filters import BUTTON_CLICKED, discord_channels, filter_values
-from culture_rules.model.rule import Rule
+from culture_rules.model.rule import Rule, Trigger
 
 __all__ = [
     "ACTORS_COLLECTION",
@@ -871,6 +877,9 @@ class GatewaySupervisor:
         self._unavailable_logged = False
         # per event type; a type absent here selects nothing (until the first tick)
         self._selection: dict[str, frozenset[str] | None] = {}
+        # the enabled discord.button.clicked rules' triggers: a click is admitted only when
+        # one of them admits it with every Discord filter (none until the first tick)
+        self._click_triggers: tuple[Trigger, ...] = ()
         for ensure in (
             ensure_discord_event_ttl,
             commands_mod.ensure_interaction_ttl,
@@ -928,9 +937,20 @@ class GatewaySupervisor:
         """Recompute the channel selection; a failed read keeps the last one."""
         try:
             rules = list(self._store.find(RULES_COLLECTION))
-            self._selection = {t: selected_channels(rules, t) for t in LISTENED_EVENTS}
+            selection = {t: selected_channels(rules, t) for t in LISTENED_EVENTS}
+            clicks = (_discord_rule(doc, BUTTON_EVENT) for doc in rules)
+            self._click_triggers = tuple(r.trigger for r in clicks if r is not None)
+            self._selection = selection
         except Exception as exc:  # noqa: BLE001 - the listeners keep the last selection
             log.warning("discord gateway: reading the rules failed (%s)", type(exc).__name__)
+
+    def _click_admitted(self, data: Mapping[str, Any]) -> bool:
+        """Whether an enabled ``discord.button.clicked`` rule's trigger admits this click with
+        the matcher's full Discord filter set (``channels``, ``users``, ``roles``,
+        ``custom_id``, ``include_bots``): a pure in-memory check on the rules the last tick
+        read, so it fits the acknowledgement window."""
+        event = {"kind": "event", "type": BUTTON_EVENT, "data": data}
+        return any(trigger_matches(t, event) for t in self._click_triggers)
 
     def _selected(self, event_type: str, channel_id: str | None) -> bool:
         selection = self._selection.get(event_type, frozenset())  # tick replaces the dict whole
@@ -1321,9 +1341,12 @@ class GatewaySupervisor:
         self, connection: Mapping[str, Any], event_type: str, data: Mapping[str, Any]
     ) -> bool:
         """Whether the event type's rules select the channel and the actor's channel and guild
-        filters admit it."""
+        filters admit it; a button click also needs a click rule whose filters all admit it
+        (:meth:`_click_admitted`), so a click no rule would fire on changes nothing."""
         if not self._selected(event_type, data["channel_id"]):
             return False  # no enabled discord.* rule selects this channel: never written
+        if event_type == BUTTON_EVENT and not self._click_admitted(data):
+            return False  # e.g. another user's click on a users-filtered rule
         channels = filter_values(connection.get("channels"))  # a bare id is one channel
         if channels and data["channel_id"] not in channels:
             return False

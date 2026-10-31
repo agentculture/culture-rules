@@ -12,9 +12,11 @@ token and the message text are never logged or echoed in errors.
 ``buttons`` put one row of buttons under a Discord message. A button with a ``value`` (a JSON
 object) is posted as ``<custom_id>:<token>`` and its value is kept in ``discord_buttons``
 before the post (:mod:`culture_rules.apps.discord_buttons`), so the click's event carries it as
-``data.value``; only this port writes it, a clicker cannot. A failed post deletes the kept
-values. With buttons the output is ``{"message_id", "custom_ids"}`` (the posted ids, in button
-order).
+``data.value``; only this port writes it, a clicker cannot. A post Discord definitively refused
+(a 4xx but 429, :attr:`~culture_rules.apps.discord_rest.DiscordError.refused`) deletes the
+kept values; after a timeout, a 5xx, a 429 or a lost connection the message may be up, so they
+stay (the TTL index deletes them). With buttons the output is
+``{"message_id", "custom_ids"}`` (the posted ids, in button order).
 """
 
 from __future__ import annotations
@@ -150,12 +152,13 @@ class MessageAction:
         try:
             out = DiscordClient(token, **kwargs).post_message(channel, text, components=components)
         except DiscordError as exc:
-            buttons_mod.forget_buttons(self._store, kept)
+            # only a definite refusal drops the values: after a timeout, a 5xx, a 429 or a
+            # lost connection the message may be up, and its buttons keep their meaning
+            # (the TTL index deletes values whose post never landed)
+            if exc.refused:
+                buttons_mod.forget_buttons(self._store, kept)
             log.warning("discord message to %s failed: %s", channel, exc)
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
-        except Exception:
-            buttons_mod.forget_buttons(self._store, kept)
-            raise
         if kept:
             try:
                 buttons_mod.set_message_id(self._store, kept, out["message_id"])

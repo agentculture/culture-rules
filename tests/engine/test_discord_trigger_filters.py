@@ -207,6 +207,34 @@ def test_a_custom_id_filter_is_a_prefix_match():
     assert not trigger_matches(btrig(custom_id="merge:o/r#3"), clicked("merge:"))
 
 
+def test_a_bare_custom_id_filter_admits_its_valued_button():
+    assert trigger_matches(btrig(custom_id="merge"), clicked("merge:tok1"))
+
+
+def test_a_bare_custom_id_filter_admits_the_id_itself():
+    assert trigger_matches(btrig(custom_id="merge"), clicked("merge"))
+
+
+def test_a_bare_custom_id_filter_does_not_admit_a_longer_name():
+    assert not trigger_matches(btrig(custom_id="merge"), clicked("merge-later:tok1"))
+
+
+def test_a_bare_custom_id_filter_does_not_admit_a_longer_unvalued_id():
+    assert not trigger_matches(btrig(custom_id="merge"), clicked("merged"))
+
+
+def test_a_custom_id_filter_ending_in_a_colon_is_a_prefix():
+    assert trigger_matches(btrig(custom_id="merge:"), clicked("merge:tok1"))
+
+
+def test_a_custom_id_filter_ending_in_a_colon_does_not_admit_another_name():
+    assert not trigger_matches(btrig(custom_id="merge:"), clicked("merge-later:tok1"))
+
+
+def test_a_custom_id_filter_ending_in_a_colon_does_not_admit_the_bare_name():
+    assert not trigger_matches(btrig(custom_id="merge:"), clicked("merge"))
+
+
 def test_a_custom_id_filter_is_case_sensitive():
     assert not trigger_matches(btrig(custom_id="Merge:"), clicked("merge:o/r#3"))
 

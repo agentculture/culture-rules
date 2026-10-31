@@ -86,10 +86,18 @@ def emoji_admits(wanted: list[str], data: Mapping[str, Any]) -> bool:
 
 
 def custom_id_admits(wanted: list[str], data: Mapping[str, Any]) -> bool:
-    """Whether a click's ``custom_id`` starts with one of ``wanted`` (the ``custom_id`` filter:
-    a prefix match, case-sensitive, since custom ids are opaque). A click with no custom id
-    never matches."""
+    """Whether a click's ``custom_id`` is picked by one of ``wanted`` (the ``custom_id``
+    filter, case-sensitive, since custom ids are opaque): a value ending in ``:`` is a prefix
+    (``merge:`` admits ``merge:<token>``); any other value admits the id itself or the id
+    followed by ``:`` (``merge`` admits ``merge`` and ``merge:<token>``, never
+    ``merge-later:<token>``). A click with no custom id never matches."""
     custom_id = data.get("custom_id")
     if not isinstance(custom_id, str) or not custom_id:
         return False
-    return any(custom_id.startswith(prefix) for prefix in wanted)
+    return any(_custom_id_picks(value, custom_id) for value in wanted)
+
+
+def _custom_id_picks(value: str, custom_id: str) -> bool:
+    if value.endswith(":"):
+        return custom_id.startswith(value)
+    return custom_id == value or custom_id.startswith(value + ":")

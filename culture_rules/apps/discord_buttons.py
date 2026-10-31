@@ -4,8 +4,10 @@ A ``discord.message`` button may carry a ``value``: a JSON object (string keys; 
 numbers, booleans, ``null`` and nested objects or lists of those; at most
 :data:`MAX_VALUE_BYTES` bytes as compact JSON). The given ``custom_id`` is then a **prefix**:
 the posted id is ``<custom_id>:<token>`` (:func:`posted_id`, a fresh
-``secrets.token_urlsafe(16)``), so the ``custom_id`` trigger filter's prefix match still selects
-the button by the prefix it was given, and no step ever has to parse an id. A button without
+``secrets.token_urlsafe(16)``), so the ``custom_id`` trigger filter still selects the button
+by the id it was given (``merge`` or ``merge:``,
+:func:`~culture_rules.model.discord_filters.custom_id_admits`), and no step ever has to parse
+an id. A button without
 a ``value`` posts its ``custom_id`` unchanged.
 
 The value is written to :data:`BUTTONS_COLLECTION` **before** the message is posted (so a fast
@@ -14,10 +16,12 @@ click always finds it), one document per valued button::
     {id: "<actor id>:<posted custom_id>", actor_id, custom_id, value, channel_id,
      message_id, created_at, expires_at}
 
-``message_id`` is filled after the post (best effort); a failed post deletes the documents
-again. ``expires_at`` is :data:`BUTTON_VALUE_TTL` (30 days) after ``created_at``; the TTL index
-:data:`BUTTONS_TTL_INDEX` deletes the document then, and :func:`button_value` treats a passed
-``expires_at`` as gone. A click on an expired button carries no value.
+``message_id`` is filled after the post (best effort); a post Discord definitively refused
+deletes the documents again (one that may have landed - a timeout, a 5xx, a 429, a lost
+connection - keeps them). ``expires_at`` is :data:`BUTTON_VALUE_TTL` (30 days) after
+``created_at``; the TTL index :data:`BUTTONS_TTL_INDEX` deletes the document then, and
+:func:`button_value` treats a passed ``expires_at`` as gone. A click on an expired button
+carries no value.
 
 Only the bot's own ``discord.message`` port writes these documents: the gateway reads the
 value by the actor and the clicked ``custom_id`` and attaches it to the
@@ -181,7 +185,7 @@ def set_message_id(store: Any, ids: Sequence[str], message_id: str) -> None:
 
 
 def forget_buttons(store: Any, ids: Iterable[str]) -> None:
-    """Delete the documents (the post failed); each delete is best effort."""
+    """Delete the documents (Discord refused the post); each delete is best effort."""
     for doc_id in ids:
         try:
             store.delete(BUTTONS_COLLECTION, doc_id)

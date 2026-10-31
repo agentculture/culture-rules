@@ -17,7 +17,10 @@ and [the Discord actor guide](../actors/discord.md#buttons).
 ## Before you start
 
 - A GitHub app actor (`github-app` below) whose `connection.repos` lists the repos, with
-  Pull requests and Contents write on the App.
+  Pull requests and Contents write on the App. The merge runs only as an App actor whose
+  digest is pinned in `culture_rules/actors/trusted.py` (`TRUSTED_ACTOR_DIGESTS`), as a
+  push does; `github-app` is pinned, so another actor, or `github-app` with changed
+  security fields, fails `actor_not_trusted`. Adding a repo keeps it pinned.
 - A Discord app actor (`<discord-actor-id>`) that lists `discord.button.clicked` in
   `params.events`, in the server and channel `<channel-id>`.
 - The channel must be selected by an enabled rule, or the click is never recorded
@@ -87,9 +90,11 @@ base_repo` there is also how it tells a fork.
 
 - **Trigger:** event `discord.button.clicked`, with params `users:
   ["<operator-discord-id>"]`, `channels: ["<channel-id>"]` and `custom_id: "merge:"`
-  (a prefix, case-sensitive). `users` is what limits who may merge; a click by anyone
-  else is answered privately "This button is not set up here." and starts nothing.
-  Give other flows' buttons a different `custom_id`.
+  (case-sensitive; ending in `:`, it picks every id that starts `merge:`, so every
+  posted `merge:<token>` and never `merge-later:<token>`). `users` is what limits who
+  may merge; a click by anyone else is answered privately "This button is not set up
+  here.", records nothing and leaves the Merge button enabled for you. Give other
+  flows' buttons a different `custom_id`.
 - **Workflow `merge`** (its id must be exactly `merge`, see
   [step 3](#3-pin-the-merge-workflow)): inputs `repository` (string), `number`
   (integer) and `head_sha` (string), mapped from `trigger.data.value.repo`,

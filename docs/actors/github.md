@@ -307,8 +307,9 @@ from `base_repo` means a fork), `head_branch`, `head_sha`, `base_branch` and
 ### `github.merge` (squash, fenced)
 
 The one merge kind in culture-rules. It squash-merges a PR as the App, at the
-commit a prompt was shown for. Params: `actor`, `repo`, `number`, `sha`
-(required: the full 40-hex head commit) and `delete_branch` (optional boolean).
+commit a prompt was shown for. Params: `actor`, `repo`, `number` (an integer;
+a string, a float or a boolean is refused `bad_input`), `sha` (required: the
+full 40-hex head commit) and `delete_branch` (optional boolean).
 The method is always `squash`.
 
 Merging stays a human gate, fenced by an operator's click and a trusted merge
@@ -319,6 +320,7 @@ read or any request is made. A refused call fails the step without retry:
 |---|---|
 | `not_started_by_click` | The run was not its rule firing on a stored `discord.button.clicked` event. A direct run, a scheduled run, a run started through the API and a chained run are all refused |
 | `workflow_not_trusted` | The run's pinned workflow is not trusted in the `merge` role (below) |
+| `actor_not_trusted` | The App actor's security fields (`kind`, `machine`, `surface`, `commit_author`, `permissions`, and `app_id`, `installation_id` and `private_key` of its connection) do not match a digest pinned in `TRUSTED_ACTOR_DIGESTS`, as for `github.push`. `github-app` is pinned; `repos` is not part of the digest |
 | `rule_disabled`, `workflow_disabled` | The run's rule or workflow is no longer enabled |
 | `run_not_found` | The run is gone |
 
@@ -348,7 +350,10 @@ A later call (the engine's retry, or another click) reads the PR first:
 With `delete_branch: true`, after a merge and only when the PR's head is in
 `repo` itself (never a fork's), the branch is deleted. A branch already gone is
 not a failure; any other delete error is reported in `branch_delete_error`
-and the merge still counts.
+and the merge still counts. The result is kept on the claim. A repeat call with
+`delete_branch: true` that finds the PR merged (`merged_before` with no delete
+kept yet, or `merged_unconfirmed`) deletes the branch the same way; a delete
+already kept, or its error, is not sent again.
 
 Outputs: `merged` (boolean), `sha` (the merge commit GitHub made),
 `branch_deleted`, `branch_delete_error` (an error code, or `null`) and, on a
@@ -370,6 +375,7 @@ in [the guide](../operations/green-pr-merge.md#3-pin-the-merge-workflow).
 | A comment fails `actor_misconfigured` | `app_id` or `installation_id` is empty |
 | A comment fails `secret_unavailable` | The node was not started with the private-key injection |
 | A merge fails `workflow_not_trusted` | The merge workflow's digest is not pinned in the `merge` role, or the workflow was edited after the pin |
+| A merge fails `actor_not_trusted` | The merge's `actor` is not a pinned App actor, or its security fields changed since the pin; use `github-app` |
 | A merge fails `head_moved` or `http_409` | The PR got a new commit after the prompt; nothing was merged |
 
 ## On rules.culture.dev
