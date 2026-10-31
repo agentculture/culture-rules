@@ -180,6 +180,40 @@ describe("discord.message buttons", () => {
     expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge" }]);
   });
 
+  it("offers a one-time code only for a valued button, and keeps it while the value is retyped", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await user.click(screen.getByRole("button", { name: "Add button" }));
+    await user.type(screen.getByLabelText("Button 1 label"), "Merge");
+    await user.type(screen.getByLabelText("Button 1 custom id"), "merge");
+    const saved = () => JSON.parse(screen.getByTestId("saved").textContent ?? "{}").params.buttons;
+    expect(screen.queryByLabelText("Button 1 gets a one-time code")).toBeNull();
+    const box = screen.getByLabelText("Button 1 value");
+    await user.type(box, '{{"n": 1}');
+    await user.click(screen.getByLabelText("Button 1 gets a one-time code"));
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge", value: { n: 1 }, code: true }]);
+    await user.click(screen.getByLabelText("Button 1 gets a one-time code"));
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge", value: { n: 1 } }]);
+    await user.click(screen.getByLabelText("Button 1 gets a one-time code"));
+    await user.clear(box);
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge", code: true }]);
+    expect(screen.getByRole("alert")).toHaveTextContent("Button 1 one-time code needs a value");
+    expect(screen.getByLabelText("Button 1 gets a one-time code")).toBeChecked();
+    await user.type(box, '{{"n": 2}');
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(saved()).toEqual([{ label: "Merge", style: "primary", custom_id: "merge", value: { n: 2 }, code: true }]);
+  });
+
+  it("refuses to save a one-time code without a value", () => {
+    const action: Action = {
+      kind: "discord.message",
+      params: { actor: "discord-bot", channel: "1", text: "t", buttons: [{ label: "M", style: "success", custom_id: "m", code: true }] },
+    };
+    expect(actionProblem(action)).toBe("invalid_value");
+  });
+
   it("shows a stored value as JSON", () => {
     const action: Action = {
       kind: "discord.message",

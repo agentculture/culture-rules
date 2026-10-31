@@ -409,7 +409,12 @@ def test_bad_values_are_refused_before_any_secret_or_post():
 
 
 def test_the_port_ensures_the_buttons_ttl_index_once():
-    from culture_rules.apps.discord_buttons import BUTTONS_COLLECTION, BUTTONS_TTL_INDEX
+    from culture_rules.apps.discord_buttons import (
+        BUTTONS_COLLECTION,
+        BUTTONS_TTL_INDEX,
+        CODES_COLLECTION,
+        CODES_TTL_INDEX,
+    )
 
     t = FakeTransport()
     port, store = _valued_port(t)
@@ -417,7 +422,25 @@ def test_the_port_ensures_the_buttons_ttl_index_once():
     store.ensure_index = lambda collection, keys, **kw: calls.append((collection, kw["name"]))
     _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
     _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
-    assert calls == [(BUTTONS_COLLECTION, BUTTONS_TTL_INDEX)]
+    assert calls == [(BUTTONS_COLLECTION, BUTTONS_TTL_INDEX), (CODES_COLLECTION, CODES_TTL_INDEX)]
+
+
+def test_a_coded_button_posts_with_a_stored_code():
+    from culture_rules.apps.discord_buttons import CODES_COLLECTION
+
+    port, store = _valued_port(FakeTransport())
+    res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE, code=True)])
+    assert res.outcome == "completed"
+    (doc,) = _stored(store)
+    assert store.get(CODES_COLLECTION, doc["code"])["value"] == VALUE
+
+
+def test_a_refused_post_forgets_the_code_too():
+    from culture_rules.apps.discord_buttons import CODES_COLLECTION
+
+    port, store = _valued_port(FakeTransport(status=403, body={}))
+    _send(port, buttons=[_btn(custom_id="merge", value=VALUE, code=True)])
+    assert store.find(CODES_COLLECTION) == []
 
 
 # ---------------------------------------------------------------- who posted the button (d2)

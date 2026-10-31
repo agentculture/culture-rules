@@ -4,7 +4,7 @@ Both reuse :class:`~culture_rules.node.actions.github.GitHubCommentPort`'s actor
 (a stored, enabled App actor with ``params.surface == "github"`` and a ``connection``), its
 repo allowlist and its per-actor App cache. Neither merges: there is exactly one merge port,
 ``github.merge`` (:mod:`culture_rules.node.actions.github_merge`), fenced to a run started by a
-``discord.button.clicked`` event in a workflow trusted in the ``merge`` role, so merging stays
+``discord.button.clicked`` event carrying the clicked button's one-time code, so merging stays
 a human gate.
 
 ``github.push``

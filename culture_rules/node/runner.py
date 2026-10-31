@@ -399,7 +399,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:github.comment": github,
         "action:github.push": push,
         "action:github.pr": pr_read,  # the PR's facts, read only
-        "action:github.merge": merge,  # the one merge: a click in a merge-trusted workflow
+        "action:github.merge": merge,  # the one merge: a click carrying the button's one-time code
         "action:github.review_reply": reply,
         "action:jira.comment": JiraCommentPort(store),
         "action:email.send": EmailSendPort(store),  # #53: Resend

@@ -32,10 +32,10 @@ Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`
 never with force (and, with ``gate_verdict`` wired in, only after a test gate ``pass``);
 ``github.review_reply`` replies in a PR review thread and optionally resolves it. There is
 exactly **one merge kind**, ``github.merge`` (``sha`` pins the head commit, ``delete_branch``
-removes the branch after): merging stays a human gate, fenced by the click and a trusted merge
-role. The port runs it only in a run started by a ``discord.button.clicked`` event whose
-workflow is trusted in a merge role; ``github.pr`` reads one PR's title, link, author, state,
-repos, branch and head sha (no write).
+removes the branch after): merging stays a human gate, fenced by the click and the clicked
+button's one-time code. The port runs it only in a run started by a ``discord.button.clicked``
+event whose stored code is unused and names the same repo, PR and sha; ``github.pr`` reads
+one PR's title, link, author, state, repos, branch and head sha (no write).
 
 The daily-newspaper kinds (#53): ``email.send`` sends through an ``email`` app actor to
 addresses on its recipient allowlist; ``search.web`` queries through a ``search`` app actor;
@@ -185,7 +185,7 @@ _KINDS = (
     ),
     _k(
         "github.merge",
-        "Merge a PR as the GitHub App, only from a button click in a merge-trusted workflow",
+        "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
         actor=_RS,
         repo=_RS,
         number=ParamSpec("int", True),

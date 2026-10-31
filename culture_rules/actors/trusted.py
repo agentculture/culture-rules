@@ -41,8 +41,6 @@ from typing import Any
 
 __all__ = [
     "ROLE_FIX",
-    "ROLE_MERGE",
-    "ROLE_MERGE_PROMPT",
     "ROLE_PUBLISH",
     "ROLE_REVIEW",
     "ROLE_SINGLE",
@@ -73,17 +71,6 @@ ROLE_REVIEW = "review-commit"
 """d21: the independent review of a ``pr-fix`` run's gated commit; records the verdict."""
 ROLE_PUBLISH = "publish-fix"
 """d21: pushes a commit a ``review-commit`` run approved, then answers the threads."""
-ROLE_MERGE = "merge"
-"""Green PR merge prompt: the workflow a ``discord.button.clicked`` rule starts to run
-``github.merge`` (:mod:`culture_rules.node.actions.github_merge`). It is live configuration
-(never committed), so no digest ships pinned: no merge can run until a release pins the live
-workflow's digest here (its id must be ``merge``)."""
-ROLE_MERGE_PROMPT = "merge_prompt"
-"""Green PR merge prompt (deviation d2): the workflow that posts the valued merge button.
-``github.merge`` merges a click's stored value only when the run that posted the button
-(``discord_buttons``' ``posted_by``) pinned a workflow trusted here. Live configuration like
-``merge``: no digest ships pinned, and a release pins the live prompt workflow's (its id must
-be ``merge_prompt``)."""
 
 TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     # docs/rules/pr-fixer/workflows/pr-fixer.json as shipped in 0.13.0 (d20 round 2); a copy
@@ -126,10 +113,6 @@ TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     ROLE_PUBLISH: frozenset(
         {"sha256:0fa92074e1cfa67c1388f0423fc379063fd82c5886bc619c5ef4ffcc83c23680"}
     ),
-    # the merge workflow is live configuration: pinned in V2 only, by a release
-    ROLE_MERGE: frozenset(),
-    # the merge prompt workflow (d2) likewise
-    ROLE_MERGE_PROMPT: frozenset(),
 }
 """Per role, the digests of the workflow definitions trusted in it (d21). A digest belongs
 to one role: the role says what a run of that workflow may do - record a review, build the
@@ -163,17 +146,6 @@ TRUSTED_WORKFLOWS_V2: dict[str, frozenset[str]] = {
     # docs/rules/pr-fixer/workflows/publish-fix.json (d21, v1 sha256:0fa92074...)
     ROLE_PUBLISH: frozenset(
         {"sha256:540cb216fcc1ccccf8d5b7d29abd07427e9a22f6ad40bd930c3036890a3f9c84"}
-    ),
-    # the green PR merge prompt's ``merge`` workflow (live configuration, never committed):
-    # the definition created live 2026-10-31 (github.merge, then discord.reply)
-    ROLE_MERGE: frozenset(
-        {"sha256:1b4e85bbe817463507ca914f015cef28037c24736d7ad725ac1f299643fc09ef"}
-    ),
-    # the green PR merge prompt's ``merge_prompt`` workflow, which posts the merge button
-    # (d2, live configuration, never committed): the definition created live 2026-10-31
-    # (github.pr, then discord.message with the button)
-    ROLE_MERGE_PROMPT: frozenset(
-        {"sha256:054bd215ef0a9b607196a61fe1f74e3ca03ed98183543ce532b9ff8ff9a39310"}
     ),
 }
 """Per role, the v2 digests trusted in it (spec c16). Same roles as :data:`TRUSTED_WORKFLOWS`;

@@ -17,7 +17,7 @@ allowlist is enforced *before* any network call, and secrets are held only in me
   :meth:`GitHubApp.list_review_threads` reads the unresolved ones (GraphQL, bounded pages).
 * Exactly one merge call, :meth:`GitHubApp.merge_pull` (a squash at a given head sha), used
   only by the ``github.merge`` port, which is fenced to a run started by a
-  ``discord.button.clicked`` event in a workflow trusted in the ``merge`` role: merging stays
+  ``discord.button.clicked`` event carrying the clicked button's one-time code: merging stays
   a human gate. :meth:`GitHubApp.delete_ref` removes the merged PR's same-repo head branch.
 * Neither the key, the JWT nor the token is ever logged or put in an error message.
 

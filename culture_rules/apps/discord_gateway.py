@@ -738,6 +738,7 @@ def button_data(raw: Mapping[str, Any]) -> dict[str, Any]:
         "bot": bool(raw.get("bot", False)),
         "value": None,  # filled from discord_buttons by the gateway, never from the click
         "posted_by": None,  # likewise: the run and workflow that posted the button (d2)
+        "code": None,  # likewise: the button's one-time code, when it was given one (d3)
     }
 
 
@@ -1269,12 +1270,13 @@ class GatewaySupervisor:
         stored = self._stored_button(session, data["custom_id"])
         data["value"] = stored["value"] if stored else None
         data["posted_by"] = stored["posted_by"] if stored else None
+        data["code"] = stored.get("code") if stored else None
         return self._sink_interaction(
             session, BUTTON_EVENT, data, token, app_id, commands_mod.BUTTON_INTERACTION
         )
 
     def _stored_button(self, session: _Session, custom_id: str) -> dict[str, Any] | None:
-        """``{value, posted_by}`` the bot's ``discord.message`` stored for this button (one
+        """``{value, posted_by, code}`` the bot's ``discord.message`` stored for this button (one
         read by id), or ``None``: none stored, expired, or the read failed (logged; the click
         still lands)."""
         try:

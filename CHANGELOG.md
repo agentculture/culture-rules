@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2026-10-31
+
+### Added
+
+- One-time button codes (green PR merge prompt deviation d3): a discord.message button with a value and code: true gets a random code, stored with the value in discord_buttons and discord_button_codes (30-day TTL) and copied by the gateway onto the click as data.code; discord_buttons.use_code checks and uses it up by compare-and-set
+- The editor offers "gets a one-time code" on a valued button
+
+### Changed
+
+- github.merge is fenced by the operator click plus the clicked button's unused code, bound to the repo, number and sha it merges (code_not_found, code_mismatch, code_used), instead of workflow digest pins: the merge and merge_prompt trust roles are removed, so both workflows are configuration and editing them needs no release
+- posted_by on a stored button is a record only; nothing trusts it
+- A github.merge that merged nothing (secret, pr_not_open, head_moved, a merge GitHub refused) hands the button's code back, so the button can be clicked again; an unknown outcome keeps it used. A store failure in the fence is store_unavailable (retryable). Codes compare type-strictly (a stored true is not PR 1)
+- Upgrading: buttons posted before 0.40.0 have no code and fail code_not_found; add code: true to the live prompt's button during the rollout
+
+### Removed
+
+- The workflow_not_trusted and prompt_not_trusted refusals of github.merge, and the trust roles ROLE_MERGE and ROLE_MERGE_PROMPT
+
 ## [0.39.1] - 2026-10-31
 
 ### Added

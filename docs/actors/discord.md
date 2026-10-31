@@ -326,8 +326,9 @@ Which marks, and at which steps, is the flow's configuration.
 
 `discord.message` takes an optional `buttons` list: up to 5 objects, each with
 a `label` (1-80 characters), a `style` (`success`, `primary`, `secondary` or
-`danger`), a `custom_id` (1-100 characters, unique within the message) and an
-optional `value`. A bad list is refused `bad_params` before anything is posted.
+`danger`), a `custom_id` (1-100 characters, unique within the message), an
+optional `value` and, with a value, an optional `code` (`true` or `false`). A
+bad list is refused `bad_params` before anything is posted.
 With buttons the action returns `message_id` and `custom_ids`, the ids as
 posted, in button order.
 
@@ -342,13 +343,18 @@ one document per valued button in `discord_buttons`, keyed by the actor and the
 posted id, with the value, the channel, `posted_by` and, once posted, the
 message id. `posted_by` is `{run_id, workflow_id, step}`: the run whose step
 posted the button, that run's workflow id (`null` when the run could not be
-read) and the step's key in the run (`@action` for a rule's own action).
-`github.merge` merges only a button posted by a step of a workflow trusted in
-the `merge_prompt` role ([the GitHub guide](github.md)). A post
+read) and the step's key in the run (`@action` for a rule's own action). It is
+a record of who posted the button; nothing trusts it.
+
+A valued button with `code: true` also gets a **one-time code**: a fresh random
+code, stored on its document and in `discord_button_codes` with the value, and
+never shown in the button's label or id. `github.merge` merges only with such a
+code: the click's code must be unused and hold the repo, number and sha being
+merged, and the merge uses it up ([the GitHub guide](github.md)). A post
 Discord refuses (a 4xx other than 429) deletes them again; after a timeout, a
 5xx, a 429 or a lost connection the message may be up, so they are kept. The
 documents expire after 30 days (a TTL
-index), and a click after that carries no value. A button without a `value`
+index, codes too), and a click after that carries no value and no code. A button without a `value`
 is posted with its `custom_id` unchanged.
 
 Only the bot's own `discord.message` writes a value. A click hands back only
@@ -360,8 +366,9 @@ click becomes a `discord.button.clicked` event with `custom_id`, `message_id`,
 `username` (also as `author_id` and `author_name`), `user_roles`, `bot` and
 `value` (the stored value of that button, or `null` when it has none or it
 expired; a step reads it as `trigger.data.value.<key>`) and `posted_by` (the
-stored `{run_id, workflow_id}` of the run that posted it, or `null`; like
-`value`, never taken from the click). Like
+stored `{run_id, workflow_id, step}` of the run that posted it, or `null`) and
+`code` (the button's one-time code, or `null`; like `value` and `posted_by`,
+never taken from the click). Like
 other Discord events it is recorded only from a channel that an enabled rule
 selects, and the interaction's token is never in the event: it is kept for 15
 minutes in `discord_interactions` (kind `button`).

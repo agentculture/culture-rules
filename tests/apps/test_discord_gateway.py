@@ -839,9 +839,11 @@ def test_button_data_carries_only_the_documented_keys():
         "bot",
         "value",
         "posted_by",
+        "code",
     }
     assert data["value"] is None  # never from the click itself, only from the store
     assert data["posted_by"] is None  # likewise (d2)
+    assert data["code"] is None  # likewise (d3)
     assert "token" not in data
     assert "application_id" not in data
 
@@ -858,12 +860,35 @@ def test_a_clicker_cannot_supply_who_posted_the_button():
     assert dg.button_data(raw)["posted_by"] is None
 
 
-def _store_value(r, custom_id, value, posted_by=None):
+def test_a_clicker_cannot_supply_a_code():
+    raw = click(1)
+    raw["code"] = "forged"
+    assert dg.button_data(raw)["code"] is None
+
+
+def _store_value(r, custom_id, value, posted_by=None, code=False):
     from culture_rules.apps.discord_buttons import remember_buttons
 
     remember_buttons(
-        r.store, "bot", "100", [(custom_id, value)], now=r.sup._clock(), posted_by=posted_by
+        r.store, "bot", "100", [(custom_id, value, code)], now=r.sup._clock(), posted_by=posted_by
     )
+    return (r.store.get("discord_buttons", f"bot:{custom_id}") or {}).get("code")
+
+
+def test_a_click_carries_the_stored_code_as_data_code(rig):
+    r = _click_rig(rig)
+    code = _store_value(r, "merge:tok1", {"n": 1}, code=True)
+    r.hub.click(click(1, custom_id="merge:tok1"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.events(BUTTON)[0]["envelope"]["data"]["code"] == code
+
+
+def test_a_click_on_an_uncoded_button_carries_no_code(rig):
+    r = _click_rig(rig)
+    _store_value(r, "merge:tok1", {"n": 1})
+    r.hub.click(click(1, custom_id="merge:tok1"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.events(BUTTON)[0]["envelope"]["data"]["code"] is None
 
 
 def test_a_click_carries_who_posted_the_button_as_data_posted_by(rig):

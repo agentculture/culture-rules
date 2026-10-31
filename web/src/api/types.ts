@@ -157,6 +157,8 @@ export interface DiscordButton {
   style: string;
   custom_id: string;
   value?: Record<string, unknown>;
+  /** With a value: also issue a one-time code, which `github.merge` needs (d3). */
+  code?: boolean;
 }
 
 export interface Placement {

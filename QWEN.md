@@ -119,16 +119,15 @@ On disk today:
   `keyset.add` keep named key sets for a configured window (one document per key, TTL
   index, config-only rules); admin verbs `keysets list|show|clear`.
 - Green PR merge prompt (guide `docs/operations/green-pr-merge.md`): one merge kind,
-  fenced by an operator click and a trusted merge role: `github.merge` (squash at a
-  required `sha`) runs only in a run a `discord.button.clicked` event started, in a
-  workflow pinned in role `merge`, on a button posted by a run of a workflow pinned in
-  role `merge_prompt` (`prompt_not_trusted`, d2), as an `app` actor (`actor_not_app`);
-  neither role ships a digest (a release pins both, ids `merge` and `merge_prompt`);
-  `github.pr` reads a PR; `discord.message` `buttons`, the `custom_id` prefix filter and
-  `discord.reply` complete it. A button's optional `value` is kept in the store
-  (`discord_buttons`, with `posted_by`) and carried by its click as `data.value` and
-  `data.posted_by`, so no id is parsed. Rules
-  are configured live, never committed.
+  fenced by an operator click and a one-time button code: `github.merge` (squash at a
+  required `sha`) runs only in a run a `discord.button.clicked` event started, as an `app`
+  actor (`actor_not_app`), with the clicked button's unused code bound to that repo, number
+  and sha (`code_not_found`, `code_mismatch`, `code_used`; d3); no workflow is pinned, both
+  are configuration; `github.pr` reads a PR; `discord.message` `buttons` (`code: true`),
+  the `custom_id` prefix filter and `discord.reply` complete it. A button's optional
+  `value` is kept in the store (`discord_buttons`, with `posted_by` and the code) and
+  carried by its click as `data.value`, `data.posted_by` and `data.code`, so no id is
+  parsed. Rules are configured live, never committed.
 - Repo documents (guide `docs/operations/repodocs.md`): `repodocs.sync` pushes each
   top-level repo's devague record (default-branch versions, working drafts, tombstones,
   spec links) to culture-library; the bundle `docs/rules/repodocs` runs it every 15

@@ -1,6 +1,6 @@
-"""github.merge: squash-merge as the App at the prompted sha, fenced to a click in a trusted
-merge workflow on a button a trusted prompt workflow posted (d2), with an optional same-repo
-branch delete (fake transport, memory store)."""
+"""github.merge: squash-merge as the App at the prompted sha, fenced to a click carrying the
+button's one-time code (d3), with an optional same-repo branch delete (fake transport, memory
+store)."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
 
 from culture_rules.actors import trusted  # noqa: E402
+from culture_rules.apps import discord_buttons as db  # noqa: E402
 from culture_rules.engine.actorport import InvocationContext  # noqa: E402
 from culture_rules.model.discord_filters import BUTTON_CLICKED  # noqa: E402
 from culture_rules.node.actions.github_merge import (  # noqa: E402
@@ -30,6 +31,7 @@ from culture_rules.store.memory import MemoryStore  # noqa: E402
 
 FAKE_BEARER = "ghs" + "_" + "FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
 DEADLINE = datetime(2030, 1, 1, tzinfo=UTC)
+NOW = datetime.now(UTC)  # the port reads the code's expiry on real time
 SHA = "a" * 40
 MERGED_SHA = "b" * 40
 REPO = "acme/widgets"
@@ -50,20 +52,6 @@ WORKFLOW = {
     ],
 }
 
-PROMPT_RUN = "run-prompt"
-PROMPT = {
-    "id": trusted.ROLE_MERGE_PROMPT,
-    "name": "merge prompt",
-    "steps": [
-        {
-            "id": "post",
-            "kind": "action",
-            "config": {"action": "discord.message", "channel": "4242", "text": "green"},
-        }
-    ],
-}
-POSTED_BY = {"run_id": PROMPT_RUN, "workflow_id": trusted.ROLE_MERGE_PROMPT, "step": "post"}
-
 
 @pytest.fixture(scope="module")
 def pem():
@@ -73,16 +61,6 @@ def pem():
         serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     ).decode()
-
-
-@pytest.fixture
-def trust_merge(monkeypatch):
-    """The release step (no digest ships pinned): trust the test's merge workflow in the merge
-    role and its prompt workflow in the merge_prompt role."""
-    roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
-    roles[trusted.ROLE_MERGE] = frozenset({trusted.workflow_digest_v2(WORKFLOW)})
-    roles[trusted.ROLE_MERGE_PROMPT] = frozenset({trusted.workflow_digest_v2(PROMPT)})
-    monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
 
 
 @pytest.fixture(autouse=True)
@@ -170,34 +148,33 @@ def actor_doc():
     }
 
 
-def click_envelope(event_type=BUTTON_CLICKED, posted_by=POSTED_BY):
+CUSTOM_ID = "merge:tok"
+VALUE = {"repo": REPO, "number": 3, "sha": SHA}
+
+
+def issue_code(store, value=VALUE, custom_id=CUSTOM_ID):
+    """The code the prompt's discord.message stores for its button (d3)."""
+    db.remember_buttons(store, "discord-bot", "4242", [(custom_id, value, True)], now=NOW)
+    return store.get(db.BUTTONS_COLLECTION, f"discord-bot:{custom_id}")["code"]
+
+
+def click_envelope(event_type=BUTTON_CLICKED, code=None, custom_id=CUSTOM_ID):
     return {
         "id": EVENT,
         "type": event_type,
         "source": "discord",
-        "data": {"custom_id": "merge:tok", "author_id": "42", "posted_by": posted_by},
+        "data": {"custom_id": custom_id, "author_id": "42", "code": code},
     }
 
 
-def prompt_run(definition=None):
-    return {
-        "id": PROMPT_RUN,
-        "rule_id": "green-prompt",
-        "workflow_id": trusted.ROLE_MERGE_PROMPT,
-        "workflow": {"id": trusted.ROLE_MERGE_PROMPT, "definition": definition or PROMPT},
-        "steps": [{"key": "post", "def": "post", "status": "succeeded"}],
-    }
-
-
-def world(pem, fake, *, envelope=None, stored_event=True, rule_enabled=True, run=None, poster=True):
-    """A store with the App actor, the click rule, the click event, the run it started and
-    the run that posted the clicked button."""
+def world(pem, fake, *, envelope=None, stored_event=True, rule_enabled=True, run=None, code=True):
+    """A store with the App actor, the click rule, the clicked button's code, the click event
+    (carrying the code) and the run it started."""
     store = MemoryStore()
     store.put("actors", actor_doc())
     store.put("rules", {"id": RULE, "name": RULE, "enabled": rule_enabled})
-    if poster:
-        store.put("runs", prompt_run())
-    envelope = envelope or click_envelope()
+    issued = issue_code(store) if code else None
+    envelope = envelope or click_envelope(code=issued)
     if stored_event:
         store.put("events", {"id": envelope["id"], "envelope": envelope})
     doc = run or {
@@ -231,7 +208,7 @@ def test_the_port_takes_no_idempotency_key():
     assert GitHubMergePort(MemoryStore()).supports_idempotency_key is False
 
 
-def test_the_merge_is_a_squash_put_at_the_prompted_sha(pem, trust_merge):
+def test_the_merge_is_a_squash_put_at_the_prompted_sha(pem):
     fake = Fake()
     port, _, resolved, run_id = world(pem, fake)
     res = merge(port, run_id)
@@ -243,7 +220,7 @@ def test_the_merge_is_a_squash_put_at_the_prompted_sha(pem, trust_merge):
     assert resolved == ["grant:GH_KEY"]
 
 
-def test_a_merge_reports_merged_the_merge_commit_and_no_delete(pem, trust_merge):
+def test_a_merge_reports_merged_the_merge_commit_and_no_delete(pem):
     port, _, _, run_id = world(pem, Fake())
     out = dict(merge(port, run_id).output)
     assert out["merged"] is True
@@ -251,7 +228,7 @@ def test_a_merge_reports_merged_the_merge_commit_and_no_delete(pem, trust_merge)
     assert out["branch_deleted"] is False
 
 
-def test_the_pr_is_read_before_the_merge(pem, trust_merge):
+def test_the_pr_is_read_before_the_merge(pem):
     fake = Fake()
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id)
@@ -260,7 +237,7 @@ def test_the_pr_is_read_before_the_merge(pem, trust_merge):
 
 
 @pytest.mark.parametrize("status", [409, 405])
-def test_a_moved_head_or_unmergeable_pr_fails_without_retry(pem, trust_merge, status):
+def test_a_moved_head_or_unmergeable_pr_fails_without_retry(pem, status):
     port, _, _, run_id = world(pem, Fake(merge_status=status))
     res = merge(port, run_id)
     assert res.outcome == "failed"
@@ -269,13 +246,13 @@ def test_a_moved_head_or_unmergeable_pr_fails_without_retry(pem, trust_merge, st
 
 
 @pytest.mark.parametrize("status", [409, 405, 422])
-def test_a_refused_merge_releases_its_claim(pem, trust_merge, status):
+def test_a_refused_merge_releases_its_claim(pem, status):
     port, store, _, run_id = world(pem, Fake(merge_status=status))
     merge(port, run_id)
     assert list(store.find(MERGE_ONCE_COLLECTION)) == []
 
 
-def test_a_head_that_moved_before_the_put_is_refused_without_a_merge(pem, trust_merge):
+def test_a_head_that_moved_before_the_put_is_refused_without_a_merge(pem):
     fake = Fake(head_sha="c" * 40)
     port, store, _, run_id = world(pem, fake)
     res = merge(port, run_id)
@@ -284,7 +261,7 @@ def test_a_head_that_moved_before_the_put_is_refused_without_a_merge(pem, trust_
     assert list(store.find(MERGE_ONCE_COLLECTION)) == []
 
 
-def test_a_closed_pr_is_refused_without_a_merge(pem, trust_merge):
+def test_a_closed_pr_is_refused_without_a_merge(pem):
     fake = Fake(state="closed")
     port, _, _, run_id = world(pem, fake)
     res = merge(port, run_id)
@@ -296,9 +273,7 @@ def test_a_closed_pr_is_refused_without_a_merge(pem, trust_merge):
 
 
 @pytest.mark.parametrize("status", [500, 502, 408])
-def test_an_unknown_outcome_is_sent_again_only_after_a_read_shows_it_did_not_merge(
-    pem, trust_merge, status
-):
+def test_an_unknown_outcome_is_sent_again_only_after_a_read_shows_it_did_not_merge(pem, status):
     fake = Fake(merge_status=status)
     port, store, _, run_id = world(pem, fake)
     first = merge(port, run_id)
@@ -314,7 +289,7 @@ def test_an_unknown_outcome_is_sent_again_only_after_a_read_shows_it_did_not_mer
     assert (claim["state"], claim["resends"]) == ("merged", 1)
 
 
-def test_re_sends_are_bounded(pem, trust_merge):
+def test_re_sends_are_bounded(pem):
     fake = Fake(merge_status=502)
     port, _, _, run_id = world(pem, fake)
     results = [merge(port, run_id) for _ in range(MAX_RESENDS + 2)]
@@ -322,7 +297,7 @@ def test_re_sends_are_bounded(pem, trust_merge):
     assert (results[-1].error, results[-1].retryable) == ("merge_outcome_unknown", False)
 
 
-def test_a_claim_still_in_flight_is_never_sent_again(pem, trust_merge):
+def test_a_claim_still_in_flight_is_never_sent_again(pem):
     fake = Fake()
     port, store, _, run_id = world(pem, fake)
     store.insert(MERGE_ONCE_COLLECTION, _claim("claimed", datetime.now(UTC)))
@@ -331,7 +306,7 @@ def test_a_claim_still_in_flight_is_never_sent_again(pem, trust_merge):
     assert (res.error, res.retryable) == ("merge_outcome_unknown", False)
 
 
-def test_a_stale_claim_is_sent_again(pem, trust_merge):
+def test_a_stale_claim_is_sent_again(pem):
     fake = Fake()
     port, store, _, run_id = world(pem, fake)
     stale = datetime.now(UTC) - timedelta(seconds=STALE_CLAIM_S + 1)
@@ -341,7 +316,7 @@ def test_a_stale_claim_is_sent_again(pem, trust_merge):
     assert res.outcome == "completed"
 
 
-def test_an_unknown_claim_on_a_moved_head_is_released_without_a_merge(pem, trust_merge):
+def test_an_unknown_claim_on_a_moved_head_is_released_without_a_merge(pem):
     fake = Fake(head_sha="c" * 40)
     port, store, _, run_id = world(pem, fake)
     store.insert(MERGE_ONCE_COLLECTION, _claim("unknown", datetime.now(UTC)))
@@ -357,7 +332,7 @@ def _claim(state, at):
     return {**doc, "claimed_at": at.isoformat(), "resends": 0}
 
 
-def test_a_network_error_on_the_put_keeps_the_claim(pem, trust_merge):
+def test_a_network_error_on_the_put_keeps_the_claim(pem):
     fake = Fake(merge_raises=OSError("reset"))
     port, store, _, run_id = world(pem, fake)
     assert merge(port, run_id).error == "network_error"
@@ -365,7 +340,7 @@ def test_a_network_error_on_the_put_keeps_the_claim(pem, trust_merge):
     assert claim["state"] == "unknown"
 
 
-def test_an_unknown_outcome_that_did_merge_is_reconciled_by_a_read(pem, trust_merge):
+def test_an_unknown_outcome_that_did_merge_is_reconciled_by_a_read(pem):
     fake = Fake(merge_status=502)
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id)
@@ -377,7 +352,7 @@ def test_an_unknown_outcome_that_did_merge_is_reconciled_by_a_read(pem, trust_me
     assert res.output["sha"] == MERGED_SHA
 
 
-def test_a_merged_claim_completes_again_without_a_call(pem, trust_merge):
+def test_a_merged_claim_completes_again_without_a_call(pem):
     fake = Fake()
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id)
@@ -388,7 +363,7 @@ def test_a_merged_claim_completes_again_without_a_call(pem, trust_merge):
     assert len(fake.calls) == before
 
 
-def test_the_claim_is_keyed_on_repo_number_and_sha(pem, trust_merge):
+def test_the_claim_is_keyed_on_repo_number_and_sha(pem):
     port, store, _, run_id = world(pem, Fake())
     merge(port, run_id)
     [claim] = store.find(MERGE_ONCE_COLLECTION)
@@ -398,7 +373,7 @@ def test_the_claim_is_keyed_on_repo_number_and_sha(pem, trust_merge):
 # --------------------------------------------------------------------------- branch delete
 
 
-def test_delete_branch_deletes_the_same_repo_head_after_a_merge(pem, trust_merge):
+def test_delete_branch_deletes_the_same_repo_head_after_a_merge(pem):
     fake = Fake()
     port, _, _, run_id = world(pem, fake)
     res = merge(port, run_id, delete_branch=True)
@@ -406,7 +381,7 @@ def test_delete_branch_deletes_the_same_repo_head_after_a_merge(pem, trust_merge
     assert res.output["branch_deleted"] is True
 
 
-def test_delete_branch_leaves_a_fork_head_alone(pem, trust_merge):
+def test_delete_branch_leaves_a_fork_head_alone(pem):
     fake = Fake(head_repo="someone/widgets")
     port, _, _, run_id = world(pem, fake)
     res = merge(port, run_id, delete_branch=True)
@@ -415,14 +390,14 @@ def test_delete_branch_leaves_a_fork_head_alone(pem, trust_merge):
     assert res.output["branch_deleted"] is False
 
 
-def test_no_delete_after_a_refused_merge(pem, trust_merge):
+def test_no_delete_after_a_refused_merge(pem):
     fake = Fake(merge_status=409)
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id, delete_branch=True)
     assert [m for (m, _) in fake.calls if m == "DELETE"] == []
 
 
-def test_no_delete_without_delete_branch(pem, trust_merge):
+def test_no_delete_without_delete_branch(pem):
     fake = Fake()
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id)
@@ -430,7 +405,7 @@ def test_no_delete_without_delete_branch(pem, trust_merge):
 
 
 @pytest.mark.parametrize("status", [404, 422])
-def test_a_branch_already_gone_is_not_a_merge_failure(pem, trust_merge, status):
+def test_a_branch_already_gone_is_not_a_merge_failure(pem, status):
     port, _, _, run_id = world(pem, Fake(delete_status=status))
     res = merge(port, run_id, delete_branch=True)
     assert res.outcome == "completed"
@@ -445,7 +420,7 @@ def _nothing_touched(fake, resolved):
     return fake.calls == [] and resolved == []
 
 
-def test_a_run_not_started_by_a_click_is_refused_before_any_secret_or_call(pem, trust_merge):
+def test_a_run_not_started_by_a_click_is_refused_before_any_secret_or_call(pem):
     fake = Fake()
     envelope = click_envelope("github.pr.opened")
     port, _, resolved, run_id = world(pem, fake, envelope=envelope)
@@ -454,7 +429,7 @@ def test_a_run_not_started_by_a_click_is_refused_before_any_secret_or_call(pem, 
     assert _nothing_touched(fake, resolved)
 
 
-def test_a_click_trigger_without_its_stored_event_is_refused(pem, trust_merge):
+def test_a_click_trigger_without_its_stored_event_is_refused(pem):
     fake = Fake()
     port, _, resolved, run_id = world(pem, fake, stored_event=False)
     res = merge(port, run_id)
@@ -462,7 +437,7 @@ def test_a_click_trigger_without_its_stored_event_is_refused(pem, trust_merge):
     assert _nothing_touched(fake, resolved)
 
 
-def test_a_stored_event_of_another_type_is_refused(pem, trust_merge):
+def test_a_stored_event_of_another_type_is_refused(pem):
     fake = Fake()
     port, store, resolved, run_id = world(pem, fake)
     store.put("events", {"id": EVENT, "envelope": click_envelope("github.pr.opened")})
@@ -471,7 +446,7 @@ def test_a_stored_event_of_another_type_is_refused(pem, trust_merge):
     assert _nothing_touched(fake, resolved)
 
 
-def test_a_run_not_started_by_its_rules_firing_is_refused(pem, trust_merge):
+def test_a_run_not_started_by_its_rules_firing_is_refused(pem):
     fake = Fake()
     run = {
         "id": "run-by-hand",
@@ -486,7 +461,7 @@ def test_a_run_not_started_by_its_rules_firing_is_refused(pem, trust_merge):
     assert _nothing_touched(fake, resolved)
 
 
-def test_a_direct_workflow_run_is_refused(pem, trust_merge):
+def test_a_direct_workflow_run_is_refused(pem):
     fake = Fake()
     run = {
         "id": "run-direct",
@@ -502,27 +477,7 @@ def test_a_direct_workflow_run_is_refused(pem, trust_merge):
     assert _nothing_touched(fake, resolved)
 
 
-def test_an_untrusted_workflow_is_refused_before_any_secret_or_call(pem):
-    fake = Fake()  # no trust_merge: the merge role ships with no pinned digest
-    port, _, resolved, run_id = world(pem, fake)
-    res = merge(port, run_id)
-    assert (res.error, res.retryable) == ("workflow_not_trusted", False)
-    assert _nothing_touched(fake, resolved)
-
-
-def test_a_workflow_trusted_in_another_role_is_refused(pem, monkeypatch):
-    roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
-    roles[trusted.ROLE_PUBLISH] = roles[trusted.ROLE_PUBLISH] | {
-        trusted.workflow_digest_v2(WORKFLOW)
-    }
-    monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
-    fake = Fake()
-    port, _, resolved, run_id = world(pem, fake)
-    assert merge(port, run_id).error == "workflow_not_trusted"
-    assert _nothing_touched(fake, resolved)
-
-
-def test_a_disabled_source_rule_is_refused_before_any_secret_or_call(pem, trust_merge):
+def test_a_disabled_source_rule_is_refused_before_any_secret_or_call(pem):
     fake = Fake()
     port, _, resolved, run_id = world(pem, fake, rule_enabled=False)
     res = merge(port, run_id)
@@ -530,7 +485,7 @@ def test_a_disabled_source_rule_is_refused_before_any_secret_or_call(pem, trust_
     assert _nothing_touched(fake, resolved)
 
 
-def test_an_unknown_run_is_refused(pem, trust_merge):
+def test_an_unknown_run_is_refused(pem):
     fake = Fake()
     port, _, resolved, _ = world(pem, fake)
     res = merge(port, "run-missing")
@@ -543,100 +498,170 @@ def test_the_fence_codes_are_distinct():
 
     codes = {
         github_merge.NOT_CLICK,
-        "workflow_not_trusted",
-        github_merge.PROMPT_NOT_TRUSTED,
+        db.CODE_NOT_FOUND,
+        db.CODE_MISMATCH,
+        db.CODE_USED,
         "rule_disabled",
         github_merge.NOT_APP,
     }
-    assert len(codes) == 5
+    assert len(codes) == 6
 
 
-# --------------------------------------------------------------------------- the prompt (d2)
+# --------------------------------------------------------------------------- the code (d3)
 
 
-def _stored_click(store, posted_by):
-    envelope = click_envelope(posted_by=posted_by)
+def _stored_click(store, code, custom_id=CUSTOM_ID):
+    envelope = click_envelope(code=code, custom_id=custom_id)
     store.put("events", {"id": envelope["id"], "envelope": envelope})
 
 
-def test_a_button_posted_by_a_trusted_prompt_merges(pem, trust_merge):
+def _code_doc(store):
+    (doc,) = store.find(db.CODES_COLLECTION)
+    return doc
+
+
+def test_a_click_with_its_buttons_code_merges(pem):
     port, _, _, run_id = world(pem, Fake())
     assert merge(port, run_id).outcome == "completed"
 
 
-def test_a_click_with_no_poster_is_refused_before_any_secret_or_call(pem, trust_merge):
+def test_the_merge_uses_up_the_code(pem):
+    port, store, _, run_id = world(pem, Fake())
+    merge(port, run_id)
+    assert _code_doc(store)["used_by"] == run_id
+
+
+def test_no_workflow_digest_is_needed(pem):
+    port, _, _, run_id = world(pem, Fake())
+    assert all("merge" not in role for role in trusted.TRUSTED_WORKFLOWS_V2)
+    assert merge(port, run_id).outcome == "completed"
+
+
+def test_a_click_without_a_code_is_refused_before_any_secret_or_call(pem):
     fake = Fake()
-    port, store, resolved, run_id = world(pem, fake)
-    _stored_click(store, None)
+    port, _, resolved, run_id = world(pem, fake, code=False)
     res = merge(port, run_id)
-    assert (res.error, res.retryable) == ("prompt_not_trusted", False)
+    assert (res.error, res.retryable) == (db.CODE_NOT_FOUND, False)
     assert _nothing_touched(fake, resolved)
 
 
-@pytest.mark.parametrize(
-    "posted_by",
-    [{}, {"workflow_id": "merge_prompt"}, {"run_id": ""}, {"run_id": 7}, "run-prompt", []],
-)
-def test_a_poster_without_a_run_id_is_refused(pem, trust_merge, posted_by):
+def test_a_forged_code_is_refused(pem):
     fake = Fake()
     port, store, resolved, run_id = world(pem, fake)
-    _stored_click(store, posted_by)
-    assert merge(port, run_id).error == "prompt_not_trusted"
+    _stored_click(store, "forged-code")
+    assert merge(port, run_id).error == db.CODE_NOT_FOUND
     assert _nothing_touched(fake, resolved)
 
 
-def test_the_poster_is_read_from_the_stored_event_never_from_the_run(pem, trust_merge):
+def test_the_code_is_read_from_the_stored_event_never_from_the_run(pem):
     fake = Fake()
     port, store, resolved, run_id = world(pem, fake)
-    _stored_click(store, None)  # the run's own trigger copy still names the trusted poster
-    assert store.get("runs", run_id)["trigger"]["data"]["posted_by"] == POSTED_BY
-    assert merge(port, run_id).error == "prompt_not_trusted"
+    code = _code_doc(store)["id"]
+    _stored_click(store, None)  # the run's own trigger copy still holds the real code
+    assert store.get("runs", run_id)["trigger"]["data"]["code"] == code
+    assert merge(port, run_id).error == db.CODE_NOT_FOUND
     assert _nothing_touched(fake, resolved)
 
 
-def test_a_missing_posting_run_is_refused_before_any_secret_or_call(pem, trust_merge):
+def test_a_code_of_another_button_is_refused(pem):
     fake = Fake()
-    port, _, resolved, run_id = world(pem, fake, poster=False)
-    res = merge(port, run_id)
-    assert (res.error, res.retryable) == ("prompt_not_trusted", False)
+    port, store, resolved, run_id = world(pem, fake)
+    _stored_click(store, _code_doc(store)["id"], custom_id="merge:other")
+    assert merge(port, run_id).error == db.CODE_MISMATCH
     assert _nothing_touched(fake, resolved)
 
 
-def test_an_untrusted_posting_workflow_is_refused_before_any_secret_or_call(
-    pem, trust_merge, monkeypatch
-):
-    roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
-    roles[trusted.ROLE_MERGE_PROMPT] = frozenset()  # the shipped state of merge_prompt
-    monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
+@pytest.mark.parametrize("extra", [{"number": 4}, {"sha": "c" * 40}])
+def test_a_code_for_another_pr_or_commit_is_refused(pem, extra):
     fake = Fake()
     port, _, resolved, run_id = world(pem, fake)
+    assert merge(port, run_id, **extra).error == db.CODE_MISMATCH
+    assert _nothing_touched(fake, resolved)
+
+
+def test_a_code_another_run_used_is_refused(pem):
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    code = _code_doc(store)["id"]
+    store.put(db.CODES_COLLECTION, {**_code_doc(store), "used_at": NOW, "used_by": "run-other"})
+    assert code
+    assert merge(port, run_id).error == db.CODE_USED
+    assert _nothing_touched(fake, resolved)
+
+
+@pytest.mark.parametrize("status", [409, 405])
+def test_a_merge_github_refused_hands_the_code_back(pem, status):
+    port, store, _, run_id = world(pem, Fake(merge_status=status))
+    assert merge(port, run_id).error == f"http_{status}"
+    assert _code_doc(store)["used_by"] is None
+
+
+def test_after_a_refused_merge_the_same_button_can_merge_on_a_new_click(pem):
+    fake = Fake(merge_status=405)  # e.g. branch protection, fixed afterwards
+    port, store, _, run_id = world(pem, fake)
+    merge(port, run_id)
+    fake.merge_status = 200
+    click = click_envelope(code=_code_doc(store)["id"])
+    click["id"] = EVENT + "-again"  # a second interaction on the same button
+    store.put("events", {"id": click["id"], "envelope": click})
+    again = {**store.get("runs", run_id), "id": run_id_for(RULE, click["id"]), "trigger": click}
+    store.put("runs", again)
+    assert merge(port, again["id"]).outcome == "completed"
+
+
+def test_a_closed_pr_hands_the_code_back(pem):
+    port, store, _, run_id = world(pem, Fake(state="closed"))
+    assert merge(port, run_id).error == "pr_not_open"
+    assert _code_doc(store)["used_by"] is None
+
+
+def test_a_secret_failure_hands_the_code_back(pem):
+    port, store, _, run_id = world(pem, Fake())
+
+    def boom(ref):
+        raise RuntimeError("no grant")
+
+    port._secrets = boom
+    assert merge(port, run_id).error == "secret_unavailable"
+    assert _code_doc(store)["used_by"] is None
+
+
+def test_an_unknown_outcome_keeps_the_code_used(pem):
+    port, store, _, run_id = world(pem, Fake(merge_raises=OSError("reset")))
+    assert merge(port, run_id).error == "network_error"
+    assert _code_doc(store)["used_by"] == run_id
+
+
+def test_a_merged_pr_keeps_the_code_used(pem):
+    port, store, _, run_id = world(pem, Fake())
+    assert merge(port, run_id).outcome == "completed"
+    assert _code_doc(store)["used_by"] == run_id
+
+
+def test_a_store_failure_in_the_fence_is_retryable(pem, monkeypatch):
+    from culture_rules.store.port import StoreError
+
+    port, _, resolved, run_id = world(pem, Fake())
+
+    def contended(*_a, **_k):
+        raise StoreError("too much contention")
+
+    monkeypatch.setattr(db, "use_code", contended)
     res = merge(port, run_id)
-    assert (res.error, res.retryable) == ("prompt_not_trusted", False)
-    assert _nothing_touched(fake, resolved)
+    assert (res.error, res.retryable) == ("store_unavailable", True)
+    assert resolved == []
 
 
-def test_a_changed_posting_workflow_is_refused(pem, trust_merge):
-    fake = Fake()
-    port, store, resolved, run_id = world(pem, fake)
-    edited = json.loads(json.dumps(PROMPT))
-    edited["steps"][0]["config"]["channel"] = "9999"
-    store.put("runs", prompt_run(edited))
-    assert merge(port, run_id).error == "prompt_not_trusted"
-    assert _nothing_touched(fake, resolved)
-
-
-def test_a_button_posted_by_the_merge_workflow_itself_is_refused(pem, trust_merge):
-    fake = Fake()
-    port, store, resolved, run_id = world(pem, fake)
-    _stored_click(store, {"run_id": run_id, "workflow_id": "merge"})
-    assert merge(port, run_id).error == "prompt_not_trusted"
-    assert _nothing_touched(fake, resolved)
+def test_a_refusal_before_the_code_leaves_it_unused(pem):
+    port, store, _, run_id = world(pem, Fake(), rule_enabled=False)
+    assert merge(port, run_id).error == "rule_disabled"
+    assert _code_doc(store)["used_at"] is None
 
 
 # --------------------------------------------------------------------------- input and actor
 
 
-def test_an_unlisted_repo_is_refused_before_any_secret_or_call(pem, trust_merge):
+def test_an_unlisted_repo_is_refused_before_any_secret_or_call(pem):
     fake = Fake()
     port, _, resolved, run_id = world(pem, fake)
     res = merge(port, run_id, repo="evil/repo")
@@ -662,7 +687,7 @@ def test_an_unlisted_repo_is_refused_before_any_secret_or_call(pem, trust_merge)
         {"number": None},
     ],
 )
-def test_bad_input_is_refused_before_any_secret_or_call(pem, trust_merge, extra):
+def test_bad_input_is_refused_before_any_secret_or_call(pem, extra):
     fake = Fake()
     port, _, resolved, run_id = world(pem, fake)
     res = merge(port, run_id, **extra)
@@ -670,7 +695,7 @@ def test_bad_input_is_refused_before_any_secret_or_call(pem, trust_merge, extra)
     assert _nothing_touched(fake, resolved)
 
 
-def test_a_missing_actor_is_actor_not_found(pem, trust_merge):
+def test_a_missing_actor_is_actor_not_found(pem):
     fake = Fake()
     port, store, resolved, run_id = world(pem, fake)
     store.delete("actors", "gh-app")
@@ -678,7 +703,7 @@ def test_a_missing_actor_is_actor_not_found(pem, trust_merge):
     assert _nothing_touched(fake, resolved)
 
 
-def test_a_secret_failure_is_secret_unavailable(pem, trust_merge):
+def test_a_secret_failure_is_secret_unavailable(pem):
     fake = Fake()
     port, store, _, run_id = world(pem, fake)
 
@@ -690,14 +715,14 @@ def test_a_secret_failure_is_secret_unavailable(pem, trust_merge):
     assert fake.calls == []
 
 
-def test_the_token_never_reaches_the_logs(pem, trust_merge, caplog):
+def test_the_token_never_reaches_the_logs(pem, caplog):
     caplog.set_level(logging.DEBUG)
     port, _, _, run_id = world(pem, Fake())
     merge(port, run_id, delete_branch=True)
     assert FAKE_BEARER not in caplog.text
 
 
-def test_a_repeat_after_a_merge_reports_the_merge_commit(pem, trust_merge):
+def test_a_repeat_after_a_merge_reports_the_merge_commit(pem):
     port, _, _, run_id = world(pem, Fake())
     merge(port, run_id, delete_branch=True)
     again = merge(port, run_id, delete_branch=True)
@@ -712,7 +737,7 @@ def _deletes(fake):
     return [u for (m, u) in fake.calls if m == "DELETE"]
 
 
-def test_a_merged_before_repeat_deletes_a_branch_not_yet_deleted(pem, trust_merge):
+def test_a_merged_before_repeat_deletes_a_branch_not_yet_deleted(pem):
     fake = Fake()
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id)  # merged, no delete asked
@@ -721,14 +746,14 @@ def test_a_merged_before_repeat_deletes_a_branch_not_yet_deleted(pem, trust_merg
     assert _deletes(fake) == [f"https://api.github.com/repos/{REPO}/git/refs/heads/fix/x"]
 
 
-def test_a_merged_before_repeat_reports_the_delete(pem, trust_merge):
+def test_a_merged_before_repeat_reports_the_delete(pem):
     port, _, _, run_id = world(pem, Fake())
     merge(port, run_id)
     again = merge(port, run_id, delete_branch=True)
     assert again.output["branch_deleted"] is True
 
 
-def test_a_merged_before_repeat_records_the_delete_on_the_claim(pem, trust_merge):
+def test_a_merged_before_repeat_records_the_delete_on_the_claim(pem):
     port, store, _, run_id = world(pem, Fake())
     merge(port, run_id)
     merge(port, run_id, delete_branch=True)
@@ -736,7 +761,7 @@ def test_a_merged_before_repeat_records_the_delete_on_the_claim(pem, trust_merge
     assert claim["branch_deleted"] is True
 
 
-def test_a_merged_before_repeat_never_deletes_twice(pem, trust_merge):
+def test_a_merged_before_repeat_never_deletes_twice(pem):
     fake = Fake()
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id, delete_branch=True)
@@ -744,7 +769,7 @@ def test_a_merged_before_repeat_never_deletes_twice(pem, trust_merge):
     assert len(_deletes(fake)) == 1
 
 
-def test_a_merged_before_repeat_does_not_retry_a_recorded_delete_error(pem, trust_merge):
+def test_a_merged_before_repeat_does_not_retry_a_recorded_delete_error(pem):
     fake = Fake(delete_status=422)
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id, delete_branch=True)
@@ -753,7 +778,7 @@ def test_a_merged_before_repeat_does_not_retry_a_recorded_delete_error(pem, trus
     assert again.output["branch_delete_error"] == "http_422"
 
 
-def test_a_merged_before_repeat_without_delete_branch_deletes_nothing(pem, trust_merge):
+def test_a_merged_before_repeat_without_delete_branch_deletes_nothing(pem):
     fake = Fake()
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id)
@@ -761,7 +786,7 @@ def test_a_merged_before_repeat_without_delete_branch_deletes_nothing(pem, trust
     assert _deletes(fake) == []
 
 
-def test_a_merged_unconfirmed_outcome_deletes_the_branch(pem, trust_merge):
+def test_a_merged_unconfirmed_outcome_deletes_the_branch(pem):
     fake = Fake(merge_status=502)
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id, delete_branch=True)
@@ -771,7 +796,7 @@ def test_a_merged_unconfirmed_outcome_deletes_the_branch(pem, trust_merge):
     assert len(_deletes(fake)) == 1
 
 
-def test_a_merged_unconfirmed_outcome_reports_the_delete(pem, trust_merge):
+def test_a_merged_unconfirmed_outcome_reports_the_delete(pem):
     fake = Fake(merge_status=502)
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id, delete_branch=True)
@@ -780,7 +805,7 @@ def test_a_merged_unconfirmed_outcome_reports_the_delete(pem, trust_merge):
     assert res.output["branch_deleted"] is True
 
 
-def test_a_merged_unconfirmed_outcome_records_the_delete_on_the_claim(pem, trust_merge):
+def test_a_merged_unconfirmed_outcome_records_the_delete_on_the_claim(pem):
     fake = Fake(merge_status=502)
     port, store, _, run_id = world(pem, fake)
     merge(port, run_id, delete_branch=True)
@@ -790,7 +815,7 @@ def test_a_merged_unconfirmed_outcome_records_the_delete_on_the_claim(pem, trust
     assert claim["branch_deleted"] is True
 
 
-def test_a_merged_unconfirmed_outcome_leaves_a_fork_head_alone(pem, trust_merge):
+def test_a_merged_unconfirmed_outcome_leaves_a_fork_head_alone(pem):
     fake = Fake(merge_status=502, head_repo="someone/widgets")
     port, _, _, run_id = world(pem, fake)
     merge(port, run_id, delete_branch=True)
@@ -803,9 +828,7 @@ def test_a_merged_unconfirmed_outcome_leaves_a_fork_head_alone(pem, trust_merge)
 # --------------------------------------------------------------------------- the pinned App
 
 
-def test_an_app_actor_with_no_pinned_digest_is_refused_before_any_secret_or_call(
-    pem, trust_merge, monkeypatch
-):
+def test_an_app_actor_with_no_pinned_digest_is_refused_before_any_secret_or_call(pem, monkeypatch):
     unpinned = {k: v for k, v in trusted.TRUSTED_ACTOR_DIGESTS.items() if k != "gh-app"}
     monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", unpinned)
     fake = Fake()
@@ -816,7 +839,7 @@ def test_an_app_actor_with_no_pinned_digest_is_refused_before_any_secret_or_call
 
 
 def test_an_app_actor_whose_security_fields_changed_is_refused_before_any_secret_or_call(
-    pem, trust_merge
+    pem,
 ):
     fake = Fake()
     port, store, resolved, run_id = world(pem, fake)
@@ -828,9 +851,7 @@ def test_an_app_actor_whose_security_fields_changed_is_refused_before_any_secret
     assert _nothing_touched(fake, resolved)
 
 
-def test_an_actor_that_is_not_an_app_is_refused_before_any_secret_or_call(
-    pem, trust_merge, monkeypatch
-):
+def test_an_actor_that_is_not_an_app_is_refused_before_any_secret_or_call(pem, monkeypatch):
     doc = actor_doc()
     doc["kind"] = "service"  # its digest leaves the connection out: it must never merge
     pinned = {**trusted.TRUSTED_ACTOR_DIGESTS, "gh-app": frozenset({trusted.actor_digest(doc)})}
@@ -843,22 +864,9 @@ def test_an_actor_that_is_not_an_app_is_refused_before_any_secret_or_call(
     assert _nothing_touched(fake, resolved)
 
 
-def test_a_new_repo_for_the_pinned_app_keeps_it_trusted(pem, trust_merge):
+def test_a_new_repo_for_the_pinned_app_keeps_it_trusted(pem):
     port, store, _, run_id = world(pem, Fake())
     doc = actor_doc()
     doc["params"]["connection"]["repos"].append("acme/other")
     store.put("actors", doc)
     assert merge(port, run_id).outcome == "completed"
-
-
-@pytest.mark.parametrize("step", ["@action", "@on_failure", "nope", "", None])
-def test_a_button_not_posted_by_a_step_of_the_prompt_workflow_is_refused(pem, trust_merge, step):
-    """The rule's own terminal action runs inside the prompt run but is not covered by the
-    workflow's digest: a button it posted (or one naming no such step) cannot merge."""
-    fake = Fake()
-    port, store, resolved, run_id = world(pem, fake)
-    _stored_click(store, {**POSTED_BY, "step": step})
-    res = merge(port, run_id)
-    assert (res.error, res.retryable) == ("prompt_not_trusted", False)
-    assert resolved == []
-    assert fake.calls == []

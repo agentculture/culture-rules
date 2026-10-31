@@ -33,7 +33,7 @@ export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
   { name: "discord.reply", summary: "Answer a Discord slash or message command privately" },
   { name: "discord.sweep", summary: "Read a Discord channel's messages since the last run" },
   { name: "github.comment", summary: "Comment on a GitHub issue or PR" },
-  { name: "github.merge", summary: "Squash-merge a PR at a given head commit (only from a button click in a merge-trusted workflow)" },
+  { name: "github.merge", summary: "Squash-merge a PR at a given head commit (only from a click carrying the button's one-time code)" },
   { name: "github.pr", summary: "Read a PR's state (read-only)" },
   { name: "github.push", summary: "Fast-forward a same-repo PR's head branch (never force)" },
   { name: "github.review_reply", summary: "Reply in a PR review thread, optionally resolving it" },

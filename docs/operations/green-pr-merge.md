@@ -38,14 +38,11 @@ posts the button with the id `merge:<token>` (the given `custom_id` `merge`, a
 before the message goes out. When the button is clicked, the gateway reads the
 stored value and puts it in the click's event as `data.value`, so the click
 workflow reads `trigger.data.value.repo`, `.number` and `.sha` directly. Only the
-bot's own post writes the value, and a clicker cannot change it. The stored button
-also records who posted it, `posted_by: {run_id, workflow_id}` (the run whose step
-posted it), which the click's event carries as `data.posted_by`. `github.merge`
-merges only a button whose posting run's workflow is the pinned `merge_prompt`
-workflow (step 3), so a button another workflow posts with the same `merge`
-prefix merges nothing. The value is
-kept for 30 days; a click after that carries `value: null`, so the merge has no
-`number` or `sha` and `github.merge` refuses it without merging.
+bot's own post writes the value, and a clicker cannot change it. The prompt's
+button also asks for a **one-time code** (`code: true`, [step 3](#3-the-one-time-code)),
+stored with the value and carried by the click as `data.code`; `github.merge` merges
+only with it. The value and the code are kept for 30 days; a click after that carries
+neither, and `github.merge` refuses it without merging.
 
 `tests/rules/test_green_merge_flow.py` drives this composition end to end on doubles of
 GitHub and Discord, with the rules built in the test. A live setup still depends on your
@@ -69,8 +66,7 @@ first (see [Verify](#4-verify)).
 
   A comparison on a missing fact is false, so a PR whose facts are missing is never
   prompted.
-- **Workflow `merge_prompt`** (its id must be exactly `merge_prompt`, see
-  [step 3](#3-pin-the-merge-workflow)): inputs `repo`, `number` (integer) and `sha`,
+- **Workflow `merge_prompt`** (any id; nothing is pinned): inputs `repo`, `number` (integer) and `sha`,
   mapped from `trigger.data.repository`, `trigger.data.number` and
   `trigger.data.head_sha`. The settled event carries no title, link or author name, so
   the workflow reads the PR first. Two built-in action steps (`config.builtin: action`):
@@ -88,7 +84,8 @@ first (see [Verify](#4-verify)).
     "buttons": [{"label": "Merge", "style": "success", "custom_id": "merge",
                  "value": {"repo": "inputs.repo",
                            "number": "inputs.number",
-                           "sha": "inputs.sha"}}]
+                           "sha": "inputs.sha"},
+                 "code": true}]
   }}
   ```
 
@@ -96,8 +93,7 @@ first (see [Verify](#4-verify)).
   holds the PR's repo, number and the settled head sha (not `pr`'s head, which may have
   moved on). The step's outputs are `message_id` and `custom_ids` (here one id,
   `merge:<token>`). This is the workflow `tests/rules/test_green_merge_flow.py` builds.
-- **Action:** `noop`. Post the button from the workflow's step, never from the
-  rule's action: the step is part of the pinned digest, the rule's action is not.
+- **Action:** `noop`.
 
 ## 2. Rule 2: the click
 
@@ -108,8 +104,7 @@ first (see [Verify](#4-verify)).
   may merge; a click by anyone else is answered privately "This button is not set up
   here.", records nothing and leaves the Merge button enabled for you. Give other
   flows' buttons a different `custom_id`.
-- **Workflow `merge`** (its id must be exactly `merge`, see
-  [step 3](#3-pin-the-merge-workflow)): inputs `repository` (string), `number`
+- **Workflow `merge`** (any id; nothing is pinned): inputs `repository` (string), `number`
   (integer) and `head_sha` (string), mapped from `trigger.data.value.repo`,
   `trigger.data.value.number` and `trigger.data.value.sha`. One step, `merge`, a
   built-in action step (`config.builtin: action`) of kind `github.merge` with params
@@ -136,44 +131,37 @@ The click itself already turned the button into a disabled one, so a prompt is c
 once. `github.merge` re-reads the PR and merges only at `sha`: a commit pushed after
 the prompt is refused and nothing newer is ever merged.
 
-## 3. Pin the merge workflow
+## 3. The one-time code
 
-Going live pins **two** digests. `github.merge` runs only in a workflow trusted in the
-`merge` role, and only on a button posted by a run of a workflow trusted in the
-`merge_prompt` role. Both roles ship with no digest (`culture_rules/actors/trusted.py`,
-`ROLE_MERGE` and `ROLE_MERGE_PROMPT`, empty in `TRUSTED_WORKFLOWS` and
-`TRUSTED_WORKFLOWS_V2`). Until a release pins both live workflows' digests, every merge
-fails `workflow_not_trusted` (the merge workflow) or `prompt_not_trusted` (the prompt
-workflow). This is the same digest-pinning as the PR fixer's roles, described in
-[`pr-fixer.md`](pr-fixer.md#trusted-workflows-d20-round-2-d21-roles). For each of the
-two workflows:
+Nothing is pinned for this flow: both workflows are configuration, so moving the prompt
+to another channel, changing its text or adding a step is an edit (deviation d3 of the
+plan). What gates the merge is your click and the button's code:
 
-1. Import it with its id, `merge_prompt` or `merge`, with `--apply`
-   (`culture-rules workflows create` or `import`). The id must be the role's name: the
-   editor's "Save a trusted workflow?" question matches by id.
-2. Export it (`culture-rules workflows export`) and print its v2 digest, which leaves out
-   the version, description and notes:
+- the prompt's `discord.message` issues the code when it stores the button (`code: true`),
+  bound to the value it stores: the PR's repo, number and sha;
+- the gateway copies it onto the click's event (`data.code`), as it copies the value; a
+  clicker cannot supply one;
+- `github.merge` reads it from the stored click and merges only when it was issued
+  (`code_not_found`), belongs to the clicked button and holds this merge's repo, number
+  and sha (`code_mismatch`), and is unused (`code_used`); it then uses it up, by
+  compare-and-set. The same run's retry passes; a second click, a replayed click, or a
+  button another workflow posted without a code merges nothing.
 
-   ```bash
-   python -m culture_rules.actors.trusted workflow-v2 < merge_prompt.json
-   python -m culture_rules.actors.trusted workflow-v2 < merge.json
-   ```
+A merge that merged nothing (a missing App secret, a closed PR, a moved head, a merge
+GitHub refused, e.g. for branch protection) hands the code back, so you can click the same
+button again once the cause is fixed.
 
-3. Add each printed `sha256:...` to its role of `TRUSTED_WORKFLOWS_V2` in
-   `culture_rules/actors/trusted.py` (`merge_prompt`'s to `ROLE_MERGE_PROMPT`, `merge`'s
-   to `ROLE_MERGE`), in one PR (which bumps the version as every PR does).
-4. Release it and upgrade every node (`culture-rules rollout`, see
-   [`rollout.md`](rollout.md)).
+**Upgrading from 0.39:** buttons posted before 0.40.0 have no code, and their clicks fail
+`code_not_found`. Add `code: true` to the live prompt's button (an edit) during the
+rollout; a PR prompted before it needs a fresh green run to be prompted again.
 
-Any later change to either live workflow (a step, a port, a param) gives it a new digest
-and it is untrusted again until a new pin ships: both changes need a re-pin. The run still
-starts, and `github.merge` refuses it (a changed prompt workflow refuses the buttons its
-new runs post). Keep the old digest while runs pinned to it may be in flight. Saving the
-original definition back restores the trust.
+Who may click is rule 2's `users` filter. Keep it to yourself: with no workflow pinned,
+any workflow that posts a coded `merge` button for a PR is offered to you, and your click
+is the approval.
 
 ## 4. Verify
 
-- Enable both rules only after the release (both pins) is on every node.
+- Enable rule 2 before rule 1, so the channel is selected before the first prompt.
 - On a throwaway repo, open a PR and let its checks go green: one prompt should appear
   in `<channel-id>` within about a minute, with the PR's repo, number, title, author and
   link, and one Merge button.
@@ -183,6 +171,6 @@ original definition back restores the trust.
   holds `merged: true` and the merge commit.
 - Click as another user, or push a new commit to a second prompted PR before clicking:
   the first is refused privately by the filter, the second fails `head_moved` and
-  nothing is merged.
+  nothing is merged. A second click on a merged prompt fails `code_used`.
 - A direct `culture-rules workflows run merge` fails `not_started_by_click`, which is
   the fence: no agent, schedule or API call can merge.

@@ -299,13 +299,14 @@ export function actionProblem(stored: Action): "no_actor_port" | "empty" | "inva
   for (const [name, p] of Object.entries(spec.params)) {
     if (!isEmpty(params[name]) && !typeOk(p, params[name])) return "invalid_value";
   }
-  return buttonsTooLong(action.kind, params) ? "invalid_value" : null;
+  return buttonsInvalid(action.kind, params) ? "invalid_value" : null;
 }
 
-/** A discord.message button whose posted id would pass Discord's 100 characters. */
-function buttonsTooLong(kind: string, params: Record<string, unknown>): boolean {
+/** A discord.message button whose posted id would pass Discord's 100 characters, or whose
+ * one-time code has no value to be bound to. */
+function buttonsInvalid(kind: string, params: Record<string, unknown>): boolean {
   if (canonical(kind) !== "discord.message" || !Array.isArray(params.buttons)) return false;
-  return (params.buttons as DiscordButton[]).some((b) => buttonIdTooLong(b));
+  return (params.buttons as DiscordButton[]).some((b) => buttonIdTooLong(b) || codeWithoutValue(b));
 }
 
 const enabled = (a: Actor) => a.enabled !== false;
@@ -890,6 +891,11 @@ const MAX_CUSTOM_ID = 100;
 const MAX_VALUED_CUSTOM_ID = 77;
 const hasValue = (b: ButtonSpec) => b.value !== undefined && b.value !== null;
 const idLimit = (b: ButtonSpec) => (hasValue(b) ? MAX_VALUED_CUSTOM_ID : MAX_CUSTOM_ID);
+/** A one-time code is bound to the button's value, so it needs one. */
+function codeWithoutValue(b: ButtonSpec): boolean {
+  return b.code === true && b.value === undefined;
+}
+
 function buttonIdTooLong(b: ButtonSpec): boolean {
   return (b.custom_id ?? "").length > idLimit(b);
 }
@@ -978,7 +984,10 @@ function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: 
       rows.map((r, j) => {
         if (j !== i) return r;
         const next = { ...r, ...patch };
+        // clearing the value keeps the code: the save is blocked until a value is back or the
+        // code is turned off, so retyping a value never drops it silently
         if ("value" in patch && patch.value === undefined) delete next.value;
+        if ("code" in patch && patch.code === undefined) delete next.code;
         return next;
       }),
     );
@@ -1017,6 +1026,21 @@ function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: 
             ) : null}
           </label>
           <ButtonValueField index={i} value={r.value} onChange={(v) => edit(i, { value: v })} />
+          {r.value === undefined && r.code !== true ? null : (
+            <label>
+              <input
+                type="checkbox"
+                checked={r.code === true}
+                onChange={(e) => edit(i, { code: e.target.checked || undefined })}
+              />
+              <span>{`Button ${i + 1} gets a one-time code`}</span>
+            </label>
+          )}
+          {codeWithoutValue(r) ? (
+            <span className="notice notice--error" role="alert">
+              {`Button ${i + 1} one-time code needs a value`}
+            </span>
+          ) : null}
           <button type="button" onClick={() => save(rows.filter((_, j) => j !== i))}>
             {`Remove button ${i + 1}`}
           </button>
