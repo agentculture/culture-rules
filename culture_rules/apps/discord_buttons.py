@@ -16,10 +16,12 @@ click always finds it), one document per valued button::
     {id: "<actor id>:<posted custom_id>", actor_id, custom_id, value, channel_id,
      message_id, created_at, expires_at}
 
-``message_id`` is filled after the post (best effort); a failed post deletes the documents
-again. ``expires_at`` is :data:`BUTTON_VALUE_TTL` (30 days) after ``created_at``; the TTL index
-:data:`BUTTONS_TTL_INDEX` deletes the document then, and :func:`button_value` treats a passed
-``expires_at`` as gone. A click on an expired button carries no value.
+``message_id`` is filled after the post (best effort); a post Discord definitively refused
+deletes the documents again (one that may have landed - a timeout, a 5xx, a 429, a lost
+connection - keeps them). ``expires_at`` is :data:`BUTTON_VALUE_TTL` (30 days) after
+``created_at``; the TTL index :data:`BUTTONS_TTL_INDEX` deletes the document then, and
+:func:`button_value` treats a passed ``expires_at`` as gone. A click on an expired button
+carries no value.
 
 Only the bot's own ``discord.message`` port writes these documents: the gateway reads the
 value by the actor and the clicked ``custom_id`` and attaches it to the
@@ -183,7 +185,7 @@ def set_message_id(store: Any, ids: Sequence[str], message_id: str) -> None:
 
 
 def forget_buttons(store: Any, ids: Iterable[str]) -> None:
-    """Delete the documents (the post failed); each delete is best effort."""
+    """Delete the documents (Discord refused the post); each delete is best effort."""
     for doc_id in ids:
         try:
             store.delete(BUTTONS_COLLECTION, doc_id)

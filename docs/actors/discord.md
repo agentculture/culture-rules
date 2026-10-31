@@ -340,7 +340,9 @@ is posted with the id `<custom_id>:<token>`, a fresh random token, so its given
 id, and nothing has to parse it. Before the message is posted, the port stores
 one document per valued button in `discord_buttons`, keyed by the actor and the
 posted id, with the value, the channel and, once posted, the message id. A post
-that fails deletes them again. The documents expire after 30 days (a TTL
+Discord refuses (a 4xx other than 429) deletes them again; after a timeout, a
+5xx, a 429 or a lost connection the message may be up, so they are kept. The
+documents expire after 30 days (a TTL
 index), and a click after that carries no value. A button without a `value`
 is posted with its `custom_id` unchanged.
 

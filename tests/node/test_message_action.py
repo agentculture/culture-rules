@@ -6,6 +6,8 @@ import json
 import subprocess
 from datetime import UTC, datetime
 
+import pytest
+
 from culture_rules.engine.actorport import FAILED, InvocationContext
 from culture_rules.node.actions.message import MessageAction
 from culture_rules.store.memory import MemoryStore
@@ -302,13 +304,66 @@ def test_the_value_is_stored_before_the_post():
     assert seen == [[VALUE]]
 
 
-def test_a_failed_post_drops_the_stored_values_and_fails_as_before():
+def test_a_refused_post_drops_the_stored_values_and_fails_as_before():
+    t = FakeTransport(status=403, body={})
+    port, store = _valued_port(t)
+    res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    assert (res.outcome, res.retryable) == (FAILED, False)
+    assert _stored(store) == []
+
+
+def test_a_bad_request_post_drops_the_stored_values():
+    port, store = _valued_port(FakeTransport(status=400, body={}))
+    _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    assert _stored(store) == []
+
+
+def test_a_5xx_post_keeps_the_stored_values():
+    # Discord may have posted the message before the 5xx: its button keeps its meaning
     t = FakeTransport(status=500, body={})
     port, store = _valued_port(t)
     res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
-    assert res.outcome == FAILED
+    assert (res.outcome, res.retryable) == (FAILED, True)
+    assert [d["value"] for d in _stored(store)] == [VALUE]
+
+
+def test_a_rate_limited_post_keeps_the_stored_values():
+    port, store = _valued_port(FakeTransport(status=429, body={"retry_after": 1}))
+    res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
     assert res.retryable
-    assert _stored(store) == []
+    assert [d["value"] for d in _stored(store)] == [VALUE]
+
+
+def _raising(exc):
+    def transport(url, data, headers, timeout):
+        raise exc
+
+    return transport
+
+
+def test_a_timed_out_post_keeps_the_stored_values():
+    # the outcome is unknown: the message may be up, with a button that must keep its value
+    port, store = _valued_port(None)
+    port._transport = _raising(TimeoutError("slow"))
+    res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    assert (res.outcome, res.retryable) == (FAILED, False)
+    assert [d["value"] for d in _stored(store)] == [VALUE]
+
+
+def test_an_unreachable_post_keeps_the_stored_values():
+    port, store = _valued_port(None)
+    port._transport = _raising(ConnectionResetError("reset"))
+    res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    assert (res.outcome, res.retryable) == (FAILED, True)
+    assert [d["value"] for d in _stored(store)] == [VALUE]
+
+
+def test_an_unexpected_post_error_keeps_the_stored_values():
+    port, store = _valued_port(None)
+    port._transport = _raising(RuntimeError("odd"))
+    with pytest.raises(RuntimeError):
+        _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
+    assert [d["value"] for d in _stored(store)] == [VALUE]
 
 
 def test_a_store_failure_before_the_post_fails_without_posting():
