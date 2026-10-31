@@ -1209,6 +1209,23 @@ def test_a_copy_still_pushes_its_committed_versions_under_the_origin(root):
     assert call["default_branch_head"] == copy.head()
 
 
+def test_a_copy_never_sends_the_project_only_the_owner_does(root):
+    origin = "https://github.com/agentculture/lobes-cli"
+    copy = _clone(root, "model-gear", origin, "copy draft\n")
+    copy.write("culture.yaml", "domains: [copy-domain]\n")
+    copy.write("docs/plans/2026-10-31-copy.md", "committed in the copy\n")
+    copy.commit("copy only")
+    owner = _clone(root, "lobes-cli", origin, "owner draft\n")
+    owner.write("culture.yaml", "domains: [owner-domain]\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    (call,) = library.by("docs/plans/2026-10-31-copy.md")
+    assert "project" not in call
+    owner_projects = [c["project"] for c in library.calls if "project" in c]
+    assert owner_projects
+    assert all(p["domains"] == ["owner-domain"] for p in owner_projects)
+
+
 def test_owner_names_match_case_insensitively_with_dash_and_underscore_equal(root):
     origin = "https://github.com/agentculture/Jetson_Jolt.git"
     _clone(root, "aaa-copy", origin, "copy draft\n")

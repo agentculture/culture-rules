@@ -1014,14 +1014,16 @@ class _RepoSync:
         disk = set() if self.copy else set(self.disk)
         for rel in sorted(set(self.repo.tree) | disk | set(self.files)):
             self._file(rel)
-        if self.st.get("project") != self.project_key and not self.pushed_here:
+        if not self.copy and self.st.get("project") != self.project_key and not self.pushed_here:
             self._refresh_project()
 
     def _send(
         self, rel: str, body: dict[str, Any], *, tombstone: bool = False
     ) -> dict[str, Any] | None:
         """Push one request; the library's parsed answer, or ``None`` when it failed."""
-        body = {"remote": self.repo.remote, "path": rel, **body, "project": self.project}
+        body = {"remote": self.repo.remote, "path": rel, **body}
+        if not self.copy:  # only the owner's culture.yaml describes the project
+            body["project"] = self.project
         answer = self.run_._post(self._label(rel), body, tombstone=tombstone)
         if answer is None:
             return None

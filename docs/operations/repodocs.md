@@ -38,7 +38,7 @@ files, and repos that ignore `.devague` entirely.
   version current only when `commit == default_branch_head`.
 - **`project`** is `domains:` and `connected:` from the repo's
   `culture.yaml`, sent with every request. A repo without them sends empty
-  lists. A block list may be indented or at the key's own indentation. A
+  lists. A copy (another clone of an origin, see below) never sends it. A block list may be indented or at the key's own indentation. A
   `connected` entry written `org/repo` is sent as
   `https://github.com/org/repo`; a bare name such as `culture-rules` is not
   sent, and the run logs a warning naming it.
