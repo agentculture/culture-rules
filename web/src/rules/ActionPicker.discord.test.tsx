@@ -189,4 +189,66 @@ describe("discord.message buttons", () => {
       loadDiscordTargets={async () => TARGETS} />);
     expect(JSON.parse((screen.getByLabelText("Button 1 value") as HTMLTextAreaElement).value)).toEqual({ n: 1 });
   });
+
+  const two: Action = {
+    kind: "discord.message",
+    params: {
+      actor: "discord-bot",
+      buttons: [
+        { label: "A", style: "primary", custom_id: "a", value: { n: 1 } },
+        { label: "B", style: "primary", custom_id: "b", value: { n: 2 } },
+      ],
+    },
+  };
+  const picker = (value: Action) => (
+    <ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={() => {}}
+      loadDiscordTargets={async () => TARGETS} />
+  );
+  const valueOf = (n: number) => JSON.parse((screen.getByLabelText(`Button ${n} value`) as HTMLTextAreaElement).value);
+
+  it("shows the next button's value after the first is removed", async () => {
+    function Keep() {
+      const [value, setValue] = useState<Action>(two);
+      return <>{<ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
+        loadDiscordTargets={async () => TARGETS} />}<output data-testid="saved">{JSON.stringify(value)}</output></>;
+    }
+    const user = userEvent.setup();
+    render(<Keep />);
+    await user.click(screen.getByRole("button", { name: "Remove button 1" }));
+    expect(valueOf(1)).toEqual({ n: 2 });
+    expect(JSON.parse(screen.getByTestId("saved").textContent ?? "{}").params.buttons).toEqual([(two.params as { buttons: unknown[] }).buttons[1]]);
+  });
+
+  it("shows new values when params are reset from outside", () => {
+    const { rerender } = render(picker(two));
+    const reset: Action = { ...two, params: { ...two.params, buttons: [{ label: "C", custom_id: "c", value: { n: 9 } }] } };
+    rerender(picker(reset));
+    expect(valueOf(1)).toEqual({ n: 9 });
+  });
+
+  it("limits a valued button's custom id to 77 characters and flags a longer one", async () => {
+    const long = "x".repeat(90);
+    const withLong = (value?: object): Action => ({
+      kind: "discord.message",
+      params: { actor: "discord-bot", channel: "101", text: "hi", buttons: [{ label: "A", style: "primary", custom_id: long, ...(value ? { value } : {}) }] },
+    });
+    expect(actionProblem(withLong())).toBeNull();
+    expect(actionProblem(withLong({ n: 1 }))).toBe("invalid_value");
+    const first = render(picker(withLong({ n: 1 })));
+    expect(screen.getByRole("alert")).toHaveTextContent("at most 77");
+    const user = userEvent.setup();
+    function Fresh() {
+      const [value, setValue] = useState<Action>({
+        kind: "discord.message",
+        params: { actor: "discord-bot", buttons: [{ label: "A", style: "primary", custom_id: "", value: { n: 1 } }] },
+      });
+      return <ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
+        loadDiscordTargets={async () => TARGETS} />;
+    }
+    first.unmount();
+    render(<Fresh />);
+    const input = screen.getByLabelText("Button 1 custom id") as HTMLInputElement;
+    await user.type(input, "y".repeat(90));
+    expect(input.value).toHaveLength(77);
+  });
 });

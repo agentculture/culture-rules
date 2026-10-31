@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { getDiscordTargets } from "../api/actors";
 import { useDiscordTargets, type LoadTargets } from "./useDiscordTargets";
 import type { Actor, HttpPolicy, RunnerActorParams } from "../api/actors";
@@ -300,6 +300,9 @@ export function actionProblem(stored: Action): "no_actor_port" | "empty" | "inva
   }
   for (const [name, p] of Object.entries(spec.params)) {
     if (!isEmpty(params[name]) && !typeOk(p, params[name])) return "invalid_value";
+  }
+  if (canonical(action.kind) === "discord.message" && Array.isArray(params.buttons)) {
+    if ((params.buttons as DiscordButton[]).some((b) => buttonIdTooLong(b))) return "invalid_value";
   }
   return null;
 }
@@ -881,6 +884,15 @@ const BUTTON_STYLES = ["success", "primary", "secondary", "danger"] as const;
 const MAX_BUTTONS = 5;
 type ButtonSpec = DiscordButton;
 
+/** The server appends `:<22-char token>` to a valued button's id, so it may be 77 long at most. */
+const MAX_CUSTOM_ID = 100;
+const MAX_VALUED_CUSTOM_ID = 77;
+const hasValue = (b: ButtonSpec) => b.value !== undefined && b.value !== null;
+const idLimit = (b: ButtonSpec) => (hasValue(b) ? MAX_VALUED_CUSTOM_ID : MAX_CUSTOM_ID);
+function buttonIdTooLong(b: ButtonSpec): boolean {
+  return (b.custom_id ?? "").length > idLimit(b);
+}
+
 function isJsonObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -897,6 +909,22 @@ function ButtonValueField({
   const [text, setText] = useState(() => (value === undefined ? "" : JSON.stringify(value)));
   const [problem, setProblem] = useState(false);
   const id = `button-${index}-value-problem`;
+  // Follow the prop when it changes to something the text does not already stand for (a row
+  // removed above, params reset from outside); an invalid in-progress edit leaves the prop alone.
+  const key = JSON.stringify(value) ?? "";
+  useEffect(() => {
+    let parsed: unknown;
+    try {
+      parsed = text.trim() ? JSON.parse(text) : undefined;
+    } catch {
+      parsed = undefined;
+    }
+    if (JSON.stringify(parsed) !== (key || undefined)) {
+      setText(key);
+      setProblem(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
   const change = (next: string) => {
     setText(next);
     if (!next.trim()) {
@@ -975,7 +1003,17 @@ function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: 
           </label>
           <label>
             <span>{`Button ${i + 1} custom id`}</span>
-            <input value={r.custom_id ?? ""} maxLength={100} onChange={(e) => edit(i, { custom_id: e.target.value })} />
+            <input
+              value={r.custom_id ?? ""}
+              maxLength={Math.max(idLimit(r), (r.custom_id ?? "").length)}
+              aria-invalid={buttonIdTooLong(r)}
+              onChange={(e) => edit(i, { custom_id: e.target.value })}
+            />
+            {buttonIdTooLong(r) ? (
+              <span className="notice notice--error" role="alert">
+                {`Button ${i + 1} custom id must be at most ${MAX_VALUED_CUSTOM_ID} characters when it has a value`}
+              </span>
+            ) : null}
           </label>
           <ButtonValueField index={i} value={r.value} onChange={(v) => edit(i, { value: v })} />
           <button type="button" onClick={() => save(rows.filter((_, j) => j !== i))}>
