@@ -1,0 +1,21 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "culture-rules#124: repodocs.sync's library is culture-library (library.culture.dev), reached on spark's loopback; the repos are the top-level checkouts under repos_root on spark, so the actor lives on spark. The key is a write key whose kinds are exactly spec, plan, devague-record and design, minted with culture-library keys mint --name culture-rules-repodocs --scope write --kind spec --kind plan --kind devague-record --kind design --private and stored in grant as LIBRARY_REPODOCS_PUSH_API_KEY. state_path holds what was last pushed (so an unchanged cycle sends nothing); max_seconds bounds one run, and the next run resumes. See docs/operations/repodocs.md.",
+  "enabled": true,
+  "harness": null,
+  "id": "culture-library-repodocs",
+  "kind": "service",
+  "machine": "spark",
+  "model": null,
+  "name": "Culture library (repo documents)",
+  "params": {
+    "api_key": "grant:LIBRARY_REPODOCS_PUSH_API_KEY",
+    "base_url": "http://127.0.0.1:8796",
+    "max_seconds": 300,
+    "repos_root": "~/git",
+    "state_path": "~/.local/state/culture-rules/repodocs-sync.json"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

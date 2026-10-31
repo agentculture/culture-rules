@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-10-31
+
+### Added
+
+- repodocs.sync (#124): a new action kind that pushes every top-level repo's devague record (docs/specs, docs/plans, docs/deliveries, docs/design and .devague, gitignored files included) under its service actor's repos_root into culture-library's POST /api/repodocs. It sends each changed default-branch version at the head sha, the working draft when the disk differs, tombstones for vanished files (404 is done), project from culture.yaml and spec_links (Spec: trailers, else the delivering first-parent commit, followed through renames). A state file keeps unchanged cycles silent; max_seconds and max_files stop a run early and the next resumes. It outputs counts only.
+- The bundle docs/rules/repodocs: the culture-library-repodocs service actor (grant LIBRARY_REPODOCS_PUSH_API_KEY), a one-step workflow and a schedule rule every 15 minutes on spark with a concurrency key so runs never overlap. It ships disabled.
+- docs/operations/repodocs.md: what it pushes, the cycle length, setup (key, grant, import, enable) and verification with culture-library's scripts/verify-mirror.py.
+- The editor offers repodocs.sync in the action picker, with enabled service actors that have a repos_root.
+
+### Fixed
+
+- repodocs.sync review round (PR #127): without refs/remotes/origin/HEAD the default branch is origin/main, origin/master, the local main or the local master before the checked-out branch, so a feature branch is no longer pushed as the default-branch head (docs/operations/repodocs.md updated)
+- repodocs.sync: an origin that is a local path (/, ./, ../, ~) or a file: URL is identified as `<host>:<abs path>`, like a repo with no origin, instead of being sent and refused 400 on every push
+- repodocs.sync: culture.yaml block lists at the key's own indentation (`domains:` then `- library`) are read instead of erasing the project's domains; connected `org/repo` entries are sent as `https://github.com/org/repo` and bare single names are dropped with a warning
+- repodocs.sync: a committed file deleted on the default branch but left on disk is tombstoned at the head sha; a draft follows only when the bytes on disk differ from the last committed version
+- repodocs.sync: a changed file is read once and the hashed bytes are sent; a file over 16 MiB on disk is cached as oversize (one error until it changes); a run stopped early merges its stat cache instead of dropping the rest
+- repodocs.sync: a push answer with spec_links_applied: false leaves the links hash unrecorded (the head is still recorded, as the library would ignore the same head again); an answer without the field behaves as before
+
 ## [0.37.0] - 2026-10-29
 
 ### Added

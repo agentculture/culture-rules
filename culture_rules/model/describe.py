@@ -141,6 +141,7 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("item_id", "replacing item {}"),
         ("device_id", "to device {}"),
     ),
+    "repodocs.sync": (),
     "noop": (),
 }
 

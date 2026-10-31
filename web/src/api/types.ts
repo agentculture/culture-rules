@@ -121,14 +121,15 @@ export type ActionKind =
   | "library.push"
   | "audio.transcribe"
   | "transcript.render"
-  | "decider.assess";
+  | "decider.assess"
+  | "repodocs.sync";
 
 /**
  * An action. A param may be a literal, a reference (`trigger.data.number`), a `{"$ref"}` object
  * or a `{{ }}` template. `params.actor` names the credentialed or executing actor (required
  * for discord.message, github.comment, jira.comment, http.call, machine.command, email.send,
- * search.web, llm.complete, library.push, audio.transcribe and decider.assess). `message`
- * sends on the Culture mesh; a stored `message` that still names a Discord actor is the older
+ * search.web, llm.complete, library.push, audio.transcribe, decider.assess and
+ * repodocs.sync). `message` sends on the Culture mesh; a stored `message` that still names a Discord actor is the older
  * form of `discord.message`.
  */
 export interface Action {
