@@ -319,29 +319,10 @@ class DiscordClient:
         the call, so no bot token is sent, and it is never logged or put in an error. Discord
         answering 401 or 404 means the token ran out: a non-retryable error with ``expired``
         set. A 429 is waited out and a 5xx is retryable."""
-        _check_id(application_id, "application")
-        if not isinstance(interaction_token, str) or not _TOKEN_RE.match(interaction_token):
-            raise DiscordError("malformed interaction token", retryable=False)
-        text = str(text)
-        if len(text) > MAX_CONTENT:
-            text = text[: MAX_CONTENT - 1] + "\u2026"
-        body = {"content": text, "allowed_mentions": {"parse": []}}
-        path = f"/webhooks/{application_id}/{interaction_token}/messages/@original"
-        status, payload = self._send(
-            path, "PATCH", body=json.dumps(body).encode("utf-8"), bot=False
+        self._interaction_webhook(
+            application_id, interaction_token, "/messages/@original", "PATCH", text, {}
         )
-        if 200 <= status < 300:
-            return {"edited": True}
-        if status in (401, 404):
-            raise DiscordError("discord interaction expired", retryable=False, expired=True)
-        if status == 429:
-            retry_after = _retry_after(payload)
-            raise DiscordError(
-                f"discord rate limited (retry_after={retry_after})",
-                retryable=True,
-                retry_after=retry_after,
-            )
-        raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
+        return {"edited": True}
 
     def create_followup(
         self, application_id: str, interaction_token: str, text: str
@@ -353,17 +334,35 @@ class DiscordClient:
         sent; it is never logged or put in an error). 401 or 404 means the token ran out: a
         non-retryable error with ``expired`` set. A 429 is waited out and a 5xx is retryable
         (a retried follow-up may show twice, privately, to the one user)."""
+        self._interaction_webhook(
+            application_id, interaction_token, "", "POST", text, {"flags": 64}  # 64: ephemeral
+        )
+        return {"sent": True}
+
+    def _interaction_webhook(
+        self,
+        application_id: str,
+        interaction_token: str,
+        suffix: str,
+        method: str,
+        text: str,
+        extra: dict[str, int],
+    ) -> None:
+        """One call on an interaction's webhook (``/webhooks/{app}/{token}{suffix}``) with
+        ``text`` cut to 2000 characters, no mentions and ``extra`` body fields. Raises
+        :class:`DiscordError` unless Discord answers 2xx: 401/404 expired, 429 retryable after
+        its wait, a 5xx retryable, anything else not."""
         _check_id(application_id, "application")
         if not isinstance(interaction_token, str) or not _TOKEN_RE.match(interaction_token):
             raise DiscordError("malformed interaction token", retryable=False)
         text = str(text)
         if len(text) > MAX_CONTENT:
             text = text[: MAX_CONTENT - 1] + "\u2026"
-        body = {"content": text, "flags": 64, "allowed_mentions": {"parse": []}}  # 64: ephemeral
-        path = f"/webhooks/{application_id}/{interaction_token}"
-        status, payload = self._send(path, "POST", body=json.dumps(body).encode("utf-8"), bot=False)
+        body = {"content": text, **extra, "allowed_mentions": {"parse": []}}
+        path = f"/webhooks/{application_id}/{interaction_token}{suffix}"
+        status, payload = self._send(path, method, body=json.dumps(body).encode("utf-8"), bot=False)
         if 200 <= status < 300:
-            return {"sent": True}
+            return
         if status in (401, 404):
             raise DiscordError("discord interaction expired", retryable=False, expired=True)
         if status == 429:
