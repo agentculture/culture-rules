@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1] - 2026-10-31
+
+### Fixed
+
+- A copy never sends `project`: only the owner clone's `culture.yaml` describes the project, so it no longer flips between clones.
+- repodocs.sync: two full clones of one origin (e.g. ~/git/lobes-cli and ~/git/model-gear) no longer flip the library's one working draft per path between them every cycle. A pre-pass groups repos by origin (host lowercased, scp and https forms equal, .git, trailing / and path case ignored); the clone whose directory name is the origin's repo name (case-insensitive, - and _ equal; else the first by name) owns the drafts, and every other clone keeps the origin identity but sends only default-branch versions, spec links and committed tombstones, never a working draft or working tombstone. Each copy is logged once per run by name.
+- repodocs.sync migration: drafts a copy pushed before are handed to its owner, which re-sends its own draft of each path once (replacing the copy's bytes) or sends a working tombstone when it has no such file, so copy-only drafts leave the project without manual cleanup. docs/operations/repodocs.md and the module docstring describe the rule.
+
 ## [0.38.0] - 2026-10-31
 
 ### Added

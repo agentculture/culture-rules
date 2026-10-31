@@ -1146,3 +1146,192 @@ def test_yaml_comment_and_item_scans_match_the_old_patterns():
     for line in ["  - lib", "\t-lib", "- top", "  x", "   -   spaced  ", "  -"]:
         match = old.match(line)
         assert rd._yaml_item(line) == (match.group(1) if match else None)
+
+
+# ------------------------------------------------------------------ clones of one origin
+#
+# Two full clones of one origin push under the same library identity. The clone whose
+# directory name matches the origin's repo name owns the working drafts; every other clone
+# (a copy) pushes only default-branch versions, still under the origin.
+
+QUESTION = ".devague/questions/q.md"
+
+
+def _clone(root: Path, name: str, remote: str, frame: str) -> Repo:
+    repo = Repo(root / name, remote=remote)
+    repo.write(PLAN, "# Foo plan\n")
+    repo.write(FRAME, '{"slug": "foo"}\n')
+    repo.commit("first")
+    repo.write(FRAME, frame)  # an uncommitted edit: a working draft
+    return repo
+
+
+def _drafts(library: FakeLibrary) -> list[dict]:
+    return [c for c in library.calls if c["commit"] == WORKING and not c.get("tombstone")]
+
+
+def _draft_bytes(library: FakeLibrary) -> set[bytes]:
+    return {library.content(c) for c in _drafts(library)}
+
+
+def test_the_clone_named_like_the_origin_owns_the_drafts(root):
+    origin = "https://github.com/agentculture/culture-guide"
+    _clone(root, "agentculture-cli", origin, "copy draft\n")
+    _clone(root, "culture-guide", origin, "owner draft\n")
+    library = FakeLibrary()
+    result = _sync(root, library)
+    assert result.outcome == COMPLETED, result.error
+    assert _draft_bytes(library) == {b"owner draft\n"}
+
+
+def test_a_copy_never_sends_a_working_draft(root):
+    origin = "https://github.com/agentculture/lobes-cli"
+    copy = _clone(root, "model-gear", origin, "copy draft\n")
+    copy.write(QUESTION, "only in the copy\n")  # untracked
+    _clone(root, "lobes-cli", origin, "owner draft\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    assert library.by(QUESTION) == []
+    assert len(_drafts(library)) == 1
+
+
+def test_a_copy_still_pushes_its_committed_versions_under_the_origin(root):
+    origin = "https://github.com/agentculture/lobes-cli"
+    copy = _clone(root, "model-gear", origin, "copy draft\n")
+    copy.write("docs/plans/2026-10-31-copy.md", "committed in the copy\n")
+    copy.commit("copy only")
+    _clone(root, "lobes-cli", origin, "owner draft\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    (call,) = library.by("docs/plans/2026-10-31-copy.md")
+    assert call["remote"] == origin
+    assert call["commit"] == copy.head()
+    assert call["default_branch_head"] == copy.head()
+
+
+def test_a_copy_never_sends_the_project_only_the_owner_does(root):
+    origin = "https://github.com/agentculture/lobes-cli"
+    copy = _clone(root, "model-gear", origin, "copy draft\n")
+    copy.write("culture.yaml", "domains: [copy-domain]\n")
+    copy.write("docs/plans/2026-10-31-copy.md", "committed in the copy\n")
+    copy.commit("copy only")
+    owner = _clone(root, "lobes-cli", origin, "owner draft\n")
+    owner.write("culture.yaml", "domains: [owner-domain]\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    (call,) = library.by("docs/plans/2026-10-31-copy.md")
+    assert "project" not in call
+    owner_projects = [c["project"] for c in library.calls if "project" in c]
+    assert owner_projects
+    assert all(p["domains"] == ["owner-domain"] for p in owner_projects)
+
+
+def test_owner_names_match_case_insensitively_with_dash_and_underscore_equal(root):
+    origin = "https://github.com/agentculture/Jetson_Jolt.git"
+    _clone(root, "aaa-copy", origin, "copy draft\n")
+    _clone(root, "jetson-jolt", origin, "owner draft\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    assert _draft_bytes(library) == {b"owner draft\n"}
+
+
+def test_without_a_name_match_the_alphabetically_first_clone_owns(root):
+    origin = "https://github.com/agentculture/lobes-cli"
+    _clone(root, "zeta", origin, "zeta draft\n")
+    _clone(root, "model-gear", origin, "model-gear draft\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    assert _draft_bytes(library) == {b"model-gear draft\n"}
+
+
+def test_scp_and_https_forms_of_one_origin_are_one_group(root):
+    _clone(root, "aaa", "https://user@GitHub.com:443/agentculture/Demo/", "copy draft\n")
+    _clone(root, "demo", "git@github.com:AgentCulture/demo.git", "owner draft\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    assert _draft_bytes(library) == {b"owner draft\n"}
+
+
+def test_repos_with_unique_origins_keep_their_url_and_drafts(root):
+    one = "https://github.com/agentculture/one"
+    two = "git@github.com:agentculture/two.git"
+    _clone(root, "one", one, "one draft\n")
+    _clone(root, "two", two, "two draft\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    assert {(c["remote"], library.content(c)) for c in _drafts(library)} == {
+        (one, b"one draft\n"),
+        (two, b"two draft\n"),
+    }
+
+
+@pytest.mark.parametrize("origin", [None, "/srv/git/demo.git"])
+def test_remoteless_and_local_path_repos_are_never_grouped(root, origin):
+    a = _clone(root, "a", origin, "a draft\n")
+    b = _clone(root, "b", origin, "b draft\n")
+    library = FakeLibrary()
+    _sync(root, library)
+    assert {(c["remote"], library.content(c)) for c in _drafts(library)} == {
+        (f"spark:{a.path}", b"a draft\n"),
+        (f"spark:{b.path}", b"b draft\n"),
+    }
+
+
+def test_each_copy_is_logged_once_by_name_at_info(root, caplog):
+    origin = "https://github.com/agentculture/lobes-cli"
+    _clone(root, "model-gear", origin, "secret copy bytes\n")
+    _clone(root, "lobes-cli", origin, "owner draft\n")
+    with caplog.at_level("INFO", logger=repodocs_mod.__name__):
+        _sync(root, FakeLibrary())
+    lines = [r.getMessage() for r in caplog.records if "model-gear" in r.getMessage()]
+    assert len(lines) == 1
+    assert "lobes-cli" in lines[0]
+    assert "secret copy bytes" not in caplog.text
+
+
+def _migrated(root: Path) -> tuple[Repo, Repo, str]:
+    """A copy synced alone (the old behaviour: it pushed drafts under the origin), then
+    joined by the owner clone."""
+    origin = "https://github.com/agentculture/lobes-cli"
+    copy = _clone(root, "model-gear", origin, "copy draft\n")
+    copy.write(QUESTION, "only in the copy\n")
+    copy.write(PLAN, "copy edit of the plan\n")
+    first = FakeLibrary()
+    _sync(root, first)
+    assert {c["path"] for c in _drafts(first)} == {FRAME, PLAN, QUESTION}
+    owner = _clone(root, "lobes-cli", origin, "owner draft\n")
+    return copy, owner, origin
+
+
+def test_migration_tombstones_copy_only_drafts_under_the_origin(root):
+    _copy, _owner, origin = _migrated(root)
+    library = FakeLibrary()
+    result = _sync(root, library)
+    tombstones = [c for c in library.calls if c.get("tombstone")]
+    assert [(c["remote"], c["path"], c["commit"]) for c in tombstones] == [
+        (origin, QUESTION, WORKING)
+    ]
+    assert result.output["tombstoned"] == 1
+
+
+def test_migration_resends_the_owners_drafts_once(root):
+    _migrated(root)
+    library = FakeLibrary()
+    _sync(root, library)
+    drafts = {c["path"]: library.content(c) for c in _drafts(library)}
+    assert drafts[FRAME] == b"owner draft\n"
+    # the owner's plan is unedited, but the library's draft holds the copy's bytes
+    assert drafts[PLAN] == b"# Foo plan\n"
+    again = FakeLibrary()
+    _sync(root, again)
+    assert again.calls == []
+
+
+def test_migration_resets_a_draft_the_owner_has_only_in_its_tree(root):
+    _copy, owner, _origin = _migrated(root)
+    (owner.path / PLAN).unlink()  # an unstaged deletion: the committed version stands
+    library = FakeLibrary()
+    _sync(root, library)
+    assert not any(c.get("tombstone") for c in library.by(PLAN))
+    (draft,) = library.by(PLAN, WORKING)
+    assert library.content(draft) == b"# Foo plan\n"
