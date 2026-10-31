@@ -234,7 +234,7 @@ describe("discord.message buttons", () => {
     });
     expect(actionProblem(withLong())).toBeNull();
     expect(actionProblem(withLong({ n: 1 }))).toBe("invalid_value");
-    render(picker(withLong({ n: 1 })));
+    const first = render(picker(withLong({ n: 1 })));
     expect(screen.getByRole("alert")).toHaveTextContent("at most 77");
     const user = userEvent.setup();
     function Fresh() {
@@ -245,8 +245,9 @@ describe("discord.message buttons", () => {
       return <ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
         loadDiscordTargets={async () => TARGETS} />;
     }
+    first.unmount();
     render(<Fresh />);
-    const input = screen.getAllByLabelText("Button 1 custom id")[1] as HTMLInputElement;
+    const input = screen.getByLabelText("Button 1 custom id") as HTMLInputElement;
     await user.type(input, "y".repeat(90));
     expect(input.value).toHaveLength(77);
   });
