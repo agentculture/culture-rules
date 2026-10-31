@@ -331,9 +331,19 @@ already merged) and `head_moved` (its head is no longer `sha`). Then it calls
 squash`. GitHub answers `409` when the head moved and `405` when it cannot
 merge the PR; every 4xx except 408 fails the step without retry. The REST
 merge has no idempotency key, so the port claims `repo#number#sha` first: an
-outcome it cannot know (a 5xx, a timeout, a lost answer) is never sent again.
-A later call reads the PR instead, and completes if it is merged or fails
-`merge_outcome_unknown` if it is not.
+outcome it cannot know (a 5xx, a timeout, a lost answer) is never sent blindly.
+A later call (the engine's retry, or another click) reads the PR first:
+
+- merged, it completes with the merge commit;
+- still open at exactly `sha`, the merge did not happen, so it is sent again
+  (GitHub merges a PR once, and `sha` pins the commit), at most 3 times per
+  claim; a claim still in flight is left alone until it is 10 minutes old (a
+  crash mid-send);
+- moved or closed unmerged, it fails `head_moved` or `pr_not_open` and releases
+  the claim;
+- otherwise (the re-sends spent, a claim in flight) it fails
+  `merge_outcome_unknown`. Check the PR on GitHub; the claim is the
+  `github_merge_once` document for that repo, PR and sha.
 
 With `delete_branch: true`, after a merge and only when the PR's head is in
 `repo` itself (never a fork's), the branch is deleted. A branch already gone is

@@ -3,6 +3,7 @@ merge workflow, with an optional same-repo branch delete (fake transport, memory
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -18,7 +19,9 @@ from culture_rules.actors import trusted  # noqa: E402
 from culture_rules.engine.actorport import InvocationContext  # noqa: E402
 from culture_rules.model.discord_filters import BUTTON_CLICKED  # noqa: E402
 from culture_rules.node.actions.github_merge import (  # noqa: E402
+    MAX_RESENDS,
     MERGE_ONCE_COLLECTION,
+    STALE_CLAIM_S,
     GitHubMergePort,
 )
 from culture_rules.node.firing import run_id_for  # noqa: E402
@@ -253,16 +256,64 @@ def test_a_closed_pr_is_refused_without_a_merge(pem, trust_merge):
 
 
 @pytest.mark.parametrize("status", [500, 502, 408])
-def test_an_unknown_outcome_keeps_the_claim_and_is_never_sent_again(pem, trust_merge, status):
+def test_an_unknown_outcome_is_sent_again_only_after_a_read_shows_it_did_not_merge(
+    pem, trust_merge, status
+):
     fake = Fake(merge_status=status)
     port, store, _, run_id = world(pem, fake)
     first = merge(port, run_id)
     assert first.outcome == "failed"
     [claim] = store.find(MERGE_ONCE_COLLECTION)
     assert claim["state"] == "unknown"
+    fake.merge_status = 200  # the PR is still open at SHA: the merge did not happen
     second = merge(port, run_id)
+    assert len(fake.methods("PUT", "/merge")) == 2
+    assert second.outcome == "completed" and second.output["merged"] is True
+    [claim] = store.find(MERGE_ONCE_COLLECTION)
+    assert (claim["state"], claim["resends"]) == ("merged", 1)
+
+
+def test_re_sends_are_bounded(pem, trust_merge):
+    fake = Fake(merge_status=502)
+    port, _, _, run_id = world(pem, fake)
+    results = [merge(port, run_id) for _ in range(MAX_RESENDS + 2)]
+    assert len(fake.methods("PUT", "/merge")) == 1 + MAX_RESENDS
+    assert (results[-1].error, results[-1].retryable) == ("merge_outcome_unknown", False)
+
+
+def test_a_claim_still_in_flight_is_never_sent_again(pem, trust_merge):
+    fake = Fake()
+    port, store, _, run_id = world(pem, fake)
+    store.insert(MERGE_ONCE_COLLECTION, _claim("claimed", datetime.now(UTC)))
+    res = merge(port, run_id)
+    assert fake.methods("PUT", "/merge") == []
+    assert (res.error, res.retryable) == ("merge_outcome_unknown", False)
+
+
+def test_a_stale_claim_is_sent_again(pem, trust_merge):
+    fake = Fake()
+    port, store, _, run_id = world(pem, fake)
+    stale = datetime.now(UTC) - timedelta(seconds=STALE_CLAIM_S + 1)
+    store.insert(MERGE_ONCE_COLLECTION, _claim("claimed", stale))
+    res = merge(port, run_id)
     assert len(fake.methods("PUT", "/merge")) == 1
-    assert (second.error, second.retryable) == ("merge_outcome_unknown", False)
+    assert res.outcome == "completed"
+
+
+def test_an_unknown_claim_on_a_moved_head_is_released_without_a_merge(pem, trust_merge):
+    fake = Fake(head_sha="c" * 40)
+    port, store, _, run_id = world(pem, fake)
+    store.insert(MERGE_ONCE_COLLECTION, _claim("unknown", datetime.now(UTC)))
+    res = merge(port, run_id)
+    assert fake.methods("PUT", "/merge") == []
+    assert (res.error, res.retryable) == ("head_moved", False)
+    assert store.find(MERGE_ONCE_COLLECTION) == []
+
+
+def _claim(state, at):
+    claim_id = hashlib.sha256(f"{REPO.lower()}#3#{SHA}".encode()).hexdigest()
+    doc = {"id": claim_id, "repo": REPO, "number": 3, "sha": SHA, "state": state}
+    return {**doc, "claimed_at": at.isoformat(), "resends": 0}
 
 
 def test_a_network_error_on_the_put_keeps_the_claim(pem, trust_merge):

@@ -48,10 +48,16 @@ an unknown outcome is never sent again: the port claims ``sha256(repo#number#sha
 insert in :data:`MERGE_ONCE_COLLECTION` before the PR read. Nothing sent (a refused read, a
 refusal of step 4) or a merge GitHub refused with a 4xx but 408 releases it. Any other
 failure (5xx, 408, a network error, the deadline, an unreadable answer) may follow a merge,
-so the claim stays (state ``unknown``). A later invocation that finds the claim sends
-nothing: a ``merged`` claim completes with its outputs (``skipped: merged_before``), and a
+so the claim stays (state ``unknown``). A later invocation that finds the claim never sends
+blindly: a ``merged`` claim completes with its outputs (``skipped: merged_before``), and a
 ``claimed``/``unknown`` one reads the PR - merged, it completes (``skipped:
-merged_unconfirmed``); not merged, it fails ``merge_outcome_unknown``, non-retryable.
+merged_unconfirmed``). Not merged but still open at exactly the claimed sha, the merge did
+not happen and sending it again is safe (GitHub merges a PR once, and the sha pins the
+commit): an ``unknown`` claim, or a ``claimed`` one older than :data:`STALE_CLAIM_S` (a
+crash mid-send), is taken back by compare-and-set and sent again, at most
+:data:`MAX_RESENDS` times. Otherwise (a claim still in flight, the re-sends spent, or the
+PR moved or closed) it fails ``merge_outcome_unknown``, non-retryable; a moved head or a
+closed PR also releases the claim, since nothing was merged at that sha.
 Standard-library only.
 """
 
@@ -60,7 +66,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors import trusted
@@ -90,6 +96,10 @@ NOT_CLICK = "not_started_by_click"
 OUTCOME_UNKNOWN = "merge_outcome_unknown"
 """An earlier merge of this repo, PR and sha may have happened; it is never sent again."""
 _CLAIMED, _MERGED, _UNKNOWN = "claimed", "merged", "unknown"
+MAX_RESENDS = 3
+"""How many times a claim whose merge did not happen may be sent again."""
+STALE_CLAIM_S = 600
+"""A ``claimed`` claim older than this is a crash mid-send, not a merge in flight."""
 _REFUSED = "github.merge refused: %s"
 
 
@@ -197,11 +207,19 @@ class GitHubMergePort(GitHubCommentPort):
         """The merge, at most once per (repo, PR, sha) (module doc)."""
         app.installation_token()  # before the claim: a token failure sends nothing
         claim_id = hashlib.sha256(f"{repo.lower()}#{number}#{sha}".encode()).hexdigest()
-        claim = {"id": claim_id, "repo": repo, "number": number, "sha": sha, "state": _CLAIMED}
+        claim = {
+            "id": claim_id,
+            "repo": repo,
+            "number": number,
+            "sha": sha,
+            "state": _CLAIMED,
+            "claimed_at": self._now().isoformat(),
+            "resends": 0,
+        }
         try:
             self._store.insert(MERGE_ONCE_COLLECTION, claim)
         except DuplicateKeyError:
-            return self._prior(app, repo, number, claim_id)
+            return self._prior(app, repo, number, sha, delete, claim_id)
         try:
             pull = app.get_pull(repo, number)
         except GitHubError as exc:  # nothing was sent
@@ -212,6 +230,22 @@ class GitHubMergePort(GitHubCommentPort):
             self._store.delete(MERGE_ONCE_COLLECTION, claim_id)
             log.info(_REFUSED, refusal)
             return InvocationResult.failed(refusal, retryable=False)
+        return self._send(app, repo, number, sha, delete, claim_id, pull)
+
+    def _now(self) -> datetime:
+        return self._clock() if self._clock is not None else datetime.now(UTC)
+
+    def _send(
+        self,
+        app: GitHubApp,
+        repo: str,
+        number: int,
+        sha: str,
+        delete: bool,
+        claim_id: str,
+        pull: Mapping[str, Any],
+    ) -> InvocationResult:
+        """Send the merge for a claim this invocation holds (state ``claimed``)."""
         try:
             answer = app.merge_pull(repo, number, sha)
         except GitHubError as exc:
@@ -246,8 +280,10 @@ class GitHubMergePort(GitHubCommentPort):
         changes = {"state": _UNKNOWN, "error": code}
         self._store.update_if(MERGE_ONCE_COLLECTION, claim_id, {"state": _CLAIMED}, changes)
 
-    def _prior(self, app: GitHubApp, repo: str, number: int, claim_id: str) -> InvocationResult:
-        """An earlier invocation claimed this merge: never send it again (module doc)."""
+    def _prior(
+        self, app: GitHubApp, repo: str, number: int, sha: str, delete: bool, claim_id: str
+    ) -> InvocationResult:
+        """An earlier invocation claimed this merge: never send it blindly (module doc)."""
         prior = self._store.get(MERGE_ONCE_COLLECTION, claim_id) or {}
         if prior.get("state") == _MERGED:
             done = {
@@ -269,8 +305,35 @@ class GitHubMergePort(GitHubCommentPort):
                 {"state": _MERGED, "merge_sha": commit},
             )
             return InvocationResult.completed({**out, "skipped": "merged_unconfirmed"})
+        refusal = _pull_refusal(pull, sha)
+        if refusal is not None:  # moved or closed unmerged: nothing was merged at this sha
+            self._store.delete(MERGE_ONCE_COLLECTION, claim_id)
+            log.info(_REFUSED, refusal)
+            return InvocationResult.failed(refusal, retryable=False)
+        if self._take_back(prior, claim_id):
+            return self._send(app, repo, number, sha, delete, claim_id, pull)
         log.info(_REFUSED, OUTCOME_UNKNOWN)
         return InvocationResult.failed(OUTCOME_UNKNOWN, retryable=False)
+
+    def _take_back(self, prior: Mapping[str, Any], claim_id: str) -> bool:
+        """Whether this invocation may send again a claim whose merge did not happen: an
+        ``unknown`` one, or a ``claimed`` one gone stale, with re-sends left, taken back by
+        compare-and-set so two invocations never both send."""
+        state, resends = prior.get("state"), prior.get("resends", 0)
+        if not isinstance(resends, int) or resends >= MAX_RESENDS:
+            return False
+        if state == _CLAIMED:
+            try:
+                claimed_at = datetime.fromisoformat(str(prior.get("claimed_at")))
+            except ValueError:
+                return False
+            if (self._now() - claimed_at).total_seconds() < STALE_CLAIM_S:
+                return False
+        elif state != _UNKNOWN:
+            return False
+        expected = {"state": state, "resends": resends}
+        changes = {"state": _CLAIMED, "claimed_at": self._now().isoformat(), "resends": resends + 1}
+        return self._store.update_if(MERGE_ONCE_COLLECTION, claim_id, expected, changes).won
 
 
 def _pull_refusal(pull: Mapping[str, Any], sha: str) -> str | None:
