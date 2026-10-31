@@ -244,11 +244,15 @@ plan. What exists today:
     head moving is refused `head_moved`, GitHub's 409/405 fail without retry, a once claim
     in `github_merge_once` never re-sends an unknown outcome) and may delete a same-repo
     branch; before any secret or request it refuses a run that is not its rule firing on a
-    stored `discord.button.clicked` event (`not_started_by_click`) or whose workflow is not
-    trusted in role `merge` (`workflow_not_trusted`); `github.pr` is the read-only PR facts;
-  - the role `merge` (`actors/trusted.py`, `ROLE_MERGE`) ships with **no digest**: until a
-    release pins the live merge workflow's v2 digest (its id must be `merge`), every merge
-    is refused; a change to that workflow needs a new pin;
+    stored `discord.button.clicked` event (`not_started_by_click`), whose workflow is not
+    trusted in role `merge` (`workflow_not_trusted`), whose clicked button was not posted
+    by a run of a workflow trusted in role `merge_prompt` (`prompt_not_trusted`, deviation
+    d2: the stored click's `data.posted_by`), or whose actor is not an `app`
+    (`actor_not_app`); `github.pr` is the read-only PR facts;
+  - the roles `merge` and `merge_prompt` (`actors/trusted.py`, `ROLE_MERGE`,
+    `ROLE_MERGE_PROMPT`) ship with **no digest**: until a release pins both live
+    workflows' v2 digests (ids `merge` and `merge_prompt`), every merge is refused; a
+    change to either workflow needs a new pin;
   - `discord.message` takes `buttons` (at most 5: `label`, `style`, `custom_id`, an
     optional `value`), the gateway turns a click into `discord.button.clicked` (the actor
     lists it in `params.events`), answers every click within 3 s (an admitted click
@@ -256,8 +260,9 @@ plan. What exists today:
     with the click's `event_id` answers the clicker privately;
   - a button's `value` (a JSON object, deviation d1) is its meaning, kept in the store:
     it is posted as `<custom_id>:<token>`, the port stores the value in `discord_buttons`
-    before the post (30 days), and the click carries it as `data.value`, so the guide's
-    click workflow reads `trigger.data.value.repo|number|sha` and no id is parsed.
+    before the post (30 days) with `posted_by` (the posting run and its workflow), and the
+    click carries them as `data.value` and `data.posted_by`, so the guide's click workflow
+    reads `trigger.data.value.repo|number|sha` and no id is parsed.
 - **Repo documents** (culture-rules#124, guide `docs/operations/repodocs.md`; the contract
   is culture-library's `docs/api/repodocs.md`):
   - the action kind `repodocs.sync` (`node/actions/repodocs.py`, stdlib, git as argv lists)

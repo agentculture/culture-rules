@@ -7,7 +7,7 @@ This guide builds that flow from generic pieces (spec
 `docs/plans/2026-10-31-green-pr-merge-prompt.md`). culture-rules ships the pieces only:
 `github.pr`, `github.merge`, the `buttons` of `discord.message` (with a stored
 `value`), the `discord.button.clicked` event with its `custom_id` filter and `value`,
-and the click answer. The two rules and the workflow below are **configuration,
+and the click answer. The two rules and the two workflows below are **configuration,
 created live with `--apply` and never committed**, so everything here is an example:
 every id is a placeholder in backticks.
 
@@ -38,7 +38,12 @@ posts the button with the id `merge:<token>` (the given `custom_id` `merge`, a
 before the message goes out. When the button is clicked, the gateway reads the
 stored value and puts it in the click's event as `data.value`, so the click
 workflow reads `trigger.data.value.repo`, `.number` and `.sha` directly. Only the
-bot's own post writes the value, and a clicker cannot change it. The value is
+bot's own post writes the value, and a clicker cannot change it. The stored button
+also records who posted it, `posted_by: {run_id, workflow_id}` (the run whose step
+posted it), which the click's event carries as `data.posted_by`. `github.merge`
+merges only a button whose posting run's workflow is the pinned `merge_prompt`
+workflow (step 3), so a button another workflow posts with the same `merge`
+prefix merges nothing. The value is
 kept for 30 days; a click after that carries `value: null`, so the merge has no
 `number` or `sha` and `github.merge` refuses it without merging.
 
@@ -62,29 +67,35 @@ so try it on a throwaway repo first (see [Verify](#4-verify)).
 
   A comparison on a missing fact is false, so a PR whose facts are missing is never
   prompted.
-- **Action:** `discord.message`, with no workflow. The text and the button's `value`
-  both come from the trigger's PR facts:
+- **Workflow `merge_prompt`** (its id must be exactly `merge_prompt`, see
+  [step 3](#3-pin-the-merge-workflow)): inputs `repository`, `number` (integer),
+  `head_sha`, `title`, `author` and `url`, mapped from `trigger.data.repository`,
+  `trigger.data.number`, `trigger.data.head_sha`, `trigger.data.title`,
+  `trigger.data.author` and `trigger.data.url`. One step, `post`, a built-in action
+  step (`config.builtin: action`) of kind `discord.message`, its inputs edges from the
+  workflow inputs. The text and the button's `value` both come from those inputs:
 
   ```json
   {"kind": "discord.message", "params": {
     "actor": "<discord-actor-id>",
     "channel": "<channel-id>",
-    "text": "Green: {{ trigger.data.repository }}#{{ trigger.data.number }} {{ trigger.data.title }} by {{ trigger.data.author }}\n{{ trigger.data.url }}\nhead {{ trigger.data.head_sha }}",
+    "text": "Green: {{ inputs.repository }}#{{ inputs.number }} {{ inputs.title }} by {{ inputs.author }}\n{{ inputs.url }}\nhead {{ inputs.head_sha }}",
     "buttons": [{"label": "Merge", "style": "success", "custom_id": "merge",
-                 "value": {"repo": "trigger.data.repository",
-                           "number": "trigger.data.number",
-                           "sha": "trigger.data.head_sha"}}]
+                 "value": {"repo": "inputs.repository",
+                           "number": "inputs.number",
+                           "sha": "inputs.head_sha"}}]
   }}
   ```
 
   The engine resolves the three references before the post, so the stored value
-  holds the PR's repo, number and head sha. The action's outputs are `message_id`
+  holds the PR's repo, number and head sha. The step's outputs are `message_id`
   and `custom_ids` (here one id, `merge:<token>`).
+- **Action:** `noop`. Post the button from the workflow's step, never from the
+  rule's action: the step is part of the pinned digest, the rule's action is not.
 
-If you want the title or the draft flag read fresh rather than from the event, give
-the rule a workflow with a `github.pr` step (`actor`, `repo`, `number`) and build the
-text and the value from its outputs (`workflow.outputs.<name>`); `head_repo !=
-base_repo` there is also how it tells a fork.
+If you want the title or the draft flag read fresh rather than from the event, add a
+`github.pr` step (`actor`, `repo`, `number`) before `post` and build the text from its
+outputs; `head_repo != base_repo` there is also how it tells a fork.
 
 ## 2. Rule 2: the click
 
@@ -125,37 +136,42 @@ the prompt is refused and nothing newer is ever merged.
 
 ## 3. Pin the merge workflow
 
-`github.merge` runs only in a workflow trusted in the `merge` role, and that role ships
-with no digest (`culture_rules/actors/trusted.py`, `ROLE_MERGE`, empty in
-`TRUSTED_WORKFLOWS` and `TRUSTED_WORKFLOWS_V2`). Until a release pins the live
-workflow's digest, every merge fails `workflow_not_trusted`. This is the same
-digest-pinning as the PR fixer's roles, described in
-[`pr-fixer.md`](pr-fixer.md#trusted-workflows-d20-round-2-d21-roles):
+Going live pins **two** digests. `github.merge` runs only in a workflow trusted in the
+`merge` role, and only on a button posted by a run of a workflow trusted in the
+`merge_prompt` role. Both roles ship with no digest (`culture_rules/actors/trusted.py`,
+`ROLE_MERGE` and `ROLE_MERGE_PROMPT`, empty in `TRUSTED_WORKFLOWS` and
+`TRUSTED_WORKFLOWS_V2`). Until a release pins both live workflows' digests, every merge
+fails `workflow_not_trusted` (the merge workflow) or `prompt_not_trusted` (the prompt
+workflow). This is the same digest-pinning as the PR fixer's roles, described in
+[`pr-fixer.md`](pr-fixer.md#trusted-workflows-d20-round-2-d21-roles). For each of the
+two workflows:
 
-1. Import the workflow with its id `merge`, with `--apply`
-   (`culture-rules workflows create` or `import`). The id must be `merge`: the editor's
-   "Save a trusted workflow?" question matches by id.
+1. Import it with its id, `merge_prompt` or `merge`, with `--apply`
+   (`culture-rules workflows create` or `import`). The id must be the role's name: the
+   editor's "Save a trusted workflow?" question matches by id.
 2. Export it (`culture-rules workflows export`) and print its v2 digest, which leaves out
    the version, description and notes:
 
    ```bash
+   python -m culture_rules.actors.trusted workflow-v2 < merge_prompt.json
    python -m culture_rules.actors.trusted workflow-v2 < merge.json
    ```
 
-3. Add the printed `sha256:...` to the `merge` role of `TRUSTED_WORKFLOWS_V2` in
-   `culture_rules/actors/trusted.py`, in a PR (which bumps the version as every PR
-   does).
+3. Add each printed `sha256:...` to its role of `TRUSTED_WORKFLOWS_V2` in
+   `culture_rules/actors/trusted.py` (`merge_prompt`'s to `ROLE_MERGE_PROMPT`, `merge`'s
+   to `ROLE_MERGE`), in one PR (which bumps the version as every PR does).
 4. Release it and upgrade every node (`culture-rules rollout`, see
    [`rollout.md`](rollout.md)).
 
-Any later change to the live workflow (a step, a port, a param) gives it a new digest and
-it is untrusted again until a new pin ships; the run still starts, and `github.merge`
-refuses it. Keep the old digest while runs pinned to it may be in flight. Saving the
+Any later change to either live workflow (a step, a port, a param) gives it a new digest
+and it is untrusted again until a new pin ships: both changes need a re-pin. The run still
+starts, and `github.merge` refuses it (a changed prompt workflow refuses the buttons its
+new runs post). Keep the old digest while runs pinned to it may be in flight. Saving the
 original definition back restores the trust.
 
 ## 4. Verify
 
-- Enable both rules only after the release is on every node.
+- Enable both rules only after the release (both pins) is on every node.
 - On a throwaway repo, open a PR and let its checks go green: one prompt should appear
   in `<channel-id>` within about a minute, with the PR's repo, number, title, author and
   link, and one Merge button.

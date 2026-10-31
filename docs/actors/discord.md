@@ -339,7 +339,11 @@ is posted with the id `<custom_id>:<token>`, a fresh random token, so its given
 `custom_id` (then at most 77 characters) is a prefix; the meaning is not in the
 id, and nothing has to parse it. Before the message is posted, the port stores
 one document per valued button in `discord_buttons`, keyed by the actor and the
-posted id, with the value, the channel and, once posted, the message id. A post
+posted id, with the value, the channel, `posted_by` and, once posted, the
+message id. `posted_by` is `{run_id, workflow_id}`: the run whose step posted
+the button and that run's workflow id (`null` when the run could not be read).
+`github.merge` merges only a button whose posting run's workflow is trusted in
+the `merge_prompt` role ([the GitHub guide](github.md)). A post
 Discord refuses (a 4xx other than 429) deletes them again; after a timeout, a
 5xx, a 429 or a lost connection the message may be up, so they are kept. The
 documents expire after 30 days (a TTL
@@ -354,7 +358,9 @@ click becomes a `discord.button.clicked` event with `custom_id`, `message_id`,
 `channel_id`, `guild_id`, `interaction_id`, the clicker's `user_id` and
 `username` (also as `author_id` and `author_name`), `user_roles`, `bot` and
 `value` (the stored value of that button, or `null` when it has none or it
-expired; a step reads it as `trigger.data.value.<key>`). Like
+expired; a step reads it as `trigger.data.value.<key>`) and `posted_by` (the
+stored `{run_id, workflow_id}` of the run that posted it, or `null`; like
+`value`, never taken from the click). Like
 other Discord events it is recorded only from a channel that an enabled rule
 selects, and the interaction's token is never in the event: it is kept for 15
 minutes in `discord_interactions` (kind `button`).

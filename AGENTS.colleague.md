@@ -176,13 +176,17 @@ live.
 `docs/operations/green-pr-merge.md`). There is one merge kind, fenced by an operator click
 and a trusted merge role: `github.merge` squash-merges at a required `sha` (optional
 `delete_branch`), and refuses before any network call a run that is not its rule firing on
-a `discord.button.clicked` event (`not_started_by_click`) or whose workflow is not trusted
-in role `merge` (`workflow_not_trusted`). The role ships with no digest: a release pins the
-live merge workflow's v2 digest (its id must be `merge`). `github.pr` reads one PR's facts.
+a `discord.button.clicked` event (`not_started_by_click`), whose workflow is not trusted
+in role `merge` (`workflow_not_trusted`), whose clicked button was not posted by a run of a
+workflow trusted in role `merge_prompt` (`prompt_not_trusted`, deviation d2: the stored
+click's `data.posted_by`), or whose actor is not an `app` (`actor_not_app`). Both roles
+ship with no digest: a release pins the live prompt and merge workflows' v2 digests (ids
+`merge_prompt` and `merge`). `github.pr` reads one PR's facts.
 `discord.message` takes `buttons`, the gateway emits `discord.button.clicked`, the trigger
 filter `custom_id` is a prefix match, and `discord.reply` answers a click privately. A
 button's optional `value` is kept in the store (`discord_buttons`, posted as
-`<custom_id>:<token>`) and carried by its click as `data.value`, so no id is parsed. The
+`<custom_id>:<token>`, with `posted_by`) and carried by its click as `data.value` and
+`data.posted_by`, so no id is parsed. The
 prompt and merge rules are configured live, never committed.
 
 **Repo documents** (#124, guide `docs/operations/repodocs.md`). The action kind

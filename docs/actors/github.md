@@ -312,14 +312,17 @@ a string, a float or a boolean is refused `bad_input`), `sha` (required: the
 full 40-hex head commit) and `delete_branch` (optional boolean).
 The method is always `squash`.
 
-Merging stays a human gate, fenced by an operator's click and a trusted merge
-role. The fence is checked first, from the store only, before any secret is
-read or any request is made. A refused call fails the step without retry:
+Merging stays a human gate, fenced by an operator's click on a button a
+trusted prompt posted, in a trusted merge workflow. The fence is checked first,
+from the store only, before any secret is read or any request is made. A
+refused call fails the step without retry:
 
 | Error | Meaning |
 |---|---|
+| `actor_not_app` | The `actor`'s `kind` is not `app`. Only an App's trust digest covers its connection |
 | `not_started_by_click` | The run was not its rule firing on a stored `discord.button.clicked` event. A direct run, a scheduled run, a run started through the API and a chained run are all refused |
 | `workflow_not_trusted` | The run's pinned workflow is not trusted in the `merge` role (below) |
+| `prompt_not_trusted` | The clicked button was not posted by a trusted prompt. The **stored** click event's `data.posted_by` (copied from `discord_buttons`, never from the click, the run's inputs or its params) must name a run that is still stored, and that run's pinned workflow must be trusted in the `merge_prompt` role (below). A click with no `posted_by`, a posting run that is gone and a button posted by any other workflow are all refused |
 | `actor_not_trusted` | The App actor's security fields (`kind`, `machine`, `surface`, `commit_author`, `permissions`, and `app_id`, `installation_id` and `private_key` of its connection) do not match a digest pinned in `TRUSTED_ACTOR_DIGESTS`, as for `github.push`. `github-app` is pinned; `repos` is not part of the digest |
 | `rule_disabled`, `workflow_disabled` | The run's rule or workflow is no longer enabled |
 | `run_not_found` | The run is gone |
@@ -359,11 +362,13 @@ Outputs: `merged` (boolean), `sha` (the merge commit GitHub made),
 `branch_deleted`, `branch_delete_error` (an error code, or `null`) and, on a
 repeat, `skipped` (`merged_before` or `merged_unconfirmed`).
 
-The `merge` role ships **with no digest**: the merge workflow is live
-configuration, so until a release pins its digest in
-`culture_rules/actors/trusted.py`, `github.merge` refuses every run with
-`workflow_not_trusted`. The workflow's id must be `merge`. The release step is
-in [the guide](../operations/green-pr-merge.md#3-pin-the-merge-workflow).
+The `merge` and `merge_prompt` roles ship **with no digest**: both workflows
+are live configuration, so until a release pins their digests in
+`culture_rules/actors/trusted.py`, `github.merge` refuses every run, with
+`workflow_not_trusted` (the merge workflow, whose id must be `merge`) or
+`prompt_not_trusted` (the prompt workflow that posts the button, whose id must
+be `merge_prompt`). The release step is in
+[the guide](../operations/green-pr-merge.md#3-pin-the-merge-workflow).
 
 ## Troubleshooting
 
@@ -375,6 +380,8 @@ in [the guide](../operations/green-pr-merge.md#3-pin-the-merge-workflow).
 | A comment fails `actor_misconfigured` | `app_id` or `installation_id` is empty |
 | A comment fails `secret_unavailable` | The node was not started with the private-key injection |
 | A merge fails `workflow_not_trusted` | The merge workflow's digest is not pinned in the `merge` role, or the workflow was edited after the pin |
+| A merge fails `prompt_not_trusted` | The clicked button was not posted by the pinned `merge_prompt` workflow: its digest is not pinned, it was edited after the pin, another workflow posted the button, or the button predates `posted_by` |
+| A merge fails `actor_not_app` | The merge's `actor` is not an `app` actor; use `github-app` |
 | A merge fails `actor_not_trusted` | The merge's `actor` is not a pinned App actor, or its security fields changed since the pin; use `github-app` |
 | A merge fails `head_moved` or `http_409` | The PR got a new commit after the prompt; nothing was merged |
 
