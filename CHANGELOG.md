@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-10-31
+
+### Added
+
+- Green PR merge prompt (spec docs/specs/2026-10-31-green-pr-merge-prompt.md, plan docs/plans/2026-10-31-green-pr-merge-prompt.md): the action kind `github.merge` (squash at a required `sha`, optional `delete_branch`, a once claim so an unknown outcome is never re-sent) and the read-only `github.pr`; `discord.message` `buttons`, the event `discord.button.clicked` (answered within 3 s) and its `custom_id` prefix trigger filter, and `discord.reply` answering a click privately; the editor pickers know them. Guide docs/operations/green-pr-merge.md and the actor guides. Release step: the `merge` trust role (`actors/trusted.py`) ships with no digest, so `github.merge` refuses every run until a release pins the live merge workflow (id `merge`) v2 digest. The prompt and merge rules are configured live, never committed
+
+### Changed
+
+- `github.merge` is the one merge kind, fenced by an operator click and a trusted merge role; it replaces the earlier wording that no merge kind exists and merging stays a human gate (the gate is now the click)
+
 ## [0.38.2] - 2026-10-31
 
 ### Added

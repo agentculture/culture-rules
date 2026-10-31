@@ -291,6 +291,65 @@ A `ping` answers `200 {"pong": true}`. A redelivery is deduplicated by
 `X-GitHub-Delivery`. It is never looked up again, so it cannot change what
 was stored.
 
+## Reading and merging a PR
+
+Two action kinds use the App beyond comments and pushes. Both take
+`params.actor` (the GitHub app actor's id, written as a plain id), `repo` (in
+the actor's `connection.repos`) and `number`.
+
+### `github.pr` (read only)
+
+Reads one PR as the App and outputs `title`, `url`, `author`, `draft`, `state`,
+`merged`, `head_repo`, `base_repo` (both `owner/name`; `head_repo` different
+from `base_repo` means a fork), `head_branch`, `head_sha`, `base_branch` and
+`base_sha`. It writes nothing.
+
+### `github.merge` (squash, fenced)
+
+The one merge kind in culture-rules. It squash-merges a PR as the App, at the
+commit a prompt was shown for. Params: `actor`, `repo`, `number`, `sha`
+(required: the full 40-hex head commit) and `delete_branch` (optional boolean).
+The method is always `squash`.
+
+Merging stays a human gate, fenced by an operator's click and a trusted merge
+role. The fence is checked first, from the store only, before any secret is
+read or any request is made. A refused call fails the step without retry:
+
+| Error | Meaning |
+|---|---|
+| `not_started_by_click` | The run was not its rule firing on a stored `discord.button.clicked` event. A direct run, a scheduled run, a run started through the API and a chained run are all refused |
+| `workflow_not_trusted` | The run's pinned workflow is not trusted in the `merge` role (below) |
+| `rule_disabled`, `workflow_disabled` | The run's rule or workflow is no longer enabled |
+| `run_not_found` | The run is gone |
+
+Which person may click is the click rule's `users` (or `roles`) filter, which
+is configuration (see [the merge prompt guide](../operations/green-pr-merge.md)).
+
+After the fence, the port reads the PR and refuses `pr_not_open` (closed or
+already merged) and `head_moved` (its head is no longer `sha`). Then it calls
+`PUT /repos/{repo}/pulls/{number}/merge` with `sha` and `merge_method:
+squash`. GitHub answers `409` when the head moved and `405` when it cannot
+merge the PR; every 4xx except 408 fails the step without retry. The REST
+merge has no idempotency key, so the port claims `repo#number#sha` first: an
+outcome it cannot know (a 5xx, a timeout, a lost answer) is never sent again.
+A later call reads the PR instead, and completes if it is merged or fails
+`merge_outcome_unknown` if it is not.
+
+With `delete_branch: true`, after a merge and only when the PR's head is in
+`repo` itself (never a fork's), the branch is deleted. A branch already gone is
+not a failure; any other delete error is reported in `branch_delete_error`
+and the merge still counts.
+
+Outputs: `merged` (boolean), `sha` (the merge commit GitHub made),
+`branch_deleted`, `branch_delete_error` (an error code, or `null`) and, on a
+repeat, `skipped` (`merged_before` or `merged_unconfirmed`).
+
+The `merge` role ships **with no digest**: the merge workflow is live
+configuration, so until a release pins its digest in
+`culture_rules/actors/trusted.py`, `github.merge` refuses every run with
+`workflow_not_trusted`. The workflow's id must be `merge`. The release step is
+in [the guide](../operations/green-pr-merge.md#3-pin-the-merge-workflow).
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -300,6 +359,8 @@ was stored.
 | A comment fails `repo_not_allowed` | The repository is not in `connection.repos` |
 | A comment fails `actor_misconfigured` | `app_id` or `installation_id` is empty |
 | A comment fails `secret_unavailable` | The node was not started with the private-key injection |
+| A merge fails `workflow_not_trusted` | The merge workflow's digest is not pinned in the `merge` role, or the workflow was edited after the pin |
+| A merge fails `head_moved` or `http_409` | The PR got a new commit after the prompt; nothing was merged |
 
 ## On rules.culture.dev
 

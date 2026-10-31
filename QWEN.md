@@ -118,6 +118,12 @@ On disk today:
 - State between runs (guide `docs/operations/keysets.md`): `keyset.filter` and
   `keyset.add` keep named key sets for a configured window (one document per key, TTL
   index, config-only rules); admin verbs `keysets list|show|clear`.
+- Green PR merge prompt (guide `docs/operations/green-pr-merge.md`): one merge kind,
+  fenced by an operator click and a trusted merge role: `github.merge` (squash at a
+  required `sha`) runs only in a run a `discord.button.clicked` event started, in a
+  workflow pinned in role `merge` (no digest ships; a release pins it, id `merge`);
+  `github.pr` reads a PR; `discord.message` `buttons`, the `custom_id` prefix filter and
+  `discord.reply` complete it. Rules are configured live, never committed.
 - Repo documents (guide `docs/operations/repodocs.md`): `repodocs.sync` pushes each
   top-level repo's devague record (default-branch versions, working drafts, tombstones,
   spec links) to culture-library; the bundle `docs/rules/repodocs` runs it every 15

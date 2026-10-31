@@ -224,6 +224,10 @@ CLI. A parity test keeps the two surfaces identical.
 - [`docs/operations/govee-lamp.md`](docs/operations/govee-lamp.md): the Govee
   lamp as a runner actor: govee-cli, `govee serve`, the runner's token, the
   actor and a lamp step.
+- [`docs/operations/green-pr-merge.md`](docs/operations/green-pr-merge.md): a
+  green-PR merge prompt in Discord, configured live from `github.pr`,
+  `github.merge`, buttons and the click event (an example), and pinning the
+  merge workflow's digest.
 
 ## Background
 

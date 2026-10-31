@@ -21,7 +21,7 @@ slug: `green-pr-merge-prompt` · status: `exported` · from frame: `green-pr-mer
 - depends on: t1
 - covers: c6, h1, c7, h2
 - acceptance:
-  - tests/node/`test_github_merge.py` pins the call: PUT /repos/{repo}/pulls/{number}/merge with sha and `merge_method` squash; 409 (head moved) and 405 (not mergeable) fail non-retryable; an unknown outcome is never retried blindly (a once claim like github.comment `once_key`); `delete_branch` true deletes refs/heads/<head> only for a same-repo head after a merged response
+  - tests/node/`test_github_merge.py` pins the call: PUT /repos/{repo}/pulls/{number}/merge with sha and `merge_method` squash; 409 (head moved) and 405 (not mergeable) fail non-retryable; an unknown outcome is never retried blindly (a once claim like github.comment `once_key`); `delete_branch` true deletes `refs/heads/<head>` only for a same-repo head after a merged response
   - the fence refuses before any secret read or network call: a run not started by a discord.button.clicked event, a run whose workflow is not trusted in role merge (`TRUSTED_WORKFLOWS`, as github.push d21 `_chain`), and a disabled source rule; each refusal has its own error code and test
   - node/runner.py registers action:github.merge (MissingExtraPort without the github extra); tests/node wiring test proves it
 
