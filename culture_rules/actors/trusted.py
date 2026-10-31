@@ -165,13 +165,16 @@ TRUSTED_WORKFLOWS_V2: dict[str, frozenset[str]] = {
         {"sha256:540cb216fcc1ccccf8d5b7d29abd07427e9a22f6ad40bd930c3036890a3f9c84"}
     ),
     # the green PR merge prompt's ``merge`` workflow (live configuration, never committed):
-    # empty until a release pins the live definition's v2 digest; github.merge refuses
-    # every run until then
-    ROLE_MERGE: frozenset(),
+    # the definition created live 2026-10-31 (github.merge, then discord.reply)
+    ROLE_MERGE: frozenset(
+        {"sha256:1b4e85bbe817463507ca914f015cef28037c24736d7ad725ac1f299643fc09ef"}
+    ),
     # the green PR merge prompt's ``merge_prompt`` workflow, which posts the merge button
-    # (d2, live configuration, never committed): empty until a release pins the live
-    # definition's v2 digest; github.merge refuses every button until then
-    ROLE_MERGE_PROMPT: frozenset(),
+    # (d2, live configuration, never committed): the definition created live 2026-10-31
+    # (github.pr, then discord.message with the button)
+    ROLE_MERGE_PROMPT: frozenset(
+        {"sha256:054bd215ef0a9b607196a61fe1f74e3ca03ed98183543ce532b9ff8ff9a39310"}
+    ),
 }
 """Per role, the v2 digests trusted in it (spec c16). Same roles as :data:`TRUSTED_WORKFLOWS`;
 a definition must come out in one role whichever version matched."""

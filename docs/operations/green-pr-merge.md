@@ -70,34 +70,34 @@ first (see [Verify](#4-verify)).
   A comparison on a missing fact is false, so a PR whose facts are missing is never
   prompted.
 - **Workflow `merge_prompt`** (its id must be exactly `merge_prompt`, see
-  [step 3](#3-pin-the-merge-workflow)): inputs `repository`, `number` (integer),
-  `head_sha`, `title`, `author` and `url`, mapped from `trigger.data.repository`,
-  `trigger.data.number`, `trigger.data.head_sha`, `trigger.data.title`,
-  `trigger.data.author` and `trigger.data.url`. One step, `post`, a built-in action
-  step (`config.builtin: action`) of kind `discord.message`, its inputs edges from the
-  workflow inputs. The text and the button's `value` both come from those inputs:
+  [step 3](#3-pin-the-merge-workflow)): inputs `repo`, `number` (integer) and `sha`,
+  mapped from `trigger.data.repository`, `trigger.data.number` and
+  `trigger.data.head_sha`. The settled event carries no title, link or author name, so
+  the workflow reads the PR first. Two built-in action steps (`config.builtin: action`):
+  - `pr`, kind `github.pr` (`actor: "github-app"`, `repo: "inputs.repo"`,
+    `number: "inputs.number"`), its inputs edges from the workflow's `repo` and
+    `number`, outputs `title`, `url` and `author`;
+  - `post`, kind `discord.message`, with inputs `repo`, `number` and `sha` from the
+    workflow inputs and `title`, `url` and `author` from `pr`:
 
   ```json
   {"kind": "discord.message", "params": {
     "actor": "<discord-actor-id>",
     "channel": "<channel-id>",
-    "text": "Green: {{ inputs.repository }}#{{ inputs.number }} {{ inputs.title }} by {{ inputs.author }}\n{{ inputs.url }}\nhead {{ inputs.head_sha }}",
+    "text": "{{inputs.repo}}#{{inputs.number}} is green: {{inputs.title}} by {{inputs.author}} {{inputs.url}}",
     "buttons": [{"label": "Merge", "style": "success", "custom_id": "merge",
-                 "value": {"repo": "inputs.repository",
+                 "value": {"repo": "inputs.repo",
                            "number": "inputs.number",
-                           "sha": "inputs.head_sha"}}]
+                           "sha": "inputs.sha"}}]
   }}
   ```
 
   The engine resolves the three references before the post, so the stored value
-  holds the PR's repo, number and head sha. The step's outputs are `message_id`
-  and `custom_ids` (here one id, `merge:<token>`).
+  holds the PR's repo, number and the settled head sha (not `pr`'s head, which may have
+  moved on). The step's outputs are `message_id` and `custom_ids` (here one id,
+  `merge:<token>`). This is the workflow `tests/rules/test_green_merge_flow.py` builds.
 - **Action:** `noop`. Post the button from the workflow's step, never from the
   rule's action: the step is part of the pinned digest, the rule's action is not.
-
-If you want the title or the draft flag read fresh rather than from the event, add a
-`github.pr` step (`actor`, `repo`, `number`) before `post` and build the text from its
-outputs; `head_repo != base_repo` there is also how it tells a fork.
 
 ## 2. Rule 2: the click
 
