@@ -121,10 +121,13 @@ On disk today:
 - Green PR merge prompt (guide `docs/operations/green-pr-merge.md`): one merge kind,
   fenced by an operator click and a trusted merge role: `github.merge` (squash at a
   required `sha`) runs only in a run a `discord.button.clicked` event started, in a
-  workflow pinned in role `merge` (no digest ships; a release pins it, id `merge`);
+  workflow pinned in role `merge`, on a button posted by a run of a workflow pinned in
+  role `merge_prompt` (`prompt_not_trusted`, d2), as an `app` actor (`actor_not_app`);
+  neither role ships a digest (a release pins both, ids `merge` and `merge_prompt`);
   `github.pr` reads a PR; `discord.message` `buttons`, the `custom_id` prefix filter and
   `discord.reply` complete it. A button's optional `value` is kept in the store
-  (`discord_buttons`) and carried by its click as `data.value`, so no id is parsed. Rules
+  (`discord_buttons`, with `posted_by`) and carried by its click as `data.value` and
+  `data.posted_by`, so no id is parsed. Rules
   are configured live, never committed.
 - Repo documents (guide `docs/operations/repodocs.md`): `repodocs.sync` pushes each
   top-level repo's devague record (default-branch versions, working drafts, tombstones,

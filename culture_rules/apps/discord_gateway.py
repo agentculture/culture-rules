@@ -717,8 +717,8 @@ def reaction_data(reaction: Mapping[str, Any]) -> dict[str, Any]:
 def button_data(raw: Mapping[str, Any]) -> dict[str, Any]:
     """The event ``data`` for one button click: only these keys, never the token. The clicker
     also fills ``author_id`` / ``author_name``, which the ``users`` trigger filter reads.
-    ``value`` is always ``None`` here (never read from the click); the gateway fills it from
-    the button's stored value."""
+    ``value`` and ``posted_by`` are always ``None`` here (never read from the click); the
+    gateway fills them from the button's stored document."""
 
     def opt(key: str) -> str | None:
         value = raw.get(key)
@@ -737,6 +737,7 @@ def button_data(raw: Mapping[str, Any]) -> dict[str, Any]:
         "user_roles": _str_list(raw.get("user_roles")),
         "bot": bool(raw.get("bot", False)),
         "value": None,  # filled from discord_buttons by the gateway, never from the click
+        "posted_by": None,  # likewise: the run and workflow that posted the button (d2)
     }
 
 
@@ -1265,16 +1266,19 @@ class GatewaySupervisor:
         data = button_data(raw)
         if not data["interaction_id"] or not data["custom_id"]:
             return False
-        data["value"] = self._button_value(session, data["custom_id"])
+        stored = self._stored_button(session, data["custom_id"])
+        data["value"] = stored["value"] if stored else None
+        data["posted_by"] = stored["posted_by"] if stored else None
         return self._sink_interaction(
             session, BUTTON_EVENT, data, token, app_id, commands_mod.BUTTON_INTERACTION
         )
 
-    def _button_value(self, session: _Session, custom_id: str) -> Any:
-        """The value the bot's ``discord.message`` stored for this button (one read by id), or
-        ``None``: none stored, expired, or the read failed (logged; the click still lands)."""
+    def _stored_button(self, session: _Session, custom_id: str) -> dict[str, Any] | None:
+        """``{value, posted_by}`` the bot's ``discord.message`` stored for this button (one
+        read by id), or ``None``: none stored, expired, or the read failed (logged; the click
+        still lands)."""
         try:
-            return buttons_mod.button_value(
+            return buttons_mod.stored_button(
                 self._store, session.actor_id, custom_id, now=self._clock()
             )
         except Exception as exc:  # noqa: BLE001 - never fail a click over its value

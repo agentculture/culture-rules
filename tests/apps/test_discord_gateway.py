@@ -838,8 +838,10 @@ def test_button_data_carries_only_the_documented_keys():
         "user_roles",
         "bot",
         "value",
+        "posted_by",
     }
     assert data["value"] is None  # never from the click itself, only from the store
+    assert data["posted_by"] is None  # likewise (d2)
     assert "token" not in data
     assert "application_id" not in data
 
@@ -850,10 +852,35 @@ def test_a_clicker_cannot_supply_the_value():
     assert dg.button_data(raw)["value"] is None
 
 
-def _store_value(r, custom_id, value):
+def test_a_clicker_cannot_supply_who_posted_the_button():
+    raw = click(1)
+    raw["posted_by"] = {"run_id": "forged", "workflow_id": "merge_prompt"}
+    assert dg.button_data(raw)["posted_by"] is None
+
+
+def _store_value(r, custom_id, value, posted_by=None):
     from culture_rules.apps.discord_buttons import remember_buttons
 
-    remember_buttons(r.store, "bot", "100", [(custom_id, value)], now=r.sup._clock())
+    remember_buttons(
+        r.store, "bot", "100", [(custom_id, value)], now=r.sup._clock(), posted_by=posted_by
+    )
+
+
+def test_a_click_carries_who_posted_the_button_as_data_posted_by(rig):
+    r = _click_rig(rig)
+    posted_by = {"run_id": "run-1", "workflow_id": "merge_prompt"}
+    _store_value(r, "merge:tok1", {"n": 1}, posted_by)
+    r.hub.click(click(1, custom_id="merge:tok1"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.events(BUTTON)[0]["envelope"]["data"]["posted_by"] == posted_by
+
+
+def test_a_click_without_a_stored_button_carries_no_poster(rig):
+    r = _click_rig(rig)
+    _store_value(r, "merge:other", {"n": 1}, {"run_id": "run-1", "workflow_id": "w"})
+    r.hub.click(click(1, custom_id="merge:tok1"))
+    assert eventually(lambda: len(r.events(BUTTON)) == 1)
+    assert r.events(BUTTON)[0]["envelope"]["data"]["posted_by"] is None
 
 
 def test_a_click_carries_the_stored_value_as_data_value(rig):
@@ -879,11 +906,12 @@ def test_a_failed_value_lookup_still_records_the_click(rig, monkeypatch, caplog)
     def broken(*_a, **_k):
         raise RuntimeError("store down")
 
-    monkeypatch.setattr(dg.buttons_mod, "button_value", broken)
+    monkeypatch.setattr(dg.buttons_mod, "stored_button", broken)
     r.hub.click(click(1, custom_id="merge:tok1"))
     assert eventually(lambda: len(r.events(BUTTON)) == 1)
     assert r.hub.answers == [True]
     assert r.events(BUTTON)[0]["envelope"]["data"]["value"] is None
+    assert r.events(BUTTON)[0]["envelope"]["data"]["posted_by"] is None
     assert "button value" in caplog.text
 
 

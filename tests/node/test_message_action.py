@@ -417,3 +417,38 @@ def test_the_port_ensures_the_buttons_ttl_index_once():
     _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
     _send(port, buttons=[_btn(custom_id="merge", value=VALUE)])
     assert calls == [(BUTTONS_COLLECTION, BUTTONS_TTL_INDEX)]
+
+
+# ---------------------------------------------------------------- who posted the button (d2)
+
+
+def test_a_valued_button_records_the_run_and_workflow_that_posted_it():
+    from culture_rules.engine.runs import RUNS_COLLECTION
+
+    port, store = _valued_port(FakeTransport())
+    store.put(RUNS_COLLECTION, {"id": "r", "workflow_id": "merge_prompt"})
+    assert _send(port, buttons=[_btn(custom_id="merge", value=VALUE)]).outcome == "completed"
+    (doc,) = _stored(store)
+    assert doc["posted_by"] == {"run_id": "r", "workflow_id": "merge_prompt"}
+
+
+def test_an_unknown_posting_run_records_its_id_with_no_workflow():
+    port, store = _valued_port(FakeTransport())
+    assert _send(port, buttons=[_btn(custom_id="merge", value=VALUE)]).outcome == "completed"
+    (doc,) = _stored(store)
+    assert doc["posted_by"] == {"run_id": "r", "workflow_id": None}
+
+
+def test_a_failed_run_read_still_posts_and_records_no_workflow():
+    port, store = _valued_port(FakeTransport())
+    real = store.get
+
+    def flaky(collection, doc_id):
+        if collection == "runs":
+            raise RuntimeError("store down")
+        return real(collection, doc_id)
+
+    store.get = flaky
+    assert _send(port, buttons=[_btn(custom_id="merge", value=VALUE)]).outcome == "completed"
+    (doc,) = _stored(store)
+    assert doc["posted_by"] == {"run_id": "r", "workflow_id": None}

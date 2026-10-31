@@ -157,3 +157,45 @@ def test_the_ttl_index_is_created_on_expires_at():
         )
     ]
     db.ensure_buttons_ttl(MemoryStore())  # no ensure_index: nothing to do
+
+
+# --------------------------------------------------------------------------- posted_by (d2)
+
+POSTED_BY = {"run_id": "run-1", "workflow_id": "merge_prompt"}
+
+
+def test_remember_stores_who_posted_each_button():
+    s = MemoryStore()
+    db.remember_buttons(s, "bot", "42", [("merge:t1", {"n": 1})], now=NOW, posted_by=POSTED_BY)
+    assert s.get(db.BUTTONS_COLLECTION, "bot:merge:t1")["posted_by"] == POSTED_BY
+
+
+def test_remember_without_a_poster_stores_none():
+    s = MemoryStore()
+    db.remember_buttons(s, "bot", "42", [("merge:t1", {"n": 1})], now=NOW)
+    assert s.get(db.BUTTONS_COLLECTION, "bot:merge:t1")["posted_by"] is None
+
+
+def test_stored_button_reads_the_value_and_who_posted_it():
+    s = MemoryStore()
+    db.remember_buttons(s, "bot", "42", [("merge:t1", {"n": 1})], now=NOW, posted_by=POSTED_BY)
+    assert db.stored_button(s, "bot", "merge:t1", now=NOW) == {
+        "value": {"n": 1},
+        "posted_by": POSTED_BY,
+    }
+
+
+def test_stored_button_is_none_when_absent_or_expired():
+    s = MemoryStore()
+    db.remember_buttons(s, "bot", "42", [("merge:t1", {"n": 1})], now=NOW, posted_by=POSTED_BY)
+    assert db.stored_button(s, "other", "merge:t1", now=NOW) is None
+    assert db.stored_button(s, "bot", "merge:t1", now=NOW + db.BUTTON_VALUE_TTL) is None
+
+
+def test_a_document_written_before_posted_by_reads_none():
+    s = MemoryStore()
+    db.remember_buttons(s, "bot", "42", [("merge:t1", {"n": 1})], now=NOW)
+    doc = s.get(db.BUTTONS_COLLECTION, "bot:merge:t1")
+    del doc["posted_by"]
+    s.put(db.BUTTONS_COLLECTION, doc)
+    assert db.stored_button(s, "bot", "merge:t1", now=NOW)["posted_by"] is None

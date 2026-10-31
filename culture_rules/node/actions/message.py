@@ -12,7 +12,10 @@ token and the message text are never logged or echoed in errors.
 ``buttons`` put one row of buttons under a Discord message. A button with a ``value`` (a JSON
 object) is posted as ``<custom_id>:<token>`` and its value is kept in ``discord_buttons``
 before the post (:mod:`culture_rules.apps.discord_buttons`), so the click's event carries it as
-``data.value``; only this port writes it, a clicker cannot. A post Discord definitively refused
+``data.value``; only this port writes it, a clicker cannot. Each stored button also records
+who posted it, ``posted_by: {run_id, workflow_id}`` (the invoking run and its workflow id,
+read from ``runs``; ``workflow_id`` is ``None`` when the run cannot be read), which the click
+event carries as ``data.posted_by`` (deviation d2). A post Discord definitively refused
 (a 4xx but 429, :attr:`~culture_rules.apps.discord_rest.DiscordError.refused`) deletes the
 kept values; after a timeout, a 5xx, a 429 or a lost connection the message may be up, so they
 stay (the TTL index deletes them). With buttons the output is
@@ -32,6 +35,7 @@ from culture_rules.actors import secrets
 from culture_rules.apps import discord_buttons as buttons_mod
 from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.node.mesh import MeshPoster
 
 __all__ = ["ACTORS_COLLECTION", "DiscordMessageAction", "MessageAction"]
@@ -86,8 +90,22 @@ class MessageAction:
                 components, valued = buttons_mod.prepare_buttons(input.get("buttons"))
             except ValueError as exc:
                 return _fail(f"bad_params: {exc}")
-            return self._discord(context.actor, channel, text, components, valued)
+            poster = self._posted_by(context.run_id) if valued else None
+            return self._discord(context.actor, channel, text, components, valued, poster)
         return self._mesh(channel, text)
+
+    def _posted_by(self, run_id: str) -> dict[str, Any]:
+        """``{run_id, workflow_id}`` of the run posting valued buttons; the workflow id is read
+        from the run (``None`` when it cannot be read: github.merge then refuses the button)."""
+        workflow_id = None
+        try:
+            run = self._store.get(RUNS_COLLECTION, run_id)
+        except Exception as exc:  # noqa: BLE001 - the post goes ahead without the workflow id
+            log.warning("reading the posting run failed (%s)", type(exc).__name__)
+            run = None
+        if isinstance(run, Mapping) and isinstance(run.get("workflow_id"), str):
+            workflow_id = run["workflow_id"]
+        return {"run_id": run_id, "workflow_id": workflow_id}
 
     def _mesh(self, channel: str, text: str) -> InvocationResult:
         executable = self._mesh_executable or shutil.which("culture")
@@ -116,6 +134,7 @@ class MessageAction:
         text: str,
         components: list[dict[str, Any]],
         valued: list[tuple[str, Any]],
+        posted_by: Mapping[str, Any] | None = None,
     ) -> InvocationResult:
         actor = self._store.get(ACTORS_COLLECTION, actor_id)
         if actor is None:
@@ -143,7 +162,7 @@ class MessageAction:
         kept: list[str] = []
         if valued:
             try:
-                kept = self._keep_values(actor_id, channel, valued)
+                kept = self._keep_values(actor_id, channel, valued, posted_by)
             except Exception as exc:  # noqa: BLE001 - nothing was posted: retry later
                 log.warning("keeping button values failed (%s)", type(exc).__name__)
                 return InvocationResult.failed(
@@ -169,7 +188,13 @@ class MessageAction:
             out = {**out, "custom_ids": [b["custom_id"] for b in components[0]["components"]]}
         return InvocationResult.completed(out)
 
-    def _keep_values(self, actor_id: str, channel: str, valued: list[tuple[str, Any]]) -> list[str]:
+    def _keep_values(
+        self,
+        actor_id: str,
+        channel: str,
+        valued: list[tuple[str, Any]],
+        posted_by: Mapping[str, Any] | None,
+    ) -> list[str]:
         """Store the valued buttons' meaning before the post (the TTL index first, once)."""
         if not self._indexed:
             try:
@@ -178,7 +203,7 @@ class MessageAction:
             except Exception as exc:  # noqa: BLE001 - a missing index must not stop the post
                 log.warning("ensuring the buttons TTL index failed (%s)", type(exc).__name__)
         return buttons_mod.remember_buttons(
-            self._store, actor_id, channel, valued, now=self._clock()
+            self._store, actor_id, channel, valued, now=self._clock(), posted_by=posted_by
         )
 
 
