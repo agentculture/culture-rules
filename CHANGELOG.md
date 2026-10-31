@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.2] - 2026-10-31
+
+### Added
+
+- The Govee lamp as a runner actor, configuration only (spec docs/specs/2026-10-30-govee-lamp-actor-and-wake-up.md, plan docs/plans/2026-10-30-govee-lamp-actor-and-wake-up.md, guide docs/operations/govee-lamp.md): govee-cli owns the definition (govee rules actor), govee serve runs as a user unit, the runner saves a client token, and a workflow step calls a lamp command through machine.command. No culture-rules code changes; the actor and the flows that use it (a daily wake-up and its lamp-off) are configured live, never committed. Frame, plan and delivery records (deviations d1-d4, evidence e1-e13) under .devague/
+
 ## [0.38.1] - 2026-10-31
 
 ### Fixed
