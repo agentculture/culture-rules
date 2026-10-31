@@ -527,7 +527,21 @@ def test_an_unlisted_repo_is_refused_before_any_secret_or_call(pem, trust_merge)
 
 @pytest.mark.parametrize(
     "extra",
-    [{"sha": "abc"}, {"sha": None}, {"number": "x"}, {"delete_branch": "yes"}],
+    [
+        {"sha": "abc"},
+        {"sha": None},
+        {"number": "x"},
+        {"delete_branch": "yes"},
+        {"number": 3.7},
+        {"number": 3.0},
+        {"number": True},
+        {"number": "3"},
+        {"number": " 3"},
+        {"number": "3x"},
+        {"number": 0},
+        {"number": -3},
+        {"number": None},
+    ],
 )
 def test_bad_input_is_refused_before_any_secret_or_call(pem, trust_merge, extra):
     fake = Fake()

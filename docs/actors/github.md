@@ -307,8 +307,9 @@ from `base_repo` means a fork), `head_branch`, `head_sha`, `base_branch` and
 ### `github.merge` (squash, fenced)
 
 The one merge kind in culture-rules. It squash-merges a PR as the App, at the
-commit a prompt was shown for. Params: `actor`, `repo`, `number`, `sha`
-(required: the full 40-hex head commit) and `delete_branch` (optional boolean).
+commit a prompt was shown for. Params: `actor`, `repo`, `number` (an integer;
+a string, a float or a boolean is refused `bad_input`), `sha` (required: the
+full 40-hex head commit) and `delete_branch` (optional boolean).
 The method is always `squash`.
 
 Merging stays a human gate, fenced by an operator's click and a trusted merge

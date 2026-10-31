@@ -113,13 +113,11 @@ _REFUSED = "github.merge refused: %s"
 
 
 def _merge_input(input: Mapping[str, Any]) -> tuple[int, str, bool] | None:
-    """``(number, sha, delete_branch)``, or ``None`` when any is malformed."""
+    """``(number, sha, delete_branch)``, or ``None`` when any is malformed. ``number`` is an
+    int only (the engine delivers the catalogue's ``int`` param as one, as ``github.pr`` reads
+    it): a float, a bool or a string is refused, never truncated or parsed."""
     number, sha, delete = input.get("number"), input.get("sha"), input.get("delete_branch", False)
-    if isinstance(number, bool) or not isinstance(delete, bool):
-        return None
-    try:
-        number = int(number)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    if not isinstance(number, int) or isinstance(number, bool) or not isinstance(delete, bool):
         return None
     if number < 1 or not isinstance(sha, str) or len(sha) != 40:
         return None
