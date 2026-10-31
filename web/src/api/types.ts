@@ -51,6 +51,8 @@ export interface EventTriggerParams {
   emoji?: string[];
   /** discord.command.invoked: the command name, or several (any of them matches); absent = any command. */
   command?: string | string[];
+  /** discord.button.clicked: the button custom_id, or several, matched as a prefix; absent = any button. */
+  custom_id?: string | string[];
   /** discord.* events: also fire for messages from bots (default off). */
   include_bots?: boolean;
   max_fires_per_hour?: number;
@@ -112,6 +114,8 @@ export type ActionKind =
   | "discord.reply"
   | "discord.sweep"
   | "github.comment"
+  | "github.merge"
+  | "github.pr"
   | "jira.comment"
   | "http.call"
   | "machine.command"

@@ -326,6 +326,14 @@ function DiscordFilters({ name, actorId, t, load, onChange }: Readonly<DiscordFi
           onList={(l) => set({ command: l.length > 1 ? l : l[0] })}
         />
       ) : null}
+      {params.type === "discord.button.clicked" ? (
+        <ListField
+          label="Button id"
+          hint="The button's custom id, matched as a prefix, or several separated by commas. Empty means any button."
+          value={commandNames(params.custom_id)}
+          onList={(l) => set({ custom_id: l.length > 1 ? l : l[0] })}
+        />
+      ) : null}
       <ListField label="Users" hint="Ids or usernames, separated by commas. Empty means anyone." value={params.users ?? []} onList={(l) => set({ users: l })} />
       <ListField label="Roles" hint="Role ids, matched against the roles of whoever posted or reacted." value={params.roles ?? []} onList={(l) => set({ roles: l })} />
       <label className="trigger-kind">
@@ -380,12 +388,13 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
           disabled={!surfaceActor}
           onChange={(e) => {
             // emoji belongs to reactions and command to commands: never carry either hidden onto another type
-            const { emoji, command, ...rest } = t.params;
+            const { emoji, command, custom_id, ...rest } = t.params;
             const next = e.target.value;
             const keep = {
               ...rest,
               ...(next === "discord.reaction.added" && emoji !== undefined ? { emoji } : {}),
               ...(next === "discord.command.invoked" && command !== undefined ? { command } : {}),
+              ...(next === "discord.button.clicked" && custom_id !== undefined ? { custom_id } : {}),
             };
             onChange({ kind: "event", params: { ...keep, type: next } });
           }}

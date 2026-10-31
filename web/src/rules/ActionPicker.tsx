@@ -63,7 +63,7 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   message: { label: "Send a message on the mesh", params: { channel: RS, text: RS } },
   "discord.message": {
     label: "Post a message on Discord",
-    params: { actor: RS, guild: S, channel: RS, text: RS },
+    params: { actor: RS, guild: S, channel: RS, text: RS, buttons: { type: "list" } },
   },
   "discord.read": {
     label: "Read a Discord message in full",
@@ -93,6 +93,14 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   "github.comment": {
     label: "Comment on GitHub",
     params: { actor: RS, repo: RS, number: RI, body: RS },
+  },
+  "github.merge": {
+    label: "Merge a GitHub PR",
+    params: { actor: RS, repo: RS, number: RI, sha: RS, delete_branch: { type: "bool" } },
+  },
+  "github.pr": {
+    label: "Read a GitHub PR",
+    params: { actor: RS, repo: RS, number: RI },
   },
   "github.push": {
     label: "Push a fix to a GitHub PR",
@@ -869,6 +877,60 @@ function ChoiceField({ id, name, p, value, onPick }: Readonly<ChoiceFieldProps>)
   );
 }
 
+const BUTTON_STYLES = ["success", "primary", "secondary", "danger"] as const;
+const MAX_BUTTONS = 5;
+interface ButtonSpec {
+  label: string;
+  style: string;
+  custom_id: string;
+}
+
+/** discord.message `buttons`: up to five rows of label, style and custom id, with add and remove. */
+function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: (v: unknown) => void }>) {
+  const rows: ButtonSpec[] = Array.isArray(value) ? (value as ButtonSpec[]) : [];
+  const save = (next: ButtonSpec[]) => onChange(next.length ? next : undefined);
+  const edit = (i: number, patch: Partial<ButtonSpec>) =>
+    save(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  return (
+    <fieldset className="action-picker__buttons">
+      <legend>Buttons</legend>
+      {rows.map((r, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <div key={i} className="action-picker__button-row">
+          <label>
+            <span>{`Button ${i + 1} label`}</span>
+            <input value={r.label ?? ""} maxLength={80} onChange={(e) => edit(i, { label: e.target.value })} />
+          </label>
+          <label>
+            <span>{`Button ${i + 1} style`}</span>
+            <select value={r.style ?? "primary"} onChange={(e) => edit(i, { style: e.target.value })}>
+              {BUTTON_STYLES.map((s) => (
+                <option key={s} value={s}>
+                  {cap(s)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{`Button ${i + 1} custom id`}</span>
+            <input value={r.custom_id ?? ""} maxLength={100} onChange={(e) => edit(i, { custom_id: e.target.value })} />
+          </label>
+          <button type="button" onClick={() => save(rows.filter((_, j) => j !== i))}>
+            {`Remove button ${i + 1}`}
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        disabled={rows.length >= MAX_BUTTONS}
+        onClick={() => save([...rows, { label: "", style: "primary", custom_id: "" }])}
+      >
+        Add button
+      </button>
+    </fieldset>
+  );
+}
+
 /** A single param's field: the command / args / choice selects, the headers rows, or a value. */
 function ParamField({
   id,
@@ -939,6 +1001,9 @@ function ParamField({
         <span>{BOOL_LABELS[name] ?? cap(name)}</span>
       </label>
     );
+  }
+  if (name === "buttons") {
+    return <ButtonsField value={params[name]} onChange={(v) => setParam(name, v)} />;
   }
   if (p.type === "dict") {
     return <HeadersField key={name} value={params[name]} onChange={(v) => setParam(name, v)} />;

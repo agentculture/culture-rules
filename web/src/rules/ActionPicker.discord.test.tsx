@@ -134,3 +134,22 @@ describe("Release 3 kinds", () => {
     });
   });
 });
+
+describe("discord.message buttons", () => {
+  it("adds, edits and removes button rows, at most five", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await user.click(screen.getByRole("button", { name: "Add button" }));
+    await user.type(screen.getByLabelText("Button 1 label"), "Merge");
+    await user.selectOptions(screen.getByLabelText("Button 1 style"), "success");
+    await user.type(screen.getByLabelText("Button 1 custom id"), "merge:1");
+    const saved = () => JSON.parse(screen.getByTestId("saved").textContent ?? "{}").params.buttons;
+    expect(saved()).toEqual([{ label: "Merge", style: "success", custom_id: "merge:1" }]);
+    for (let i = 0; i < 4; i++) await user.click(screen.getByRole("button", { name: "Add button" }));
+    expect(screen.getByRole("button", { name: "Add button" })).toBeDisabled();
+    for (let i = 5; i > 0; i--) await user.click(screen.getByRole("button", { name: `Remove button ${i}` }));
+    expect(saved()).toBeUndefined();
+  });
+});
