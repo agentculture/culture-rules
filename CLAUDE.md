@@ -235,6 +235,26 @@ plan. What exists today:
   - admin verbs `keysets list|show|clear` (API, CLI, MCP; reads are admin too, `clear` dry
     runs unless `--apply`, and an applied clear is audited, deviation d1); flows that use them (the newspaper not repeating links) are
     configured live, never committed.
+- **Green PR merge prompt** (spec `docs/specs/2026-10-31-green-pr-merge-prompt.md`, plan
+  `docs/plans/2026-10-31-green-pr-merge-prompt.md`, guide `docs/operations/green-pr-merge.md`,
+  actor guides `docs/actors/github.md` and `docs/actors/discord.md`): generic surfaces only;
+  the prompt and merge rules are configured live, never committed:
+  - there is **one merge kind, fenced by an operator click and a trusted merge role**:
+    `github.merge` (`node/actions/github_merge.py`) squash-merges at `sha` (required; the
+    head moving is refused `head_moved`, GitHub's 409/405 fail without retry, a once claim
+    in `github_merge_once` never re-sends an unknown outcome) and may delete a same-repo
+    branch; before any secret or request it refuses a run that is not its rule firing on a
+    stored `discord.button.clicked` event (`not_started_by_click`) or whose workflow is not
+    trusted in role `merge` (`workflow_not_trusted`); `github.pr` is the read-only PR facts;
+  - the role `merge` (`actors/trusted.py`, `ROLE_MERGE`) ships with **no digest**: until a
+    release pins the live merge workflow's v2 digest (its id must be `merge`), every merge
+    is refused; a change to that workflow needs a new pin;
+  - `discord.message` takes `buttons` (at most 5: `label`, `style`, `custom_id`), the
+    gateway turns a click into `discord.button.clicked` (the actor lists it in
+    `params.events`), answers every click within 3 s (an admitted click disables the
+    buttons), `custom_id` is a trigger filter (prefix), and `discord.reply` with the click's
+    `event_id` answers the clicker privately; no step can split a `custom_id`, so the guide
+    carries a run id in it and reads the prompt run back with `run.read`.
 - **Repo documents** (culture-rules#124, guide `docs/operations/repodocs.md`; the contract
   is culture-library's `docs/api/repodocs.md`):
   - the action kind `repodocs.sync` (`node/actions/repodocs.py`, stdlib, git as argv lists)

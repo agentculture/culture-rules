@@ -322,6 +322,44 @@ flow can so show its progress on the message: ⏳ when it starts, ⌛ (removing 
 after a meaningful middle step, then ✅ (removing ⌛ and ⏳) when it is done.
 Which marks, and at which steps, is the flow's configuration.
 
+## Buttons
+
+`discord.message` takes an optional `buttons` list: up to 5 objects, each with
+a `label` (1-80 characters), a `style` (`success`, `primary`, `secondary` or
+`danger`) and a `custom_id` (1-100 characters, unique within the message). A
+bad list is refused `bad_params` before anything is posted; the action still
+returns `message_id`. A `custom_id` is opaque to Discord and to the engine: it
+is only handed back when the button is clicked.
+
+An actor that lists `discord.button.clicked` in `params.events` hears clicks. A
+click becomes a `discord.button.clicked` event with `custom_id`, `message_id`,
+`channel_id`, `guild_id`, `interaction_id`, the clicker's `user_id` and
+`username` (also as `author_id` and `author_name`), `user_roles` and `bot`. Like
+other Discord events it is recorded only from a channel that an enabled rule
+selects, and the interaction's token is never in the event: it is kept for 15
+minutes in `discord_interactions` (kind `button`).
+
+Every click is answered within Discord's 3 seconds:
+
+- a click an enabled rule admits **updates the message with its buttons
+  disabled** (a slow write is first acknowledged as a deferred update), so a
+  prompt is clicked once;
+- a click no rule admits is answered privately "This button is not set up
+  here." and the message is unchanged;
+- a click whose event could not be saved gets the same not-saved text as a
+  command.
+
+The trigger filter `custom_id` (a string or a list; a **prefix** match,
+case-sensitive) picks the button, on a `discord.button.clicked` trigger only;
+`users`, `roles`, `channels` and `include_bots` apply as for messages. Because
+the match is a prefix, give every button of a flow a distinct fixed prefix.
+
+`discord.reply` with the click's `event_id` (`trigger.id`) answers the clicker
+with a private follow-up (it does not edit the message); after 15 minutes the
+token is gone and the reply fails `interaction_expired`.
+
+A worked example is in [the green PR merge guide](../operations/green-pr-merge.md).
+
 ## Commands
 
 Which commands a bot offers is configuration: nothing is built in. An actor

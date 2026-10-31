@@ -172,6 +172,17 @@ key field, normalisation and window are step config. One document per key in `ke
 under a TTL index; admin verbs `keysets list|show|clear`. Flows using them are configured
 live.
 
+**Green PR merge prompt** (spec `docs/specs/2026-10-31-green-pr-merge-prompt.md`, guide
+`docs/operations/green-pr-merge.md`). There is one merge kind, fenced by an operator click
+and a trusted merge role: `github.merge` squash-merges at a required `sha` (optional
+`delete_branch`), and refuses before any network call a run that is not its rule firing on
+a `discord.button.clicked` event (`not_started_by_click`) or whose workflow is not trusted
+in role `merge` (`workflow_not_trusted`). The role ships with no digest: a release pins the
+live merge workflow's v2 digest (its id must be `merge`). `github.pr` reads one PR's facts.
+`discord.message` takes `buttons`, the gateway emits `discord.button.clicked`, the trigger
+filter `custom_id` is a prefix match, and `discord.reply` answers a click privately. The
+prompt and merge rules are configured live, never committed.
+
 **Repo documents** (#124, guide `docs/operations/repodocs.md`). The action kind
 `repodocs.sync` pushes every top-level repo's specs, plans, deliveries, designs and
 `.devague` files under its service actor's `repos_root` to culture-library: each file's
