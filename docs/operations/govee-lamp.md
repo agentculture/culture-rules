@@ -91,28 +91,37 @@ definition and update the actor the same way (`culture-rules actors update spark
 
 ## Using it in a workflow
 
-A step is a builtin code step that runs a `machine.command` action, placed on the lamp's
-machine:
+A step is a builtin code step that runs a `machine.command` action. Placing it by actor runs
+it on the actor's own machine, so the machine name lives in one place:
 
 ```json
 {
+  "id": "white",
+  "name": "Daylight white",
   "kind": "code",
-  "placement": {"machine": "spark"},
+  "placement": {"actor": "spark-govee"},
   "config": {
     "builtin": "action",
-    "idempotent": true,
     "action": {
       "kind": "machine.command",
+      "idempotent": true,
       "params": {"actor": "spark-govee", "command": "lamp_temp", "args": {"kelvin": 5000}}
     }
   }
 }
 ```
 
-Set `config.idempotent: true` on every lamp step. Each command sets a state, so running it
-twice is harmless, but the runner cannot deduplicate a retry: without the flag, a node
-restart or a lost claim while the step runs fails it with `unsafe_retry` instead of running
-it again.
+Set `config.action.idempotent: true` on every lamp step. The runner cannot deduplicate a
+retry, so without the flag a node restart or a lost claim while the step runs fails it with
+`unsafe_retry` instead of running it again. In this form the value is checked when the
+workflow is saved (it must be a boolean); a top-level `config.idempotent` works too but is
+not checked.
+
+Running a setter twice (`lamp_brightness`, `lamp_temp`, `lamp_color`, `lamp_on`,
+`lamp_off`) is harmless. Running a fade twice is not quite: the second one starts a new
+full-length fade from the lamp's current level. With serve running a fade step lasts under a
+second, so a retry can only land while the lamp is still near its start and costs seconds;
+without the flag, the same restart cancels the fade altogether.
 
 A fade step (`lamp_fade_on`, `lamp_fade_off`, `lamp_fade_on_to`) also wants `"timeout_s":
 3700` on the step. With serve running a fade returns at once, but without serve it blocks

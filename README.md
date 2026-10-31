@@ -221,6 +221,9 @@ CLI. A parity test keeps the two surfaces identical.
 - [`docs/operations/model-actors.md`](docs/operations/model-actors.md): enrol a
   gateway's models as actors, `model_gateways`, the one-actor-per-model rule,
   repointing a workflow, and the one-time newspaper move.
+- [`docs/operations/govee-lamp.md`](docs/operations/govee-lamp.md): the Govee
+  lamp as a runner actor: govee-cli, `govee serve`, the runner's token, the
+  actor and a lamp step.
 
 ## Background
 
