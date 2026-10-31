@@ -11,8 +11,9 @@ cache and its deadline-bounded resolve (``_app_within``). Params: ``actor``, ``r
 In order, refusing at the first failed check; every check before step 4 reads only the
 store, so a refusal reads no secret and makes no network call:
 
-1. actor (``actor_not_found``), allowlist (``repo_not_allowed``, ``actor_misconfigured``) and
-   input shape (``bad_input``);
+1. actor (``actor_not_found``; :data:`NOT_APP`, ``actor_not_app``, for an actor whose
+   ``kind`` is not ``app``: only an App's trust digest covers its connection), allowlist
+   (``repo_not_allowed``, ``actor_misconfigured``) and input shape (``bad_input``);
 2. the fence (``run_not_found`` when the run is gone):
 
    * the run was started by a ``discord.button.clicked`` event (:data:`NOT_CLICK`,
@@ -25,6 +26,13 @@ store, so a refusal reads no secret and makes no network call:
      (:data:`~culture_rules.actors.trusted.ROLE_MERGE`, ``workflow_not_trusted``), as
      ``github.push``'s chain checks its roles. That role ships with no digest: a release
      pins the live merge workflow's;
+   * the clicked button was posted by a trusted prompt (deviation d2,
+     :data:`PROMPT_NOT_TRUSTED`, ``prompt_not_trusted``): the **stored** click event's
+     ``data.posted_by`` (the gateway copies it from ``discord_buttons``, never from the
+     click; never read from the run's inputs or params) names a ``run_id``, that run is in
+     the store, and its pinned workflow is trusted in the ``merge_prompt`` role
+     (:data:`~culture_rules.actors.trusted.ROLE_MERGE_PROMPT`, shipped empty like ``merge``).
+     So an untrusted workflow cannot post a merge-prefixed button naming another PR;
    * its source rule is still live and enabled, read now (``rule_disabled``,
      :func:`~culture_rules.node.actions.github_pr.source_rule_refusal`);
    * the App actor's document (the one snapshot whose connection is used) matches a digest
@@ -94,7 +102,14 @@ from culture_rules.node.actions.github_pr import source_rule_refusal
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError
 
-__all__ = ["MERGE_ONCE_COLLECTION", "NOT_CLICK", "OUTCOME_UNKNOWN", "GitHubMergePort"]
+__all__ = [
+    "MERGE_ONCE_COLLECTION",
+    "NOT_APP",
+    "NOT_CLICK",
+    "OUTCOME_UNKNOWN",
+    "PROMPT_NOT_TRUSTED",
+    "GitHubMergePort",
+]
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +117,10 @@ MERGE_ONCE_COLLECTION = "github_merge_once"
 """Claims of ``github.merge`` calls (one document per repo, PR and sha)."""
 NOT_CLICK = "not_started_by_click"
 """The run was not started by a ``discord.button.clicked`` event through its rule."""
+PROMPT_NOT_TRUSTED = "prompt_not_trusted"
+"""The clicked button was not posted by a run of a workflow trusted in ``merge_prompt``."""
+NOT_APP = "actor_not_app"
+"""The actor's ``kind`` is not ``app`` (its trust digest would not cover the connection)."""
 OUTCOME_UNKNOWN = "merge_outcome_unknown"
 """An earlier merge of this repo, PR and sha may have happened; it is never sent again."""
 _CLAIMED, _MERGED, _UNKNOWN = "claimed", "merged", "unknown"
@@ -126,26 +145,49 @@ def _merge_input(input: Mapping[str, Any]) -> tuple[int, str, bool] | None:
     return number, sha, delete
 
 
-def click_refusal(store: Any, run: Mapping[str, Any]) -> str | None:
-    """:data:`NOT_CLICK` unless ``run`` is its rule's firing on a stored
-    ``discord.button.clicked`` event; ``None`` when it is."""
+def stored_click(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The stored ``discord.button.clicked`` envelope ``run`` is its rule's firing on, or
+    ``None`` when it is not such a run."""
     from culture_rules.node.firing import run_id_for  # noqa: PLC0415 - node layer, lazily
 
     trigger = run.get("trigger")
     rule_id = run.get("rule_id")
     if not isinstance(trigger, Mapping) or trigger.get("type") != BUTTON_CLICKED:
-        return NOT_CLICK
+        return None
     event_id = trigger.get("id")
     if not isinstance(rule_id, str) or not rule_id or rule_id.startswith(ADHOC_RULE_PREFIX):
-        return NOT_CLICK
+        return None
     if not isinstance(event_id, str) or not event_id:
-        return NOT_CLICK
+        return None
     if run.get("id") != run_id_for(rule_id, event_id):
-        return NOT_CLICK  # started by hand (the API), not by the rule firing on the event
+        return None  # started by hand (the API), not by the rule firing on the event
     stored = store.get(EVENTS_COLLECTION, event_id)
     envelope = (stored or {}).get("envelope")
     if not isinstance(envelope, Mapping) or envelope.get("type") != BUTTON_CLICKED:
-        return NOT_CLICK
+        return None
+    return envelope
+
+
+def click_refusal(store: Any, run: Mapping[str, Any]) -> str | None:
+    """:data:`NOT_CLICK` unless ``run`` is its rule's firing on a stored
+    ``discord.button.clicked`` event; ``None`` when it is."""
+    return None if stored_click(store, run) is not None else NOT_CLICK
+
+
+def prompt_refusal(store: Any, envelope: Mapping[str, Any]) -> str | None:
+    """:data:`PROMPT_NOT_TRUSTED` unless the stored click ``envelope``'s ``data.posted_by``
+    names a stored run whose pinned workflow is trusted in ``merge_prompt``; ``None`` when it
+    does."""
+    data = envelope.get("data")
+    posted_by = data.get("posted_by") if isinstance(data, Mapping) else None
+    run_id = posted_by.get("run_id") if isinstance(posted_by, Mapping) else None
+    if not isinstance(run_id, str) or not run_id:
+        return PROMPT_NOT_TRUSTED
+    posting = store.get(RUNS_COLLECTION, run_id)
+    if not isinstance(posting, Mapping):
+        return PROMPT_NOT_TRUSTED
+    if trusted.workflow_refusal(posting, (trusted.ROLE_MERGE_PROMPT,)):
+        return PROMPT_NOT_TRUSTED
     return None
 
 
@@ -154,10 +196,13 @@ def fence_refusal(store: Any, run_id: str | None) -> str | None:
     run = store.get(RUNS_COLLECTION, run_id) if run_id else None
     if not run:
         return "run_not_found"
-    refusal = click_refusal(store, run)
+    envelope = stored_click(store, run)
+    if envelope is None:
+        return NOT_CLICK
+    refusal = trusted.workflow_refusal(run, (trusted.ROLE_MERGE,))
     if refusal:
         return refusal
-    refusal = trusted.workflow_refusal(run, (trusted.ROLE_MERGE,))
+    refusal = prompt_refusal(store, envelope)
     if refusal:
         return refusal
     return source_rule_refusal(store, str(run_id))
@@ -187,6 +232,9 @@ class GitHubMergePort(GitHubCommentPort):
         if conn is None:
             self._apps.pop(str(actor_id), None)
             return InvocationResult.failed(ACTOR_NOT_FOUND, retryable=False)
+        if snapshot.get("kind") != "app":  # only an App's digest covers its connection
+            log.info(_REFUSED, NOT_APP)
+            return InvocationResult.failed(NOT_APP, retryable=False)
         repo = input.get("repo")
         allowed, refusal = repo_refusal(conn, repo)
         if refusal:

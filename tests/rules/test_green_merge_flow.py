@@ -1,11 +1,13 @@
 """Green PR merge prompt end to end (green-pr-merge-prompt t8): surfaces only, rules in the test.
 
-A ``github.pr.checks_settled`` success starts the prompt workflow: ``github.pr`` reads the PR,
-then ``discord.message`` posts it with one success button whose value (repo, number, sha) is
-kept in ``discord_buttons`` (d1). The operator's click is the ``discord.button.clicked`` event
-the gateway records (``button_data`` plus the stored value); it starts the ``merge`` workflow,
-trusted in the merge role for the test: ``github.merge`` squash-merges at the prompted sha and
-deletes the same-repo branch, then ``discord.reply`` answers the clicker privately. One node
+A ``github.pr.checks_settled`` success starts the prompt workflow (id ``merge_prompt``):
+``github.pr`` reads the PR, then ``discord.message`` posts it with one success button whose
+value (repo, number, sha) is kept in ``discord_buttons`` (d1) with the run that posted it (d2).
+The operator's click is the ``discord.button.clicked`` event the gateway records
+(``button_data`` plus the stored value and poster); it starts the ``merge`` workflow. For the
+test the release step pins both digests (the prompt in ``merge_prompt``, the merge workflow in
+``merge``): ``github.merge`` squash-merges at the prompted sha and deletes the same-repo
+branch, then ``discord.reply`` answers the clicker privately. One node
 runs it on doubles of GitHub and Discord. Nothing here is committed configuration (c12, c24).
 """
 
@@ -26,7 +28,11 @@ from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
 
 from culture_rules.actors import trusted  # noqa: E402
-from culture_rules.apps.discord_buttons import BUTTONS_COLLECTION, button_value  # noqa: E402
+from culture_rules.apps.discord_buttons import (  # noqa: E402
+    BUTTONS_COLLECTION,
+    button_value,
+    stored_button,
+)
 from culture_rules.apps.discord_commands import (  # noqa: E402
     BUTTON_INTERACTION,
     remember_interaction,
@@ -79,8 +85,9 @@ def _workflow(id_: str, inputs: list[dict], steps: list[dict], edges: list[dict]
     return wf
 
 
-def prompt_workflow() -> dict:
-    """Read the PR, then post it with a Merge button whose value is the PR's identity."""
+def prompt_workflow(id_: str = trusted.ROLE_MERGE_PROMPT) -> dict:
+    """Read the PR, then post it with a Merge button whose value is the PR's identity. Its id
+    is its trust role's name (``merge_prompt``), as every trusted workflow's is."""
     read = step(
         "pr",
         action("github.pr", {"actor": GH, "repo": "inputs.repo", "number": "inputs.number"}),
@@ -122,7 +129,7 @@ def prompt_workflow() -> dict:
         *(edge("pr", p, "post", p) for p in ("title", "url", "author")),
     ]
     inputs = [port("repo"), port("number", "integer"), port("sha")]
-    return _workflow("green-pr-prompt", inputs, [read, post], edges)
+    return _workflow(id_, inputs, [read, post], edges)
 
 
 def merge_workflow() -> dict:
@@ -172,7 +179,7 @@ def _eq(field: str, literal) -> dict:
     return {"op": "compare", "cmp": "==", "left": {"field": field}, "right": {"literal": literal}}
 
 
-def prompt_rule() -> dict:
+def prompt_rule(id_: str = "green-pr-prompt", workflow_id: str = trusted.ROLE_MERGE_PROMPT) -> dict:
     """Green, not a draft, not a fork (the data facts the settler carries)."""
     condition = {
         "op": "and",
@@ -193,7 +200,7 @@ def prompt_rule() -> dict:
         "sha": "trigger.data.head_sha",
     }
     trigger = {"kind": "event", "params": {"type": SETTLED}}
-    return _rule("green-pr-prompt", trigger, "green-pr-prompt", inputs, condition)
+    return _rule(id_, trigger, workflow_id, inputs, condition)
 
 
 def click_rule() -> dict:
@@ -387,8 +394,8 @@ class World:
         return doc["custom_id"]
 
     def click(self, user: str = OPERATOR, custom_id: str | None = None) -> str:
-        """What the gateway records for a click: button_data plus the stored value, and the
-        interaction token kept apart under the event id."""
+        """What the gateway records for a click: button_data plus the stored value and poster,
+        and the interaction token kept apart under the event id."""
         custom_id = custom_id or self.posted_id()
         raw = {
             "custom_id": custom_id,
@@ -399,10 +406,12 @@ class World:
             "user_id": user,
             "username": "ori" if user == OPERATOR else "dana",
         }
+        stored = stored_button(self.base, BOT, custom_id, now=self.clock())
         data = {
             **button_data(raw),
             "actor": BOT,
-            "value": button_value(self.base, BOT, custom_id, now=self.clock()),
+            "value": stored["value"] if stored else None,
+            "posted_by": stored["posted_by"] if stored else None,
         }
         event_id = f"evt_{self.sent + 1}"
         remember_interaction(
@@ -429,9 +438,11 @@ def pin_test_app(monkeypatch):
 
 @pytest.fixture
 def trust_merge(monkeypatch):
-    """The release step: pin the live merge workflow's v2 digest in the merge role."""
+    """The release step: pin the live prompt workflow's v2 digest in the merge_prompt role
+    and the live merge workflow's in the merge role (d2: two digests)."""
     roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
     roles[trusted.ROLE_MERGE] = frozenset({trusted.workflow_digest_v2(merge_workflow())})
+    roles[trusted.ROLE_MERGE_PROMPT] = frozenset({trusted.workflow_digest_v2(prompt_workflow())})
     monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
 
 
@@ -468,6 +479,9 @@ def test_a_green_pr_is_prompted_with_a_button_that_keeps_its_meaning(pem):
     assert SHA not in button["custom_id"] and REPO not in button["custom_id"]
     stored = button_value(world.base, BOT, button["custom_id"], now=world.clock())
     assert stored == {"repo": REPO, "number": NUMBER, "sha": SHA}
+    # and who posted it (d2): the prompt run and its workflow
+    poster = stored_button(world.base, BOT, button["custom_id"], now=world.clock())["posted_by"]
+    assert poster == {"run_id": run["id"], "workflow_id": trusted.ROLE_MERGE_PROMPT}
 
 
 def test_the_operator_s_click_squash_merges_the_prompted_sha_and_answers_privately(
@@ -516,6 +530,42 @@ def test_an_untrusted_merge_workflow_merges_nothing(pem):
     assert run["status"] == "failed"
     assert "workflow_not_trusted" in json.dumps(run.get("error") or run["steps"])
     assert world.github.puts() == []
+
+
+def test_an_untrusted_prompt_workflow_merges_nothing(pem, trust_merge, monkeypatch):
+    roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
+    roles[trusted.ROLE_MERGE_PROMPT] = frozenset()  # the merge role pinned, the prompt not
+    monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
+    world = World(pem)
+    world.green()
+    world.click()
+    (run,) = world.runs("merge-on-click")
+    assert run["status"] == "failed"
+    assert "prompt_not_trusted" in json.dumps(run.get("error") or run["steps"])
+    assert world.github.puts() == []
+
+
+def test_a_button_posted_by_an_untrusted_workflow_merges_nothing(pem, trust_merge):
+    """A second workflow posts a button with the same ``merge`` prefix; the operator's click
+    on it is admitted by the click rule and starts the trusted merge workflow, but the
+    button's origin is not a trusted prompt, so nothing merges."""
+    world = World(pem)
+    world.base.put("workflows", prompt_workflow("rogue-prompt"))
+    world.base.put("rules", prompt_rule("rogue-rule", "rogue-prompt"))
+    real = world.base.get("rules", "green-pr-prompt")
+    world.base.put("rules", {**real, "enabled": False})  # only the rogue posts
+    world.green()
+    assert world.runs("green-pr-prompt") == []
+    (posting,) = world.runs("rogue-rule")
+    _ok(posting)
+    (row,) = world.discord.posts[0]["components"]
+    assert row["components"][0]["custom_id"].startswith("merge:")
+    world.click()
+    (run,) = world.runs("merge-on-click")
+    assert run["status"] == "failed"
+    assert "prompt_not_trusted" in json.dumps(run.get("error") or run["steps"])
+    assert world.github.puts() == [] and world.github.deletes() == []
+    assert world.discord.followups == []
 
 
 def test_an_unpinned_app_actor_merges_nothing(pem, trust_merge, monkeypatch):

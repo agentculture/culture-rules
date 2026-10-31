@@ -22,8 +22,9 @@ SOURCES = {
 }
 
 
-LIVE_ONLY = {trusted.ROLE_MERGE}
-"""Roles whose workflow is live configuration with no committed source (the merge prompt)."""
+LIVE_ONLY = {trusted.ROLE_MERGE, trusted.ROLE_MERGE_PROMPT}
+"""Roles whose workflow is live configuration with no committed source (the merge prompt's
+``merge`` workflow and, deviation d2, its ``merge_prompt`` workflow)."""
 
 
 def test_every_role_has_a_trusted_source():

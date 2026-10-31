@@ -13,8 +13,14 @@ a ``value`` posts its ``custom_id`` unchanged.
 The value is written to :data:`BUTTONS_COLLECTION` **before** the message is posted (so a fast
 click always finds it), one document per valued button::
 
-    {id: "<actor id>:<posted custom_id>", actor_id, custom_id, value, channel_id,
+    {id: "<actor id>:<posted custom_id>", actor_id, custom_id, value, posted_by, channel_id,
      message_id, created_at, expires_at}
+
+``posted_by`` is ``{run_id, workflow_id}``: the run whose ``discord.message`` step posted the
+button and that run's workflow id (``None`` when the run could not be read), or ``None`` for
+a post outside a run (deviation d2 of the green PR merge prompt). ``github.merge`` loads that
+run and merges only when its pinned workflow is trusted in the ``merge_prompt`` role, so an
+untrusted workflow cannot post a button whose stored value another workflow then merges.
 
 ``message_id`` is filled after the post (best effort); a post Discord definitively refused
 deletes the documents again (one that may have landed - a timeout, a 5xx, a 429, a lost
@@ -23,10 +29,11 @@ connection - keeps them). ``expires_at`` is :data:`BUTTON_VALUE_TTL` (30 days) a
 :func:`button_value` treats a passed ``expires_at`` as gone. A click on an expired button
 carries no value.
 
-Only the bot's own ``discord.message`` port writes these documents: the gateway reads the
-value by the actor and the clicked ``custom_id`` and attaches it to the
-``discord.button.clicked`` event as ``data.value``. A clicker sends only the posted id, so it
-cannot change or invent a value. Standard-library only, store-agnostic.
+Only the bot's own ``discord.message`` port writes these documents: the gateway reads them
+by the actor and the clicked ``custom_id`` (:func:`stored_button`) and attaches the value and
+the poster to the ``discord.button.clicked`` event as ``data.value`` and ``data.posted_by``.
+A clicker sends only the posted id, so it cannot change or invent either. Standard-library
+only, store-agnostic.
 """
 
 from __future__ import annotations
@@ -54,6 +61,7 @@ __all__ = [
     "prepare_buttons",
     "remember_buttons",
     "set_message_id",
+    "stored_button",
 ]
 
 BUTTONS_COLLECTION = "discord_buttons"
@@ -149,9 +157,12 @@ def remember_buttons(
     valued: Iterable[tuple[str, Any]],
     *,
     now: datetime,
+    posted_by: Mapping[str, Any] | None = None,
 ) -> list[str]:
-    """Insert one document per valued button and return their ids. A failed insert deletes the
+    """Insert one document per valued button and return their ids. ``posted_by`` (``{run_id,
+    workflow_id}`` of the posting run, or ``None``) is kept on each. A failed insert deletes the
     ones already written (best effort) and raises."""
+    poster = dict(posted_by) if posted_by is not None else None
     ids: list[str] = []
     try:
         for custom_id, value in valued:
@@ -163,6 +174,7 @@ def remember_buttons(
                     "actor_id": actor_id,
                     "custom_id": custom_id,
                     "value": value,
+                    "posted_by": poster,
                     "channel_id": channel_id,
                     "message_id": None,
                     "created_at": now,
@@ -204,13 +216,23 @@ def _as_utc(value: Any) -> datetime | None:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
-def button_value(store: Any, actor_id: str, custom_id: str, *, now: datetime | None = None) -> Any:
-    """The value stored for the actor's button ``custom_id`` (one read by id), or ``None`` when
-    there is none or it has expired."""
+def stored_button(
+    store: Any, actor_id: str, custom_id: str, *, now: datetime | None = None
+) -> dict[str, Any] | None:
+    """``{value, posted_by}`` stored for the actor's button ``custom_id`` (one read by id), or
+    ``None`` when there is none or it has expired. ``posted_by`` is ``None`` for a document
+    written without one."""
     doc = store.get(BUTTONS_COLLECTION, _doc_id(actor_id, custom_id))
     if doc is None:
         return None
     expires = _as_utc(doc.get(_EXPIRES_AT))
     if expires is None or (now or datetime.now(UTC)) >= expires:
         return None
-    return doc.get("value")
+    return {"value": doc.get("value"), "posted_by": doc.get("posted_by")}
+
+
+def button_value(store: Any, actor_id: str, custom_id: str, *, now: datetime | None = None) -> Any:
+    """The value stored for the actor's button ``custom_id``, or ``None`` when there is none or
+    it has expired (:func:`stored_button`'s ``value``)."""
+    stored = stored_button(store, actor_id, custom_id, now=now)
+    return stored["value"] if stored is not None else None

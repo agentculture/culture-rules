@@ -1,5 +1,6 @@
 """github.merge: squash-merge as the App at the prompted sha, fenced to a click in a trusted
-merge workflow, with an optional same-repo branch delete (fake transport, memory store)."""
+merge workflow on a button a trusted prompt workflow posted (d2), with an optional same-repo
+branch delete (fake transport, memory store)."""
 
 from __future__ import annotations
 
@@ -49,6 +50,20 @@ WORKFLOW = {
     ],
 }
 
+PROMPT_RUN = "run-prompt"
+PROMPT = {
+    "id": trusted.ROLE_MERGE_PROMPT,
+    "name": "merge prompt",
+    "steps": [
+        {
+            "id": "post",
+            "kind": "action",
+            "config": {"action": "discord.message", "channel": "4242", "text": "green"},
+        }
+    ],
+}
+POSTED_BY = {"run_id": PROMPT_RUN, "workflow_id": trusted.ROLE_MERGE_PROMPT}
+
 
 @pytest.fixture(scope="module")
 def pem():
@@ -62,9 +77,11 @@ def pem():
 
 @pytest.fixture
 def trust_merge(monkeypatch):
-    """Trust the test's merge workflow in the merge role (no digest ships pinned)."""
+    """The release step (no digest ships pinned): trust the test's merge workflow in the merge
+    role and its prompt workflow in the merge_prompt role."""
     roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
     roles[trusted.ROLE_MERGE] = frozenset({trusted.workflow_digest_v2(WORKFLOW)})
+    roles[trusted.ROLE_MERGE_PROMPT] = frozenset({trusted.workflow_digest_v2(PROMPT)})
     monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
 
 
@@ -153,20 +170,32 @@ def actor_doc():
     }
 
 
-def click_envelope(event_type=BUTTON_CLICKED):
+def click_envelope(event_type=BUTTON_CLICKED, posted_by=POSTED_BY):
     return {
         "id": EVENT,
         "type": event_type,
         "source": "discord",
-        "data": {"custom_id": f"merge:{REPO}:3:{SHA}", "author_id": "42"},
+        "data": {"custom_id": "merge:tok", "author_id": "42", "posted_by": posted_by},
     }
 
 
-def world(pem, fake, *, envelope=None, stored_event=True, rule_enabled=True, run=None):
-    """A store with the App actor, the click rule, the click event and the run it started."""
+def prompt_run(definition=None):
+    return {
+        "id": PROMPT_RUN,
+        "rule_id": "green-prompt",
+        "workflow_id": trusted.ROLE_MERGE_PROMPT,
+        "workflow": {"id": trusted.ROLE_MERGE_PROMPT, "definition": definition or PROMPT},
+    }
+
+
+def world(pem, fake, *, envelope=None, stored_event=True, rule_enabled=True, run=None, poster=True):
+    """A store with the App actor, the click rule, the click event, the run it started and
+    the run that posted the clicked button."""
     store = MemoryStore()
     store.put("actors", actor_doc())
     store.put("rules", {"id": RULE, "name": RULE, "enabled": rule_enabled})
+    if poster:
+        store.put("runs", prompt_run())
     envelope = envelope or click_envelope()
     if stored_event:
         store.put("events", {"id": envelope["id"], "envelope": envelope})
@@ -510,8 +539,96 @@ def test_an_unknown_run_is_refused(pem, trust_merge):
 def test_the_fence_codes_are_distinct():
     from culture_rules.node.actions import github_merge
 
-    codes = {github_merge.NOT_CLICK, "workflow_not_trusted", "rule_disabled"}
-    assert len(codes) == 3
+    codes = {
+        github_merge.NOT_CLICK,
+        "workflow_not_trusted",
+        github_merge.PROMPT_NOT_TRUSTED,
+        "rule_disabled",
+        github_merge.NOT_APP,
+    }
+    assert len(codes) == 5
+
+
+# --------------------------------------------------------------------------- the prompt (d2)
+
+
+def _stored_click(store, posted_by):
+    envelope = click_envelope(posted_by=posted_by)
+    store.put("events", {"id": envelope["id"], "envelope": envelope})
+
+
+def test_a_button_posted_by_a_trusted_prompt_merges(pem, trust_merge):
+    port, _, _, run_id = world(pem, Fake())
+    assert merge(port, run_id).outcome == "completed"
+
+
+def test_a_click_with_no_poster_is_refused_before_any_secret_or_call(pem, trust_merge):
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    _stored_click(store, None)
+    res = merge(port, run_id)
+    assert (res.error, res.retryable) == ("prompt_not_trusted", False)
+    assert _nothing_touched(fake, resolved)
+
+
+@pytest.mark.parametrize(
+    "posted_by",
+    [{}, {"workflow_id": "merge_prompt"}, {"run_id": ""}, {"run_id": 7}, "run-prompt", []],
+)
+def test_a_poster_without_a_run_id_is_refused(pem, trust_merge, posted_by):
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    _stored_click(store, posted_by)
+    assert merge(port, run_id).error == "prompt_not_trusted"
+    assert _nothing_touched(fake, resolved)
+
+
+def test_the_poster_is_read_from_the_stored_event_never_from_the_run(pem, trust_merge):
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    _stored_click(store, None)  # the run's own trigger copy still names the trusted poster
+    assert store.get("runs", run_id)["trigger"]["data"]["posted_by"] == POSTED_BY
+    assert merge(port, run_id).error == "prompt_not_trusted"
+    assert _nothing_touched(fake, resolved)
+
+
+def test_a_missing_posting_run_is_refused_before_any_secret_or_call(pem, trust_merge):
+    fake = Fake()
+    port, _, resolved, run_id = world(pem, fake, poster=False)
+    res = merge(port, run_id)
+    assert (res.error, res.retryable) == ("prompt_not_trusted", False)
+    assert _nothing_touched(fake, resolved)
+
+
+def test_an_untrusted_posting_workflow_is_refused_before_any_secret_or_call(
+    pem, trust_merge, monkeypatch
+):
+    roles = dict(trusted.TRUSTED_WORKFLOWS_V2)
+    roles[trusted.ROLE_MERGE_PROMPT] = frozenset()  # the shipped state of merge_prompt
+    monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS_V2", roles)
+    fake = Fake()
+    port, _, resolved, run_id = world(pem, fake)
+    res = merge(port, run_id)
+    assert (res.error, res.retryable) == ("prompt_not_trusted", False)
+    assert _nothing_touched(fake, resolved)
+
+
+def test_a_changed_posting_workflow_is_refused(pem, trust_merge):
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    edited = json.loads(json.dumps(PROMPT))
+    edited["steps"][0]["config"]["channel"] = "9999"
+    store.put("runs", prompt_run(edited))
+    assert merge(port, run_id).error == "prompt_not_trusted"
+    assert _nothing_touched(fake, resolved)
+
+
+def test_a_button_posted_by_the_merge_workflow_itself_is_refused(pem, trust_merge):
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    _stored_click(store, {"run_id": run_id, "workflow_id": "merge"})
+    assert merge(port, run_id).error == "prompt_not_trusted"
+    assert _nothing_touched(fake, resolved)
 
 
 # --------------------------------------------------------------------------- input and actor
@@ -706,6 +823,21 @@ def test_an_app_actor_whose_security_fields_changed_is_refused_before_any_secret
     store.put("actors", doc)
     res = merge(port, run_id)
     assert (res.error, res.retryable) == ("actor_not_trusted", False)
+    assert _nothing_touched(fake, resolved)
+
+
+def test_an_actor_that_is_not_an_app_is_refused_before_any_secret_or_call(
+    pem, trust_merge, monkeypatch
+):
+    doc = actor_doc()
+    doc["kind"] = "service"  # its digest leaves the connection out: it must never merge
+    pinned = {**trusted.TRUSTED_ACTOR_DIGESTS, "gh-app": frozenset({trusted.actor_digest(doc)})}
+    monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", pinned)
+    fake = Fake()
+    port, store, resolved, run_id = world(pem, fake)
+    store.put("actors", doc)
+    res = merge(port, run_id)
+    assert (res.error, res.retryable) == ("actor_not_app", False)
     assert _nothing_touched(fake, resolved)
 
 

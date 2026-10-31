@@ -42,6 +42,7 @@ from typing import Any
 __all__ = [
     "ROLE_FIX",
     "ROLE_MERGE",
+    "ROLE_MERGE_PROMPT",
     "ROLE_PUBLISH",
     "ROLE_REVIEW",
     "ROLE_SINGLE",
@@ -77,6 +78,12 @@ ROLE_MERGE = "merge"
 ``github.merge`` (:mod:`culture_rules.node.actions.github_merge`). It is live configuration
 (never committed), so no digest ships pinned: no merge can run until a release pins the live
 workflow's digest here (its id must be ``merge``)."""
+ROLE_MERGE_PROMPT = "merge_prompt"
+"""Green PR merge prompt (deviation d2): the workflow that posts the valued merge button.
+``github.merge`` merges a click's stored value only when the run that posted the button
+(``discord_buttons``' ``posted_by``) pinned a workflow trusted here. Live configuration like
+``merge``: no digest ships pinned, and a release pins the live prompt workflow's (its id must
+be ``merge_prompt``)."""
 
 TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     # docs/rules/pr-fixer/workflows/pr-fixer.json as shipped in 0.13.0 (d20 round 2); a copy
@@ -121,6 +128,8 @@ TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     ),
     # the merge workflow is live configuration: pinned in V2 only, by a release
     ROLE_MERGE: frozenset(),
+    # the merge prompt workflow (d2) likewise
+    ROLE_MERGE_PROMPT: frozenset(),
 }
 """Per role, the digests of the workflow definitions trusted in it (d21). A digest belongs
 to one role: the role says what a run of that workflow may do - record a review, build the
@@ -159,6 +168,10 @@ TRUSTED_WORKFLOWS_V2: dict[str, frozenset[str]] = {
     # empty until a release pins the live definition's v2 digest; github.merge refuses
     # every run until then
     ROLE_MERGE: frozenset(),
+    # the green PR merge prompt's ``merge_prompt`` workflow, which posts the merge button
+    # (d2, live configuration, never committed): empty until a release pins the live
+    # definition's v2 digest; github.merge refuses every button until then
+    ROLE_MERGE_PROMPT: frozenset(),
 }
 """Per role, the v2 digests trusted in it (spec c16). Same roles as :data:`TRUSTED_WORKFLOWS`;
 a definition must come out in one role whichever version matched."""
