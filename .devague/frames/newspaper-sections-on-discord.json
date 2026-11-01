@@ -1,0 +1,298 @@
+{
+  "slug": "newspaper-sections-on-discord",
+  "title": "Newspaper sections on Discord",
+  "schema_version": 6,
+  "status": "drafting",
+  "created": "2026-11-01T21:41:26Z",
+  "updated": "2026-11-01T21:42:58Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The daily newspaper posts to Discord one message per section, routes the jobs section to #open-to-work, and can post a section as a tagged forum post \u2014 through generic step options, with every route, channel and tag in config",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "boundary",
+      "text": "Routing, channels, thread titles and tag names are configuration on the live newspaper-to-discord workflow (a new revision), never code: no step learns the word newspaper, a section name, a channel or a tag (steps-generic-flows-are-config; the live workflow notes say 'Generic steps only (d5) ... Live config (d4), not committed')",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "assumption",
+      "text": "jetson-bot can already post in #open-to-work 1461808693225066640 (a text channel) and create posts in bot-experimentation-forum 1563965995788271617 (a forum, type 15) in guild 1326246312072581160; it cannot manage threads or channels, so it cannot create forum tags",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Routing by section is a when-condition on a loop body step over an item field (the condition tree already has matches/in/compare, culture_rules/model/condition.py:14-15), because nested loops are refused (culture_rules/engine/runs.py:1803): so each split piece must carry its heading as a field of a single loop item",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "The API server cannot read a Discord bot token (GET /actors/jetson-bot/discord/targets answers secret_unavailable 409 on the LAN API): anything that must read a forum's tags runs on a node, inside the step, not in the API",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "markdown.from_html gains a generic option split_at (a heading tag h1-h6): a heading of that rank or higher always starts a new piece, pieces never join across it, and a new output parts lists [{heading, text, index}] beside the unchanged markdown, chunks and count; a section longer than max_chars becomes several parts with the same heading; text before the first split heading is a part with an empty heading",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "Without split_at, markdown.from_html output is byte-identical to today (the live newspaper-to-discord rev 2 keeps working unchanged until its own revision)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "The editor's step catalog declares the new parts output of markdown.from_html (web/src/workflows/StepEditor.tsx:325-329), the setup guide docs/operations/newspaper.md:370-377 describes split_at and parts, and describe/runner registrations stay as they are (runner.py:334-337, describe.py:88)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "discord.message takes two optional generic params, thread_name and tags (a list of tag names): when given, the step reads the channel (GET /channels/{id}), requires a forum (type 15), resolves each tag name against the forum's available_tags, and creates a forum post (POST /channels/{id}/threads with name, applied_tags and message.content, mentions suppressed as today); outputs message_id and thread_id; without thread_name the step behaves exactly as today",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "A forum post fails the same way a message does: a timeout is outcome_unknown and never retried (a retry could create a second post), 429 and 5xx retry, other 4xx refuse; a thread_name on a non-forum channel, tags without thread_name, or a forum that requires a tag with none given fail bad_params before any post",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "discord.message's declaration (culture_rules/model/action_kinds.py:106-113) and the editor's hand-copied one (web/src/rules/ActionPicker.tsx:64-67) gain thread_name and tags as optional params; the Discord targets picker (server/app.py:1018-1054, TEXT_CHANNEL_TYPES (0,5) in discord_rest.py) is not changed: forum channels and their tags are not listed in the editor in this work",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "assumption",
+      "text": "A forum post by jetson-bot does not loop back into the discord-*-to-library flows: the gateway reports a post's message with channel_id = the thread id (apps/discord_gateway.py _message_dict l.228-244), channel filters compare channel_id exactly, and bot events are dropped unless include_bots/include_self (engine/matching.py ~245-247)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "non_goal",
+      "text": "No sweep or read of forum channels, no creating or editing forum tags (the bot lacks Manage Channels), no forum support in the editor's targets picker, and no change to the daily-newspaper workflow or its keyset measurement",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "assumption",
+      "text": "Tag names equal the section headings exactly, so the forum send step can take tags from the part's own heading (a list holding the reference inputs.item.heading) with no mapping table; this holds only while the operator keeps tag names and section names in step",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "live workflow newspaper-to-discord rev 2 (workflows list, 2026-11-01)",
+      "finding": "run.read(render.html) -> markdown.from_html(max_chars 1900) -> for_each posting each chunk with discord.message as jetson-bot to #bot-experimentations 1407337283794767873; succeeded after every issue 10-29..11-01; chunks are by size, so one message can hold several sections",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "Discord API probe with jetson-bot's grant token (read-only GET /channels, /guilds/roles, /members, 2026-11-01)",
+      "finding": "open-to-work: text, view+send true; bot-experimentation-forum: forum, one tag 'Jetson optimization' (1566567803270598776), require_tag false, create posts true, manage_threads false; bot-experimentations: text, send true",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_rules/model/condition.py + culture_rules/engine/runs.py:1803",
+      "finding": "matches (re.fullmatch) and in exist; a for_each body cannot contain another loop, so a piece of a long section must still carry its section heading",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "culture-rules actors discord-targets jetson-bot (2026-11-01)",
+      "finding": "409 secret_unavailable: the token lives on the nodes; the API-side targets view cannot list forum tags today",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_rules/node/actions/markdown_html.py (_Doc l.60-, _chunks l.~201, html_to_markdown l.~214, invoke l.~270)",
+      "finding": "any heading opens a block, but _chunks packs blocks greedily across headings (tests/node/test_markdown_html.py:92-103), so no per-section split exists; _pieces already keeps a heading with its first line; bad config fails bad_params non-retryable",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_rules/node/actions/newspaper_render.py (_masthead l.~349, _html l.~355, _body l.~320-340)",
+      "finding": "issue html: h1 title + p.date (+ p.note) then <section><h2>name</h2> per section with ul/li results, p.note, p.empty; so split_at h2 gives the masthead as the first part and one part per section",
+      "seeds": [
+        "c6",
+        "c7"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "engine/runs.py _when 2255-2266, _gathered_inputs 2228-2246, _action_step_params 2000-2004; condition._resolve 191-203",
+      "finding": "a body step's when sees item.heading through dotted paths when the step declares an item input port; params take inputs.item.text; so routing by part heading is pure config",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "web/src/workflows/StepEditor.tsx:325-329, docs/operations/newspaper.md:370-377, node/runner.py:334-337, model/describe.py:88, explain catalog",
+      "finding": "markdown.from_html is declared in the StepEditor outputs and the newspaper guide; the explain catalog lists no builtins; tests in tests/node/test_markdown_html.py and test_discord_wiring.py:37",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_rules/node/actions/sections.py (document.sections)",
+      "finding": "an existing builtin splits at a heading (split_on) but outputs a heading, links and a plain excerpt, not the Markdown text Discord shows, so it is not a substitute; its split_on naming is the precedent for split_at's values",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "culture_rules/node/actions/message.py (invoke l.~78-96, _discord l.~125-170) + culture_rules/apps/discord_rest.py (post_message l.386-434, _get_ok l.186, DiscordError l.69-94)",
+      "finding": "post_message is the template: direct transport POST (never auto-retried), TimeoutError -> outcome_unknown non-retryable, 429 retryable, 5xx retryable, other 4xx refused; GET helpers retry 429; no channel caching; params validated before the secret is read; outputs message_id (+custom_ids with buttons)",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "culture_rules/model/action_kinds.py:106-113, web/src/rules/ActionPicker.tsx:64-67, server/app.py:1002-1054, apps/discord_rest.py list_targets l.194-226",
+      "finding": "params are declared twice (model + editor copy); extra params are tolerated; the targets API returns id/name/visible only and filters to text types 0 and 5, so forums are invisible to the picker today",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "apps/discord_gateway.py _message_dict l.228-244, engine/matching.py ~245-247, discord.sweep",
+      "finding": "no thread/forum handling in the gateway; a forum post arrives with the thread id as channel_id; bot posts are skipped by default; discord.sweep on a forum id would fail (forums have no /messages), so sweeping a forum is out of scope",
+      "seeds": [
+        "c12"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "tests/node/test_message_action.py (FakeTransport, l.57-470), docs/actors/discord.md (l.168 params, ## Buttons l.~325)",
+      "finding": "tests use a FakeTransport per URL; the guide documents params and buttons; a forum-post section goes after Buttons",
+      "seeds": [
+        "c9",
+        "c10"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "Discord API probe, bot-experimentation-forum 1563965995788271617 (2026-11-01, after the operator added tags)",
+      "finding": "available_tags: Jetson optimization 1566567803270598776, Jetson news 1566567904734879825, Isaac ROS 1566567942525816882; require_tag false; the names equal three of the four section headings; the jobs section has no tag (it goes to #open-to-work)",
+      "seeds": [
+        "c3",
+        "c9"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
