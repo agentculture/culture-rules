@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-01T21:48:44Z",
+  "updated": "2026-11-01T21:54:25Z",
   "claims": [
     {
       "id": "c1",
@@ -339,7 +339,7 @@
     {
       "id": "c20",
       "kind": "requirement",
-      "text": "llm.complete gains a fourth locked brief, headline: reply with one plain line of at most 60 characters summarising only the given text, in its language, with no markdown, quotes or trailing period; the brief is code like the other three, selected by brief: headline, never built from params",
+      "text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text, written by an admin like every actor param), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [
@@ -348,12 +348,24 @@
           "text": "llm.complete with brief headline sends the locked headline text as the system message and refuses any param that tries to replace it; an unknown brief still fails invalid_request",
           "status": "proposed",
           "instruction": ""
+        },
+        {
+          "id": "h22",
+          "text": "tests: a step with brief: <name> uses the text from the actor's params.briefs as the system message; a brief name neither the actor nor code defines fails invalid_request before any request; a step param holding prompt text is ignored or refused, never sent; the three code briefs still select as before",
+          "status": "proposed",
+          "instruction": ""
         }
       ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "llm.complete gains a fourth locked brief, headline: reply with one plain line of at most 60 characters summarising only the given text, in its language, with no markdown, quotes or trailing period; the brief is code like the other three, selected by brief: headline, never built from params",
+          "kind": "requirement",
+          "reason": "operator: we only implement framework, and configure process and BL on top of it"
+        }
+      ]
     },
     {
       "id": "c21",
@@ -499,9 +511,38 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "boundary",
+      "text": "No process or business-logic text is added to code in this work: no prompt wording, character budget, title format, section name, tag or channel; code gains only mechanisms (split at a heading, forum post with tags by name, long post continued in its thread, briefs read from actor config)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "the diff adds no prompt text and no newspaper, section, tag, channel or title-format literal under culture_rules/; the only new strings are param names, error codes and Discord API paths",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
-  "open_vagueness": [],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Moving the three existing code briefs (newspaper, transcript, recording) into actor config the same way",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
   "scope_entries": [
     {
       "id": "s1",
@@ -625,6 +666,14 @@
       "seeds": [
         "c15",
         "c9"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "culture_rules/node/actions/llm.py (_BRIEFS l.166, _brief l.256-262, actor.params l.221-231) + docs/actors/llm.md:6,90,96",
+      "finding": "briefs are a code map selected by a step's brief param; the guarantee that matters is that a step cannot supply prompt text, and actor params are already admin-only config (base_url, model, api_key read from actor.params), so actor-declared briefs keep that guarantee while moving prompt wording out of code",
+      "seeds": [
+        "c20"
       ]
     }
   ],
