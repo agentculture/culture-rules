@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-01T21:42:58Z",
+  "updated": "2026-11-01T21:44:39Z",
   "claims": [
     {
       "id": "c1",
@@ -173,6 +173,18 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Live tests of forum posts go first to the testing forum bot-experiments-forum 1566568383082799214 in the Experiments server 1413999242648748195 (operator-designated for exploration/testing); the Jetson AI Lab forum 1563965995788271617 is used only after a clean test",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [],
@@ -289,6 +301,15 @@
       "finding": "available_tags: Jetson optimization 1566567803270598776, Jetson news 1566567904734879825, Isaac ROS 1566567942525816882; require_tag false; the names equal three of the four section headings; the jobs section has no tag (it goes to #open-to-work)",
       "seeds": [
         "c3",
+        "c9"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "Discord API probe, bot-experiments-forum 1566568383082799214 in guild 1413999242648748195 (2026-11-01)",
+      "finding": "forum (type 15), tags Isaac ROS 1566568405421531207, Jetson optimization 1566568446286757969, Jetson news 1566568483850948658, require_tag false, jetson-bot can create posts, cannot manage threads; same tag names as the Jetson AI Lab forum but different ids, so resolving tags by name at post time lets one config move between forums by changing only the channel",
+      "seeds": [
+        "c15",
         "c9"
       ]
     }
