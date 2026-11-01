@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.1] - 2026-11-01
+
+### Added
+
+- Delivery summaries for the green PR merge prompt (docs/deliveries/2026-10-31-green-pr-merge-prompt.md) and the Govee lamp actor and wake-up (docs/deliveries/2026-10-30-govee-lamp-actor-and-wake-up.md), with their devague delivery records: obligations, test and live evidence, and behavioral deltas
+
+### Changed
+
+- The green-PR merge frame records who can set up a merge (c26, c27) and closes risks r1 and r2 from the two live merges
+
 ## [0.40.0] - 2026-10-31
 
 ### Added
