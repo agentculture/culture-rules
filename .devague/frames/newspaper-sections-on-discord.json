@@ -2,9 +2,9 @@
   "slug": "newspaper-sections-on-discord",
   "title": "Newspaper sections on Discord",
   "schema_version": 6,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-01T21:54:25Z",
+  "updated": "2026-11-01T21:55:29Z",
   "claims": [
     {
       "id": "c1",
@@ -16,7 +16,7 @@
         {
           "id": "h1",
           "text": "grep of the new code for newspaper, a section name, a Discord channel id or a tag name finds none; every route, channel, title and tag lives in the live workflow revision",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -30,12 +30,12 @@
       "kind": "boundary",
       "text": "Routing, channels, thread titles and tag names are configuration on the live newspaper-to-discord workflow (a new revision), never code: no step learns the word newspaper, a section name, a channel or a tag (steps-generic-flows-are-config; the live workflow notes say 'Generic steps only (d5) ... Live config (d4), not committed')",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h2",
           "text": "the live newspaper-to-discord revision is the only place channels, tag names and the title template appear; no committed docs/rules bundle holds them",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -49,7 +49,7 @@
       "kind": "assumption",
       "text": "jetson-bot can already post in #open-to-work 1461808693225066640 (a text channel) and create posts in bot-experimentation-forum 1563965995788271617 (a forum, type 15) in guild 1326246312072581160; it cannot manage threads or channels, so it cannot create forum tags",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -61,12 +61,12 @@
       "kind": "requirement",
       "text": "Routing by section is a when-condition on a loop body step over an item field (the condition tree already has matches/in/compare, culture_rules/model/condition.py:14-15), because nested loops are refused (culture_rules/engine/runs.py:1803): so each split piece must carry its heading as a field of a single loop item",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h3",
           "text": "a flow test runs a for_each over parts where two body steps with when on item.heading post to different channels, and each part reaches exactly one channel",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -80,12 +80,12 @@
       "kind": "boundary",
       "text": "The API server cannot read a Discord bot token (GET /actors/jetson-bot/discord/targets answers secret_unavailable 409 on the LAN API): anything that must read a forum's tags runs on a node, inside the step, not in the API",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h4",
           "text": "tag lookup happens in the node-side step (GET /channels/{id} with the bot token); no API route reads a bot token",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -99,12 +99,12 @@
       "kind": "requirement",
       "text": "markdown.from_html gains a generic option split_at (a heading tag h1-h6): a heading of that rank or higher always starts a new part, and a new output parts lists [{heading, text, index}], one whole part per heading with no size cap, beside the unchanged markdown, chunks and count; text before the first split heading is a part with an empty heading",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h5",
           "text": "a unit test renders an issue-shaped HTML (h1, p.date, three h2 sections) with split_at h2 and gets 4 parts: the masthead with heading empty, then each section whole with its heading, even when one section is longer than max_chars",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -124,12 +124,12 @@
       "kind": "boundary",
       "text": "Without split_at, markdown.from_html output is byte-identical to today (the live newspaper-to-discord rev 2 keeps working unchanged until its own revision)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h6",
           "text": "the existing tests/node/test_markdown_html.py passes unchanged, and output without split_at has no parts key",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -143,12 +143,12 @@
       "kind": "requirement",
       "text": "The editor's step catalog declares the new parts output of markdown.from_html (web/src/workflows/StepEditor.tsx:325-329), the setup guide docs/operations/newspaper.md:370-377 describes split_at and parts, and describe/runner registrations stay as they are (runner.py:334-337, describe.py:88)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h7",
           "text": "web vitest/typecheck pass with parts declared in StepEditor, and docs/operations/newspaper.md names split_at and parts",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -162,12 +162,12 @@
       "kind": "requirement",
       "text": "discord.message takes two optional generic params, thread_name and tags (a list of tag names): when given, the step reads the channel (GET /channels/{id}), requires a forum (type 15), resolves each tag name against the forum's available_tags, and creates a forum post (POST /channels/{id}/threads with name, applied_tags and message.content, mentions suppressed as today); outputs message_id and thread_id; without thread_name the step behaves exactly as today",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h8",
           "text": "a FakeTransport test sees GET /channels/{id} then POST /channels/{id}/threads with name, applied_tags as the resolved ids and message.content with allowed_mentions parse empty; the step returns message_id and thread_id; without thread_name the request is the same POST /channels/{id}/messages as today",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -181,12 +181,12 @@
       "kind": "requirement",
       "text": "A forum post fails the same way a message does: a timeout is outcome_unknown and never retried (a retry could create a second post), 429 and 5xx retry, other 4xx refuse; thread_name on a non-forum channel or tags without thread_name fail bad_params before any post; a tag name the forum lacks is left off and listed in an output tags_missing; a thread_name longer than Discord's 100 characters is cut at a word boundary",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h9",
           "text": "tests cover: a timeout on the thread POST fails outcome_unknown and non-retryable; 429 retryable; a text channel with thread_name fails bad_params with no POST; an unknown tag posts with the known tags and lists the unknown in tags_missing; a 140-character thread_name is sent as at most 100 characters ending at a word",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -206,12 +206,12 @@
       "kind": "boundary",
       "text": "discord.message's declaration (culture_rules/model/action_kinds.py:106-113) and the editor's hand-copied one (web/src/rules/ActionPicker.tsx:64-67) gain thread_name and tags as optional params; the Discord targets picker (server/app.py:1018-1054, TEXT_CHANNEL_TYPES (0,5) in discord_rest.py) is not changed: forum channels and their tags are not listed in the editor in this work",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h10",
           "text": "the ActionPicker declaration and action_kinds.py both list thread_name and tags as optional, and the targets API response shape is unchanged (test_openapi_contract passes without an openapi edit for targets)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -225,7 +225,7 @@
       "kind": "assumption",
       "text": "A forum post by jetson-bot does not loop back into the discord-*-to-library flows: the gateway reports a post's message with channel_id = the thread id (apps/discord_gateway.py _message_dict l.228-244), channel filters compare channel_id exactly, and bot events are dropped unless include_bots/include_self (engine/matching.py ~245-247)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -237,7 +237,7 @@
       "kind": "non_goal",
       "text": "No sweep or read of forum channels, no creating or editing forum tags (the bot lacks Manage Channels), no forum support in the editor's targets picker, and no change to the daily-newspaper workflow or its keyset measurement",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -249,7 +249,7 @@
       "kind": "assumption",
       "text": "Tag names equal three section headings (Jetson optimization, Jetson news, Isaac ROS) but the jobs heading is Jetson job opportunities and its tag is Jetson jobs: the live workflow handles that in config (a jobs send step with the literal tag, routed by when on item.heading, beside a general step whose tag is the part's own heading), with no mapping in code",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -267,12 +267,12 @@
       "kind": "requirement",
       "text": "Live tests of forum posts go first to the testing forum bot-experiments-forum 1566568383082799214 in the Experiments server 1413999242648748195 (operator-designated for exploration/testing); the Jetson AI Lab forum 1563965995788271617 is used only after a clean test",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h11",
           "text": "the first live forum posts land in bot-experiments-forum 1566568383082799214, and the Jetson forum is written only after the operator approves the test result",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -322,12 +322,12 @@
       "kind": "requirement",
       "text": "A forum post whose text is longer than one Discord message (2000 characters) starts the thread with the first piece and posts the rest as replies in the same thread, split at line breaks, in order; outputs message_id (the starter), thread_id and the reply message ids",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h12",
           "text": "a test with a 4500-character text posts a starter of at most 2000 characters and then replies to the thread id in order, each at most 2000 characters, together equal to the text split at line breaks",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -341,17 +341,23 @@
       "kind": "requirement",
       "text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text, written by an admin like every actor param), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h13",
           "text": "llm.complete with brief headline sends the locked headline text as the system message and refuses any param that tries to replace it; an unknown brief still fails invalid_request",
-          "status": "proposed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h22",
           "text": "tests: a step with brief: <name> uses the text from the actor's params.briefs as the system message; a brief name neither the actor nor code defines fails invalid_request before any request; a step param holding prompt text is ignored or refused, never sent; the three code briefs still select as before",
+          "status": "confirmed",
+          "instruction": ""
+        },
+        {
+          "id": "h23",
+          "text": "tests: a step with `brief: <name>` uses the text from the actor's params.briefs as the system message; a brief name neither the actor nor code defines fails invalid_request before any request; a step param holding prompt text is ignored or refused, never sent; the three code briefs still select as before",
           "status": "proposed",
           "instruction": ""
         }
@@ -372,12 +378,12 @@
       "kind": "requirement",
       "text": "The live flow titles each post heading - date - headline through config: the date read from the issue run (run.read of the claim step's date), the headline from an llm.complete step with brief headline on the part's text, and the title a template in thread_name; when the headline step is skipped or fails (on_error skip), a second send step routed by when posts the title heading - date",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h14",
           "text": "the test workflow run shows each post's title built from the part heading, the issue date and the headline output, and a run with the headline step skipped still posts heading - date",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -391,7 +397,7 @@
       "kind": "decision",
       "text": "#open-to-work is not used in this work: the jobs section reaches Discord as a tagged forum post (reading of the operator's 'we don't split'); routing a section to a text channel stays possible in config later",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -403,12 +409,12 @@
       "kind": "requirement",
       "text": "The live newspaper-to-discord flow gets a new revision only after a clean test: a test workflow first posts one real issue's sections to the testing forum; then revision 3 posts each section as a tagged forum post to the Jetson AI Lab forum 1563965995788271617 and stops the size-cut posts to #bot-experimentations",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h15",
           "text": "newspaper-to-discord stays at rev 2 until the operator approves the testing-forum result; rev 3 is written with expected_revision 2",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -422,12 +428,12 @@
       "kind": "audience",
       "text": "Jetson AI Lab Discord members who read the newspaper, filtering forum posts by topic tag; and the operator, who configures the routing",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h16",
           "text": "the forum tags the readers filter on exist on both forums (probe 2026-11-01: four tags each)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -441,12 +447,12 @@
       "kind": "before_state",
       "text": "The newspaper reaches Discord as 1900-character pieces in #bot-experimentations, several sections per message, untagged and unsearchable by topic; discord.message cannot post to a forum",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h17",
           "text": "newspaper-to-discord rev 2 config and its runs 10-29..11-01 show chunked posts to 1407337283794767873",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -460,12 +466,12 @@
       "kind": "after_state",
       "text": "Each day every newspaper section is its own forum post titled topic - date - a one-line LLM summary, tagged with its topic (Jetson optimization, Jetson jobs, Jetson news, Isaac ROS), so a reader filters the forum by tag",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h18",
           "text": "after rev 3, the Jetson forum shows one post per section per issue with its topic tag",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -479,12 +485,12 @@
       "kind": "why_it_matters",
       "text": "A reader interested in one topic (jobs, Isaac ROS) follows its tag instead of scanning a whole daily dump; posts become a searchable archive per topic",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h19",
           "text": "Discord forum tag filtering shows only the posts carrying the chosen tag",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -498,12 +504,12 @@
       "kind": "success_signal",
       "text": "On the testing forum, one real issue yields 4 posts, each with exactly 1 matching tag and a title of the form topic - date - summary at most 100 characters; then on the Jetson forum for 3 consecutive issues, 4 tagged posts per issue (fewer only when a section had no results) and 0 failed newspaper-to-discord runs",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h20",
           "text": "the numbers are read from the run records (posts per run, tags_missing empty, title length) and from the forum itself, not estimated",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -517,12 +523,12 @@
       "kind": "boundary",
       "text": "No process or business-logic text is added to code in this work: no prompt wording, character budget, title format, section name, tag or channel; code gains only mechanisms (split at a heading, forum post with tags by name, long post continued in its thread, briefs read from actor config)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h21",
           "text": "the diff adds no prompt text and no newspaper, section, tag, channel or title-format literal under culture_rules/; the only new strings are param names, error codes and Discord API paths",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -587,7 +593,7 @@
     {
       "id": "s6",
       "surface": "culture_rules/node/actions/newspaper_render.py (_masthead l.~349, _html l.~355, _body l.~320-340)",
-      "finding": "issue html: h1 title + p.date (+ p.note) then <section><h2>name</h2> per section with ul/li results, p.note, p.empty; so split_at h2 gives the masthead as the first part and one part per section",
+      "finding": "issue html: h1 title + p.date (+ p.note) then a `<section>` with an `<h2>` name per section, ul/li results, p.note, p.empty; so split_at h2 gives the masthead as the first part and one part per section",
       "seeds": [
         "c6",
         "c7"
@@ -677,6 +683,16 @@
       ]
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "h22 was put to the operator with a bare angle-bracket placeholder (brief: <name>) that fails MD033 on export; the lint/backtick check was not run before asking, so duplicate h23 needs the operator's confirm and h22 a reject",
+      "skipped_check": "lint the export / backtick placeholders before asking to confirm",
+      "refs": [],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": []
 }
