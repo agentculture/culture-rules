@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-01T21:56:39Z",
+  "updated": "2026-11-01T21:56:45Z",
   "claims": [
     {
       "id": "c1",
@@ -339,9 +339,9 @@
     {
       "id": "c20",
       "kind": "requirement",
-      "text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text, written by an admin like every actor param), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
+      "text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text; changing it is admin-only, c30), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
       "origin": "llm",
-      "status": "confirmed",
+      "status": "proposed",
       "honesty_conditions": [
         {
           "id": "h13",
@@ -370,6 +370,11 @@
           "text": "llm.complete gains a fourth locked brief, headline: reply with one plain line of at most 60 characters summarising only the given text, in its language, with no markdown, quotes or trailing period; the brief is code like the other three, selected by brief: headline, never built from params",
           "kind": "requirement",
           "reason": "operator: we only implement framework, and configure process and BL on top of it"
+        },
+        {
+          "text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text, written by an admin like every actor param), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
+          "kind": "requirement",
+          "reason": "challenge: actor params are not admin-only (l2); the admin guard is c30"
         }
       ]
     },
