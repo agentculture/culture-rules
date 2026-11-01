@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-01T21:55:29Z",
+  "updated": "2026-11-01T21:56:39Z",
   "claims": [
     {
       "id": "c1",
@@ -536,6 +536,120 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Changing an actor's params.briefs is admin-only, enforced the way runner commands are (a save check comparing before and after, 403 with a code such as briefs_admin_only for a non-admin), across API, CLI, MCP and bundle import; editors can still pick a brief by name in a step",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "a test saves an actor as an editor with a changed params.briefs and gets 403 briefs_admin_only with the stored actor unchanged; the same save as an admin succeeds; an editor save that leaves params.briefs unchanged succeeds",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "A forum post with replies is never re-created by a retry: once the thread exists, any later failure (a reply refused, a 5xx, a timeout) fails the step non-retryably with thread_id and the ids posted so far in the error, so a retry cannot open a second thread for the same part",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "a FakeTransport test answers the thread POST 201 and the second reply 503: the step fails non-retryable, names the thread id, and a re-invocation is not attempted by the executor",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "discord.message refuses more than 5 tags (Discord's per-post limit) with bad_params before any request; a forum whose require-tag flag is set and where none of the named tags exist is refused by Discord (4xx, not retried) and the error says so",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "tests: 6 tag names fail bad_params with no request; a require_tag forum answering 400 to an untagged post fails non-retryable with the tag reason in the message",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "The live flow posts only real sections: its send steps' when skips the part with an empty heading (the masthead) and parts whose text is the rendered empty-section line, so an issue posts 4 or fewer forum posts and never a No results post (config, not code)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "the testing-forum run on a real issue posts exactly one post per section with results and none for the masthead; a fixture issue with an empty section posts no post for it",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "assumption",
+      "text": "The one-line headline is written from web search results, which are untrusted text: a thread name cannot mention or ping anyone, and the risk of a misleading or injected title is the same one the section summaries already carry from the same input",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "Discord thread names do not trigger mentions (no allowed_mentions applies to name); the post content keeps allowed_mentions parse empty as today",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "Rollback is one CLI write: newspaper-to-discord rev 3 is replaced by the saved rev 2 body with workflows update --expected-revision 3; posts already made stay in the forum (Discord posts are not deleted by the rollback)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "rev 2's body is saved in the rollout worktree before rev 3 is written, and a dry run of the rollback update succeeds",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -543,6 +657,15 @@
       "id": "v1",
       "text": "Moving the three existing code briefs (newspaper, transcript, recording) into actor config the same way",
       "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "A manual re-run of newspaper-to-discord for an issue already posted creates a second set of forum posts (as it already does for text messages today); no dedupe of posts per issue in this work",
+      "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
       "resolution": "",
@@ -677,10 +800,44 @@
     {
       "id": "s16",
       "surface": "culture_rules/node/actions/llm.py (_BRIEFS l.166, _brief l.256-262, actor.params l.221-231) + docs/actors/llm.md:6,90,96",
-      "finding": "briefs are a code map selected by a step's brief param; the guarantee that matters is that a step cannot supply prompt text, and actor params are already admin-only config (base_url, model, api_key read from actor.params), so actor-declared briefs keep that guarantee while moving prompt wording out of code",
+      "finding": "briefs are a code map selected by a step's brief param; a step cannot supply prompt text; actor params are NOT admin-only: editors may write actors (auth/policy.py), and only runner params.commands and machine install are admin-guarded (auth/guards.py check_runner_commands l.126-133), so actor-declared briefs need the same admin guard to keep prompt text out of editors' reach",
       "seeds": [
         "c20"
       ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / security lens: culture_rules/auth/policy.py, auth/guards.py:126-149, model/actor.py:41",
+      "finding": "editor role writes actors; admin guards exist for runner commands and machine install only; Actor.params is documented as 'no secret values', so briefs must hold prompt text only, never a secret",
+      "seeds": [
+        "c30"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / failure-mode lens: c19 continuation replies vs node/actions/message.py retry mapping (5xx retryable, apps/discord_rest.py post_message)",
+      "finding": "today 5xx is retryable because a failed single POST created nothing; with a starter-plus-replies post a retry after the starter would duplicate the thread, so failures after the first write must be non-retryable",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / concurrency lens: newspaper-to-discord (one run per issue, for_each body runs part by part)",
+      "finding": "one run per daily issue, triggered by rules.run.succeeded; parts post in order; no shared state between runs other than Discord itself; clean pass, residual risk is the manual re-run duplicate (parked)",
+      "seeds": []
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / adjacent-systems lens: web/src/actors/ActorForm.tsx:60-88",
+      "finding": "the actor editor spreads existing params on save, so params.briefs set by CLI survives an editor save of the actor; no editor UI for briefs in this work",
+      "seeds": []
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / observability lens: run records",
+      "finding": "every post's message_id, thread_id and tags_missing are step outputs in the run record, so the success signal (c28) is read from runs show, not from Discord alone",
+      "seeds": []
     }
   ],
   "lapses": [
@@ -690,6 +847,17 @@
       "what": "h22 was put to the operator with a bare angle-bracket placeholder (brief: <name>) that fails MD033 on export; the lint/backtick check was not run before asking, so duplicate h23 needs the operator's confirm and h22 a reject",
       "skipped_check": "lint the export / backtick placeholders before asking to confirm",
       "refs": [],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "provenance-missing",
+      "what": "s16 and c20 asserted actor params are admin-only without reading the role policy; culture_rules/auth/policy.py gives editors actor writes and only params.commands and machine install are admin-guarded (auth/guards.py:126-149); c20 was confirmed on that false premise",
+      "skipped_check": "",
+      "refs": [
+        "challenge pass / security lens: culture_rules/auth/policy.py + guards.py"
+      ],
       "origin": "llm",
       "status": "proposed"
     }
