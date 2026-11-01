@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-31T10:37:00Z",
-  "updated": "2026-10-31T10:45:46Z",
+  "updated": "2026-11-01T17:29:09Z",
   "targets": [
     {
       "id": "c1",
@@ -240,7 +240,7 @@
       "id": "t2",
       "summary": "`github.merge` port: squash-merge as the App at the prompted sha, fenced to an operator click in a trusted merge workflow, with optional branch delete",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "tests/node/test_github_merge.py pins the call: PUT /repos/{repo}/pulls/{number}/merge with sha and merge_method squash; 409 (head moved) and 405 (not mergeable) fail non-retryable; an unknown outcome is never retried blindly (a once claim like github.comment `once_key`); `delete_branch` true deletes `refs/heads/<head>` only for a same-repo head after a merged response",
         "the fence refuses before any secret read or network call: a run not started by a discord.button.clicked event, a run whose workflow is not trusted in role merge (TRUSTED_WORKFLOWS, as github.push d21 _chain), and a disabled source rule; each refusal has its own error code and test",
@@ -390,16 +390,16 @@
       "text": "Repository rulesets or branch protection may refuse an App merge (required reviews, merge queue); found only at the first real merge",
       "kind": "unknown_nonblocking",
       "task_id": "t2",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Not hit: the App squash-merged embodiment#117 (e1) and cultureagent#58 (e2) with no ruleset or protection refusal; a repo that requires reviews would still refuse, and github.merge reports it"
     },
     {
       "id": "r2",
       "text": "discord.py component handling without a View: confirm on_interaction receives component interactions for messages posted over REST",
       "kind": "unknown_nonblocking",
       "task_id": "t4",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Confirmed live: on_interaction received the component clicks on REST-posted messages (e1 at 0.39.1, e2 at 0.40.0)"
     }
   ],
   "obligations": []

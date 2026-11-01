@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T10:19:57Z",
-  "updated": "2026-10-31T10:36:46Z",
+  "updated": "2026-11-01T17:29:08Z",
   "claims": [
     {
       "id": "c1",
@@ -432,6 +432,42 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "The merge prompt covers every repo the GitHub App sees, with no owner filter (q2, operator 2026-10-31)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "decision",
+      "text": "Who can set up a merge stays as built: anyone who can press the button can merge, and the gate is the channel itself (#pull-requests is protected, so only people allowed there can press) plus the click rule's users filter and the one-time code; no approver id is pinned in code and merge-starting rules are not made admin-only (operator, 2026-11-01)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "decision",
+      "text": "Setting up a merge step is protected by admins: live, the only principals that can save a rule or workflow are the operator (CULTURE_RULES_ADMINS, Cloudflare Access SSO) and two admin service tokens (spark-cli, culture-rules-cli); no editors are configured and SSO's default role is viewer. The code still lets an editor save a github.merge step, so naming an editor later reopens this (operator, 2026-11-01)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [],
@@ -508,5 +544,78 @@
     }
   ],
   "lapses": [],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c7",
+      "seam": "github.merge's fence (node/actions/github_merge.py), d3",
+      "behavior": "a merge runs only in a run its rule started on a stored discord.button.clicked event whose stored one-time code belongs to this button and this repo/number/sha and is unused; the code is used up by compare-and-set, and every refusal comes before any secret or GitHub call",
+      "source_text": "Merging stays a human gate: `github.merge` runs only in a run started by a `discord.button.clicked` event from the operator, so no agent or scheduled workflow (the PR fixer included) can ever merge",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c6",
+      "seam": "github.merge's PUT /pulls/{n}/merge with sha",
+      "behavior": "it squash-merges at the prompted sha and refuses a moved head; an unknown outcome is never re-sent; a merge GitHub refused hands the code back",
+      "source_text": "A new action kind `github.merge` squash-merges a PR as the GitHub App through `PUT /repos/{repo}/pulls/{number}/merge` with `sha` set to the commit the prompt was for, so a head that moved since the prompt is refused by GitHub (409) and nothing newer is ever merged",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c17",
+      "seam": "github.merge delete_branch",
+      "behavior": "after a merge the same-repo head branch is deleted; a fork's head is left alone; a branch already gone is not a failure",
+      "source_text": "After a merge the PR's same-repo head branch is deleted (operator, 2026-10-31)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c8",
+      "seam": "discord.message buttons (node/actions/message.py, apps/discord_buttons.py)",
+      "behavior": "a message posts up to 5 buttons and keeps its message_id; a valued button gets a generated custom_id and its value (and code) is stored before the post; bad buttons are refused before any secret",
+      "source_text": "`discord.message` takes an optional list of buttons (label, style, `custom_id` of at most 100 characters) and still returns the posted `message_id`",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c9",
+      "seam": "the Discord gateway click path (apps/discord_gateway.py)",
+      "behavior": "a click becomes one discord.button.clicked event carrying only documented keys plus the stored value, poster and code; a clicker cannot supply value, poster or code",
+      "source_text": "The Discord gateway turns a button click into a `discord.button.clicked` event (custom_id, message_id, channel, author id and name, roles) for an actor that declares it in `params.events`, acknowledges every click within 3 seconds, and a new trigger filter `custom_id` (prefix) selects the button",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c16",
+      "seam": "the configured prompt over github.pr facts",
+      "behavior": "draft, fork and red PRs get no prompt",
+      "source_text": "Draft PRs and fork PRs get no prompt; bot-authored PRs do (operator, 2026-10-31)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c12",
+      "seam": "the committed tree",
+      "behavior": "no rule or workflow for the prompt or the merge is committed, and no flow-specific value is coded",
+      "source_text": "The two rules (the green prompt and the click-to-merge) are configured live in the store and never committed; culture-rules ships only the generic pieces (`github.merge`, buttons, the click event and filter)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c18",
+      "seam": "the gateway's click answer (apps/discord_gateway.py)",
+      "behavior": "an admitted click is answered inside Discord's 3 s window by updating the message with its buttons disabled; a click no enabled rule admits is not admitted",
+      "source_text": "The gateway answers the click by turning the button into a disabled 'Merging\u2026' at once; the merge rule then replies privately with the outcome (operator, 2026-10-31)",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }

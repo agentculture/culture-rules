@@ -1,0 +1,310 @@
+{
+  "plan_slug": "green-pr-merge-prompt",
+  "schema_version": 2,
+  "created": "2026-10-31T11:51:33Z",
+  "updated": "2026-11-01T17:29:09Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Buttons keep their meaning in the db: each discord.message button may carry a value object; the port gives it an opaque custom_id (the given custom_id as prefix plus a generated token) and stores the value in a discord_buttons collection before posting; the gateway attaches the stored value to the discord.button.clicked event as data.value. The custom_id no longer encodes repo, number and sha",
+      "task_ref": "t3",
+      "reason": "no existing piece can parse repo/number/sha out of a custom_id (no string builtin; refs and templates have no string functions); operator 2026-10-31: the button is published and its id saved, the meaning of the id kept in the db, so button and message text carry no parsing constraint (option B chosen over the run.read workaround)",
+      "affects": [
+        "t4",
+        "t7",
+        "t8",
+        "c13",
+        "c8",
+        "c9"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "The merge fence also pins where the button came from: discord_buttons records the run and workflow that posted each valued button, the discord.button.clicked event carries them (data.posted_by), and github.merge refuses unless that posting run's workflow is trusted in a new merge_prompt role (shipped empty, like merge). Going live pins two digests: the prompt workflow and the merge workflow",
+      "task_ref": "t2",
+      "reason": "code review of #129, finding 4: the fence checked the merge workflow and the click but not who posted the button whose stored value it merges, so an untrusted workflow could post a merge-prefixed button naming another PR; operator 2026-10-31 chose to pin the prompt too; builds on deviation d1 (stored button values)",
+      "affects": [
+        "t4",
+        "t7",
+        "t8",
+        "c7"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Replace the merge and merge_prompt digest pins with a one-time button code: discord.message issues a code for a button with code: true, stored with its value; github.merge checks the click's code (exists, this button, unused, bound to repo/number/sha) and marks it used by compare-and-set before merging; the ROLE_MERGE and ROLE_MERGE_PROMPT pins and the prompt_not_trusted and workflow_not_trusted fences are removed",
+      "task_ref": "t2",
+      "reason": "Operator 2026-10-31: workflows are configuration, not code, so changing one (moving the prompt to #pull-requests) must not need a code PR. The operator chose to replace both pins with a code issued on the button and validated when the click is consumed; the trust becomes the operator's click (users filter) plus a valid unused code. Reverses d2.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 3
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "c1",
+      "test_ref": "live runs run-b255b49fb6765611737a3e4d01209230 (green-pr-prompt) and run-96767d8b832863d43f6709a886bb1a26 (merge-on-click), 0.39.1",
+      "behavior_text": "embodiment#117's checks settled green at 146518e; merge_prompt read the PR and posted merge:Ws1M6x... to #spark (message 1566166106912325782); the operator (973870192037867580) clicked; github.merge squash-merged at 146518e as 86aeabd (merged_by rules-culture-dev[bot]), deleted feat/gwen-personas-models-mesh (GitHub 404) and the reply step answered privately. agentfront#59 was also prompted (run-17449af2...) and not clicked, so nothing merged",
+      "contract_text": "c1, c19, c23: a green PR is prompted in the channel, only the operator's click squash-merges it at the prompted head sha, and the branch is deleted",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read back from the live store (runs show) and the GitHub API (pulls/117, branches 404) after the first real click",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T19:17:48Z",
+        "commit": "b543dd1"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "c1",
+      "test_ref": "live runs run-4bad199dcfa7fefbfb90cd9923448611 (green-pr-prompt) and run-fd49b0d8618830e7f6a4b2d4a26f47d3 (merge-on-click), 0.40.0",
+      "behavior_text": "cultureagent#58's checks settled green at 8f869b9; merge_prompt read the PR and posted a coded button merge:54d33Sipl0gu... to #pull-requests (channel 1511667505574445066, message 1566230267184681093); the operator (973870192037867580) clicked; the click event carried data.code, data.value {repo, number 58, sha 8f869b9} and data.posted_by (run-4bad..., merge_prompt, step post); github.merge passed the code fence with no workflow pin and squash-merged at 8f869b9 as 4fefe69 (merged_by app/rules-culture-dev), deleted ci/sonar-pr-issues-gate-57 (GitHub 404), and the reply step answered privately. The code doc's used_by was not read back separately; a merge implies the compare-and-set passed, since the fence checks the code last before merging",
+      "contract_text": "d3, c1, c19, c23: a green PR is prompted in the channel with a one-time code button, only the operator's click squash-merges it at the prompted head sha, and the branch is deleted",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read back from the live store (runs show) and the GitHub API (pulls/58, branches 404) after the first click under 0.40.0",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T23:24:53Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_github_merge.py::test_a_run_not_started_by_a_click_is_refused_before_any_secret_or_call, ::test_a_click_without_a_code_is_refused_before_any_secret_or_call, ::test_a_forged_code_is_refused, ::test_the_code_is_read_from_the_stored_event_never_from_the_run, ::test_a_code_of_another_button_is_refused, ::test_a_code_for_another_pr_or_commit_is_refused, ::test_a_code_another_run_used_is_refused, ::test_the_merge_uses_up_the_code; tests/rules/test_green_merge_flow.py::test_a_click_by_anyone_else_starts_nothing, ::test_a_second_click_on_the_same_button_merges_once, ::test_a_button_posted_without_a_code_merges_nothing",
+      "behavior_text": "no click, no code, a forged code, another button's or another PR's code, or a used code each merges nothing; a code is read only from the stored event; a second click merges once; a click by anyone but the operator starts no run",
+      "contract_text": "c7 (amended by d3): merging stays a human gate; github.merge runs only on the operator's click, fenced by a one-time button code",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green on main 23c3356 (uv run pytest -n 4, 279 passed in the six green-merge test files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:23:33Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o2",
+      "test_ref": "tests/rules/test_green_merge_flow.py::test_the_operator_s_click_squash_merges_the_prompted_sha_and_answers_privately, ::test_a_head_that_moved_since_the_prompt_merges_nothing; tests/node/test_github_merge.py::test_a_refused_merge_releases_its_claim, ::test_an_unknown_outcome_keeps_the_code_used, ::test_a_merge_github_refused_hands_the_code_back, ::test_after_a_refused_merge_the_same_button_can_merge_on_a_new_click",
+      "behavior_text": "the click squash-merges at the prompted sha and replies privately; a moved head merges nothing; an unknown outcome keeps the claim and the code used; a refused merge hands both back so a new click can merge",
+      "contract_text": "c6: github.merge squash-merges as the App with sha set to the prompted commit",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green on main 23c3356 (uv run pytest -n 4, 279 passed in the six green-merge test files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:23:33Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_github_merge.py::test_delete_branch_deletes_the_same_repo_head_after_a_merge, ::test_delete_branch_leaves_a_fork_head_alone, ::test_no_delete_without_delete_branch, ::test_a_branch_already_gone_is_not_a_merge_failure, ::test_a_merged_before_repeat_deletes_a_branch_not_yet_deleted",
+      "behavior_text": "same-repo head deleted after a merge, fork head untouched, no delete without delete_branch, a 404 on delete is not a merge failure, a repeat after merged_before still deletes",
+      "contract_text": "c17: after a merge the PR's same-repo head branch is deleted",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green on main 23c3356 (uv run pytest -n 4, 279 passed in the six green-merge test files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:23:33Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o4",
+      "test_ref": "tests/node/test_message_action.py::test_discord_message_with_buttons_posts_components_and_keeps_message_id, ::test_discord_message_bad_buttons_are_refused_before_any_secret_or_post, ::test_discord_message_button_limits_are_inclusive, ::test_a_valued_button_posts_a_generated_id_and_stores_its_value, ::test_the_value_is_stored_before_the_post, ::test_a_refused_post_drops_the_stored_values_and_fails_as_before",
+      "behavior_text": "buttons post as components with the message_id kept; limits inclusive; bad buttons refused first; a valued button gets a generated id and its value is stored before the post and dropped if the post is refused",
+      "contract_text": "c8 (amended by d1): discord.message takes buttons; a button's value is kept in the store",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green on main 23c3356 (uv run pytest -n 4, 279 passed in the six green-merge test files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:23:33Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o5",
+      "test_ref": "tests/apps/test_discord_gateway.py::test_a_click_becomes_one_button_event_and_its_token_is_kept_apart, ::test_button_data_carries_only_the_documented_keys, ::test_a_clicker_cannot_supply_the_value, ::test_a_clicker_cannot_supply_who_posted_the_button, ::test_a_clicker_cannot_supply_a_code, ::test_a_click_carries_the_stored_code_as_data_code, ::test_a_click_carries_the_stored_value_as_data_value, ::test_a_failed_value_lookup_still_records_the_click",
+      "behavior_text": "one event per click with the interaction token kept apart; documented keys only; value, poster and code come from the store, never the clicker",
+      "contract_text": "c9: the gateway turns a button click into a discord.button.clicked event",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green on main 23c3356 (uv run pytest -n 4, 279 passed in the six green-merge test files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:23:33Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o6",
+      "test_ref": "tests/rules/test_green_merge_flow.py::test_a_draft_or_a_fork_or_a_red_pr_is_not_prompted, ::test_a_green_pr_is_prompted_with_a_button_that_keeps_its_meaning",
+      "behavior_text": "a green same-repo PR is prompted with a valued, coded button; draft, fork and red PRs are not",
+      "contract_text": "c16: draft PRs and fork PRs get no prompt",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green on main 23c3356 (uv run pytest -n 4, 279 passed in the six green-merge test files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:23:33Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o7",
+      "test_ref": "tests/rules/test_green_merge_flow.py::test_the_delivery_commits_no_rule_or_workflow, ::test_no_flow_specific_value_is_coded, ::test_the_configured_workflows_validate",
+      "behavior_text": "the delivery commits no rule or workflow, codes no flow-specific value (channel, user id, repo), and the guide's configured workflows validate",
+      "contract_text": "c12: the two rules are configured live and never committed",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green on main 23c3356 (uv run pytest -n 4, 279 passed in the six green-merge test files)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:23:33Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o8",
+      "test_ref": "tests/apps/test_discord_gateway.py::test_an_admitted_click_is_answered_by_updating_the_message_with_its_buttons_disabled, ::test_a_slow_hand_over_is_acknowledged_inside_the_window_then_disables_the_buttons, ::test_the_ack_wait_stays_well_inside_discord_s_three_seconds, ::test_a_disabled_rule_admitting_the_click_does_not_admit_it",
+      "behavior_text": "an admitted click updates the message with disabled buttons; a slow hand-over is still acknowledged inside the window; the ack wait stays well inside 3 s; a disabled rule does not admit a click",
+      "contract_text": "c18: the gateway answers the click by disabling the button at once; the merge rule replies privately",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green on main 23c3356",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:23:33Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "A button's meaning lives in the store, not its custom_id: a valued button is posted as <custom_id>:<token>, its value is stored in discord_buttons before the post, and the click carries it as data.value",
+      "caused_by": [
+        "d1",
+        "c8"
+      ],
+      "evidence_refs": [
+        "e6",
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "The merge fence is the operator's click plus a one-time button code bound to repo/number/sha and used up by compare-and-set, instead of pinned merge and merge_prompt workflow digests",
+      "caused_by": [
+        "d3",
+        "c7",
+        "c15"
+      ],
+      "evidence_refs": [
+        "e2",
+        "e3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "removed",
+      "behavior_text": "The merge and merge_prompt trust roles and their refusals (workflow_not_trusted, prompt_not_trusted) are gone; moving the prompt's channel or text is a live edit, not a release",
+      "caused_by": [
+        "d3",
+        "d2"
+      ],
+      "evidence_refs": [
+        "e3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "A merge that did not happen (GitHub refused it, the PR closed, a secret failed) hands the code back so a new click can merge; a store failure in the fence is a retryable store_unavailable",
+      "caused_by": [
+        "d3"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

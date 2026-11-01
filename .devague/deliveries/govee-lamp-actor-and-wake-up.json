@@ -2,7 +2,7 @@
   "plan_slug": "govee-lamp-actor-and-wake-up",
   "schema_version": 2,
   "created": "2026-10-30T10:09:15Z",
-  "updated": "2026-10-31T09:54:56Z",
+  "updated": "2026-11-01T17:29:09Z",
   "deviations": [
     {
       "id": "d1",
@@ -288,7 +288,7 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 16
     },
@@ -307,11 +307,108 @@
         "commit": "48942c3"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 17
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o4",
+      "test_ref": "git diff --name-only 3660074^ 3660074 (PR #123, the govee delivery)",
+      "behavior_text": "0 files under culture_rules/, web/ or api/ changed; the delivery is a guide, spec, plan, version bump and one test-file fix",
+      "contract_text": "o4: no file under culture_rules/, web/ or api/openapi.json changes",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read from git history on main",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:30:00Z",
+        "commit": "3660074"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o7",
+      "test_ref": "git grep morning-wake-up|morning-lamp-off|spark-govee on culture-rules main (outside .devague and docs/specs|plans) and govee-cli origin/main 1c20c44",
+      "behavior_text": "culture-rules has only docs/operations/govee-lamp.md naming spark-govee in a one-step example; govee-cli has only the generator (rules.py) that prints the actor; no actor JSON, wake-up workflow or rule is committed in either repo",
+      "contract_text": "o7: no govee actor JSON and no wake-up workflow or rule is committed; they exist only in the live store",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "git grep on both repos' main",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:30:00Z",
+        "commit": "23c3356"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
     }
   ],
-  "deltas": [],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "govee-cli 0.12.0 adds 'light on --brightness N' and the rules-actor command lamp_fade_on_to {pct, seconds}; the live spark-govee actor carries 9 commands",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "The wake-up starts at 05:45 Asia/Jerusalem (cron 45 5 * * *) and fades over 2100 s to full white at 06:20, instead of starting at 06:20",
+      "caused_by": [
+        "d2"
+      ],
+      "evidence_refs": [
+        "e10",
+        "e13"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "A second live rule and workflow, morning-lamp-off, turns the lamp off every day at 08:00 Asia/Jerusalem",
+      "caused_by": [
+        "d3"
+      ],
+      "evidence_refs": [
+        "e9",
+        "e13"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "Every live lamp step carries config.idempotent true, so a node restart mid-step retries instead of failing unsafe_retry",
+      "caused_by": [
+        "d4"
+      ],
+      "evidence_refs": [
+        "e12"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
