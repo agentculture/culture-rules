@@ -31,12 +31,22 @@
   - honesty: the first live forum posts land in bot-experiments-forum 1566568383082799214, and the Jetson forum is written only after the operator approves the test result
 - A forum post whose text is longer than one Discord message (2000 characters) starts the thread with the first piece and posts the rest as replies in the same thread, split at line breaks, in order; outputs `message_id` (the starter), `thread_id` and the reply message ids
   - honesty: a test with a 4500-character text posts a starter of at most 2000 characters and then replies to the thread id in order, each at most 2000 characters, together equal to the text split at line breaks
-- llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text, written by an admin like every actor param), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code
-  - honesty: tests: a step with brief: <name> uses the text from the actor's params.briefs as the system message; a brief name neither the actor nor code defines fails `invalid_request` before any request; a step param holding prompt text is ignored or refused, never sent; the three code briefs still select as before
+- llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text; changing it is admin-only, c30), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code
+  - honesty: tests: a step with `brief: <name>` uses the text from the actor's params.briefs as the system message; a brief name neither the actor nor code defines fails `invalid_request` before any request; a step param holding prompt text is ignored or refused, never sent; the three code briefs still select as before
 - The live flow titles each post heading - date - headline through config: the date read from the issue run (run.read of the claim step's date), the headline from an llm.complete step with brief headline on the part's text, and the title a template in `thread_name`; when the headline step is skipped or fails (`on_error` skip), a second send step routed by when posts the title heading - date
   - honesty: the test workflow run shows each post's title built from the part heading, the issue date and the headline output, and a run with the headline step skipped still posts heading - date
 - The live newspaper-to-discord flow gets a new revision only after a clean test: a test workflow first posts one real issue's sections to the testing forum; then revision 3 posts each section as a tagged forum post to the Jetson AI Lab forum 1563965995788271617 and stops the size-cut posts to #bot-experimentations
   - honesty: newspaper-to-discord stays at rev 2 until the operator approves the testing-forum result; rev 3 is written with `expected_revision` 2
+- Changing an actor's params.briefs is admin-only, enforced the way runner commands are (a save check comparing before and after, 403 with a code such as `briefs_admin_only` for a non-admin), across API, CLI, MCP and bundle import; editors can still pick a brief by name in a step
+  - honesty: a test saves an actor as an editor with a changed params.briefs and gets 403 `briefs_admin_only` with the stored actor unchanged; the same save as an admin succeeds; an editor save that leaves params.briefs unchanged succeeds
+- A forum post with replies is never re-created by a retry: once the thread exists, any later failure (a reply refused, a 5xx, a timeout) fails the step non-retryably with `thread_id` and the ids posted so far in the error, so a retry cannot open a second thread for the same part
+  - honesty: a FakeTransport test answers the thread POST 201 and the second reply 503: the step fails non-retryable, names the thread id, and a re-invocation is not attempted by the executor
+- discord.message refuses more than 5 tags (Discord's per-post limit) with `bad_params` before any request; a forum whose require-tag flag is set and where none of the named tags exist is refused by Discord (4xx, not retried) and the error says so
+  - honesty: tests: 6 tag names fail `bad_params` with no request; a `require_tag` forum answering 400 to an untagged post fails non-retryable with the tag reason in the message
+- The live flow posts only real sections: its send steps' when skips the part with an empty heading (the masthead) and parts whose text is the rendered empty-section line, so an issue posts 4 or fewer forum posts and never a No results post (config, not code)
+  - honesty: the testing-forum run on a real issue posts exactly one post per section with results and none for the masthead; a fixture issue with an empty section posts no post for it
+- Rollback is one CLI write: newspaper-to-discord rev 3 is replaced by the saved rev 2 body with workflows update --expected-revision 3; posts already made stay in the forum (Discord posts are not deleted by the rollback)
+  - honesty: rev 2's body is saved in the rollout worktree before rev 3 is written, and a dry run of the rollback update succeeds
 
 ## Honesty conditions
 
@@ -51,6 +61,7 @@
 - Discord forum tag filtering shows only the posts carrying the chosen tag
 - the numbers are read from the run records (posts per run, `tags_missing` empty, title length) and from the forum itself, not estimated
 - the diff adds no prompt text and no newspaper, section, tag, channel or title-format literal under `culture_rules`/; the only new strings are param names, error codes and Discord API paths
+- Discord thread names do not trigger mentions (no `allowed_mentions` applies to name); the post content keeps `allowed_mentions` parse empty as today
 
 ## Success signals
 
@@ -73,6 +84,7 @@
 - jetson-bot can already post in #open-to-work 1461808693225066640 (a text channel) and create posts in bot-experimentation-forum 1563965995788271617 (a forum, type 15) in guild 1326246312072581160; it cannot manage threads or channels, so it cannot create forum tags
 - A forum post by jetson-bot does not loop back into the discord-\*-to-library flows: the gateway reports a post's message with `channel_id` = the thread id (apps/`discord_gateway.py` `_message_dict` l.228-244), channel filters compare `channel_id` exactly, and bot events are dropped unless `include_bots`/`include_self` (engine/matching.py ~245-247)
 - Tag names equal three section headings (Jetson optimization, Jetson news, Isaac ROS) but the jobs heading is Jetson job opportunities and its tag is Jetson jobs: the live workflow handles that in config (a jobs send step with the literal tag, routed by when on item.heading, beside a general step whose tag is the part's own heading), with no mapping in code
+- The one-line headline is written from web search results, which are untrusted text: a thread name cannot mention or ping anyone, and the risk of a misleading or injected title is the same one the section summaries already carry from the same input
 
 ## Scope exploration
 
@@ -86,7 +98,7 @@
   - seeds: `c5`
 - `s5` — `culture_rules/node/actions/markdown_html.py (_Doc l.60-, _chunks l.~201, html_to_markdown l.~214, invoke l.~270)`: any heading opens a block, but `_chunks` packs blocks greedily across headings (tests/node/`test_markdown_html.py`:92-103), so no per-section split exists; `_pieces` already keeps a heading with its first line; bad config fails `bad_params` non-retryable
   - seeds: `c6`
-- `s6` — `culture_rules/node/actions/newspaper_render.py (_masthead l.~349, _html l.~355, _body l.~320-340)`: issue html: h1 title + p.date (+ p.note) then <section><h2>name</h2> per section with ul/li results, p.note, p.empty; so `split_at` h2 gives the masthead as the first part and one part per section
+- `s6` — `culture_rules/node/actions/newspaper_render.py (_masthead l.~349, _html l.~355, _body l.~320-340)`: issue html: h1 title + p.date (+ p.note) then a `<section>` with an `<h2>` name per section, ul/li results, p.note, p.empty; so `split_at` h2 gives the masthead as the first part and one part per section
   - seeds: `c6`, `c7`
 - `s7` — `engine/runs.py _when 2255-2266, _gathered_inputs 2228-2246, _action_step_params 2000-2004; condition._resolve 191-203`: a body step's when sees item.heading through dotted paths when the step declares an item input port; params take inputs.item.text; so routing by part heading is pure config
   - seeds: `c4`
@@ -106,8 +118,15 @@
   - seeds: `c3`, `c9`
 - `s15` — `Discord API probe, bot-experiments-forum 1566568383082799214 in guild 1413999242648748195 (2026-11-01)`: forum (type 15), tags Isaac ROS 1566568405421531207, Jetson optimization 1566568446286757969, Jetson news 1566568483850948658, `require_tag` false, jetson-bot can create posts, cannot manage threads; same tag names as the Jetson AI Lab forum but different ids, so resolving tags by name at post time lets one config move between forums by changing only the channel
   - seeds: `c15`, `c9`
-- `s16` — `culture_rules/node/actions/llm.py (_BRIEFS l.166, _brief l.256-262, actor.params l.221-231) + docs/actors/llm.md:6,90,96`: briefs are a code map selected by a step's brief param; the guarantee that matters is that a step cannot supply prompt text, and actor params are already admin-only config (`base_url`, model, `api_key` read from actor.params), so actor-declared briefs keep that guarantee while moving prompt wording out of code
+- `s16` — `culture_rules/node/actions/llm.py (_BRIEFS l.166, _brief l.256-262, actor.params l.221-231) + docs/actors/llm.md:6,90,96`: briefs are a code map selected by a step's brief param; a step cannot supply prompt text; actor params are NOT admin-only: editors may write actors (auth/policy.py), and only runner params.commands and machine install are admin-guarded (auth/guards.py `check_runner_commands` l.126-133), so actor-declared briefs need the same admin guard to keep prompt text out of editors' reach
   - seeds: `c20`
+- `s17` — `challenge pass / security lens: culture_rules/auth/policy.py, auth/guards.py:126-149, model/actor.py:41`: editor role writes actors; admin guards exist for runner commands and machine install only; Actor.params is documented as 'no secret values', so briefs must hold prompt text only, never a secret
+  - seeds: `c30`
+- `s18` — `challenge pass / failure-mode lens: c19 continuation replies vs node/actions/message.py retry mapping (5xx retryable, apps/discord_rest.py post_message)`: today 5xx is retryable because a failed single POST created nothing; with a starter-plus-replies post a retry after the starter would duplicate the thread, so failures after the first write must be non-retryable
+  - seeds: `c31`
+- `s19` — `challenge pass / concurrency lens: newspaper-to-discord (one run per issue, for_each body runs part by part)`: one run per daily issue, triggered by rules.run.succeeded; parts post in order; no shared state between runs other than Discord itself; clean pass, residual risk is the manual re-run duplicate (parked)
+- `s20` — `challenge pass / adjacent-systems lens: web/src/actors/ActorForm.tsx:60-88`: the actor editor spreads existing params on save, so params.briefs set by CLI survives an editor save of the actor; no editor UI for briefs in this work
+- `s21` — `challenge pass / observability lens: run records`: every post's `message_id`, `thread_id` and `tags_missing` are step outputs in the run record, so the success signal (c28) is read from runs show, not from Discord alone
 
 ## Decisions
 
@@ -118,4 +137,5 @@
 
 ## Open parks
 
+- [unknown_nonblocking] A manual re-run of newspaper-to-discord for an issue already posted creates a second set of forum posts (as it already does for text messages today); no dedupe of posts per issue in this work
 - [follow_up] Moving the three existing code briefs (newspaper, transcript, recording) into actor config the same way

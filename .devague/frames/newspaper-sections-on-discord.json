@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-01T21:56:45Z",
+  "updated": "2026-11-01T22:45:45Z",
   "claims": [
     {
       "id": "c1",
@@ -341,7 +341,7 @@
       "kind": "requirement",
       "text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text; changing it is admin-only, c30), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h13",
@@ -352,13 +352,13 @@
         {
           "id": "h22",
           "text": "tests: a step with brief: <name> uses the text from the actor's params.briefs as the system message; a brief name neither the actor nor code defines fails invalid_request before any request; a step param holding prompt text is ignored or refused, never sent; the three code briefs still select as before",
-          "status": "confirmed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h23",
           "text": "tests: a step with `brief: <name>` uses the text from the actor's params.briefs as the system message; a brief name neither the actor nor code defines fails invalid_request before any request; a step param holding prompt text is ignored or refused, never sent; the three code briefs still select as before",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -547,12 +547,12 @@
       "kind": "requirement",
       "text": "Changing an actor's params.briefs is admin-only, enforced the way runner commands are (a save check comparing before and after, 403 with a code such as briefs_admin_only for a non-admin), across API, CLI, MCP and bundle import; editors can still pick a brief by name in a step",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h24",
           "text": "a test saves an actor as an editor with a changed params.briefs and gets 403 briefs_admin_only with the stored actor unchanged; the same save as an admin succeeds; an editor save that leaves params.briefs unchanged succeeds",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -566,12 +566,12 @@
       "kind": "requirement",
       "text": "A forum post with replies is never re-created by a retry: once the thread exists, any later failure (a reply refused, a 5xx, a timeout) fails the step non-retryably with thread_id and the ids posted so far in the error, so a retry cannot open a second thread for the same part",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h25",
           "text": "a FakeTransport test answers the thread POST 201 and the second reply 503: the step fails non-retryable, names the thread id, and a re-invocation is not attempted by the executor",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -585,12 +585,12 @@
       "kind": "requirement",
       "text": "discord.message refuses more than 5 tags (Discord's per-post limit) with bad_params before any request; a forum whose require-tag flag is set and where none of the named tags exist is refused by Discord (4xx, not retried) and the error says so",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h26",
           "text": "tests: 6 tag names fail bad_params with no request; a require_tag forum answering 400 to an untagged post fails non-retryable with the tag reason in the message",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -604,12 +604,12 @@
       "kind": "requirement",
       "text": "The live flow posts only real sections: its send steps' when skips the part with an empty heading (the masthead) and parts whose text is the rendered empty-section line, so an issue posts 4 or fewer forum posts and never a No results post (config, not code)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h27",
           "text": "the testing-forum run on a real issue posts exactly one post per section with results and none for the masthead; a fixture issue with an empty section posts no post for it",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -623,12 +623,12 @@
       "kind": "assumption",
       "text": "The one-line headline is written from web search results, which are untrusted text: a thread name cannot mention or ping anyone, and the risk of a misleading or injected title is the same one the section summaries already carry from the same input",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h28",
           "text": "Discord thread names do not trigger mentions (no allowed_mentions applies to name); the post content keeps allowed_mentions parse empty as today",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -642,12 +642,12 @@
       "kind": "requirement",
       "text": "Rollback is one CLI write: newspaper-to-discord rev 3 is replaced by the saved rev 2 body with workflows update --expected-revision 3; posts already made stay in the forum (Discord posts are not deleted by the rollback)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h29",
           "text": "rev 2's body is saved in the rollout worktree before rev 3 is written, and a dry run of the rollback update succeeds",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -853,7 +853,7 @@
       "skipped_check": "lint the export / backtick placeholders before asking to confirm",
       "refs": [],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l2",
@@ -864,7 +864,7 @@
         "challenge pass / security lens: culture_rules/auth/policy.py + guards.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": []
