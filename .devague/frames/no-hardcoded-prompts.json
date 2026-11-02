@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:50:46Z",
+  "updated": "2026-11-02T17:52:49Z",
   "claims": [
     {
       "id": "c1",
@@ -585,6 +585,30 @@
       "text": "With the generic steps in place, the four newsletter builtins (newspaper.sections, newspaper.filter, newspaper.render, newspaper.issue) and their modules are removed from code, and the committed bundle is rewritten as configuration of generic steps",
       "origin": "llm",
       "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "decision",
+      "text": "Three releases: R1 briefs, answer, cache, numbering, replace and validation; R2 json.parse, list.filter, value helpers, document.render; R3 lease and ledger, then the four builtins are removed; the live flow keeps running between releases",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "decision",
+      "text": "document.render's output may differ from today's once, at the switch; a golden test pins it afterwards",
+      "origin": "user",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
