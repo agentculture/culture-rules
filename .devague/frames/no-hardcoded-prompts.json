@@ -1,0 +1,217 @@
+{
+  "slug": "no-hardcoded-prompts",
+  "title": "No hardcoded prompts",
+  "schema_version": 6,
+  "status": "drafting",
+  "created": "2026-11-02T16:53:24Z",
+  "updated": "2026-11-02T16:53:26Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "llm.complete has no prompt in code: every brief, the answer shape, the summary check and citation numbering are configuration on generic steps",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "The three code briefs (llm.py:156-194 NEWSPAPER_BRIEF, TRANSCRIPT_BRIEF, RECORDING_BRIEF, _BRIEFS) leave the code: llm.complete resolves every `brief` name only from the bound actor's params.briefs (admin-only via check_actor_briefs), with no code default (today an absent brief means newspaper, llm.py:343-344)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Every llm.complete step names its brief: the committed daily-newspaper summary step (docs/rules/newspaper/workflows/daily-newspaper.json:600-670, no brief today) gains brief newspaper; transcript-to-reader keeps brief transcript; the bundle actor docs/rules/newspaper/actors/cortex-spark2.json gains params.briefs for both with today's exact text",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The recording answer becomes step configuration: a generic `answer` option checks the reply's JSON shape from config (field names, types such as text-lines, word, list of strings, item and character limits, a pattern) instead of recording_answer.py's fixed {summary, word, facts, action_items} validator (MAX_ITEMS 30, MAX_ITEM_CHARS 300, word ^[A-Za-z][A-Za-z-]{1,23}$)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "The answer cache works for any brief by step config; existing files answer.recording.<sha16>.json with doc brief 'recording' and schema 1 stay readable (the cache name and label default to today's values), so recordings are not re-asked and checklist ids stay stable",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "newspaper.render no longer enforces the summary shape in code: _summary_ok (newspaper_render.py:218-229: every non-blank line a bullet carrying a link to one of the section's results) becomes configuration or a separate generic validation step; render shows any summary it is given (summary_to_xhtml already renders paragraphs and links)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "A new generic step numbers a list into text for a model's input ([1] then the configured fields of each item, format in config); today no builtin or {{ }} template can loop over a list (refs.py _text renders a list as str(list))",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "A new generic step replaces each [n] reference in a text with a configured field (for example url, as a markdown link) of the nth item of a list; a reference outside the list is reported, never invented",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "assumption",
+      "text": "Rollout order: the live actors get params.briefs (admin `actors update`) before the new code is enabled, because rollout import does not touch actors (cli/_commands/rollout.py:725-735) and rollout seed covers variables only; the live recording flow (configured live, docs/operations/library-items.md:22,57) must name its brief and answer option before enable",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "transcript.render keeps reading the parsed answer it is given; its own lenient parser (transcript_render.py:177-227) is not removed in this work",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether docs/rules bundles should carry the live briefs' text (committed prompts as example config) or only placeholders, given 'commit is code and logic, user content lives in the store'",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_rules/node/actions/llm.py",
+      "finding": "_brief() at 342-355 defaults to NEWSPAPER_BRIEF and lets code names win; the briefs are fixed text at 156-194",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "docs/rules bundles",
+      "finding": "only daily-newspaper (no brief) and transcript-to-reader (brief transcript) use llm.complete; cortex-spark2.json has no briefs",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_rules/node/actions/recording_answer.py",
+      "finding": "the only answer parser, invoked when brief == 'recording' (llm.py:758); no generic JSON-shape validator exists in the repo (model/schema.py and validate.py cover dataclass models only)",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "llm.py answer cache",
+      "finding": "_cache_path 525-541 requires brief == 'recording'; key is content bytes + the name; filename pinned by tests/node/test_llm_complete.py:1012",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_rules/node/actions/newspaper_render.py",
+      "finding": "_body 333-340 is the only caller of _summary_ok; prose with [n](url) links renders fine but line 229 rejects non-bullet lines",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_rules/model/refs.py and builtins",
+      "finding": "templates substitute scalars only; markdown.render, json.read, select and document.sections do not number lists; the newspaper model input is the results list as JSON (llm.py _user_message 325-338, content inputs.item.results)",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "culture_rules/node/actions (new step)",
+      "finding": "nothing turns [n] into links today; summary_to_xhtml then renders the links",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "rollout and import",
+      "finding": "rollout import imports workflows and rules only; docs/operations/rollout.md:241-242 says live actor changes are `actors update` between import and enable",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_rules/node/actions/transcript_render.py",
+      "finding": "duplicates fence/think/word logic but needs only summary and word",
+      "seeds": [
+        "c10"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
