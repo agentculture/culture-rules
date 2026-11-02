@@ -31,6 +31,7 @@ from tests.node.test_llm_complete import (
 _ITEM = {"type": "text", "strip": True, "min_chars": 1, "max_chars": 300}
 RECORDING = {
     "type": "object",
+    "extra": "drop",
     "fields": {
         "summary": {"type": "lines", "required": True, "min": 1, "max": 2, "max_chars": 300},
         "word": {
@@ -152,6 +153,26 @@ def test_a_bad_answer_option_sends_no_request(answer):
 def test_parse_answer_drops_a_think_block_and_a_fence():
     raw = "<think>hm</think>\n```json\n" + json.dumps(ANSWER) + "\n```"
     assert parse_answer({"text": raw}, RECORDING) == NORMALISED
+
+
+def test_parse_answer_drops_a_think_block_in_the_middle():
+    text = json.dumps(ANSWER)
+    raw = text[:1] + "<think>\nhm {not json}\n</think>" + text[1:]
+    assert parse_answer(raw, RECORDING) == NORMALISED
+
+
+def test_parse_answer_drops_every_think_block():
+    raw = "<think>a</think>" + json.dumps(ANSWER) + "<think>b</think>"
+    assert parse_answer(raw, RECORDING) == NORMALISED
+
+
+def test_parse_answer_drops_an_extra_field_the_shape_drops():
+    assert parse_answer(json.dumps({**ANSWER, "title": "T"}), RECORDING) == NORMALISED
+
+
+def test_a_reply_with_an_extra_field_passes_through_the_port():
+    port, _ = _port(transport=FakeTransport(body=_answer_reply(title="T")))
+    assert _invoke(port, answer=SHAPED, content="hello").output["answer"] == NORMALISED
 
 
 def test_parse_answer_accepts_empty_lists():

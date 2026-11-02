@@ -21,7 +21,8 @@ lines     text split on line breaks, each line stripped, empty lines dropped; ``
 int       ``min``, ``max`` (values), ``enum``; a bool or a float is not an int
 bool      (none)
 list      ``items`` (a spec for each item; absent = any value), ``min_items``, ``max_items``
-object    ``fields`` (name to spec); a key not in ``fields`` is refused
+object    ``fields`` (name to spec); ``extra``: ``"refuse"`` (the default) refuses a key not
+          in ``fields``, ``"drop"`` leaves it out of the result
 ========  ==============================================================================
 
 Normalisation happens only when the spec asks for it (``strip``, ``lower``, the line split of
@@ -48,11 +49,12 @@ _KEYS: dict[str, frozenset[str]] = {
     "int": _COMMON | {"min", "max", "enum"},
     "bool": _COMMON,
     "list": _COMMON | {"items", "min_items", "max_items"},
-    "object": _COMMON | {"fields"},
+    "object": _COMMON | {"fields", "extra"},
 }
 _FLAGS = ("required", "strip", "lower")
 _BOUNDS = ("min_chars", "max_chars", "min_items", "max_items")
 _PAIRS = (("min", "max"), ("min_chars", "max_chars"), ("min_items", "max_items"))
+_EXTRA = ("refuse", "drop")
 
 
 class ShapeError(ValueError):
@@ -113,6 +115,8 @@ def _check_spec(spec: Any, where: str = "spec") -> None:
         raise bad("enum must be a non-empty list")
     if "pattern" in spec:
         _check_pattern(spec["pattern"], bad)
+    if "extra" in spec and spec["extra"] not in _EXTRA:
+        raise bad("extra must be refuse or drop")
     if kind == "object":
         fields = spec.get("fields")
         if not isinstance(fields, dict):
@@ -209,9 +213,10 @@ def _object(value: Any, spec: dict[str, Any], path: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ShapeError(path, "must be an object")
     fields = spec["fields"]
-    for key in value:
-        if key not in fields:
-            raise ShapeError(_join(path, str(key)), "is not allowed")
+    if spec.get("extra", "refuse") == "refuse":
+        for key in value:
+            if key not in fields:
+                raise ShapeError(_join(path, str(key)), "is not allowed")
     out: dict[str, Any] = {}
     for name, sub in fields.items():
         here = _join(path, name)

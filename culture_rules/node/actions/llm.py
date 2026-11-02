@@ -64,7 +64,7 @@ summary waiting ``blocked`` behind a busy pool gives up at its next re-ask after
 issue's ``summaries_until`` (the slot plus the summary window), so the issue goes out on
 time with the results only (Codex r1 #3).
 
-Answer (``answer.shape``): the reply, with a leading ``<think>`` block and one Markdown fence
+Answer (``answer.shape``): the reply, with every ``<think>`` block and one Markdown fence
 dropped, is read as JSON and validated by :func:`culture_rules.model.shape.validate` against the
 step's ``answer.shape`` (:func:`parse_answer`); the normalised value is the output ``answer``. A
 reply that is not JSON (or not a JSON object for an ``object`` shape) fails ``answer_not_json``,
@@ -205,6 +205,7 @@ _CONTENT_PATH, _CONTENT_ROOT, _CONTENT_MAX_CHARS = (
 
 _RETRYABLE_4XX = frozenset({408, 429})
 _THINK_OPEN, _THINK_CLOSE = "<think>", "</think>"
+_THINK_BLOCKS = re.compile(r"<think>.*?</think>", re.DOTALL)
 _DATA, _DONE = "data:", "[DONE]"
 _FENCE = "```"
 _SSE_LINE_END = re.compile(r"\r\n|\r|\n")
@@ -547,15 +548,15 @@ def parse_answer(value: Any, shape: Mapping[str, Any]) -> Any:
     :mod:`culture_rules.model.shape` spec, from step config).
 
     ``value`` is the reply text, or a mapping with a ``text`` field (an ``llm.complete``
-    output). A leading ``<think>`` block and one Markdown fence are dropped first. Raises
-    :class:`AnswerRefused`: ``answer_not_json`` when the text is not JSON (or not a JSON object
-    for an ``object`` shape), ``answer_invalid`` naming the field otherwise. Never repaired or
-    truncated."""
+    output). Every ``<think>...</think>`` block, then one Markdown fence, is dropped first.
+    Raises :class:`AnswerRefused`: ``answer_not_json`` when the text is not JSON (or not a JSON
+    object for an ``object`` shape), ``answer_invalid`` naming the field otherwise. Never
+    repaired or truncated."""
     if isinstance(value, Mapping):
         value = value.get("text")
     if not isinstance(value, str):
         raise AnswerRefused(ANSWER_NOT_JSON, "the reply has no text")
-    text = _unfenced(_without_think(value))
+    text = _unfenced(_THINK_BLOCKS.sub("", value).strip())
     try:
         data = json.loads(text)
     except (ValueError, RecursionError) as exc:

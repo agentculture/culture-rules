@@ -456,3 +456,31 @@ def test_spec_error_is_a_value_error():
 
 def test_shape_error_is_a_value_error():
     assert issubclass(ShapeError, ValueError)
+
+
+# -- extra keys on an object -------------------------------------------------------------------
+
+_OPEN = {"type": "object", "fields": {"a": {"type": "int"}}}
+
+
+def test_object_extra_refuse_is_the_default():
+    assert _fail({"a": 1, "z": 2}, {**_OPEN, "extra": "refuse"}).path == "z"
+
+
+def test_object_extra_drop_leaves_unknown_keys_out():
+    assert validate({"a": 1, "z": 2}, {**_OPEN, "extra": "drop"}) == {"a": 1}
+
+
+def test_object_extra_drop_still_checks_known_fields():
+    assert _fail({"a": "x", "z": 2}, {**_OPEN, "extra": "drop"}).path == "a"
+
+
+@pytest.mark.parametrize("extra", ["keep", True, None])
+def test_object_extra_must_be_refuse_or_drop(extra):
+    with pytest.raises(ShapeSpecError):
+        validate({"a": 1}, {**_OPEN, "extra": extra})
+
+
+def test_extra_is_not_valid_for_a_text_spec():
+    with pytest.raises(ShapeSpecError):
+        validate("x", {"type": "text", "extra": "drop"})
