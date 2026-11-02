@@ -53,8 +53,9 @@ def test_get_channel_parses_type_and_tags():
 
 
 def test_get_channel_rejects_bad_id():
+    client = DiscordClient(TOKEN, transport=FakeTransport())
     with pytest.raises(DiscordError):
-        DiscordClient(TOKEN, transport=FakeTransport()).get_channel("abc")
+        client.get_channel("abc")
 
 
 def test_create_forum_post_request_shape():
@@ -84,8 +85,9 @@ def test_create_forum_post_uses_message_id_when_present():
 
 
 def test_create_forum_post_rejects_bad_channel():
+    client = DiscordClient(TOKEN, transport=FakeTransport())
     with pytest.raises(DiscordError):
-        DiscordClient(TOKEN, transport=FakeTransport()).create_forum_post("x", "n", "t", [])
+        client.create_forum_post("x", "n", "t", [])
 
 
 def test_timeout_is_outcome_unknown():
@@ -124,12 +126,14 @@ def test_not_auto_retried_on_429():
 @pytest.mark.parametrize("payload", [[{"id": "55"}], "a forum", 15])
 def test_get_channel_with_a_non_object_reply_is_a_discord_error(payload):
     t = FakeTransport(body=payload)
+    client = DiscordClient(TOKEN, transport=t)
     with pytest.raises(DiscordError, match="unexpected reply"):
-        DiscordClient(TOKEN, transport=t).get_channel("55")
+        client.get_channel("55")
 
 
 def test_get_channel_with_a_non_object_reply_is_not_retryable():
     t = FakeTransport(body=[{"id": "55"}])
+    client = DiscordClient(TOKEN, transport=t)
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(TOKEN, transport=t).get_channel("55")
+        client.get_channel("55")
     assert not ei.value.retryable

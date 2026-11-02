@@ -13,6 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - discord.message forum posts: thread_name and tags (by name, tags_missing), long text as replies; the action picker offers both
 - llm.complete actor briefs (params.briefs, admin-only, briefs_admin_only) named by a step brief
 - llm.complete always streams: `stream: true` with `stream_options.include_usage`, the reply read as server-sent events (a plain JSON reply still parses), and the whole read bounded by the timeout
+- Review fixes: a streamed reply may be up to 8 MiB; a stalled stream ends at the timeout; a transient mid-stream error event is retryable; SSE `event:`/`id:`/`retry:` lines are read; a forum reply that gets a 429 waits `retry_after` and is resent (at most 3 times); `get_channel` refuses a non-object reply
 - Docs: Forum posts (discord.md), Actor briefs (llm.md), the forum flow as configuration (newspaper.md), and the four harness prompt files
 
 ## [0.40.1] - 2026-11-01

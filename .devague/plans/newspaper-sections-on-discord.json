@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T22:45:52Z",
-  "updated": "2026-11-02T03:32:29Z",
+  "updated": "2026-11-02T05:52:55Z",
   "targets": [
     {
       "id": "c1",
@@ -590,6 +590,22 @@
       "text": "actors update dry run accepted a body carrying the server-owned updated_at field that the apply then refused (422 unknown field); found in t8 setting cortex-spark2 briefs",
       "kind": "follow_up",
       "task_id": "t8",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "the editor's channel picker (list_targets, TEXT_CHANNEL_TYPES 0,5) never lists forum channels (type 15), so a forum post's channel is pasted as an id; listing forums needs the picker to know when thread_name is set (code review PR #134 finding 4)",
+      "kind": "follow_up",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "llm.urllib_transport duplicates _endpoint.post (request, opener, HTTPError-as-answer) to get a deadline-aware streaming read; decider/stt still use post, so the two can drift (code review PR #134 finding 8)",
+      "kind": "follow_up",
+      "task_id": "t3",
       "resolved": false,
       "resolution": ""
     }

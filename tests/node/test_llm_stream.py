@@ -398,28 +398,32 @@ def stream_server():
     server.server_close()
 
 
-def test_the_default_transport_reads_a_chunked_stream(stream_server):
-    _StreamHandler.pieces = [_event(_delta(content=c)) for c in ("Hel", "lo")] + [DONE]
-    _StreamHandler.pause = 0.0
-    _StreamHandler.first_pause = 0.0
+def test_the_default_transport_reads_a_chunked_stream(stream_server, monkeypatch):
+    monkeypatch.setattr(
+        _StreamHandler, "pieces", [_event(_delta(content=c)) for c in ("Hel", "lo")] + [DONE]
+    )
+    monkeypatch.setattr(_StreamHandler, "pause", 0.0)
+    monkeypatch.setattr(_StreamHandler, "first_pause", 0.0)
     port = LlmCompletePort(_store(base_url=stream_server))
     assert _invoke(port).output["text"] == "Hello"
 
 
-def test_the_default_transport_bounds_the_whole_stream_by_the_timeout(stream_server):
-    _StreamHandler.pieces = [_event(_delta(content="x"))] * 40 + [DONE]
-    _StreamHandler.pause = 0.1
-    _StreamHandler.first_pause = 0.0
+def test_the_default_transport_bounds_the_whole_stream_by_the_timeout(stream_server, monkeypatch):
+    monkeypatch.setattr(_StreamHandler, "pieces", [_event(_delta(content="x"))] * 40 + [DONE])
+    monkeypatch.setattr(_StreamHandler, "pause", 0.1)
+    monkeypatch.setattr(_StreamHandler, "first_pause", 0.0)
     with pytest.raises(TimeoutError):
         urllib_transport(stream_server + COMPLETIONS, b"{}", {}, 0.5)
 
 
-def test_a_stream_stalling_late_still_ends_within_the_timeout(stream_server):
+def test_a_stream_stalling_late_still_ends_within_the_timeout(stream_server, monkeypatch):
     # the first chunk lands at 0.8 s of a 1.0 s timeout, then the stream stalls for 3 s:
     # the stalled read may wait only the 0.2 s left, not a whole socket timeout
-    _StreamHandler.pieces = [_event(_delta(content="x")), _event(_delta(content="y"))]
-    _StreamHandler.pause = 3.0
-    _StreamHandler.first_pause = 0.8
+    monkeypatch.setattr(
+        _StreamHandler, "pieces", [_event(_delta(content="x")), _event(_delta(content="y"))]
+    )
+    monkeypatch.setattr(_StreamHandler, "pause", 3.0)
+    monkeypatch.setattr(_StreamHandler, "first_pause", 0.8)
     started = time.monotonic()
     with pytest.raises(TimeoutError):
         urllib_transport(stream_server + COMPLETIONS, b"{}", {}, 1.0)
