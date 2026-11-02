@@ -30,7 +30,10 @@ Production wiring done by :func:`run_node`:
   :mod:`culture_rules.actors.handoff`), ``newspaper.sections``, ``newspaper.filter``,
   ``newspaper.render`` and ``newspaper.issue`` (#53, the daily newspaper,
   :mod:`culture_rules.node.actions.newspaper`), ``keyset.filter`` and ``keyset.add`` (named
-  sets of keys remembered for a window, :mod:`culture_rules.node.actions.keyset`) and
+  sets of keys remembered for a window, :mod:`culture_rules.node.actions.keyset`),
+  ``text.number`` (:mod:`culture_rules.node.actions.text_steps`), ``text.replace_refs``
+  (:mod:`culture_rules.node.actions.text_refs`), ``text.validate``
+  (:mod:`culture_rules.node.actions.text_validate`) and
   ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
@@ -371,6 +374,18 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort  # noqa: PLC0415
     from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
     from culture_rules.node.actions.stt import AudioTranscribePort  # noqa: PLC0415
+    from culture_rules.node.actions.text_refs import (  # noqa: PLC0415
+        TEXT_REPLACE_REFS_BUILTIN,
+        TextReplaceRefsPort,
+    )
+    from culture_rules.node.actions.text_steps import (  # noqa: PLC0415
+        TEXT_NUMBER_BUILTIN,
+        TextNumberPort,
+    )
+    from culture_rules.node.actions.text_validate import (  # noqa: PLC0415
+        TEXT_VALIDATE_BUILTIN,
+        TextValidatePort,
+    )
     from culture_rules.node.actions.transcript_render import (  # noqa: PLC0415
         TranscriptRenderPort,
     )
@@ -443,6 +458,9 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 CURSOR_ADVANCE_BUILTIN: CursorAdvancePort(store),  # compare-and-set a cursor
                 KEYSET_FILTER_BUILTIN: KeysetFilterPort(store),  # drop items whose key was seen
                 KEYSET_ADD_BUILTIN: KeysetAddPort(store),  # remember items' keys for a window
+                TEXT_NUMBER_BUILTIN: TextNumberPort(),  # numbered lines from items
+                TEXT_REPLACE_REFS_BUILTIN: TextReplaceRefsPort(),  # swap refs for items' text
+                TEXT_VALIDATE_BUILTIN: TextValidatePort(),  # check a text against rules
                 checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
                     store
                 ),  # stored lists, stable ids

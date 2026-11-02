@@ -370,6 +370,28 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
     inputs: [{ name: "items", type: "array", required: true }],
     outputs: [{ name: "added", type: "integer", required: true }, { name: "already_present", type: "integer", required: true }, { name: "keyless", type: "integer", required: true }],
   },
+  "text.number": {
+    label: "text.number: number items into text using a template and separator",
+    inputs: [{ name: "items", type: "array", required: true }, PORT("template", false), PORT("separator", false)],
+    outputs: [PORT("text", true), { name: "count", type: "integer", required: true }],
+  },
+  "text.replace_refs": {
+    label: "text.replace_refs: swap each reference in a text for its item's text",
+    inputs: [PORT("text", true), { name: "items", type: "array", required: true }, PORT("pattern", false), PORT("template", false)],
+    outputs: [PORT("text", true), { name: "replaced", type: "integer", required: true }, { name: "missing_refs", type: "array", required: true }],
+  },
+  "text.validate": {
+    label: "text.validate: check text against configured rules, returning a verdict and reasons",
+    inputs: [
+      PORT("text", true),
+      { name: "allowed", type: "array", required: false },
+      PORT("allowed_field", false),
+      { name: "require_links", type: "boolean", required: false },
+      PORT("line_shape", false),
+      { name: "link_schemes", type: "array", required: false },
+    ],
+    outputs: [{ name: "ok", type: "boolean", required: true }, { name: "reasons", type: "array", required: true }, PORT("text", true), { name: "links", type: "array", required: true }],
+  },
 };
 
 /**
