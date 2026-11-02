@@ -279,6 +279,7 @@ plan. What exists today:
     and the next resumes; outputs are counts only;
   - the bundle `docs/rules/repodocs` runs it every 15 minutes on spark, one run at a time,
     and ships disabled.
+- **Forum posts and actor briefs**: `markdown.from_html` takes `split_at` (h1-h6) and then also outputs `parts` (`{index, heading, text}`, a `''` lead part first); `discord.message` takes `thread_name` and `tags` to post into a forum as a thread (tags matched by name, unknown ones listed in `tags_missing`, text over 2000 characters posted as replies, a failure after the thread exists is not retried); `llm.complete` takes a `brief` naming one of the agent actor's `params.briefs` (the code briefs keep their text; only admins may edit `params.briefs`, else `briefs_admin_only`). Flows that use them are configured live, never committed (guides `docs/actors/discord.md`, `docs/actors/llm.md`, `docs/operations/newspaper.md`).
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

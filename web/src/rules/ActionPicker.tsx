@@ -63,7 +63,7 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   message: { label: "Send a message on the mesh", params: { channel: RS, text: RS } },
   "discord.message": {
     label: "Post a message on Discord",
-    params: { actor: RS, guild: S, channel: RS, text: RS, buttons: { type: "list" } },
+    params: { actor: RS, guild: S, channel: RS, text: RS, buttons: { type: "list" }, thread_name: S, tags: { type: "list" } },
   },
   "discord.read": {
     label: "Read a Discord message in full",

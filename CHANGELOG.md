@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2026-11-02
+
+### Added
+
+- markdown.from_html split_at and the parts output; the editor declares both
+- discord.message forum posts: thread_name and tags (by name, tags_missing), long text as replies; the action picker offers both
+- llm.complete actor briefs (params.briefs, admin-only, briefs_admin_only) named by a step brief
+- Docs: Forum posts (discord.md), Actor briefs (llm.md), the forum flow as configuration (newspaper.md), and the four harness prompt files
+
 ## [0.40.1] - 2026-11-01
 
 ### Added

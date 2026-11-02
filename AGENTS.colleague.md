@@ -196,6 +196,8 @@ default-branch version at the head sha, its working draft when the disk differs,
 for vanished files and spec links. A state file keeps unchanged cycles silent; outputs are
 counts only. The bundle `docs/rules/repodocs` runs it every 15 minutes on spark (disabled).
 
+**Forum posts and actor briefs**: `markdown.from_html` takes `split_at` (h1-h6) and then also outputs `parts` (`{index, heading, text}`, a `''` lead part first); `discord.message` takes `thread_name` and `tags` to post into a forum as a thread (tags matched by name, unknown ones listed in `tags_missing`, text over 2000 characters posted as replies, a failure after the thread exists is not retried); `llm.complete` takes a `brief` naming one of the agent actor's `params.briefs` (the code briefs keep their text; only admins may edit `params.briefs`, else `briefs_admin_only`). Flows that use them are configured live, never committed (guides `docs/actors/discord.md`, `docs/actors/llm.md`, `docs/operations/newspaper.md`).
+
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's
 conventions if you need more context than fits here. It covers:
