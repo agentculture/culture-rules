@@ -13,13 +13,20 @@ Input: ``html`` (a string). Config (each may instead be an input):
   (Discord takes 2000 a message);
 * ``drop_classes`` - elements with one of these classes are left out (e.g. a meta line);
 * ``italic_classes`` - paragraphs with one of these classes are written in italics;
-* ``item_paragraphs`` - keep only the first N paragraphs of each list item (unset: all).
+* ``item_paragraphs`` - keep only the first N paragraphs of each list item (unset: all);
+* ``split_at`` - one of ``h1`` to ``h6``: also give ``parts``, one per heading of that rank or
+  higher (shallower headings before the first of that rank stay in the lead part), each
+  holding its whole text with no ``max_chars`` cap.
 
 Chunks break between blocks (a heading starts one); a block longer than a chunk breaks
 between its lines, a line longer than a chunk at a space outside any link, and a heading
 always opens the chunk that holds its block's first line. Outputs: ``markdown`` (the whole
-document), ``chunks`` (in order) and ``count``. Final failure: ``bad_params``. Standard
-library only; the same HTML and config always give the same output.
+document), ``chunks`` (in order) and ``count``; with ``split_at`` also ``parts``, objects with
+``index``, ``heading`` (its plain text) and ``text``. Everything before the first heading of exactly
+the ``split_at`` rank is the lead part (heading ``''``, shallower headings such as a title
+stay in it); from that heading on, each heading of that rank or higher starts a part, so a page
+with no heading of that rank is one lead part. Final failure:
+``bad_params``. Standard library only; the same HTML and config always give the same output.
 """
 
 from __future__ import annotations
@@ -65,6 +72,8 @@ class _Doc(HTMLParser):
     def __init__(self, drop: frozenset[str], italic: frozenset[str], item_paragraphs: int | None):
         super().__init__(convert_charrefs=True)
         self.blocks: list[list[str]] = [[]]
+        self.heads: list[tuple[int, str] | None] = [None]  # per block: heading rank and text
+        self._raw: list[str] = []  # the open heading's text, unescaped
         self._drop, self._italic, self._item_max = drop, italic, item_paragraphs
         self._where: str | None = None  # a heading tag, "p" or "li"
         self._text: list[str] = []
@@ -119,7 +128,8 @@ class _Doc(HTMLParser):
         self._flush()
         if tag in _HEADINGS:
             self.blocks.append([])
-        self._where, self._text = tag, []
+            self.heads.append((_HEADINGS.index(tag) + 1, ""))
+        self._where, self._text, self._raw = tag, [], []
         self._p_italic = tag == "p" and bool(classes & self._italic)
         self._item_paragraphs = 0
 
@@ -149,6 +159,8 @@ class _Doc(HTMLParser):
     def _close(self, tag: str) -> None:
         text = re.sub(r"\s+", " ", "".join(self._text)).strip()
         if tag in _HEADINGS:
+            rank = _HEADINGS.index(tag) + 1
+            self.heads[-1] = (rank, re.sub(r"\s+", " ", "".join(self._raw)).strip())
             self._line(f"**{text}**" if text else "")
         elif tag == "li":
             self._line(f"- {text}" if text else "")
@@ -160,6 +172,8 @@ class _Doc(HTMLParser):
         if self._dropping:
             return
         text = _md(data)
+        if self._where in _HEADINGS:
+            self._raw.append(data)
         if self._href is not None:
             self._label.append(text)
         elif self._where is not None or data.strip():
@@ -229,13 +243,38 @@ def html_to_markdown(
     drop_classes: frozenset[str] = frozenset(),
     italic_classes: frozenset[str] = frozenset(),
     item_paragraphs: int | None = None,
+    split_at: str | None = None,
 ) -> dict[str, Any]:
-    """``markdown`` and ``chunks`` of ``html`` (module doc)."""
+    """``markdown`` and ``chunks`` of ``html``, and ``parts`` when ``split_at`` (module doc)."""
     doc = _Doc(frozenset(drop_classes), frozenset(italic_classes), item_paragraphs)
     doc.feed(html)
     doc.close()
-    blocks = ["\n".join(lines) for lines in doc.blocks if lines]
-    return {"markdown": "\n\n".join(blocks), "chunks": _chunks(blocks, max_chars)}
+    kept = [(head, "\n".join(lines)) for head, lines in zip(doc.heads, doc.blocks) if lines]
+    blocks = [text for _, text in kept]
+    out: dict[str, Any] = {"markdown": "\n\n".join(blocks), "chunks": _chunks(blocks, max_chars)}
+    if split_at is not None:
+        out["parts"] = _parts(kept, _HEADINGS.index(split_at) + 1)
+    return out
+
+
+def _parts(kept: list[tuple[tuple[int, str] | None, str]], rank: int) -> list[dict[str, Any]]:
+    """Blocks grouped into parts: one starts at every heading of ``rank`` or higher."""
+    heads: list[str] = []
+    texts: list[list[str]] = []
+    first = next((i for i, (h, _) in enumerate(kept) if h is not None and h[0] == rank), len(kept))
+    for i, (head, text) in enumerate(kept):
+        if head is not None and head[0] <= rank and i >= first:
+            heads.append(head[1])
+            texts.append([text])
+        elif texts:
+            texts[-1].append(text)
+        else:
+            heads.append("")
+            texts.append([text])
+    return [
+        {"index": i, "heading": heading, "text": "\n\n".join(chunk)}
+        for i, (heading, chunk) in enumerate(zip(heads, texts))
+    ]
 
 
 def _param(input: Mapping[str, Any], config: Mapping[str, Any], key: str) -> Any:
@@ -251,6 +290,14 @@ def _classes(value: Any, name: str) -> frozenset[str]:
     if not isinstance(value, (list, tuple)) or not all(isinstance(v, str) for v in value):
         raise _Refused(f"bad_params: {name} must be a class name or a list of them")
     return frozenset(value)
+
+
+def _heading_rank(value: Any) -> str | None:
+    if value is None:
+        return None
+    if value not in _HEADINGS:  # a non-string never matches
+        raise _Refused("bad_params: split_at must be one of h1 to h6")
+    return value
 
 
 def _whole(value: Any, name: str, low: int, high: int) -> int:
@@ -289,6 +336,7 @@ class MarkdownFromHtmlPort:
                 ),
                 drop_classes=_classes(get("drop_classes"), "drop_classes"),
                 italic_classes=_classes(get("italic_classes"), "italic_classes"),
+                split_at=_heading_rank(get("split_at")),
                 item_paragraphs=None if items is None else _whole(items, "item_paragraphs", 1, 50),
             )
         except _Refused as exc:
