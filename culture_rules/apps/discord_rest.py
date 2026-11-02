@@ -77,10 +77,13 @@ class DiscordError(Exception):
         retry_after: float | None = None,
         expired: bool = False,
         outcome_unknown: bool = False,
+        rate_limited: bool = False,
     ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.retry_after = retry_after
+        #: Discord answered 429: it did not act on the request, so the same one may be resent
+        self.rate_limited = rate_limited
         #: an interaction webhook Discord no longer accepts (401/404): the token ran out
         self.expired = expired
         #: the request may have landed (a timeout): not retried, and not taken as refused
@@ -317,6 +320,7 @@ class DiscordClient:
                 f"discord rate limited (retry_after={retry_after})",
                 retryable=True,
                 retry_after=retry_after,
+                rate_limited=True,
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
@@ -380,6 +384,7 @@ class DiscordClient:
                 f"discord rate limited (retry_after={retry_after})",
                 retryable=True,
                 retry_after=retry_after,
+                rate_limited=True,
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
@@ -424,6 +429,7 @@ class DiscordClient:
                 f"discord rate limited (retry_after={retry_after})",
                 retryable=True,
                 retry_after=retry_after,
+                rate_limited=True,
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
@@ -431,6 +437,8 @@ class DiscordClient:
         """One channel: ``{id, type, flags, available_tags: [{id, name}]}`` (tags of a forum)."""
         _check_id(channel_id, "channel")
         raw = self._get_ok(f"/channels/{channel_id}") or {}
+        if not isinstance(raw, Mapping):
+            raise DiscordError("discord sent an unexpected reply for a channel", retryable=False)
         tags = [
             {"id": str(t.get("id", "")), "name": str(t.get("name", ""))}
             for t in raw.get("available_tags") or []
@@ -490,6 +498,7 @@ class DiscordClient:
                 f"discord rate limited (retry_after={retry_after})",
                 retryable=True,
                 retry_after=retry_after,
+                rate_limited=True,
             )
         detail = payload.get("message")
         suffix = f": {str(detail)[:200]}" if detail and status < 500 else ""

@@ -18,7 +18,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions.llm import MAX_RESPONSE_BYTES, LlmCompletePort, urllib_transport
+from culture_rules.node.actions import llm as llm_mod
+from culture_rules.node.actions.llm import (
+    MAX_RESPONSE_BYTES,
+    MAX_TOKENS_CAP,
+    LlmCompletePort,
+    urllib_transport,
+)
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.memory import MemoryStore
 
@@ -238,6 +244,103 @@ def test_a_stream_over_the_byte_cap_is_llm_bad_response():
     assert _failed(_invoke(port)) == (FAILED, "llm_bad_response", False)
 
 
+def _vllm_chunk(content=None, reasoning=None):
+    """One chunk as vLLM sends it: ids, timestamps and nulls make it ~250-300 bytes."""
+    delta = {"content": content} if reasoning is None else {"reasoning_content": reasoning}
+    return {
+        "id": "chatcmpl-0123456789abcdef0123456789abcdef",
+        "object": "chat.completion.chunk",
+        "created": 1793577600,
+        "model": SERVED,
+        "system_fingerprint": None,
+        "choices": [
+            {"index": 0, "delta": delta, "logprobs": None, "finish_reason": None, "stop": None}
+        ],
+    }
+
+
+def test_a_stream_of_max_tokens_cap_tokens_fits_the_byte_cap():
+    half = MAX_TOKENS_CAP // 2
+    chunks = [_vllm_chunk(reasoning="hm") for _ in range(half)]
+    chunks += [_vllm_chunk(content="w ") for _ in range(MAX_TOKENS_CAP - half)]
+    body = b"".join(_event(c) for c in chunks) + DONE
+    port, _ = _port(body)
+    assert _invoke(port, max_tokens=MAX_TOKENS_CAP).outcome == COMPLETED
+
+
+def test_the_byte_cap_holds_a_kib_per_capped_token():
+    assert MAX_RESPONSE_BYTES >= MAX_TOKENS_CAP * 1024
+
+
+def _error_event(error) -> bytes:
+    return _sse("partial", done=False) + _event({"error": error}) + DONE
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"message": "busy", "type": "InternalServerError", "code": 500},
+        {"message": "busy", "code": 503},
+        {"message": "slow down", "code": 429},
+        {"message": "busy", "status": "502"},
+        {"message": "slow down", "code": "rate_limit_exceeded", "status": 429},
+        {"message": "x", "type": "overloaded_error"},
+        {"message": "The server is overloaded"},
+        {"message": "Service Unavailable"},
+        {"message": "the request timed out"},
+        {"message": "x", "type": "timeout"},
+        "overloaded",
+    ],
+)
+def test_a_transient_error_event_is_retryable_llm_unavailable(error):
+    port, _ = _port(_error_event(error))
+    assert _failed(_invoke(port)) == (FAILED, "llm_unavailable", True)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"message": "bad", "type": "BadRequestError", "code": 400},
+        {"message": "context length exceeded", "code": "context_length_exceeded"},
+        "boom",
+    ],
+)
+def test_another_error_event_stays_llm_bad_response(error):
+    port, _ = _port(_error_event(error))
+    assert _failed(_invoke(port)) == (FAILED, "llm_bad_response", False)
+
+
+def test_event_id_and_retry_fields_before_data_are_still_a_stream():
+    body = b"event: message\nid: 1\nretry: 1000\n" + _sse("a", "b")
+    port, _ = _port(body)
+    assert _invoke(port).output["text"] == "ab"
+
+
+def test_a_bare_field_name_line_before_data_is_still_a_stream():
+    port, _ = _port(b"event\n" + _sse("a"))
+    assert _invoke(port).output["text"] == "a"
+
+
+def test_a_json_body_with_an_id_key_is_not_a_stream():
+    body = {"id": "x", "model": SERVED, "choices": [{"message": {"content": "plain"}}]}
+    port, _ = _port(json.dumps(body, indent=1).encode())
+    assert _invoke(port).output["text"] == "plain"
+
+
+def test_the_body_is_split_into_lines_once(monkeypatch):
+    calls = []
+    real = llm_mod._event_lines
+
+    def counting(body):
+        calls.append(1)
+        return real(body)
+
+    monkeypatch.setattr(llm_mod, "_event_lines", counting)
+    port, _ = _port()
+    _invoke(port)
+    assert len(calls) == 1
+
+
 def test_a_5xx_is_still_retryable_llm_unavailable():
     port, _ = _port(b'{"error": {"message": "busy"}}', status=503)
     assert _failed(_invoke(port)) == (FAILED, "llm_unavailable", True)
@@ -262,6 +365,7 @@ class _StreamHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     pieces: list[bytes] = []
     pause = 0.0
+    first_pause = 0.0
 
     def do_POST(self):  # noqa: N802 - http.server naming
         self.rfile.read(int(self.headers["Content-Length"]))
@@ -270,6 +374,7 @@ class _StreamHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
         try:
+            time.sleep(type(self).first_pause)
             for piece in type(self).pieces:
                 self.wfile.write(b"%x\r\n%s\r\n" % (len(piece), piece))
                 self.wfile.flush()
@@ -296,6 +401,7 @@ def stream_server():
 def test_the_default_transport_reads_a_chunked_stream(stream_server):
     _StreamHandler.pieces = [_event(_delta(content=c)) for c in ("Hel", "lo")] + [DONE]
     _StreamHandler.pause = 0.0
+    _StreamHandler.first_pause = 0.0
     port = LlmCompletePort(_store(base_url=stream_server))
     assert _invoke(port).output["text"] == "Hello"
 
@@ -303,5 +409,18 @@ def test_the_default_transport_reads_a_chunked_stream(stream_server):
 def test_the_default_transport_bounds_the_whole_stream_by_the_timeout(stream_server):
     _StreamHandler.pieces = [_event(_delta(content="x"))] * 40 + [DONE]
     _StreamHandler.pause = 0.1
+    _StreamHandler.first_pause = 0.0
     with pytest.raises(TimeoutError):
         urllib_transport(stream_server + COMPLETIONS, b"{}", {}, 0.5)
+
+
+def test_a_stream_stalling_late_still_ends_within_the_timeout(stream_server):
+    # the first chunk lands at 0.8 s of a 1.0 s timeout, then the stream stalls for 3 s:
+    # the stalled read may wait only the 0.2 s left, not a whole socket timeout
+    _StreamHandler.pieces = [_event(_delta(content="x")), _event(_delta(content="y"))]
+    _StreamHandler.pause = 3.0
+    _StreamHandler.first_pause = 0.8
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        urllib_transport(stream_server + COMPLETIONS, b"{}", {}, 1.0)
+    assert time.monotonic() - started < 1.3
