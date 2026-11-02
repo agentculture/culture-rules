@@ -1,0 +1,170 @@
+# Build Plan — No hardcoded prompts
+
+slug: `no-hardcoded-prompts` · status: `exported` · from frame: `no-hardcoded-prompts`
+
+> llm.complete and the render builtins hold no prompt or content-shape rule: briefs, answer shapes, caching, list numbering, reference replacement and output validation are generic steps and options, configured per workflow
+
+## Tasks
+
+### t1 — R1: generic shape validator module
+
+- instruction: New stdlib module `culture_rules`/model/shape.py plus tests/model/`test_shape.py` only. It must be able to express the recording answer's rules (summary 1-2 lines of at most 300 chars, word ^\[A-Za-z\]\[A-Za-z-\]{1,23}$ lowercased, facts/`action_items` lists of at most 30 strings of at most 300 chars) without naming them; port those rules as test data. No flow names in code.
+- acceptance:
+  - `culture_rules`/model/shape.py validates a value against a declarative spec (required, type text/lines/word/list/int/bool/object, min/max, `max_items`, `max_chars`, pattern, enum, default, unknown keys refused) and raises with the exact field path
+  - tests/model/`test_shape.py` covers every rule with one assert per condition; standard library only
+
+### t2 — R1: llm.complete briefs only from actor config, answer and cache options
+
+- instruction: Owns `culture_rules`/node/actions/llm.py, `culture_rules`/node/actions/`recording_answer.py` (remove or reduce to nothing flow-specific), `culture_rules`/model/`action_kinds.py` (llm.complete params brief, answer, cache) and tests/node/`test_llm_`\*.py. Code briefs, `_BRIEFS`, the default brief and `_CACHE_BRIEF` go. Keep think/fence stripping generic.
+- depends on: t1
+- covers: c2, h2, c4, h16, c5, h17
+- acceptance:
+  - no brief text remains in llm.py; a missing brief, or one the bound actor lacks, fails `invalid_request` before any request
+  - the answer option validates the reply against a shape from step config via `culture_rules`/model/shape.py; `answer_not_json` and `answer_invalid` as today, naming the field
+  - cache: true works for any brief; cache file name stem and doc label are step config defaulting to today's values; a cache file written by 0.41.0 is read back with no request
+  - the old recording-answer test cases pass with the shape given as config
+
+### t3 — R1: text.number step
+
+- instruction: New module `culture_rules`/node/actions/`text_steps.py` (number part only) and tests/node/`test_text_number.py`. Template uses {n} and {field} placeholders; format comes only from config.
+- covers: c7, h7
+- acceptance:
+  - a list plus an item template from step config gives one text, numbered from 1 in list order, deterministic
+  - refuses a non-list or a template naming a missing field with `bad_params`
+
+### t4 — R1: text.`replace_refs` step
+
+- instruction: New module `culture_rules`/node/actions/`text_refs.py` and tests/node/`test_text_refs.py`. Reference pattern and output template come from config; no default format in code.
+- covers: c8, h8
+- acceptance:
+  - each \[n\] with 1 <= n <= len(list) becomes the configured output template filled from item n (e.g. `[{n}]({url})`)
+  - an out-of-range \[n\] is left unchanged and listed in the output `missing_refs`
+
+### t5 — R1: text.validate step
+
+- instruction: New module `culture_rules`/node/actions/`text_validate.py` and tests/node/`test_text_validate.py`. Never drops output silently: a refusal is a verdict, not a failure, so later steps branch with when.
+- covers: c19, h23
+- acceptance:
+  - outputs ok, reasons and the text; rules from config: every link must be one of a given list's field values, optional line shape (all lines bullets), at least one link
+  - configured with the old render rule it refuses exactly what `_summary_ok` refused (port its test cases)
+
+### t6 — R1: render builtin holds no shape rule and no fixed texts
+
+- instruction: Owns `culture_rules`/node/actions/`newspaper_render.py` and tests/node/`test_newspaper_render.py`. Keep everything else in this builtin unchanged; it is replaced in R2/R3.
+- covers: c6, h18
+- acceptance:
+  - `newspaper_render.py` no longer calls a summary-shape check; any summary text renders (prose with links as paragraphs and anchors)
+  - every user-facing note (no results, unavailable, refused, masthead note) comes from step config (decision c20); a refused-summary verdict input shows the results with the configured note
+
+### t7 — R1: registry, describe phrases and editor for the R1 options and steps
+
+- instruction: Owns `culture_rules`/node/runner.py, `culture_rules`/model/describe.py, web/src/rules/ActionPicker.tsx, web/src/workflows/StepEditor.tsx and their tests.
+- depends on: t2, t3, t4, t5
+- covers: c17, h22
+- acceptance:
+  - runner.py registers text.number, text.`replace_refs` and text.validate; describe.py has a phrase for each and for llm.complete's options
+  - ActionPicker offers the chosen actor's brief names (no built-in list or default) and answer and cache; StepEditor BUILTINS has the three steps; vitest passes
+
+### t8 — R1: committed bundles and flow tests name their briefs
+
+- instruction: Owns docs/rules/\*\*/workflows and actors JSON for llm.complete steps and tests/rules/\*, tests/node/`test_transcript_reader_flow.py`.
+- depends on: t2, t6
+- covers: c3, h15, c10, h19
+- acceptance:
+  - every committed workflow using llm.complete names its brief, and the bundle actor carries its briefs as config
+  - flow tests pass with briefs only from actor config; builtins that read a parsed answer are unchanged
+
+### t9 — R1: docs, harness files, rollout order and version
+
+- instruction: Owns docs/actors/\*.md, docs/operations/\*.md, CLAUDE.md, AGENTS.override.md, AGENTS.colleague.md, QWEN.md, CHANGELOG.md, pyproject.toml, docs/rules/pr-fixer/release.json, uv.lock version line. No flow names in new text.
+- depends on: t7, t8
+- covers: c18, h24
+- acceptance:
+  - docs/operations/rollout.md states the rollout order (actor briefs, code, live steps) and the rollback order (live steps back, then code)
+  - docs/actors/llm.md and the four harness prompt files describe briefs only from config, the answer and cache options and the three text steps; markdownlint clean; minor version bump
+
+### t10 — R1: gate, PR, rollout and live cited-output test
+
+- instruction: Main agent. Live writes only with the operator's go-ahead, following rollout.md's order.
+- depends on: t9
+- covers: c1, h1, c12, h10, c13, h20, c14, h21
+- acceptance:
+  - full suite, lint gate, web checks and Sonar 0 issues; PR merged after operator review
+  - live: actor briefs seeded before enable; a test workflow numbers a list, asks a model to cite by number, replaces refs by a template and validates, with every text in config
+
+### t11 — R2: json.parse step
+
+- instruction: New module `culture_rules`/node/actions/`json_parse.py` and tests/node/`test_json_parse.py`.
+- depends on: t10
+- covers: c22, h25
+- acceptance:
+  - parses a JSON string and validates with a shape from config via `culture_rules`/model/shape.py, failing with the exact field path
+  - configured with the old sections rules it refuses every case the coded check refused
+
+### t12 — R2: condition ops contains, any, all
+
+- instruction: Owns `culture_rules`/model/condition.py and tests/model/`test_condition`\*.py only.
+- depends on: t10
+- acceptance:
+  - `culture_rules`/model/condition.py gains contains (case-insensitive substring) and any/all over a list operand, validated and evaluated without eval
+  - existing condition tests pass unchanged
+
+### t13 — R2: list.filter step
+
+- instruction: New module `culture_rules`/node/actions/`list_filter.py` and tests/node/`test_list_filter.py`.
+- depends on: t12
+- covers: c23, h26
+- acceptance:
+  - keeps items for which the configured condition holds per item, dedupes by a configured field, derives a host from a url field, caps by a number or a reference
+  - configured with the old filter rules it keeps exactly what the coded filter kept
+
+### t14 — R2: value helpers join, time.add, date.local
+
+- instruction: New module `culture_rules`/node/actions/`value_ops.py` and tests/node/`test_value_ops.py`.
+- depends on: t10
+- covers: c24, h27
+- acceptance:
+  - join, time-add and slot-to-local-date (IANA tz, DST-correct) give exact results; date.local matches the coded result across a DST change
+
+### t15 — R2: document.render step
+
+- instruction: New module `culture_rules`/node/actions/`document_render.py` and tests/node/`test_document_render.py`.
+- depends on: t10
+- covers: c25, h28
+- acceptance:
+  - renders a list of records to HTML and EPUB from template, CSS, texts and caps in config, choosing a variant per record by condition; identical input gives identical bytes (golden test)
+  - reuses `culture_rules`/node/actions/`_epub.py`; every case the coded render handled is expressible as config
+
+### t16 — R2: registry, editor, docs, PR, rollout
+
+- instruction: Main agent plus a docs/editor subagent; no live flow switches in R2.
+- depends on: t11, t13, t14, t15
+- acceptance:
+  - the four R2 steps are registered, phrased and in the editor; docs and harness files updated; version bump; full gate green; PR merged after operator review; rolled out
+
+### t17 — R3: lease and send-once ledger steps
+
+- instruction: New module `culture_rules`/node/actions/lease.py and tests/node/`test_lease`\*.py. Model it on the coded issue state machine's invariants without its names.
+- depends on: t16
+- covers: c26, h29, c27, h30
+- acceptance:
+  - a key-addressed lease (owner, expiry, takeover, fence, `claim_lost`) and a ledger (frozen first payload, stable idempotency key, attempt recorded before send, window then uncertain, settle) over one CAS document, collection and keys from config
+  - one test per guarantee in c27 plus fault-injection at each fence: no double send, no skipped send
+
+### t18 — R3: committed bundle on generic steps, four builtins removed
+
+- instruction: Owns the committed newsletter bundle, the four builtin modules (removed), runner.py registrations, their tests and docs.
+- depends on: t17
+- covers: c28, h31
+- acceptance:
+  - the committed bundle uses only generic steps; no newspaper.\* builtin is registered; its flow test runs end to end
+  - docs and harness files describe the generic configuration
+
+### t19 — R3: PR, rollout, live switch and 3-run check
+
+- instruction: Main agent; every live write with the operator's go-ahead.
+- depends on: t18
+- covers: c15, h13, c16, h14
+- acceptance:
+  - PR merged after operator review; live workflows switched per rollout.md with dry runs first
+  - 0 prompt texts in `culture_rules`; the next 3 scheduled runs complete with summaries and no double or skipped send; counts read from live runs

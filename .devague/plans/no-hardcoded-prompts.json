@@ -3,9 +3,9 @@
   "title": "No hardcoded prompts",
   "frame_slug": "no-hardcoded-prompts",
   "schema_version": 5,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-11-02T17:59:05Z",
-  "updated": "2026-11-02T18:00:18Z",
+  "updated": "2026-11-02T18:01:19Z",
   "targets": [
     {
       "id": "c1",
@@ -349,7 +349,7 @@
       "id": "t1",
       "summary": "R1: generic shape validator module",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "culture_rules/model/shape.py validates a value against a declarative spec (required, type text/lines/word/list/int/bool/object, min/max, max_items, max_chars, pattern, enum, default, unknown keys refused) and raises with the exact field path",
         "tests/model/test_shape.py covers every rule with one assert per condition; standard library only"
@@ -362,7 +362,7 @@
       "id": "t2",
       "summary": "R1: llm.complete briefs only from actor config, answer and cache options",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "no brief text remains in llm.py; a missing brief, or one the bound actor lacks, fails invalid_request before any request",
         "the answer option validates the reply against a shape from step config via culture_rules/model/shape.py; answer_not_json and answer_invalid as today, naming the field",
@@ -386,7 +386,7 @@
       "id": "t3",
       "summary": "R1: text.number step",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a list plus an item template from step config gives one text, numbered from 1 in list order, deterministic",
         "refuses a non-list or a template naming a missing field with bad_params"
@@ -402,7 +402,7 @@
       "id": "t4",
       "summary": "R1: text.replace_refs step",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "each [n] with 1 <= n <= len(list) becomes the configured output template filled from item n (e.g. `[{n}]({url})`)",
         "an out-of-range [n] is left unchanged and listed in the output missing_refs"
@@ -418,7 +418,7 @@
       "id": "t5",
       "summary": "R1: text.validate step",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "outputs ok, reasons and the text; rules from config: every link must be one of a given list's field values, optional line shape (all lines bullets), at least one link",
         "configured with the old render rule it refuses exactly what _summary_ok refused (port its test cases)"
@@ -434,7 +434,7 @@
       "id": "t6",
       "summary": "R1: render builtin holds no shape rule and no fixed texts",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "newspaper_render.py no longer calls a summary-shape check; any summary text renders (prose with links as paragraphs and anchors)",
         "every user-facing note (no results, unavailable, refused, masthead note) comes from step config (decision c20); a refused-summary verdict input shows the results with the configured note"
@@ -450,7 +450,7 @@
       "id": "t7",
       "summary": "R1: registry, describe phrases and editor for the R1 options and steps",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "runner.py registers text.number, text.replace_refs and text.validate; describe.py has a phrase for each and for llm.complete's options",
         "ActionPicker offers the chosen actor's brief names (no built-in list or default) and answer and cache; StepEditor BUILTINS has the three steps; vitest passes"
@@ -471,7 +471,7 @@
       "id": "t8",
       "summary": "R1: committed bundles and flow tests name their briefs",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "every committed workflow using llm.complete names its brief, and the bundle actor carries its briefs as config",
         "flow tests pass with briefs only from actor config; builtins that read a parsed answer are unchanged"
@@ -492,7 +492,7 @@
       "id": "t9",
       "summary": "R1: docs, harness files, rollout order and version",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "docs/operations/rollout.md states the rollout order (actor briefs, code, live steps) and the rollback order (live steps back, then code)",
         "docs/actors/llm.md and the four harness prompt files describe briefs only from config, the answer and cache options and the three text steps; markdownlint clean; minor version bump"
@@ -511,7 +511,7 @@
       "id": "t10",
       "summary": "R1: gate, PR, rollout and live cited-output test",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "full suite, lint gate, web checks and Sonar 0 issues; PR merged after operator review",
         "live: actor briefs seeded before enable; a test workflow numbers a list, asks a model to cite by number, replaces refs by a template and validates, with every text in config"
@@ -535,7 +535,7 @@
       "id": "t11",
       "summary": "R2: json.parse step",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "parses a JSON string and validates with a shape from config via culture_rules/model/shape.py, failing with the exact field path",
         "configured with the old sections rules it refuses every case the coded check refused"
@@ -553,7 +553,7 @@
       "id": "t12",
       "summary": "R2: condition ops contains, any, all",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "culture_rules/model/condition.py gains contains (case-insensitive substring) and any/all over a list operand, validated and evaluated without eval",
         "existing condition tests pass unchanged"
@@ -568,7 +568,7 @@
       "id": "t13",
       "summary": "R2: list.filter step",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "keeps items for which the configured condition holds per item, dedupes by a configured field, derives a host from a url field, caps by a number or a reference",
         "configured with the old filter rules it keeps exactly what the coded filter kept"
@@ -586,7 +586,7 @@
       "id": "t14",
       "summary": "R2: value helpers join, time.add, date.local",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "join, time-add and slot-to-local-date (IANA tz, DST-correct) give exact results; date.local matches the coded result across a DST change"
       ],
@@ -603,7 +603,7 @@
       "id": "t15",
       "summary": "R2: document.render step",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "renders a list of records to HTML and EPUB from template, CSS, texts and caps in config, choosing a variant per record by condition; identical input gives identical bytes (golden test)",
         "reuses culture_rules/node/actions/_epub.py; every case the coded render handled is expressible as config"
@@ -621,7 +621,7 @@
       "id": "t16",
       "summary": "R2: registry, editor, docs, PR, rollout",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "the four R2 steps are registered, phrased and in the editor; docs and harness files updated; version bump; full gate green; PR merged after operator review; rolled out"
       ],
@@ -638,7 +638,7 @@
       "id": "t17",
       "summary": "R3: lease and send-once ledger steps",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a key-addressed lease (owner, expiry, takeover, fence, claim_lost) and a ledger (frozen first payload, stable idempotency key, attempt recorded before send, window then uncertain, settle) over one CAS document, collection and keys from config",
         "one test per guarantee in c27 plus fault-injection at each fence: no double send, no skipped send"
@@ -658,7 +658,7 @@
       "id": "t18",
       "summary": "R3: committed bundle on generic steps, four builtins removed",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "the committed bundle uses only generic steps; no newspaper.* builtin is registered; its flow test runs end to end",
         "docs and harness files describe the generic configuration"
@@ -676,7 +676,7 @@
       "id": "t19",
       "summary": "R3: PR, rollout, live switch and 3-run check",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "PR merged after operator review; live workflows switched per rollout.md with dry runs first",
         "0 prompt texts in culture_rules; the next 3 scheduled runs complete with summaries and no double or skipped send; counts read from live runs"
