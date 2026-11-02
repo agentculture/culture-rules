@@ -427,6 +427,74 @@ class DiscordClient:
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
+    def get_channel(self, channel_id: str) -> dict[str, Any]:
+        """One channel: ``{id, type, flags, available_tags: [{id, name}]}`` (tags of a forum)."""
+        _check_id(channel_id, "channel")
+        raw = self._get_ok(f"/channels/{channel_id}") or {}
+        tags = [
+            {"id": str(t.get("id", "")), "name": str(t.get("name", ""))}
+            for t in raw.get("available_tags") or []
+            if isinstance(t, Mapping)
+        ]
+        return {
+            "id": str(raw.get("id", channel_id)),
+            "type": raw.get("type"),
+            "flags": raw.get("flags", 0),
+            "available_tags": tags,
+        }
+
+    def create_forum_post(
+        self,
+        channel_id: str,
+        name: str,
+        text: str,
+        tag_ids: Sequence[str],
+        *,
+        allowed_mentions_parse: Sequence[str] = (),
+    ) -> dict[str, str]:
+        """Start a thread named ``name`` with ``text`` as its first message in the forum
+        ``channel_id``, tagged ``tag_ids``; returns ``{"thread_id", "message_id"}``. Sent once,
+        never retried here: a timeout is ``outcome_unknown``."""
+        if not isinstance(channel_id, str) or not _CHANNEL_RE.match(channel_id):
+            raise DiscordError("channel must be a numeric Discord channel id", retryable=False)
+        body = {
+            "name": str(name)[:100],
+            "applied_tags": [str(t) for t in tag_ids],
+            "message": {
+                "content": str(text)[:MAX_CONTENT],
+                "allowed_mentions": {"parse": list(allowed_mentions_parse)},
+            },
+        }
+        url = f"{self._base}/channels/{channel_id}/threads"
+        try:
+            status, payload, _ = self._transport(
+                url, json.dumps(body).encode("utf-8"), self._headers(), self._timeout
+            )
+        except OSError as exc:
+            if isinstance(exc, TimeoutError) or isinstance(
+                getattr(exc, "reason", None), TimeoutError
+            ):
+                raise DiscordError(
+                    "discord timed out (outcome unknown)", retryable=False, outcome_unknown=True
+                )
+            raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
+        payload = payload if isinstance(payload, Mapping) else {}
+        if 200 <= status < 300:
+            thread_id = str(payload.get("id", ""))
+            message = payload.get("message")
+            message_id = message.get("id") if isinstance(message, Mapping) else None
+            return {"thread_id": thread_id, "message_id": str(message_id or thread_id)}
+        if status == 429:
+            retry_after = _retry_after(payload)
+            raise DiscordError(
+                f"discord rate limited (retry_after={retry_after})",
+                retryable=True,
+                retry_after=retry_after,
+            )
+        detail = payload.get("message")
+        suffix = f": {str(detail)[:200]}" if detail and status < 500 else ""
+        raise DiscordError(f"discord returned HTTP {status}{suffix}", retryable=status >= 500)
+
 
 BUTTON_STYLES = {"primary": 1, "secondary": 2, "success": 3, "danger": 4}
 MAX_BUTTONS = 5
