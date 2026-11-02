@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from culture_rules.engine.actorport import InvocationContext
 from culture_rules.node.actions.text_refs import TEXT_REPLACE_REFS_BUILTIN, TextReplaceRefsPort
 
@@ -71,9 +73,14 @@ def test_substituted_value_is_not_rescanned():
     assert res.output["text"] == "[1]([2])"
 
 
-def test_only_named_placeholders_are_substituted():
+def test_doubled_braces_are_literal():
     res = invoke({"text": "[1]", "items": ITEMS}, {"template": "{{n}} {n} {url}"})
-    assert res.output["text"] == "{1} 1 https://a.example/x"
+    assert res.output["text"] == "{n} 1 https://a.example/x"
+
+
+@pytest.mark.parametrize("bad", ["{}", "{0}", "{a.b}", "{a[0]}", "{n!r}", "{n", "n}", "{{{n"])
+def test_other_brace_forms_are_bad_params(bad):
+    failed(invoke({"text": "[1]", "items": ITEMS}, {"template": bad}))
 
 
 def test_input_wins_over_config():

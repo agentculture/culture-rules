@@ -9,7 +9,9 @@ Inputs (each may instead sit in ``config``; the input wins): ``text`` - the stri
 expression with exactly one group holding the number, e.g. ``\\[(\\d+)\\]``, which must pass
 ``regex_safety.unsafe_reason``; ``template`` (required, no default) - the replacement, where
 ``{n}`` is the number and ``{field}`` a top-level scalar field of item n (a str, int, float or
-bool; nothing else is looked up, no attributes, no format specs, no evaluation).
+bool; nothing else is looked up, no attributes, no format specs, no evaluation). ``{{`` and
+``}}`` are literal braces; any other brace form (``{}``, ``{0}``, ``{a.b}``, ``{a!r}``, a stray
+``{`` or ``}``) fails ``bad_params`` when the template is read, as in ``text.number``.
 
 Outputs: ``text`` (rewritten), ``replaced`` (the count of replacements) and ``missing_refs``
 (sorted unique numbers whose reference was left as it was). A reference is left unchanged when
@@ -34,7 +36,7 @@ __all__ = ["TEXT_REPLACE_REFS_BUILTIN", "TextReplaceRefsPort", "replace_refs"]
 
 TEXT_REPLACE_REFS_BUILTIN = "text.replace_refs"
 _BAD_PARAMS = "bad_params"
-_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}|[{}]")
 _DIGITS = re.compile(r"[0-9]+")
 
 
@@ -63,10 +65,24 @@ def _pattern(value: Any) -> re.Pattern[str]:
     return compiled
 
 
-def _template(value: Any) -> str:
+def _template(value: Any) -> list[tuple[bool, str]]:
+    """Parse the template once into ``(is_field, text)`` parts; any other brace is refused."""
     if not isinstance(value, str) or not value:
         raise _Refused("template is required (the output for one reference)")
-    return value
+    parts: list[tuple[bool, str]] = []
+    pos = 0
+    for match in _TOKEN.finditer(value):
+        parts.append((False, value[pos : match.start()]))
+        pos = match.end()
+        token = match.group(0)
+        if match.group(1):
+            parts.append((True, match.group(1)))
+        elif token in ("{{", "}}"):
+            parts.append((False, token[0]))
+        else:
+            raise _Refused("template braces: use {name}, {{ and }} only")
+    parts.append((False, value[pos:]))
+    return parts
 
 
 def _items(value: Any) -> list[Mapping[str, Any]]:
@@ -75,21 +91,18 @@ def _items(value: Any) -> list[Mapping[str, Any]]:
     return value
 
 
-def _fill(template: str, number: int, item: Mapping[str, Any]) -> str | None:
+def _fill(parts: list[tuple[bool, str]], number: int, item: Mapping[str, Any]) -> str | None:
     """The template for item ``number``, or ``None`` if a named field is not a scalar there."""
-    missing = False
-
-    def one(match: re.Match[str]) -> str:
-        nonlocal missing
-        name = match.group(1)
-        value = number if name == "n" else item.get(name)
-        if isinstance(value, (str, int, float)):  # bool is an int
-            return str(value)
-        missing = True
-        return ""
-
-    out = _PLACEHOLDER.sub(one, template)
-    return None if missing else out
+    out: list[str] = []
+    for is_field, text in parts:
+        if not is_field:
+            out.append(text)
+            continue
+        value = number if text == "n" else item.get(text)
+        if not isinstance(value, (str, int, float)):  # bool is an int
+            return None
+        out.append(str(value))
+    return "".join(out)
 
 
 def replace_refs(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
