@@ -27,9 +27,11 @@ the last space) and tagged with the forum tags whose names match ``tags`` exactl
 names the forum lacks come back in ``tags_missing``). A text longer than one message is split at
 line breaks (a longer single line hard) into pieces that join back to the text: the first
 starts the thread and the rest are replies in it, in order (a piece that is only blank space
-is not posted, since Discord refuses a blank message). Once the thread exists any failure
-is not retryable (a retry would start a second thread) and its error names the thread and the
-replies posted. The output is ``{"message_id", "thread_id", "reply_ids", "tags_missing"}``.
+is not posted, since Discord refuses a blank message). A reply Discord rate-limits (a 429: not
+posted) is sent again after its ``retry_after`` (at most 10 s a wait, at most 3 waits a step).
+Once the thread exists any other failure is not retryable (a retry would start a second
+thread) and its error names the thread and the replies posted. The output is
+``{"message_id", "thread_id", "reply_ids", "tags_missing"}``.
 ``tags`` without ``thread_name`` and ``buttons`` with it are ``bad_params``.
 """
 
@@ -38,6 +40,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess  # nosec B404 - only for TimeoutExpired; the CLI runs in node.mesh
+import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
@@ -63,6 +66,11 @@ def _fail(error: str) -> InvocationResult:
 FORUM_CHANNEL_TYPE = 15
 MAX_FORUM_TAGS = 5
 MAX_THREAD_NAME = 100
+#: a rate-limited forum reply (a 429, which Discord did not act on) is sent again after its
+#: ``retry_after``, waiting at most this long each time and at most this many times a step
+MAX_REPLY_WAIT_S = 10.0
+MAX_REPLY_WAITS = 3
+DEFAULT_REPLY_WAIT_S = 1.0
 
 
 def _forum_params(input: Mapping[str, Any]) -> tuple[str, list[str]] | None:  # noqa: A002
@@ -126,9 +134,11 @@ class MessageAction:
         mesh_executable: str | None = None,
         mesh_run: Callable[..., Any] | None = None,
         clock: Callable[[], datetime] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._store = store
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._sleep = sleep
         self._indexed = False
         self._resolve = resolve_secret or secrets.resolve_or_literal
         self._transport = transport
@@ -270,11 +280,12 @@ class MessageAction:
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
         thread_id = started["thread_id"]
         reply_ids: list[str] = []
+        waits = [MAX_REPLY_WAITS]
         for piece in rest:
             if not piece.strip():  # Discord refuses a blank message; nothing visible is lost
                 continue
             try:
-                reply_ids.append(client.post_message(thread_id, piece)["message_id"])
+                reply_ids.append(self._reply(client, thread_id, piece, waits)["message_id"])
             except Exception as exc:  # noqa: BLE001 - the thread exists: never start another
                 detail = str(exc) if isinstance(exc, DiscordError) else type(exc).__name__
                 log.warning("reply in discord thread %s failed: %s", thread_id, detail)
@@ -291,6 +302,22 @@ class MessageAction:
                 "tags_missing": missing,
             }
         )
+
+    def _reply(
+        self, client: DiscordClient, thread_id: str, piece: str, waits: list[int]
+    ) -> dict[str, str]:
+        """Post one reply in ``thread_id``; a 429 (Discord did not post it) waits its
+        ``retry_after`` (at most :data:`MAX_REPLY_WAIT_S`) and sends the same reply again,
+        while ``waits[0]`` (the step's remaining waits) lasts. Any other failure raises."""
+        while True:
+            try:
+                return client.post_message(thread_id, piece)
+            except DiscordError as exc:
+                if not exc.rate_limited or waits[0] <= 0:
+                    raise
+                waits[0] -= 1
+                wait = DEFAULT_REPLY_WAIT_S if exc.retry_after is None else exc.retry_after
+                self._sleep(min(max(wait, 0.0), MAX_REPLY_WAIT_S))
 
     def _discord_token(self, actor_id: str, channel: str) -> str | InvocationResult:
         """The bot token of the Discord app actor ``actor_id`` when it may post to ``channel``,

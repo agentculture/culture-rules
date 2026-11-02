@@ -123,9 +123,15 @@ and redirects are not followed.
 The reply is read as a server-sent event stream (deviation d7: always
 stream). The content deltas of the first choice, joined in order, are the
 text; reasoning deltas are not. The model comes from the chunks and `usage`
-from the last chunk, which `include_usage` asks for. The whole stream must
-arrive within the request's timeout and at most 1 MiB. A stream that ends
-without `data: [DONE]`, has no content delta, or carries an `error` event
+from the last chunk, which `include_usage` asks for. `event:`, `id:` and
+`retry:` lines are ignored, before the first `data:` line too. The whole
+stream must arrive within the request's timeout (a stream that stalls times
+out when the time is up, not a socket timeout later) and at most 8 MiB, room
+for 4000 tokens at a few hundred bytes of SSE each. An `error` event that
+says the server is busy or down (a 5xx, 408 or 429 `code` or `status`, or a
+`type` or `message` saying overloaded, unavailable or timeout) fails
+`llm_unavailable`, which is retried. A stream that ends without
+`data: [DONE]`, has no content delta, or carries any other `error` event
 fails `llm_bad_response`, like a truncated JSON reply. A plain JSON reply
 (an error body, or a server that ignores `stream`) is still read as before.
 
@@ -164,7 +170,7 @@ A step selects one with `brief: "one-line"`. The rules:
 
 | Code | Meaning | Retried |
 |---|---|---|
-| `llm_unavailable` | connection refused, DNS, timeout, a passed deadline, 5xx, 408 or 429 | yes |
+| `llm_unavailable` | connection refused, DNS, timeout, a passed deadline, 5xx, 408 or 429 (a stream `error` event saying so too) | yes |
 | `llm_deadline` | `not_after` has passed (checked before the pool queues the work) | no |
 | `llm_rejected` | any other non-2xx answer | no |
 | `llm_bad_response` | not JSON, or no message text | no |

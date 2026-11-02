@@ -422,8 +422,10 @@ action fails `bad_params` before anything is posted.
   `thread_name` or more than 5 tags. The bot needs permission to create posts and send
   messages in the forum. The Discord server and channel pickers are unchanged: pick
   the forum the way you pick any channel.
-- **Failures.** Creating the thread is sent once and never retried automatically. Once
-  the thread exists, any later failure (a reply that is refused, say) is not
+- **Failures.** Creating the thread is sent once and never retried automatically. A
+  reply Discord rate-limits (a 429, so not posted) is sent again after its
+  `retry_after`, waiting at most 10 seconds each time and at most 3 times a step. Once
+  the thread exists, any other failure (a reply that is refused, say) is not
   retryable, because a retry would start a second thread; the error names the
   `thread_id` and the reply ids posted so far, so the rest can be finished by hand.
 

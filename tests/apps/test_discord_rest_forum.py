@@ -119,3 +119,17 @@ def test_not_auto_retried_on_429():
     t = FakeTransport(429, {"retry_after": 0})
     _fail(t)
     assert len(t.calls) == 1
+
+
+@pytest.mark.parametrize("payload", [[{"id": "55"}], "a forum", 15])
+def test_get_channel_with_a_non_object_reply_is_a_discord_error(payload):
+    t = FakeTransport(body=payload)
+    with pytest.raises(DiscordError, match="unexpected reply"):
+        DiscordClient(TOKEN, transport=t).get_channel("55")
+
+
+def test_get_channel_with_a_non_object_reply_is_not_retryable():
+    t = FakeTransport(body=[{"id": "55"}])
+    with pytest.raises(DiscordError) as ei:
+        DiscordClient(TOKEN, transport=t).get_channel("55")
+    assert not ei.value.retryable

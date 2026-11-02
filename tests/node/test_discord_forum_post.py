@@ -24,8 +24,11 @@ def ctx():
 class ForumTransport:
     """Routes GETs of a channel, the thread POST and reply POSTs; records every request."""
 
-    def __init__(self, *, thread_status=201, reply_statuses=(), thread_timeout=False):
+    def __init__(
+        self, *, thread_status=201, reply_statuses=(), thread_timeout=False, retry_after=0.5
+    ):
         self.calls = []
+        self.retry_after = retry_after
         self.thread_status = thread_status
         self.reply_statuses = list(reply_statuses)
         self.thread_timeout = thread_timeout
@@ -44,6 +47,8 @@ class ForumTransport:
             return self.thread_status, {"id": THREAD, "message": {"id": "m-start"}}, {}
         self.replies += 1
         status = self.reply_statuses.pop(0) if self.reply_statuses else 200
+        if status == 429:
+            return status, {"message": "rate limited", "retry_after": self.retry_after}, {}
         return status, {"id": f"m-{self.replies}"}, {}
 
     def posts(self):
@@ -53,7 +58,7 @@ class ForumTransport:
         return next(body for url, body in self.calls if url.endswith("/threads"))
 
 
-def port(transport, secrets_seen=None):
+def port(transport, secrets_seen=None, sleep=None):
     s = MemoryStore()
     s.put(
         "actors",
@@ -71,12 +76,14 @@ def port(transport, secrets_seen=None):
             secrets_seen.append(ref)
         return "tok-xyz"
 
-    return DiscordMessageAction(s, resolve_secret=resolve, transport=transport)
+    return DiscordMessageAction(
+        s, resolve_secret=resolve, transport=transport, sleep=sleep or (lambda _s: None)
+    )
 
 
-def post(transport, secrets_seen=None, **params):
+def post(transport, secrets_seen=None, sleep=None, **params):
     params = {"channel": FORUM, "text": "hello forum", **params}
-    return port(transport, secrets_seen).invoke(params, "k", NOW, context=ctx())
+    return port(transport, secrets_seen, sleep).invoke(params, "k", NOW, context=ctx())
 
 
 # --- the catalogue -------------------------------------------------------------------------
@@ -287,6 +294,65 @@ def test_a_reply_failure_stops_the_replies():
     t = ForumTransport(reply_statuses=[503])
     post(t, thread_name="A post", text=_long_text())
     assert len(t.posts()) == 2
+
+
+def _three_piece_text():
+    return "a" * MAX_CONTENT + "b" * MAX_CONTENT + "c"
+
+
+def test_a_rate_limited_reply_is_sent_again_after_retry_after():
+    t, slept = ForumTransport(reply_statuses=[429]), []
+    res = post(t, sleep=slept.append, thread_name="A post", text=_three_piece_text())
+    assert res.outcome == "completed"
+
+
+def test_a_rate_limited_reply_waits_retry_after():
+    t, slept = ForumTransport(reply_statuses=[429]), []
+    post(t, sleep=slept.append, thread_name="A post", text=_three_piece_text())
+    assert slept == [0.5]
+
+
+def test_a_rate_limited_reply_is_resent_once_and_kept_in_order():
+    t = ForumTransport(reply_statuses=[429])
+    post(t, thread_name="A post", text=_three_piece_text())
+    replies = [body["content"][0] for url, body in t.posts() if not url.endswith("/threads")]
+    assert replies == ["b", "b", "c"]
+
+
+def test_a_rate_limited_reply_lists_every_reply_posted():
+    t = ForumTransport(reply_statuses=[429])
+    res = post(t, thread_name="A post", text=_three_piece_text())
+    assert res.output["reply_ids"] == ["m-2", "m-3"]
+
+
+def test_a_long_retry_after_waits_at_most_ten_seconds():
+    t, slept = ForumTransport(reply_statuses=[429], retry_after=60), []
+    post(t, sleep=slept.append, thread_name="A post", text=_three_piece_text())
+    assert slept == [10.0]
+
+
+def test_a_rate_limit_without_retry_after_waits_a_second():
+    t, slept = ForumTransport(reply_statuses=[429], retry_after=None), []
+    post(t, sleep=slept.append, thread_name="A post", text=_three_piece_text())
+    assert slept == [1.0]
+
+
+def test_a_step_waits_out_at_most_three_rate_limits():
+    t, slept = ForumTransport(reply_statuses=[429, 429, 200, 429, 429]), []
+    post(t, sleep=slept.append, thread_name="A post", text=_three_piece_text())
+    assert len(slept) == 3
+
+
+def test_a_fourth_rate_limit_fails_without_retry():
+    t = ForumTransport(reply_statuses=[429, 429, 200, 429, 429])
+    res = post(t, thread_name="A post", text=_three_piece_text())
+    assert (res.outcome, res.retryable) == (FAILED, False)
+
+
+def test_a_fourth_rate_limit_names_the_replies_posted():
+    t = ForumTransport(reply_statuses=[429, 429, 200, 429, 429])
+    res = post(t, thread_name="A post", text=_three_piece_text())
+    assert "m-3" in res.error
 
 
 def test_a_thread_post_timeout_is_an_unknown_outcome_not_retried():

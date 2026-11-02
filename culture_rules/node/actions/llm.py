@@ -40,9 +40,11 @@ The reply is read as server-sent events (d7, operator 2026-11-02: "Always use st
 pieces, joined in order, are the text (``reasoning`` / ``reasoning_content`` deltas are
 not); the model is the chunks' ``model`` and the usage the usage chunk's. The default
 transport reads the whole stream within the request's timeout (a stream still trickling in
-when it ends raises ``TimeoutError``, so ``llm_unavailable``) and at most
-:data:`MAX_RESPONSE_BYTES`. A body that is not an event stream (an error body, or a server
-that ignores ``stream``) is read as one JSON reply, as before.
+when it ends, or stalled past it, raises ``TimeoutError``, so ``llm_unavailable``: each
+read's socket timeout is the time left) and at most :data:`MAX_RESPONSE_BYTES` (8 MiB, room
+for :data:`MAX_TOKENS_CAP` tokens of SSE). ``event:``, ``id:`` and ``retry:`` lines are
+ignored, and may come before the first ``data:``. A body that is not an event stream (an
+error body, or a server that ignores ``stream``) is read as one JSON reply, as before.
 
 An optional ``not_after`` param (an ISO-8601 time with a UTC offset) is the latest time the
 work may start: at or past it the port fails ``llm_deadline`` (not retryable) without a
@@ -81,13 +83,15 @@ actor's token budget counts them; the recording brief also returns ``answer``, t
 (``"<code>: <detail>"``, never a body, a header value or a secret):
 
 * ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
-  5xx, 408 or 429. The newspaper's summary step tolerates any failure
-  (``config.on_error: "skip"``): that section goes out with its results and "Summary
-  unavailable.", and when no section got a summary the masthead also says so;
+  5xx, 408 or 429, or a stream ``error`` event saying the same (a 5xx / 408 / 429 ``code``
+  or ``status``, or a ``type`` / ``message`` saying overloaded, unavailable or timeout). The
+  newspaper's summary step tolerates any failure (``config.on_error: "skip"``): that section
+  goes out with its results and "Summary unavailable.", and when no section got a summary the
+  masthead also says so;
 * ``llm_deadline`` (not retryable) - ``not_after`` has passed;
 * ``llm_rejected`` (not retryable) - any other non-2xx answer;
 * ``llm_bad_response`` (not retryable) - not JSON, or no string message content; for a
-  stream also a chunk that is not a JSON object, an ``error`` event, a stream that ends
+  stream also a chunk that is not a JSON object, any other ``error`` event, a stream that ends
   without ``data: [DONE]`` (like a truncated JSON body) or one with no content delta;
 * ``model_taken`` (not retryable) - another enabled endpoint actor holds this actor's model
   (``model_taken: <holder id>``; checked before any request);
@@ -195,7 +199,11 @@ _CACHE_SCHEMA = 1
 DEFAULT_MAX_TOKENS = 1500
 MAX_TOKENS_CAP = 4000
 DEFAULT_MAX_CONTENT_CHARS = 48_000
-MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+"""The largest reply read. The reply is a stream (d7), and each token costs one ``data:``
+chunk of ~150-300 bytes (an id, a timestamp, the model, nulls), reasoning tokens alike, so
+:data:`MAX_TOKENS_CAP` tokens can pass 1 MiB; 8 MiB holds them at 2 KiB each and still caps
+a runaway server."""
 MAX_TIMEOUT = 600.0
 COMPLETIONS_PATH = "/chat/completions"
 READ_CHUNK = 64 * 1024
@@ -218,6 +226,8 @@ _RETRYABLE_4XX = frozenset({408, 429})
 _THINK_OPEN, _THINK_CLOSE = "<think>", "</think>"
 _DATA, _DONE = "data:", "[DONE]"
 _SSE_LINE_END = re.compile(r"\r\n|\r|\n")
+_SSE_FIELDS = frozenset({"event", "data", "id", "retry"})
+_TRANSIENT_WORDS = re.compile(r"overload|unavailable|time[d ]?\s?out", re.IGNORECASE)
 _USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total_tokens")
 
 Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
@@ -245,15 +255,36 @@ def urllib_transport(
         return status, _read_within(response, ends_at, MAX_RESPONSE_BYTES + 1)
 
 
+def _socket_of(response: Any) -> Any:
+    """The socket under a urllib reply (an ``HTTPResponse``, or an ``HTTPError`` wrapping
+    one): ``fp`` -> buffered reader -> ``raw`` socket file -> ``_sock``. ``None`` when the
+    reply is not backed by one (a fake in tests)."""
+    obj = response
+    for _ in range(6):
+        if obj is None or callable(getattr(obj, "settimeout", None)):
+            return obj
+        obj = next(
+            (getattr(obj, a) for a in ("fp", "raw", "_sock") if getattr(obj, a, None) is not None),
+            None,
+        )
+    return None
+
+
 def _read_within(response: Any, ends_at: float, max_bytes: int) -> bytes:
-    """Read ``response`` to its end, or to ``max_bytes``, before the monotonic ``ends_at``:
-    each read waits at most the socket timeout, and the whole body is cut off at ``ends_at``
-    so a stream that keeps trickling cannot outlast the request's timeout."""
+    """Read ``response`` to its end, or to ``max_bytes``, before the monotonic ``ends_at``.
+    Before each read the socket's timeout is set to the time left, so a stream that stalls
+    late raises ``TimeoutError`` at ``ends_at`` (plus scheduling slack), not a full socket
+    timeout after it, and one that keeps trickling is cut off at ``ends_at``."""
     chunks: list[bytes] = []
     size = 0
     while size < max_bytes:
-        if time.monotonic() >= ends_at:
+        left = ends_at - time.monotonic()
+        if left <= 0:
             raise TimeoutError("the reply did not end within the request's timeout")
+        sock = _socket_of(response)  # looked up each time: a reply read to its end closes it
+        if sock is not None:
+            with contextlib.suppress(OSError):  # a socket closed under us: the read ends it
+                sock.settimeout(left)
         want = min(READ_CHUNK, max_bytes - size)
         chunk = response.read1(want) if hasattr(response, "read1") else response.read(want)
         if not chunk:
@@ -344,8 +375,9 @@ def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
         body = raw.decode("utf-8")
     except ValueError as exc:  # UnicodeDecodeError
         raise Refused(BAD_RESPONSE, "response is not JSON") from exc
-    if _is_event_stream(body):
-        return _parse_stream(body, fallback_model)
+    lines = _event_lines(body)
+    if _is_event_stream(lines):
+        return _parse_stream(lines, fallback_model)
     try:
         data = json.loads(body)
     except ValueError as exc:
@@ -372,18 +404,48 @@ def _event_lines(body: str) -> list[str]:
     return [line for line in lines if line.strip() and not line.startswith(":")]
 
 
-def _is_event_stream(body: str) -> bool:
-    """Whether ``body`` is server-sent events (its first field line is ``data:``) rather
-    than one JSON reply (an error body, or a server that ignored ``stream``)."""
-    lines = _event_lines(body)
-    return bool(lines) and lines[0].startswith(_DATA)
+def _field(line: str) -> str | None:
+    """The SSE field name of ``line`` (``event``, ``data``, ``id`` or ``retry``, alone or
+    before a ``:``), else None."""
+    name = line.split(":", 1)[0]
+    return name if name in _SSE_FIELDS else None
 
 
-def _stream_chunks(body: str) -> list[dict[str, Any]]:
+def _is_event_stream(lines: list[str]) -> bool:
+    """Whether the body's field ``lines`` are server-sent events (a ``data:`` line comes
+    before any line that is not an SSE field, so ``event:`` / ``id:`` / ``retry:`` may lead)
+    rather than one JSON reply (an error body, or a server that ignored ``stream``)."""
+    for line in lines:
+        name = _field(line)
+        if name is None:
+            return False
+        if name == "data":
+            return True
+    return False
+
+
+def _error_is_transient(error: Any) -> bool:
+    """Whether a stream's ``error`` event reads as the server being busy or down (a 5xx,
+    408 or 429 ``code`` / ``status``, or a ``type`` / ``message`` saying overloaded,
+    unavailable or timeout), as the same answer over HTTP would be ``llm_unavailable``."""
+    if not isinstance(error, Mapping):
+        return isinstance(error, str) and bool(_TRANSIENT_WORDS.search(error))
+    for key in ("code", "status"):
+        value = error.get(key)
+        if isinstance(value, str) and value.strip().isdigit():
+            value = int(value)
+        if isinstance(value, int) and not isinstance(value, bool):
+            if value >= 500 or value in _RETRYABLE_4XX:
+                return True
+    words = " ".join(str(error.get(k) or "") for k in ("type", "message"))
+    return bool(_TRANSIENT_WORDS.search(words))
+
+
+def _stream_chunks(lines: list[str]) -> list[dict[str, Any]]:
     """The JSON chunks of an event stream up to ``data: [DONE]``; a stream that ends
     without it was cut short, like a truncated JSON body."""
     chunks: list[dict[str, Any]] = []
-    for line in _event_lines(body):
+    for line in lines:
         if not line.startswith(_DATA):
             continue  # event:, id:, retry: carry nothing a completion needs
         payload = line[len(_DATA) :].strip()
@@ -396,6 +458,8 @@ def _stream_chunks(body: str) -> list[dict[str, Any]]:
         if not isinstance(chunk, dict):
             raise Refused(BAD_RESPONSE, "a stream chunk is not an object")
         if "error" in chunk:
+            if _error_is_transient(chunk["error"]):
+                raise Refused(UNAVAILABLE, "the stream reported a server error", retryable=True)
             raise Refused(BAD_RESPONSE, "the stream reported an error")
         chunks.append(chunk)
     raise Refused(BAD_RESPONSE, "the stream ended without [DONE]")
@@ -415,11 +479,11 @@ def _delta_content(chunk: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _parse_stream(body: str, fallback_model: str) -> dict[str, Any]:
+def _parse_stream(lines: list[str], fallback_model: str) -> dict[str, Any]:
     pieces: list[str] = []
     model: Any = None
     usage: Any = None
-    for chunk in _stream_chunks(body):
+    for chunk in _stream_chunks(lines):
         piece = _delta_content(chunk)
         if piece is not None:
             pieces.append(piece)
