@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
 from culture_rules.node.actions.markdown_html import (
     FROM_HTML_BUILTIN,
@@ -210,3 +212,96 @@ def test_max_chars_may_come_from_the_input():
     )
     assert res.outcome == COMPLETED, res.error
     assert all(len(c) <= 300 for c in res.output["chunks"])
+
+
+SPLIT_HTML = (
+    "<h1>Paper</h1><p class='date'>2026-10-11</p>"
+    "<h2>Alpha</h2><ul><li>a1</li><li>a2</li></ul>"
+    "<h2>Beta</h2><ul><li>b1</li></ul>"
+    "<h2>Gamma</h2><ul><li>c1</li></ul>"
+)
+
+
+def test_split_at_h2_gives_masthead_then_each_section_in_order():
+    parts = html_to_markdown(SPLIT_HTML, split_at="h2")["parts"]
+    assert [p["heading"] for p in parts] == ["", "Alpha", "Beta", "Gamma"]
+
+
+def test_split_at_parts_are_indexed_from_zero():
+    parts = html_to_markdown(SPLIT_HTML, split_at="h2")["parts"]
+    assert [p["index"] for p in parts] == [0, 1, 2, 3]
+
+
+def test_split_at_masthead_part_holds_the_text_before_the_first_section():
+    parts = html_to_markdown(SPLIT_HTML, split_at="h2")["parts"]
+    assert parts[0]["text"] == "**Paper**\n2026-10-11"
+
+
+def test_split_at_section_part_holds_its_whole_text():
+    parts = html_to_markdown(SPLIT_HTML, split_at="h2")["parts"]
+    assert parts[1]["text"] == "**Alpha**\n- a1\n- a2"
+
+
+def test_split_at_heading_is_plain_text_without_escapes():
+    parts = html_to_markdown("<h2>A_b *c*</h2><p>x</p>", split_at="h2")["parts"]
+    assert parts[0]["heading"] == "A_b *c*"
+
+
+def test_split_at_h1_keeps_deeper_headings_inside_the_part():
+    parts = html_to_markdown(SPLIT_HTML, split_at="h1")["parts"]
+    assert [p["heading"] for p in parts] == ["Paper"]
+
+
+def test_long_section_stays_one_part_while_chunks_still_split():
+    items = "".join(f"<li>{'word ' * 20}{n}</li>" for n in range(30))
+    out = html_to_markdown(f"<h2>Big</h2><ul>{items}</ul>", split_at="h2", max_chars=300)
+    assert len(out["parts"]) == 1
+
+
+def test_long_section_still_splits_into_chunks():
+    items = "".join(f"<li>{'word ' * 20}{n}</li>" for n in range(30))
+    out = html_to_markdown(f"<h2>Big</h2><ul>{items}</ul>", split_at="h2", max_chars=300)
+    assert len(out["chunks"]) > 1
+
+
+def test_long_section_part_is_longer_than_max_chars():
+    items = "".join(f"<li>{'word ' * 20}{n}</li>" for n in range(30))
+    out = html_to_markdown(f"<h2>Big</h2><ul>{items}</ul>", split_at="h2", max_chars=300)
+    assert len(out["parts"][0]["text"]) > 300
+
+
+def test_no_parts_key_without_split_at():
+    assert "parts" not in html_to_markdown(SPLIT_HTML)
+
+
+def test_split_at_leaves_markdown_and_chunks_as_they_were():
+    plain = html_to_markdown(SPLIT_HTML)
+    split = html_to_markdown(SPLIT_HTML, split_at="h2")
+    assert (split["markdown"], split["chunks"]) == (plain["markdown"], plain["chunks"])
+
+
+def test_port_returns_parts_from_config_split_at():
+    res = MarkdownFromHtmlPort().invoke(
+        {"html": SPLIT_HTML}, "k", DEADLINE, context=ctx_with(split_at="h2")
+    )
+    assert len(res.output["parts"]) == 4
+
+
+def test_port_input_split_at_wins_over_config():
+    res = MarkdownFromHtmlPort().invoke(
+        {"html": SPLIT_HTML, "split_at": "h1"}, "k", DEADLINE, context=ctx_with(split_at="h2")
+    )
+    assert len(res.output["parts"]) == 1
+
+
+def test_port_without_split_at_has_no_parts_key():
+    res = MarkdownFromHtmlPort().invoke({"html": SPLIT_HTML}, "k", DEADLINE, context=ctx_with())
+    assert "parts" not in res.output
+
+
+@pytest.mark.parametrize("bad", ["h9", 3, "H2", "p", ""])
+def test_bad_split_at_fails_bad_params_without_retry(bad):
+    res = MarkdownFromHtmlPort().invoke(
+        {"html": "<p>x</p>"}, "k", DEADLINE, context=ctx_with(split_at=bad)
+    )
+    assert (res.outcome, res.retryable, "bad_params" in res.error) == (FAILED, False, True)
