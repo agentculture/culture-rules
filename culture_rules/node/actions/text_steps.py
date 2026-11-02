@@ -28,7 +28,7 @@ __all__ = ["TEXT_NUMBER_BUILTIN", "TextNumberPort", "text_number"]
 
 TEXT_NUMBER_BUILTIN = "text.number"
 _BAD_PARAMS = "bad_params"
-_TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}|[{}]|[^{}]+")
+_TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_]\w*)\}|[{}]|[^{}]+", re.ASCII)
 
 
 class _Refused(Exception):

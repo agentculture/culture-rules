@@ -40,7 +40,9 @@ def test_count_is_the_number_of_items():
 
 
 def test_same_input_gives_the_same_text():
-    assert invoke({"items": ITEMS}).output == invoke({"items": ITEMS}).output
+    first = invoke({"items": ITEMS}).output
+    second = invoke({"items": ITEMS}).output
+    assert first == second
 
 
 def test_separator_comes_from_config():

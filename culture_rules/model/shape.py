@@ -87,6 +87,20 @@ def _check_spec(spec: Any, where: str = "spec") -> None:
     def bad(why: str) -> ShapeSpecError:
         return ShapeSpecError(f"{where}: {why}")
 
+    kind = _check_type(spec, bad)
+    _check_keys(spec, kind, bad)
+    _check_numbers(spec, bad)
+    _check_options(spec, bad)
+    _check_children(spec, kind, where, bad)
+    if "default" in spec:
+        try:
+            _run(copy.deepcopy(spec["default"]), spec, "")
+        except ShapeError as exc:
+            raise bad(f"default {exc.reason}") from exc
+
+
+def _check_type(spec: Any, bad: Any) -> str:
+    """The spec's ``type``, once it is an object naming a known type."""
     if not isinstance(spec, dict):
         raise bad("must be an object")
     kind = spec.get("type")
@@ -94,29 +108,44 @@ def _check_spec(spec: Any, where: str = "spec") -> None:
         raise bad("type is required")
     if kind not in _KEYS:
         raise bad(f"unknown type {kind!r}")
+    return kind
+
+
+def _check_keys(spec: dict[str, Any], kind: str, bad: Any) -> None:
     for key in spec:
-        if key not in _KEYS[kind]:
-            known = key in set().union(*_KEYS.values())
-            raise bad(
-                f"key {key!r} is not valid for type {kind}" if known else f"unknown key {key!r}"
-            )
+        if key in _KEYS[kind]:
+            continue
+        if key in set().union(*_KEYS.values()):
+            raise bad(f"key {key!r} is not valid for type {kind}")
+        raise bad(f"unknown key {key!r}")
+
+
+def _check_numbers(spec: dict[str, Any], bad: Any) -> None:
     for key in _FLAGS:
         if key in spec and not isinstance(spec[key], bool):
             raise bad(f"{key} must be true or false")
     for key in _BOUNDS + ("min", "max"):
-        if key in spec and not _is_int(spec[key]):
+        if key not in spec:
+            continue
+        if not _is_int(spec[key]):
             raise bad(f"{key} must be an integer")
-        if key in _BOUNDS and key in spec and spec[key] < 0:
+        if key in _BOUNDS and spec[key] < 0:
             raise bad(f"{key} must be non-negative")
     for low, high in _PAIRS:
         if low in spec and high in spec and spec[low] > spec[high]:
             raise bad(f"{low} exceeds {high}")
+
+
+def _check_options(spec: dict[str, Any], bad: Any) -> None:
     if "enum" in spec and not (isinstance(spec["enum"], list) and spec["enum"]):
         raise bad("enum must be a non-empty list")
     if "pattern" in spec:
         _check_pattern(spec["pattern"], bad)
     if "extra" in spec and spec["extra"] not in _EXTRA:
         raise bad("extra must be refuse or drop")
+
+
+def _check_children(spec: dict[str, Any], kind: str, where: str, bad: Any) -> None:
     if kind == "object":
         fields = spec.get("fields")
         if not isinstance(fields, dict):
@@ -125,11 +154,6 @@ def _check_spec(spec: Any, where: str = "spec") -> None:
             _check_spec(sub, _join(f"{where}.fields", str(name)))
     if "items" in spec:
         _check_spec(spec["items"], f"{where}.items")
-    if "default" in spec:
-        try:
-            _run(copy.deepcopy(spec["default"]), spec, "")
-        except ShapeError as exc:
-            raise bad(f"default {exc.reason}") from exc
 
 
 def _check_pattern(pattern: Any, bad: Any) -> None:

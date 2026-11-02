@@ -36,8 +36,8 @@ __all__ = ["TEXT_REPLACE_REFS_BUILTIN", "TextReplaceRefsPort", "replace_refs"]
 
 TEXT_REPLACE_REFS_BUILTIN = "text.replace_refs"
 _BAD_PARAMS = "bad_params"
-_TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}|[{}]")
-_DIGITS = re.compile(r"[0-9]+")
+_TOKEN = re.compile(r"\{\{|\}\}|\{([A-Za-z_]\w*)\}|[{}]", re.ASCII)
+_DIGITS = re.compile(r"\d+", re.ASCII)
 
 
 class _Refused(Exception):

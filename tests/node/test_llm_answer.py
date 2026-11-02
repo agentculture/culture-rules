@@ -223,8 +223,9 @@ def test_parse_answer_refuses_with_a_code(raw, code):
 
 
 def test_parse_answer_names_the_failing_field():
+    raw = json.dumps({**ANSWER, "action_items": ["a"] * 31})
     with pytest.raises(AnswerRefused) as info:
-        parse_answer(json.dumps({**ANSWER, "action_items": ["a"] * 31}), RECORDING)
+        parse_answer(raw, RECORDING)
     assert info.value.detail.startswith("action_items:")
 
 

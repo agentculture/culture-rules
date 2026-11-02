@@ -514,7 +514,9 @@ function ListInput({ id, value, onChange }: Readonly<{ id: string; value: unknow
 
 /** An editable JSON object. Invalid drafts stay in state so save validation refuses them. */
 function JsonObjectInput({ id, value, onChange }: Readonly<{ id: string; value: unknown; onChange: (v: unknown) => void }>) {
-  const display = typeof value === "string" ? value : value === undefined ? "" : JSON.stringify(value);
+  let display = "";
+  if (typeof value === "string") display = value;
+  else if (value !== undefined) display = JSON.stringify(value);
   const [text, setText] = useState(display);
   useEffect(() => {
     setText(display);
