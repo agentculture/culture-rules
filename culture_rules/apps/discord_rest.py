@@ -5,12 +5,18 @@ post to (:meth:`DiscordClient.list_targets`, for the editor's server and channel
 ``allowed_mentions.parse`` is empty by default, so ``@everyone``, ``@here`` and role/user
 mentions in the text never ping anyone. The token and
 the message payload are never logged and never appear in errors.
+
+Starting a forum thread (:meth:`DiscordClient.create_forum_post`) is never retried blindly:
+only a 429 or a request that surely never left (connection refused, a name that does not
+resolve) is retryable; a timeout, a 5xx or a connection lost mid-request is
+``outcome_unknown``, since Discord may have created the thread.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -77,13 +83,17 @@ class DiscordError(Exception):
         retry_after: float | None = None,
         expired: bool = False,
         outcome_unknown: bool = False,
+        rate_limited: bool = False,
     ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.retry_after = retry_after
+        #: Discord answered 429: it did not act on the request, so the same one may be resent
+        self.rate_limited = rate_limited
         #: an interaction webhook Discord no longer accepts (401/404): the token ran out
         self.expired = expired
-        #: the request may have landed (a timeout): not retried, and not taken as refused
+        #: the request may have landed (a timeout; for a forum thread also a 5xx or a lost
+        #: connection): not retried, and not taken as refused
         self.outcome_unknown = outcome_unknown
 
     @property
@@ -317,6 +327,7 @@ class DiscordClient:
                 f"discord rate limited (retry_after={retry_after})",
                 retryable=True,
                 retry_after=retry_after,
+                rate_limited=True,
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
@@ -380,6 +391,7 @@ class DiscordClient:
                 f"discord rate limited (retry_after={retry_after})",
                 retryable=True,
                 retry_after=retry_after,
+                rate_limited=True,
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
 
@@ -424,8 +436,89 @@ class DiscordClient:
                 f"discord rate limited (retry_after={retry_after})",
                 retryable=True,
                 retry_after=retry_after,
+                rate_limited=True,
             )
         raise DiscordError(f"discord returned HTTP {status}", retryable=status >= 500)
+
+    def get_channel(self, channel_id: str) -> dict[str, Any]:
+        """One channel: ``{id, type, flags, available_tags: [{id, name}]}`` (tags of a forum)."""
+        _check_id(channel_id, "channel")
+        raw = self._get_ok(f"/channels/{channel_id}") or {}
+        if not isinstance(raw, Mapping):
+            raise DiscordError("discord sent an unexpected reply for a channel", retryable=False)
+        tags = [
+            {"id": str(t.get("id", "")), "name": str(t.get("name", ""))}
+            for t in raw.get("available_tags") or []
+            if isinstance(t, Mapping)
+        ]
+        return {
+            "id": str(raw.get("id", channel_id)),
+            "type": raw.get("type"),
+            "flags": raw.get("flags", 0),
+            "available_tags": tags,
+        }
+
+    def create_forum_post(
+        self,
+        channel_id: str,
+        name: str,
+        text: str,
+        tag_ids: Sequence[str],
+        *,
+        allowed_mentions_parse: Sequence[str] = (),
+    ) -> dict[str, str]:
+        """Start a thread named ``name`` with ``text`` as its first message in the forum
+        ``channel_id``, tagged ``tag_ids``; returns ``{"thread_id", "message_id"}``. Sent once,
+        never retried here. Only a failure Discord cannot have acted on is retryable: a 429
+        (a refusal before anything is created), and a connection refused or a name that does
+        not resolve (nothing was sent). A timeout, a 5xx or any other connection error (a
+        reset after the request may have gone out) may have started the thread, so it is
+        ``outcome_unknown`` and not retryable: a retry could start a second thread."""
+        if not isinstance(channel_id, str) or not _CHANNEL_RE.match(channel_id):
+            raise DiscordError("channel must be a numeric Discord channel id", retryable=False)
+        body = {
+            "name": str(name)[:100],
+            "applied_tags": [str(t) for t in tag_ids],
+            "message": {
+                "content": str(text)[:MAX_CONTENT],
+                "allowed_mentions": {"parse": list(allowed_mentions_parse)},
+            },
+        }
+        url = f"{self._base}/channels/{channel_id}/threads"
+        try:
+            status, payload, _ = self._transport(
+                url, json.dumps(body).encode("utf-8"), self._headers(), self._timeout
+            )
+        except OSError as exc:
+            if _not_sent(exc):
+                raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
+            reason = "timed out" if _timed_out(exc) else f"connection lost ({_cause_name(exc)})"
+            raise DiscordError(
+                f"discord {reason} (outcome unknown)", retryable=False, outcome_unknown=True
+            )
+        payload = payload if isinstance(payload, Mapping) else {}
+        if 200 <= status < 300:
+            thread_id = str(payload.get("id", ""))
+            message = payload.get("message")
+            message_id = message.get("id") if isinstance(message, Mapping) else None
+            return {"thread_id": thread_id, "message_id": str(message_id or thread_id)}
+        if status == 429:
+            retry_after = _retry_after(payload)
+            raise DiscordError(
+                f"discord rate limited (retry_after={retry_after})",
+                retryable=True,
+                retry_after=retry_after,
+                rate_limited=True,
+            )
+        if status >= 500:  # Discord may have created the thread before failing
+            raise DiscordError(
+                f"discord returned HTTP {status} (outcome unknown)",
+                retryable=False,
+                outcome_unknown=True,
+            )
+        detail = payload.get("message")
+        suffix = f": {str(detail)[:200]}" if detail else ""
+        raise DiscordError(f"discord returned HTTP {status}{suffix}", retryable=False)
 
 
 BUTTON_STYLES = {"primary": 1, "secondary": 2, "success": 3, "danger": 4}
@@ -469,6 +562,26 @@ def _button(i: int, b: Any) -> dict[str, Any]:
     if not isinstance(style, str) or style not in BUTTON_STYLES:
         raise ValueError(f"button {i} style must be one of {', '.join(BUTTON_STYLES)}")
     return {"type": 2, "style": BUTTON_STYLES[style], "label": label, "custom_id": custom_id}
+
+
+def _cause(exc: OSError) -> BaseException:
+    """The error under a ``URLError`` (its ``reason`` when that is an exception), else ``exc``."""
+    reason = getattr(exc, "reason", None)
+    return reason if isinstance(reason, BaseException) else exc
+
+
+def _cause_name(exc: OSError) -> str:
+    return type(_cause(exc)).__name__
+
+
+def _timed_out(exc: OSError) -> bool:
+    return isinstance(exc, TimeoutError) or isinstance(_cause(exc), TimeoutError)
+
+
+def _not_sent(exc: OSError) -> bool:
+    """Whether the request surely never left: the connection was refused, or the host name did
+    not resolve. Both happen before a byte is written; anything else may follow the send."""
+    return isinstance(_cause(exc), (ConnectionRefusedError, socket.gaierror))
 
 
 def _retry_after(payload: Any) -> float | None:

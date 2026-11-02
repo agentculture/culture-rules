@@ -324,8 +324,13 @@ export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: 
   },
   "markdown.from_html": {
     label: "markdown.from_html: HTML as Markdown, whole and in chunks",
-    inputs: [PORT("html", true)],
-    outputs: [PORT("markdown", true), { name: "chunks", type: "array", required: true }, { name: "count", type: "integer", required: true }],
+    inputs: [PORT("html", true), PORT("split_at", false)],
+    outputs: [
+      PORT("markdown", true),
+      { name: "chunks", type: "array", required: true },
+      { name: "count", type: "integer", required: true },
+      { name: "parts", type: "array", required: false },
+    ],
   },
   "document.sections": {
     label: "document.sections: a document split at a heading, as headings, links and excerpts",

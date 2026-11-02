@@ -15,6 +15,10 @@
   install.sh flags, the run-as prefix, the secrets it injects), so only an admin may add,
   change or remove it (:func:`check_machine_install`, ``install_requires_admin``). An editor
   may still save a machine whose install section is unchanged.
+- An actor's ``params.briefs`` is prompt text a step selects by name (a step cannot supply
+  its own), so only an admin may add, change or remove it (:func:`check_actor_briefs`,
+  ``briefs_admin_only``), on any actor kind. An editor may still save an actor whose briefs
+  are unchanged. Values compare JSON-normalised.
 
 Applied to create, update and import alike. Standard-library only.
 """
@@ -31,8 +35,10 @@ from culture_rules.auth.principal import Principal
 from culture_rules.io import exchange
 
 __all__ = [
+    "BriefsDenied",
     "InstallRequiresAdmin",
     "RunnerCommandsDenied",
+    "check_actor_briefs",
     "check_actor_secrets",
     "check_definition",
     "check_import",
@@ -79,6 +85,21 @@ class InstallRequiresAdmin(InlineScriptDenied):
         )
         self.identity = identity
         self.machine_id = machine_id
+
+
+class BriefsDenied(InlineScriptDenied):
+    """A non-admin tried to add, change or remove an actor's ``params.briefs`` (HTTP 403)."""
+
+    code = "briefs_admin_only"
+
+    def __init__(self, identity: str, actor_id: str) -> None:
+        PermissionError.__init__(
+            self,
+            f"changing an actor's briefs (actors/{actor_id} params.briefs) is admin-only; "
+            f"{identity!r} is not an admin",
+        )
+        self.identity = identity
+        self.actor_id = actor_id
 
 
 def _steps(steps: Any) -> Iterable[Mapping[str, Any]]:
@@ -133,6 +154,23 @@ def check_runner_commands(
         raise RunnerCommandsDenied(principal.identity, str(after.get("id", "?")))
 
 
+def _briefs(doc: Any) -> Any:
+    """A stored or incoming actor's ``params.briefs``, JSON-normalised (None when absent)."""
+    params = doc.get("params") if isinstance(doc, Mapping) else None
+    briefs = params.get("briefs") if isinstance(params, Mapping) else None
+    return json.loads(json.dumps(briefs, sort_keys=True, default=str)) if briefs else None
+
+
+def check_actor_briefs(
+    principal: Principal, before: Mapping[str, Any] | None, after: Mapping[str, Any]
+) -> None:
+    """Raise :class:`BriefsDenied` if a non-admin adds, changes or removes an actor's briefs."""
+    if principal.has_role("admin"):
+        return
+    if _briefs(after) != _briefs(before):
+        raise BriefsDenied(principal.identity, str(after.get("id", "?")))
+
+
 def _install(doc: Any) -> Any:
     """A stored or incoming machine's install section, JSON-normalised (None when absent)."""
     install = doc.get("install") if isinstance(doc, Mapping) else None
@@ -155,6 +193,7 @@ def save_check(principal: Principal) -> _SaveCheck:
     def check(kind: str, before: Mapping[str, Any] | None, after: Mapping[str, Any]) -> None:
         if kind == "actors":
             check_runner_commands(principal, before, after)
+            check_actor_briefs(principal, before, after)
         elif kind == "machines":
             check_machine_install(principal, before, after)
 

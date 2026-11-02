@@ -400,6 +400,47 @@ token is gone and the reply fails `interaction_expired`.
 
 A worked example is in [the green PR merge guide](../operations/green-pr-merge.md).
 
+## Forum posts
+
+`discord.message` with `thread_name` posts into a forum channel as a new thread
+instead of a plain message. The rest of the action is the same (`actor`, `guild`,
+`channel`, `text`); the channel must be a forum (Discord channel type 15), else the
+action fails `bad_params` before anything is posted.
+
+| Param | Meaning |
+|---|---|
+| `thread_name` | the thread's title, cut to at most 100 characters at the last space |
+| `tags` | tag names, at most 5, matched by exact name against the forum's own tags; needs `thread_name` |
+
+- **Tags by name.** A name the forum does not have is not an error: the post is
+  still made, and the unknown names come back in the output `tags_missing`.
+- **Long posts are replies.** A `text` longer than 2000 characters is split at line
+  breaks. The first piece starts the thread; the rest are replies in it, in order.
+- **Outputs:** `message_id` (the starter message), `thread_id`, `reply_ids` and
+  `tags_missing`. Without `thread_name` nothing changes and the output is as before.
+- **Limits:** `buttons` with `thread_name` is `bad_params`, and so is `tags` without
+  `thread_name` or more than 5 tags. The bot needs permission to create posts and send
+  messages in the forum. The Discord server and channel pickers are unchanged: pick
+  the forum the way you pick any channel.
+- **Required tags.** A forum set to require a tag on every post fails `bad_params`
+  before anything is posted when none of `tags` matched; the error lists the
+  `tags_missing`.
+- **Failures.** Creating the thread is sent once and never retried automatically.
+  The step is retryable only when Discord surely did not create the thread: a 429,
+  a refused connection or a host name that does not resolve. A timeout, a 5xx or a
+  connection lost mid-request may have created it, so the step fails with
+  "outcome unknown" and is not retried; check the forum before running it again. A
+  reply Discord rate-limits (a 429, so not posted) is sent again after its
+  `retry_after`, waiting at most 10 seconds each time, at most 3 times a step, and
+  never past the step's deadline. Once the thread exists, any other failure (a
+  reply that is refused, or a wait that would pass the deadline) is not
+  retryable, because a retry would start a second thread; the error names the
+  `thread_id` and the reply ids posted so far, so the rest can be finished by hand.
+
+Which forum, what the title says and which tags apply are all rule and workflow
+configuration. A worked example is in
+[the newspaper setup](../operations/newspaper.md#7-post-each-issue-to-discord-optional).
+
 ## Commands
 
 Which commands a bot offers is configuration: nothing is built in. An actor

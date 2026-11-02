@@ -87,14 +87,15 @@ The `llm.complete` action takes:
 | `content_path` | one of the two | a schema-1 transcript file the port reads itself (the text never enters run state); needs `content_root` |
 | `content_root` | with `content_path` | the folder `content_path` must resolve under |
 | `content_max_chars` | no | how much of the transcript to send |
-| `brief` | no | which locked brief: `newspaper` (default), `transcript` or `recording` |
+| `brief` | no | which brief: `newspaper` (default), `transcript` or `recording` (code briefs), or the name of one of the actor's own briefs (see Actor briefs) |
 | `cache` | no | `true` with `brief: recording` and a `content_path`: keep the first valid answer beside the file |
 | `max_tokens` | no | default 1500, capped at 4000 |
 | `temperature` | no | a number from 0 to 2 |
 | `not_after` | no | an ISO-8601 time with a UTC offset: the work does not start after it, and the request's timeout ends at it |
 
-Every other param is ignored. The system message is one of the briefs in
-`culture_rules/node/actions/llm.py`, and a step cannot replace it:
+Every other param is ignored. The system message is a code brief from
+`culture_rules/node/actions/llm.py` or one of the actor's briefs, and a step
+names one but cannot supply or replace the text:
 
 - `NEWSPAPER_BRIEF`: summarise only the given search results, one bullet per
   item, each linking its source, and reply "No results." to an empty list.
@@ -115,8 +116,26 @@ model's name) so its to-do ids stay stable. Delete the
 `usage`, because no tokens were spent.
 
 The request body has exactly `model`, `messages`, `max_tokens`,
-`stream: false` and, when given, `temperature`. It never has a `tools`
-field. Environment proxies are ignored and redirects are not followed.
+`stream: true`, `stream_options: {include_usage: true}` and, when given,
+`temperature`. It never has a `tools` field. Environment proxies are ignored
+and redirects are not followed.
+
+The reply is read as a server-sent event stream (deviation d7: always
+stream). The content deltas of the first choice, joined in order, are the
+text; reasoning deltas are not. The model comes from the chunks and `usage`
+from the last chunk, which `include_usage` asks for. `event:`, `id:` and
+`retry:` lines are ignored, before the first `data:` line too. The whole
+stream must arrive within the request's timeout (a stream that stalls times
+out when the time is up, not a socket timeout later) and at most 8 MiB, room
+for 4000 tokens at a few hundred bytes of SSE each. An `error` event that
+says the server is busy or down (a 5xx, 408 or 429 `code` or `status`, or a
+`type` or `message` saying overloaded, service or temporarily unavailable,
+or timeout) fails `llm_unavailable`, which is retried; a bare "unavailable",
+say of a model, is not transient. A stream that ends without
+`data: [DONE]`, has no content delta, or carries any other non-null `error`
+fails `llm_bad_response`, like a truncated JSON reply (`"error": null` in a
+chunk is no error). A plain JSON reply
+(an error body, or a server that ignores `stream`) is still read as before.
 
 The output is `{text, model, usage}`, plus `answer` (the parsed JSON) and
 `cached` for the recording brief. `text` is the first choice's message,
@@ -126,17 +145,40 @@ lines), not the model's original reply. `transcript.render` reads either form,
 or the whole output. `usage` keeps the token counts, which
 count toward the actor's token budget.
 
+## Actor briefs
+
+An actor can hold briefs of its own in `params.briefs`, a map of name to
+non-empty text, so a new kind of summary is configuration rather than a release:
+
+```json
+{"briefs": {"one-line": "<the system prompt text>"}}
+```
+
+A step selects one with `brief: "one-line"`. The rules:
+
+- The three code briefs (`newspaper`, `transcript`, `recording`) always keep
+  their code text. An actor brief with one of those names is ignored.
+- Any other name is looked up in the bound actor's `params.briefs`. A name the
+  actor does not hold, or one whose text is empty, fails `invalid_request`
+  before any request is made.
+- No step param supplies prompt text; a step only names a brief. The request
+  still has no `tools`.
+- **Admins only.** Adding, changing or removing `params.briefs` on an actor is
+  an admin action, because the text is a system prompt. Anyone else gets HTTP
+  403 `briefs_admin_only` from the API (create and update) and from a bundle
+  import. Setting the actor's other params is unchanged.
+
 ## Failures
 
 | Code | Meaning | Retried |
 |---|---|---|
-| `llm_unavailable` | connection refused, DNS, timeout, a passed deadline, 5xx, 408 or 429 | yes |
+| `llm_unavailable` | connection refused, DNS, timeout, a passed deadline, 5xx, 408 or 429 (a stream `error` event saying so too) | yes |
 | `llm_deadline` | `not_after` has passed (checked before the pool queues the work) | no |
 | `llm_rejected` | any other non-2xx answer | no |
 | `llm_bad_response` | not JSON, or no message text | no |
 | `actor_kind_mismatch` | the actor is not an `agent` | no |
 | `llm_actor_invalid` | `base_url`, `model` or `api_key` is unusable | no |
-| `invalid_request`, `llm_content_too_large` | the content is empty, not serialisable or too long, or `not_after` is malformed | no |
+| `invalid_request`, `llm_content_too_large` | the content is empty, a `brief` is neither a code brief nor one of the actor's, not serialisable or too long, or `not_after` is malformed | no |
 | `secret_unresolved` | the key could not be resolved on the node | no |
 
 A failure never echoes a response body, a header value or a secret.

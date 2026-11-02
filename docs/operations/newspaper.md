@@ -381,6 +381,32 @@ the headlines and summaries themselves. To post a day that already went out,
 run the workflow by hand with `run_id` set to that day's `daily-newspaper` run
 (`workflows run ... --input run_id=<run id>`); the newspaper itself is not re-run.
 
+### As forum posts (an example configuration)
+
+The same issue can go to a Discord forum, one thread per section, with two more
+generic options. This is an example of how the pieces fit; the live setup is
+configured in the store, not committed, and no channel or server id appears in
+the repository.
+
+- **`markdown.from_html` with `split_at`** (`h1` to `h6`, as step config or
+  input) adds the output `parts`, a list of `{index, heading, text}`. Everything
+  before the first heading of exactly that rank is the lead part, with heading
+  `''` (no lead part when nothing precedes that heading); from that heading on, each heading of that rank or higher starts a new
+  part. A page with no such heading is one part with heading `''`. Parts are not
+  cut to `max_chars`; `markdown`, `chunks` and `count` are unchanged. A bad
+  `split_at` fails `bad_params`.
+- **A workflow** that reads `render.html` as above, splits it at `h2`, and runs a
+  `for_each` over `parts`. The body step has a `when` on the heading (not empty),
+  so the `''` lead part is skipped; an `llm.complete` step names an actor brief
+  (for example `brief: "one-line"` from the summary actor's `params.briefs`, see
+  [the LLM actor](../actors/llm.md#actor-briefs)) to write a one-line summary of
+  the part; and a `discord.message` step posts it with `thread_name` set to
+  `"<heading> - <date> - <summary>"` and `tags` set to `["<heading>"]`.
+- **`discord.message` forum posts** (see
+  [Forum posts](../actors/discord.md#forum-posts)): the text over 2000
+  characters becomes replies in the thread, a tag the forum lacks is reported in
+  `tags_missing` instead of failing, and the title is cut to 100 characters.
+
 ## Known limits
 
 - **The summary replay ledger is per process.** `llm.complete` replays a

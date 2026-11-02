@@ -1,0 +1,630 @@
+{
+  "slug": "newspaper-sections-on-discord",
+  "title": "Newspaper sections on Discord",
+  "frame_slug": "newspaper-sections-on-discord",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-11-01T22:45:52Z",
+  "updated": "2026-11-02T06:18:02Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The daily newspaper posts to Discord one message per section, routes the jobs section to #open-to-work, and can post a section as a tagged forum post \u2014 through generic step options, with every route, channel and tag in config",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "grep of the new code for newspaper, a section name, a Discord channel id or a tag name finds none; every route, channel, title and tag lives in the live workflow revision",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "boundary",
+      "text": "Routing, channels, thread titles and tag names are configuration on the live newspaper-to-discord workflow (a new revision), never code: no step learns the word newspaper, a section name, a channel or a tag (steps-generic-flows-are-config; the live workflow notes say 'Generic steps only (d5) ... Live config (d4), not committed')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the live newspaper-to-discord revision is the only place channels, tag names and the title template appear; no committed docs/rules bundle holds them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Routing by section is a when-condition on a loop body step over an item field (the condition tree already has matches/in/compare, culture_rules/model/condition.py:14-15), because nested loops are refused (culture_rules/engine/runs.py:1803): so each split piece must carry its heading as a field of a single loop item",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "a flow test runs a for_each over parts where two body steps with when on item.heading post to different channels, and each part reaches exactly one channel",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "The API server cannot read a Discord bot token (GET /actors/jetson-bot/discord/targets answers secret_unavailable 409 on the LAN API): anything that must read a forum's tags runs on a node, inside the step, not in the API",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "tag lookup happens in the node-side step (GET /channels/{id} with the bot token); no API route reads a bot token",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "markdown.from_html gains a generic option split_at (a heading tag h1-h6): a heading of that rank or higher always starts a new part, and a new output parts lists [{heading, text, index}], one whole part per heading with no size cap, beside the unchanged markdown, chunks and count; text before the first split heading is a part with an empty heading",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "a unit test renders an issue-shaped HTML (h1, p.date, three h2 sections) with split_at h2 and gets 4 parts: the masthead with heading empty, then each section whole with its heading, even when one section is longer than max_chars",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "Without split_at, markdown.from_html output is byte-identical to today (the live newspaper-to-discord rev 2 keeps working unchanged until its own revision)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the existing tests/node/test_markdown_html.py passes unchanged, and output without split_at has no parts key",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "The editor's step catalog declares the new parts output of markdown.from_html (web/src/workflows/StepEditor.tsx:325-329), the setup guide docs/operations/newspaper.md:370-377 describes split_at and parts, and describe/runner registrations stay as they are (runner.py:334-337, describe.py:88)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "web vitest/typecheck pass with parts declared in StepEditor, and docs/operations/newspaper.md names split_at and parts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "discord.message takes two optional generic params, thread_name and tags (a list of tag names): when given, the step reads the channel (GET /channels/{id}), requires a forum (type 15), resolves each tag name against the forum's available_tags, and creates a forum post (POST /channels/{id}/threads with name, applied_tags and message.content, mentions suppressed as today); outputs message_id and thread_id; without thread_name the step behaves exactly as today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "a FakeTransport test sees GET /channels/{id} then POST /channels/{id}/threads with name, applied_tags as the resolved ids and message.content with allowed_mentions parse empty; the step returns message_id and thread_id; without thread_name the request is the same POST /channels/{id}/messages as today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "A forum post fails the same way a message does: a timeout is outcome_unknown and never retried (a retry could create a second post), 429 and 5xx retry, other 4xx refuse; thread_name on a non-forum channel or tags without thread_name fail bad_params before any post; a tag name the forum lacks is left off and listed in an output tags_missing; a thread_name longer than Discord's 100 characters is cut at a word boundary",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "tests cover: a timeout on the thread POST fails outcome_unknown and non-retryable; 429 retryable; a text channel with thread_name fails bad_params with no POST; an unknown tag posts with the known tags and lists the unknown in tags_missing; a 140-character thread_name is sent as at most 100 characters ending at a word",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "discord.message's declaration (culture_rules/model/action_kinds.py:106-113) and the editor's hand-copied one (web/src/rules/ActionPicker.tsx:64-67) gain thread_name and tags as optional params; the Discord targets picker (server/app.py:1018-1054, TEXT_CHANNEL_TYPES (0,5) in discord_rest.py) is not changed: forum channels and their tags are not listed in the editor in this work",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the ActionPicker declaration and action_kinds.py both list thread_name and tags as optional, and the targets API response shape is unchanged (test_openapi_contract passes without an openapi edit for targets)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Live tests of forum posts go first to the testing forum bot-experiments-forum 1566568383082799214 in the Experiments server 1413999242648748195 (operator-designated for exploration/testing); the Jetson AI Lab forum 1563965995788271617 is used only after a clean test",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "the first live forum posts land in bot-experiments-forum 1566568383082799214, and the Jetson forum is written only after the operator approves the test result",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "A forum post whose text is longer than one Discord message (2000 characters) starts the thread with the first piece and posts the rest as replies in the same thread, split at line breaks, in order; outputs message_id (the starter), thread_id and the reply message ids",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "a test with a 4500-character text posts a starter of at most 2000 characters and then replies to the thread id in order, each at most 2000 characters, together equal to the text split at line breaks",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text; changing it is admin-only, c30), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "tests: a step with `brief: <name>` uses the text from the actor's params.briefs as the system message; a brief name neither the actor nor code defines fails invalid_request before any request; a step param holding prompt text is ignored or refused, never sent; the three code briefs still select as before",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "The live flow titles each post heading - date - headline through config: the date read from the issue run (run.read of the claim step's date), the headline from an llm.complete step with brief headline on the part's text, and the title a template in thread_name; when the headline step is skipped or fails (on_error skip), a second send step routed by when posts the title heading - date",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "the test workflow run shows each post's title built from the part heading, the issue date and the headline output, and a run with the headline step skipped still posts heading - date",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "The live newspaper-to-discord flow gets a new revision only after a clean test: a test workflow first posts one real issue's sections to the testing forum; then revision 3 posts each section as a tagged forum post to the Jetson AI Lab forum 1563965995788271617 and stops the size-cut posts to #bot-experimentations",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "newspaper-to-discord stays at rev 2 until the operator approves the testing-forum result; rev 3 is written with expected_revision 2",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "audience",
+      "text": "Jetson AI Lab Discord members who read the newspaper, filtering forum posts by topic tag; and the operator, who configures the routing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the forum tags the readers filter on exist on both forums (probe 2026-11-01: four tags each)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "before_state",
+      "text": "The newspaper reaches Discord as 1900-character pieces in #bot-experimentations, several sections per message, untagged and unsearchable by topic; discord.message cannot post to a forum",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "newspaper-to-discord rev 2 config and its runs 10-29..11-01 show chunked posts to 1407337283794767873",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "after_state",
+      "text": "Each day every newspaper section is its own forum post titled topic - date - a one-line LLM summary, tagged with its topic (Jetson optimization, Jetson jobs, Jetson news, Isaac ROS), so a reader filters the forum by tag",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "after rev 3, the Jetson forum shows one post per section per issue with its topic tag",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "why_it_matters",
+      "text": "A reader interested in one topic (jobs, Isaac ROS) follows its tag instead of scanning a whole daily dump; posts become a searchable archive per topic",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "Discord forum tag filtering shows only the posts carrying the chosen tag",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "success_signal",
+      "text": "On the testing forum, one real issue yields 4 posts, each with exactly 1 matching tag and a title of the form topic - date - summary at most 100 characters; then on the Jetson forum for 3 consecutive issues, 4 tagged posts per issue (fewer only when a section had no results) and 0 failed newspaper-to-discord runs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "the numbers are read from the run records (posts per run, tags_missing empty, title length) and from the forum itself, not estimated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "boundary",
+      "text": "No process or business-logic text is added to code in this work: no prompt wording, character budget, title format, section name, tag or channel; code gains only mechanisms (split at a heading, forum post with tags by name, long post continued in its thread, briefs read from actor config)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "the diff adds no prompt text and no newspaper, section, tag, channel or title-format literal under culture_rules/; the only new strings are param names, error codes and Discord API paths",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Changing an actor's params.briefs is admin-only, enforced the way runner commands are (a save check comparing before and after, 403 with a code such as briefs_admin_only for a non-admin), across API, CLI, MCP and bundle import; editors can still pick a brief by name in a step",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "a test saves an actor as an editor with a changed params.briefs and gets 403 briefs_admin_only with the stored actor unchanged; the same save as an admin succeeds; an editor save that leaves params.briefs unchanged succeeds",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "A forum post with replies is never re-created by a retry: once the thread exists, any later failure (a reply refused, a 5xx, a timeout) fails the step non-retryably with thread_id and the ids posted so far in the error, so a retry cannot open a second thread for the same part",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "a FakeTransport test answers the thread POST 201 and the second reply 503: the step fails non-retryable, names the thread id, and a re-invocation is not attempted by the executor",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "discord.message refuses more than 5 tags (Discord's per-post limit) with bad_params before any request; a forum whose require-tag flag is set and where none of the named tags exist is refused by Discord (4xx, not retried) and the error says so",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "tests: 6 tag names fail bad_params with no request; a require_tag forum answering 400 to an untagged post fails non-retryable with the tag reason in the message",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "The live flow posts only real sections: its send steps' when skips the part with an empty heading (the masthead) and parts whose text is the rendered empty-section line, so an issue posts 4 or fewer forum posts and never a No results post (config, not code)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "the testing-forum run on a real issue posts exactly one post per section with results and none for the masthead; a fixture issue with an empty section posts no post for it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "Rollback is one CLI write: newspaper-to-discord rev 3 is replaced by the saved rev 2 body with workflows update --expected-revision 3; posts already made stay in the forum (Discord posts are not deleted by the rollback)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "rev 2's body is saved in the rollout worktree before rev 3 is written, and a dry run of the rollback update succeeds",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "markdown.from_html split_at and parts",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test renders HTML shaped like the newspaper (h1, p.date, three h2 sections each with a ul) with split_at h2 and gets 4 parts in order: heading '' holding the masthead, then each section's heading and its whole text, index 0..3",
+        "a section longer than max_chars stays one part, while chunks still splits it as before",
+        "split_at h9 or 3 fails bad_params non-retryable",
+        "every existing test in tests/node/test_markdown_html.py passes unchanged, and output without split_at has no parts key"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h5",
+        "c7",
+        "h6"
+      ],
+      "instruction": "Owns culture_rules/node/actions/markdown_html.py and tests/node/test_markdown_html.py only. Add optional split_at (input or config, one of h1-h6, validated like the other params; bad value fails bad_params). Track each block's heading text and rank in _Doc; when split_at is set, build parts: a new part starts at every heading of rank <= split_at, each part holds its whole Markdown text (no max_chars cap), heading is the heading's plain text, text before the first such heading is a part with heading ''. Leave markdown, chunks and count exactly as today, and add the parts key only when split_at is given. Standard library only; deterministic."
+    },
+    {
+      "id": "t2",
+      "summary": "Discord REST: channel read and forum thread create",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "FakeTransport tests: get_channel parses type 15 and available_tags; create_forum_post sends POST /channels/{id}/threads with name, applied_tags and message.content and allowed_mentions parse []",
+        "create_forum_post maps a timeout to outcome_unknown non-retryable, 429 retryable, 503 retryable, 400 refused, and returns thread_id and message_id on 201",
+        "post_message and its existing tests are unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c5",
+        "h4"
+      ],
+      "instruction": "Owns culture_rules/apps/discord_rest.py and a new tests/apps/test_discord_rest_forum.py. Add DiscordClient.get_channel(channel_id) returning {id, type, flags, available_tags:[{id,name}]} via _get_ok, and create_forum_post(channel_id, name, text, tag_ids, *, allowed_mentions_parse=()) that POSTs /channels/{id}/threads with {name, applied_tags, message:{content, allowed_mentions}} through self._transport directly (never auto-retried), mirroring post_message's error mapping (timeout -> outcome_unknown non-retryable, 429 retryable with retry_after, 5xx retryable, other 4xx refused with Discord's message), and returns {thread_id, message_id}. Validate channel ids with _CHANNEL_RE. No knowledge of tags by name here; no caching."
+    },
+    {
+      "id": "t3",
+      "summary": "llm.complete briefs from actor config",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test with actor params.briefs {headline: 'X'} and step brief headline sends 'X' as the system message",
+        "brief 'nope' with no such actor or code brief fails invalid_request with no HTTP request",
+        "newspaper, transcript and recording select their code text exactly as before (existing llm tests pass unchanged)",
+        "an actor brief named like a code brief does not replace the code brief"
+      ],
+      "deps": [],
+      "covers": [
+        "c20",
+        "h23"
+      ],
+      "instruction": "Owns culture_rules/node/actions/llm.py and tests/node/test_llm_actor_briefs.py. A step's brief name resolves first against the actor's params.briefs (a mapping of name to non-empty string), then against the three code briefs; an unknown name, a non-string brief, or an empty text fails invalid_request before any request. The step can only name a brief: no param supplies prompt text (any such param is ignored as today). Keep the cache rule tied to the recording code brief. Update the module docstring."
+    },
+    {
+      "id": "t4",
+      "summary": "Admin guard on actor briefs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an editor saving an actor with changed params.briefs gets 403 briefs_admin_only and the stored actor is unchanged",
+        "an admin save with changed briefs succeeds; an editor save leaving briefs unchanged succeeds",
+        "a bundle import by an editor that changes an actor's briefs is refused the same way"
+      ],
+      "deps": [],
+      "covers": [
+        "c30",
+        "h24"
+      ],
+      "instruction": "Owns culture_rules/auth/guards.py, the place check_runner_commands is wired into saves (grep its callers in culture_rules/server and bundle import) and a new tests/server/test_actor_briefs_admin.py. Add BriefsDenied (code briefs_admin_only, HTTP 403 like RunnerCommandsDenied) and check_actor_briefs(principal, before, after): non-admins may not add, change or remove params.briefs; wire it everywhere check_runner_commands runs (API actor create/update, bundle import). Compare JSON-normalised values."
+    },
+    {
+      "id": "t5",
+      "summary": "discord.message posts to a forum",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests: thread_name on a type-0 channel fails bad_params with no POST; 6 tags fail bad_params with no request; tags without thread_name fail bad_params",
+        "tests: tags ['Jetson news','Nope'] on a forum holding 'Jetson news' posts applied_tags [its id] and returns tags_missing ['Nope']",
+        "tests: a 4500-character text with line breaks creates the thread with at most 2000 characters and posts the rest as replies to the thread id, each at most 2000, joining back to the text",
+        "tests: thread POST 201 then a reply 503 fails non-retryable naming the thread id; a thread POST timeout fails outcome_unknown non-retryable",
+        "tests: a 140-character thread_name is sent as at most 100 characters ending at a word; every existing tests/node/test_message_action.py test passes unchanged"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c9",
+        "h8",
+        "c10",
+        "h9",
+        "c19",
+        "h12",
+        "c31",
+        "h25",
+        "c32",
+        "h26"
+      ],
+      "instruction": "Owns culture_rules/node/actions/message.py, culture_rules/model/action_kinds.py (discord.message gains thread_name=_S and tags=list) and a new tests/node/test_discord_forum_post.py. Validate before reading the secret: tags without thread_name, a non-list or non-string tag, or more than 5 tags fail bad_params; thread_name must be a non-empty string. With thread_name: get_channel; a channel that is not type 15 fails bad_params with no POST; resolve tag names exactly against available_tags, apply the found ids and list the unknown names in output tags_missing; cut thread_name to at most 100 characters at the last space (hard cut if none). If text fits MAX_CONTENT, one create_forum_post; otherwise split at line breaks into pieces of at most MAX_CONTENT (a single longer line cut hard), create the post with the first piece and post_message each later piece to the thread id in order. Any failure after the thread exists fails non-retryable with the thread id and the ids posted so far in the message. Outputs message_id (starter), thread_id, reply_ids, tags_missing. Buttons with thread_name fail bad_params (not in this work). Without thread_name the code path and outputs are unchanged."
+    },
+    {
+      "id": "t6",
+      "summary": "Editor, guides and project docs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "web typecheck, vitest and Playwright pass; ActionPicker offers thread_name and tags for discord.message",
+        "markdownlint-cli2 passes on every touched .md; the four harness prompt files describe the change in the same words",
+        "test_openapi_contract passes with no change to the Discord targets schema"
+      ],
+      "deps": [
+        "t1",
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c8",
+        "h7",
+        "c11",
+        "h10"
+      ],
+      "instruction": "Owns web/src/workflows/StepEditor.tsx (markdown.from_html declares split_at and the parts output), web/src/rules/ActionPicker.tsx (discord.message params thread_name: S, tags: list) with their tests, docs/operations/newspaper.md (split_at, parts, the forum flow as configuration), docs/actors/discord.md (a Forum posts section after Buttons: thread_name, tags by name, tags_missing, long posts as replies, limits and failures), docs/actors/llm.md (actor briefs and the admin guard), CLAUDE.md plus AGENTS.override.md, AGENTS.colleague.md and QWEN.md (one bullet each, in step), and CHANGELOG via a minor version bump. No targets-picker change."
+    },
+    {
+      "id": "t7",
+      "summary": "No-BL audit, full gate and PR",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the diff grep finds no prompt text, section, tag, channel or title-format literal under culture_rules/",
+        "every CI job passes and SonarCloud shows 0 open issues on the PR"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c2",
+        "h2",
+        "c29",
+        "h21"
+      ],
+      "instruction": "Main agent. Grep the branch diff under culture_rules/ for prompt wording, character budgets, title formats, newspaper, section names, tag names, channel ids; any hit is moved to config or removed. Then the full pre-PR gate (black, isort, flake8, bandit, full pytest -n auto, web typecheck/vitest/Playwright, markdownlint, scan-secrets, teken doctor), ask-colleague review, then the PR through cicd with 0 Sonar issues."
+    },
+    {
+      "id": "t8",
+      "summary": "Live test on the testing forum",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "one real issue yields one forum post per section with results in bot-experiments-forum, none for the masthead or an empty section",
+        "each post carries exactly its matching tag, tags_missing is empty, and each title is heading - date - headline at most 100 characters",
+        "no post lands in the Jetson AI Lab server during this task"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c4",
+        "h3",
+        "c15",
+        "h11",
+        "c21",
+        "h14",
+        "c33",
+        "h27",
+        "c24",
+        "h16",
+        "c25",
+        "h17",
+        "c27",
+        "h19"
+      ],
+      "instruction": "After the release is rolled out (operator go-ahead for every live write): admin-set cortex-spark2 params.briefs.headline (wording and length as config, operator-approved text); create a disabled test workflow (not newspaper-to-discord) that run.reads a real issue's render html, splits at h2, skips the masthead and empty-section parts by when, writes a headline per part with brief headline (on_error skip), and posts each part to bot-experiments-forum 1566568383082799214 with thread_name heading - date - headline and tags from the heading (a jobs step with the literal tag Jetson jobs), plus a fallback step titled heading - date when the headline was skipped. Run it by hand with the issue run_id and read the run record and the forum."
+    },
+    {
+      "id": "t9",
+      "summary": "Live rev 3 on the Jetson forum and 3-issue check",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "rev 3 is written with expected_revision 2 after operator approval, with rev 2 saved and the rollback dry run passing",
+        "for 3 consecutive issues: one tagged post per section with results in the Jetson forum, titles at most 100 characters, 0 failed newspaper-to-discord runs"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c23",
+        "h15",
+        "c35",
+        "h29",
+        "c26",
+        "h18",
+        "c28",
+        "h20"
+      ],
+      "instruction": "Only after the operator approves t8's result: save newspaper-to-discord rev 2's body in the rollout worktree, dry-run the rollback update, then write rev 3 (expected_revision 2) with the t8 steps pointed at forum 1563965995788271617 and the size-cut posts to #bot-experimentations removed. Read the next 3 issues' runs and the forum; file evidence per issue."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "params.briefs is not validated at save time: an admin can store a non-mapping value that llm.complete then refuses at run time (invalid_request); colleague review suggestion 2",
+      "kind": "follow_up",
+      "task_id": "t4",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "actors update dry run accepted a body carrying the server-owned updated_at field that the apply then refused (422 unknown field); found in t8 setting cortex-spark2 briefs",
+      "kind": "follow_up",
+      "task_id": "t8",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "the editor's channel picker (list_targets, TEXT_CHANNEL_TYPES 0,5) never lists forum channels (type 15), so a forum post's channel is pasted as an id; listing forums needs the picker to know when thread_name is set (code review PR #134 finding 4)",
+      "kind": "follow_up",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "llm.urllib_transport duplicates _endpoint.post (request, opener, HTTPError-as-answer) to get a deadline-aware streaming read; decider/stt still use post, so the two can drift (code review PR #134 finding 8)",
+      "kind": "follow_up",
+      "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "llm.complete sends stream_options with no fallback: a strict OpenAI-compatible server that refuses unknown fields answers 400 (llm_rejected); every mesh gateway accepts it today (code review 2 finding 4)",
+      "kind": "follow_up",
+      "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "discord_rest.py has four copies of the POST/429/timeout error mapping (post_message, create_forum_post, \u2026); a shared _post_json helper would remove them (code review 2 finding 9)",
+      "kind": "follow_up",
+      "task_id": "t2",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}

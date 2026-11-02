@@ -20,7 +20,8 @@
 Saving a workflow step that carries inline script text is admin-only too, and so is adding or
 changing a runner actor's command registry (``params.commands``), but those depend on the body
 (and the stored version), so the save routes check them (``culture_rules.auth.guards``); so
-is adding, changing or removing a machine's ``install`` section (``install_requires_admin``).
+is adding, changing or removing a machine's ``install`` section (``install_requires_admin``)
+and an actor's ``params.briefs``, on any actor kind (``briefs_admin_only``).
 Any mutation not listed here needs admin: the matrix fails closed.
 """
 

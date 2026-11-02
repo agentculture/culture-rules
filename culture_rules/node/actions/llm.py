@@ -11,9 +11,12 @@ optional ``max_tokens`` (int >= 1, default
 :data:`DEFAULT_MAX_TOKENS`, capped at :data:`MAX_TOKENS_CAP`) and ``temperature`` (a number
 0..2), and optional ``brief``: absent or ``"newspaper"`` selects :data:`NEWSPAPER_BRIEF`,
 ``"transcript"`` selects :data:`TRANSCRIPT_BRIEF`, ``"recording"`` selects
-:data:`RECORDING_BRIEF`, anything else (including null) fails
-``invalid_request`` before any request. Every other param is ignored: a step cannot
-replace the brief, add tools or name a repository.
+:data:`RECORDING_BRIEF`. Any other name is looked up in the bound actor's ``params.briefs`` (a
+mapping of name to non-empty string: the actor's configuration holds the text, never a step);
+an unknown name, a non-string name or an empty or non-string text (including null) fails
+``invalid_request`` before any request. A code brief name always selects its code text: an
+actor brief with that name is ignored. Every other param is ignored: a step can only name a
+brief, not replace it, and cannot add tools or name a repository.
 
 The bound actor is an ``agent`` actor whose ``params`` carry ``base_url`` (``http(s)://host
 [:port][/v1]``, no credentials), ``model`` (non-empty; else the actor's own ``model``) and
@@ -28,8 +31,20 @@ port never goes through the coding-agent bridge, even when the actor also has a
 
 The request is ``POST <base_url>/v1/chat/completions`` with exactly ``model``,
 ``messages`` (the system message is the chosen locked brief, the user message the
-content), ``max_tokens``, ``stream: false`` and, when given, ``temperature`` - never a
-``tools`` field. Proxies from the environment are ignored and redirects are not followed.
+content), ``max_tokens``, ``stream: true``, ``stream_options: {include_usage: true}`` and,
+when given, ``temperature`` - never a ``tools`` field. Proxies from the environment are
+ignored and redirects are not followed.
+
+The reply is read as server-sent events (d7, operator 2026-11-02: "Always use stream"):
+``data: <chunk>`` lines ending with ``data: [DONE]``. The first choice's ``delta.content``
+pieces, joined in order, are the text (``reasoning`` / ``reasoning_content`` deltas are
+not); the model is the chunks' ``model`` and the usage the usage chunk's. The default
+transport reads the whole stream within the request's timeout (a stream still trickling in
+when it ends, or stalled past it, raises ``TimeoutError``, so ``llm_unavailable``: each
+read's socket timeout is the time left) and at most :data:`MAX_RESPONSE_BYTES` (8 MiB, room
+for :data:`MAX_TOKENS_CAP` tokens of SSE). ``event:``, ``id:`` and ``retry:`` lines are
+ignored, and may come before the first ``data:``. A body that is not an event stream (an
+error body, or a server that ignores ``stream``) is read as one JSON reply, as before.
 
 An optional ``not_after`` param (an ISO-8601 time with a UTC offset) is the latest time the
 work may start: at or past it the port fails ``llm_deadline`` (not retryable) without a
@@ -68,12 +83,17 @@ actor's token budget counts them; the recording brief also returns ``answer``, t
 (``"<code>: <detail>"``, never a body, a header value or a secret):
 
 * ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
-  5xx, 408 or 429. The newspaper's summary step tolerates any failure
-  (``config.on_error: "skip"``): that section goes out with its results and "Summary
-  unavailable.", and when no section got a summary the masthead also says so;
+  5xx, 408 or 429, or a stream ``error`` event saying the same (a 5xx / 408 / 429 ``code``
+  or ``status``, or a ``type`` / ``message`` saying overloaded, service or temporarily
+  unavailable, or timeout; a bare "unavailable", say of a model, is not). The
+  newspaper's summary step tolerates any failure (``config.on_error: "skip"``): that section
+  goes out with its results and "Summary unavailable.", and when no section got a summary the
+  masthead also says so;
 * ``llm_deadline`` (not retryable) - ``not_after`` has passed;
 * ``llm_rejected`` (not retryable) - any other non-2xx answer;
-* ``llm_bad_response`` (not retryable) - not JSON, or no string message content;
+* ``llm_bad_response`` (not retryable) - not JSON, or no string message content; for a
+  stream also a chunk that is not a JSON object, any other non-null ``error``, a stream that ends
+  without ``data: [DONE]`` (like a truncated JSON body) or one with no content delta;
 * ``model_taken`` (not retryable) - another enabled endpoint actor holds this actor's model
   (``model_taken: <holder id>``; checked before any request);
 * ``llm_content_too_large``, ``invalid_request``, ``llm_actor_invalid``,
@@ -87,6 +107,10 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
+import re
+import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,7 +126,7 @@ from culture_rules.node.actions._endpoint import (
     check_not_after,
     is_number,
     model_taken,
-    post,
+    opener,
     time_left,
 )
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
@@ -168,6 +192,7 @@ _BRIEFS = {
     "transcript": TRANSCRIPT_BRIEF,
     "recording": RECORDING_BRIEF,
 }
+_BRIEFS_PARAM = "briefs"
 _CACHE = "cache"
 _CACHE_BRIEF = "recording"
 _CACHE_SCHEMA = 1
@@ -175,9 +200,14 @@ _CACHE_SCHEMA = 1
 DEFAULT_MAX_TOKENS = 1500
 MAX_TOKENS_CAP = 4000
 DEFAULT_MAX_CONTENT_CHARS = 48_000
-MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+"""The largest reply read. The reply is a stream (d7), and each token costs one ``data:``
+chunk of ~150-300 bytes (an id, a timestamp, the model, nulls), reasoning tokens alike, so
+:data:`MAX_TOKENS_CAP` tokens can pass 1 MiB; 8 MiB holds them at 2 KiB each and still caps
+a runaway server."""
 MAX_TIMEOUT = 600.0
 COMPLETIONS_PATH = "/chat/completions"
+READ_CHUNK = 64 * 1024
 LEDGER_SIZE = DEFAULT_LEDGER_SIZE
 """How many completed results the port keeps for :meth:`LlmCompletePort.replay`."""
 
@@ -195,6 +225,14 @@ _CONTENT_PATH, _CONTENT_ROOT, _CONTENT_MAX_CHARS = (
 
 _RETRYABLE_4XX = frozenset({408, 429})
 _THINK_OPEN, _THINK_CLOSE = "<think>", "</think>"
+_DATA, _DONE = "data:", "[DONE]"
+_SSE_LINE_END = re.compile(r"\r\n|\r|\n")
+_SSE_FIELDS = frozenset({"event", "data", "id", "retry"})
+#: load or time words only: a bare "unavailable" ("model foo unavailable") is not transient
+_TRANSIENT_WORDS = re.compile(
+    r"overload|service[\s_-]+unavailable|temporarily[\s_-]+unavailable|time[d_ ]?\s?out",
+    re.IGNORECASE,
+)
 _USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total_tokens")
 
 Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
@@ -208,9 +246,57 @@ Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
 def urllib_transport(
     url: str, data: bytes, headers: Mapping[str, str], timeout: float
 ) -> tuple[int, bytes]:
-    """POST ``data`` to ``url`` (http/https only, checked by the caller) with urllib."""
-    status, _headers, body = post(url, data, headers, timeout, MAX_RESPONSE_BYTES)
-    return status, body
+    """POST ``data`` to ``url`` (http/https only, checked by the caller) with urllib: the
+    status and at most ``MAX_RESPONSE_BYTES + 1`` bytes of the body, all read within
+    ``timeout`` seconds of the call (a stream still arriving then raises ``TimeoutError``)."""
+    ends_at = time.monotonic() + timeout
+    request = urllib.request.Request(url, data=data, headers=dict(headers), method="POST")
+    try:
+        response = opener().open(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        response = exc  # a non-2xx answer is still an answer
+    with response:
+        status = int(getattr(response, "status", None) or response.code)
+        return status, _read_within(response, ends_at, MAX_RESPONSE_BYTES + 1)
+
+
+def _socket_of(response: Any) -> Any:
+    """The socket under a urllib reply (an ``HTTPResponse``, or an ``HTTPError`` wrapping
+    one): ``fp`` -> buffered reader -> ``raw`` socket file -> ``_sock``. ``None`` when the
+    reply is not backed by one (a fake in tests)."""
+    obj = response
+    for _ in range(6):
+        if obj is None or callable(getattr(obj, "settimeout", None)):
+            return obj
+        obj = next(
+            (getattr(obj, a) for a in ("fp", "raw", "_sock") if getattr(obj, a, None) is not None),
+            None,
+        )
+    return None
+
+
+def _read_within(response: Any, ends_at: float, max_bytes: int) -> bytes:
+    """Read ``response`` to its end, or to ``max_bytes``, before the monotonic ``ends_at``.
+    Before each read the socket's timeout is set to the time left, so a stream that stalls
+    late raises ``TimeoutError`` at ``ends_at`` (plus scheduling slack), not a full socket
+    timeout after it, and one that keeps trickling is cut off at ``ends_at``."""
+    chunks: list[bytes] = []
+    size = 0
+    while size < max_bytes:
+        left = ends_at - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("the reply did not end within the request's timeout")
+        sock = _socket_of(response)  # looked up each time: a reply read to its end closes it
+        if sock is not None:
+            with contextlib.suppress(OSError):  # a socket closed under us: the read ends it
+                sock.settimeout(left)
+        want = min(READ_CHUNK, max_bytes - size)
+        chunk = response.read1(want) if hasattr(response, "read1") else response.read(want)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+    return b"".join(chunks)
 
 
 # ------------------------------------------------------------------ actor and input checks
@@ -253,13 +339,19 @@ def _user_message(content: Any, limit: int) -> str:
     return text
 
 
-def _brief(input: Mapping[str, Any]) -> str:
+def _brief(input: Mapping[str, Any], actor_params: Mapping[str, Any]) -> str:
     if "brief" not in input:
         return NEWSPAPER_BRIEF
     name = input["brief"]
-    if not isinstance(name, str) or name not in _BRIEFS:
-        raise Refused(INVALID, "brief must be 'newspaper', 'transcript' or 'recording'")
-    return _BRIEFS[name]
+    if not isinstance(name, str):
+        raise Refused(INVALID, "brief must be a name")
+    if name in _BRIEFS:  # a code brief always wins: an actor brief cannot replace it
+        return _BRIEFS[name]
+    briefs = actor_params.get(_BRIEFS_PARAM)
+    text = briefs.get(name) if isinstance(briefs, Mapping) else None
+    if not isinstance(text, str) or not text.strip():
+        raise Refused(INVALID, f"brief {name!r} is not a code brief or one of the actor's briefs")
+    return text
 
 
 def _max_tokens(value: Any) -> int:
@@ -285,8 +377,15 @@ def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
     if len(raw) > MAX_RESPONSE_BYTES:
         raise Refused(BAD_RESPONSE, "response too large")
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except ValueError as exc:  # UnicodeDecodeError is a ValueError
+        body = raw.decode("utf-8")
+    except ValueError as exc:  # UnicodeDecodeError
+        raise Refused(BAD_RESPONSE, "response is not JSON") from exc
+    lines = _event_lines(body)
+    if _is_event_stream(lines):
+        return _parse_stream(lines, fallback_model)
+    try:
+        data = json.loads(body)
+    except ValueError as exc:
         raise Refused(BAD_RESPONSE, "response is not JSON") from exc
     choices = data.get("choices") if isinstance(data, dict) else None
     first = choices[0] if isinstance(choices, list) and choices else None
@@ -298,6 +397,110 @@ def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
     usage = data.get("usage")
     return {
         "text": _without_think(text),
+        _MODEL: model if isinstance(model, str) and model else fallback_model,
+        "usage": _usage(usage if isinstance(usage, dict) else {}),
+    }
+
+
+def _event_lines(body: str) -> list[str]:
+    """The stream's field lines (ended by CR, LF or CRLF only, so a U+2028 inside a chunk's
+    JSON stays in its line): blank separators and ``:`` comments dropped."""
+    lines = _SSE_LINE_END.split(body)
+    return [line for line in lines if line.strip() and not line.startswith(":")]
+
+
+def _field(line: str) -> str | None:
+    """The SSE field name of ``line`` (``event``, ``data``, ``id`` or ``retry``, alone or
+    before a ``:``), else None."""
+    name = line.split(":", 1)[0]
+    return name if name in _SSE_FIELDS else None
+
+
+def _is_event_stream(lines: list[str]) -> bool:
+    """Whether the body's field ``lines`` are server-sent events (a ``data:`` line comes
+    before any line that is not an SSE field, so ``event:`` / ``id:`` / ``retry:`` may lead)
+    rather than one JSON reply (an error body, or a server that ignored ``stream``)."""
+    for line in lines:
+        name = _field(line)
+        if name is None:
+            return False
+        if name == "data":
+            return True
+    return False
+
+
+def _error_is_transient(error: Any) -> bool:
+    """Whether a stream's ``error`` event reads as the server being busy or down (a 5xx,
+    408 or 429 ``code`` / ``status``, or a ``type`` / ``message`` saying overloaded, service
+    or temporarily unavailable, or timeout), as the same answer over HTTP would be
+    ``llm_unavailable``. A bare "unavailable" (a model or a feature) is not transient."""
+    if not isinstance(error, Mapping):
+        return isinstance(error, str) and bool(_TRANSIENT_WORDS.search(error))
+    for key in ("code", "status"):
+        value = error.get(key)
+        if isinstance(value, str) and value.strip().isdigit():
+            value = int(value)
+        if isinstance(value, int) and not isinstance(value, bool):
+            if value >= 500 or value in _RETRYABLE_4XX:
+                return True
+    words = " ".join(str(error.get(k) or "") for k in ("type", "message"))
+    return bool(_TRANSIENT_WORDS.search(words))
+
+
+def _stream_chunks(lines: list[str]) -> list[dict[str, Any]]:
+    """The JSON chunks of an event stream up to ``data: [DONE]``; a stream that ends
+    without it was cut short, like a truncated JSON body."""
+    chunks: list[dict[str, Any]] = []
+    for line in lines:
+        if not line.startswith(_DATA):
+            continue  # event:, id:, retry: carry nothing a completion needs
+        payload = line[len(_DATA) :].strip()
+        if payload == _DONE:
+            return chunks
+        try:
+            chunk = json.loads(payload)
+        except ValueError as exc:
+            raise Refused(BAD_RESPONSE, "a stream chunk is not JSON") from exc
+        if not isinstance(chunk, dict):
+            raise Refused(BAD_RESPONSE, "a stream chunk is not an object")
+        if chunk.get("error") is not None:  # "error": null is no error
+            if _error_is_transient(chunk["error"]):
+                raise Refused(UNAVAILABLE, "the stream reported a server error", retryable=True)
+            raise Refused(BAD_RESPONSE, "the stream reported an error")
+        chunks.append(chunk)
+    raise Refused(BAD_RESPONSE, "the stream ended without [DONE]")
+
+
+def _delta_content(chunk: Mapping[str, Any]) -> str | None:
+    """The first choice's ``delta.content`` in ``chunk`` (never its reasoning), else None."""
+    choices = chunk.get("choices")
+    if not isinstance(choices, list):
+        return None
+    for choice in choices:
+        if not isinstance(choice, dict) or choice.get("index", 0) != 0:
+            continue
+        delta = choice.get("delta")
+        content = delta.get(_CONTENT) if isinstance(delta, dict) else None
+        return content if isinstance(content, str) else None
+    return None
+
+
+def _parse_stream(lines: list[str], fallback_model: str) -> dict[str, Any]:
+    pieces: list[str] = []
+    model: Any = None
+    usage: Any = None
+    for chunk in _stream_chunks(lines):
+        piece = _delta_content(chunk)
+        if piece is not None:
+            pieces.append(piece)
+        if not (isinstance(model, str) and model):
+            model = chunk.get(_MODEL)
+        if isinstance(chunk.get("usage"), dict):
+            usage = chunk["usage"]
+    if not pieces:
+        raise Refused(BAD_RESPONSE, "no message content in the first choice")
+    return {
+        "text": _without_think("".join(pieces)),
         _MODEL: model if isinstance(model, str) and model else fallback_model,
         "usage": _usage(usage if isinstance(usage, dict) else {}),
     }
@@ -492,15 +695,18 @@ class LlmCompletePort:
             raise Refused(INVALID, "the transcript has no text to send")
         return text
 
-    def _request(self, input: Mapping[str, Any], model: str, content: str) -> bytes:
+    def _request(
+        self, input: Mapping[str, Any], model: str, content: str, params: Mapping[str, Any]
+    ) -> bytes:
         body: dict[str, Any] = {
             _MODEL: model,
             "messages": [
-                {"role": "system", _CONTENT: _brief(input)},
+                {"role": "system", _CONTENT: _brief(input, params)},
                 {"role": "user", _CONTENT: content},
             ],
             "max_tokens": _max_tokens(input.get("max_tokens")),
-            "stream": False,
+            "stream": True,
+            "stream_options": {"include_usage": True},
         }
         temperature = _temperature(input.get("temperature"))
         if temperature is not None:
@@ -508,7 +714,10 @@ class LlmCompletePort:
         return json.dumps(body).encode("utf-8")
 
     def _headers(self, params: Mapping[str, Any]) -> dict[str, str]:
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream, application/json",  # an error body is JSON
+        }
         key = params.get("api_key")
         if key:
             try:
@@ -534,8 +743,8 @@ class LlmCompletePort:
             hit = _cached_answer(*cache)
             if hit is not None:
                 return InvocationResult.completed(hit)
-        _brief(input)  # a bad brief is refused before the content is read
-        data = self._request(input, model, self._user_content(input))
+        _brief(input, actor.params)  # a bad brief is refused before the content is read
+        data = self._request(input, model, self._user_content(input), actor.params)
         headers = self._headers(actor.params)  # may block on a grant lookup (Codex r2 #2)
         url = _completions_url(actor.params["base_url"])
         timeout = self._remaining(input, deadline)

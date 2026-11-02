@@ -132,6 +132,7 @@ On disk today:
   top-level repo's devague record (default-branch versions, working drafts, tombstones,
   spec links) to culture-library; the bundle `docs/rules/repodocs` runs it every 15
   minutes (disabled).
+- **Forum posts and actor briefs**: `markdown.from_html` takes `split_at` (h1-h6) and then also outputs `parts` (`{index, heading, text}`, a `''` lead part first when content precedes the first heading of that rank); `discord.message` takes `thread_name` and `tags` to post into a forum as a thread (tags matched by name, unknown ones listed in `tags_missing`, text over 2000 characters posted as replies, a failure after the thread exists is not retried); `llm.complete` takes a `brief` naming one of the agent actor's `params.briefs` (the code briefs keep their text; only admins may edit `params.briefs`, else `briefs_admin_only`). Flows that use them are configured live, never committed (guides `docs/actors/discord.md`, `docs/actors/llm.md`, `docs/operations/newspaper.md`).
 
 GitHub issue #1 was the build brief, and #2 the product model and UX. The
 spec is `docs/specs/2026-10-03-culture-rules-engine-editor.md`; the operator
