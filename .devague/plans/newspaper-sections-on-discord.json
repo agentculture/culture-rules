@@ -3,9 +3,9 @@
   "title": "Newspaper sections on Discord",
   "frame_slug": "newspaper-sections-on-discord",
   "schema_version": 5,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-11-01T22:45:52Z",
-  "updated": "2026-11-01T22:46:42Z",
+  "updated": "2026-11-02T02:27:50Z",
   "targets": [
     {
       "id": "c1",
@@ -377,7 +377,7 @@
       "id": "t1",
       "summary": "markdown.from_html split_at and parts",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a test renders HTML shaped like the newspaper (h1, p.date, three h2 sections each with a ul) with split_at h2 and gets 4 parts in order: heading '' holding the masthead, then each section's heading and its whole text, index 0..3",
         "a section longer than max_chars stays one part, while chunks still splits it as before",
@@ -397,7 +397,7 @@
       "id": "t2",
       "summary": "Discord REST: channel read and forum thread create",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "FakeTransport tests: get_channel parses type 15 and available_tags; create_forum_post sends POST /channels/{id}/threads with name, applied_tags and message.content and allowed_mentions parse []",
         "create_forum_post maps a timeout to outcome_unknown non-retryable, 429 retryable, 503 retryable, 400 refused, and returns thread_id and message_id on 201",
@@ -414,7 +414,7 @@
       "id": "t3",
       "summary": "llm.complete briefs from actor config",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a test with actor params.briefs {headline: 'X'} and step brief headline sends 'X' as the system message",
         "brief 'nope' with no such actor or code brief fails invalid_request with no HTTP request",
@@ -432,7 +432,7 @@
       "id": "t4",
       "summary": "Admin guard on actor briefs",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "an editor saving an actor with changed params.briefs gets 403 briefs_admin_only and the stored actor is unchanged",
         "an admin save with changed briefs succeeds; an editor save leaving briefs unchanged succeeds",
@@ -449,7 +449,7 @@
       "id": "t5",
       "summary": "discord.message posts to a forum",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "tests: thread_name on a type-0 channel fails bad_params with no POST; 6 tags fail bad_params with no request; tags without thread_name fail bad_params",
         "tests: tags ['Jetson news','Nope'] on a forum holding 'Jetson news' posts applied_tags [its id] and returns tags_missing ['Nope']",
@@ -478,7 +478,7 @@
       "id": "t6",
       "summary": "Editor, guides and project docs",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "web typecheck, vitest and Playwright pass; ActionPicker offers thread_name and tags for discord.message",
         "markdownlint-cli2 passes on every touched .md; the four harness prompt files describe the change in the same words",
@@ -502,7 +502,7 @@
       "id": "t7",
       "summary": "No-BL audit, full gate and PR",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "the diff grep finds no prompt text, section, tag, channel or title-format literal under culture_rules/",
         "every CI job passes and SonarCloud shows 0 open issues on the PR"
@@ -524,7 +524,7 @@
       "id": "t8",
       "summary": "Live test on the testing forum",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "one real issue yields one forum post per section with results in bot-experiments-forum, none for the masthead or an empty section",
         "each post carries exactly its matching tag, tags_missing is empty, and each title is heading - date - headline at most 100 characters",
@@ -555,7 +555,7 @@
       "id": "t9",
       "summary": "Live rev 3 on the Jetson forum and 3-issue check",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "rev 3 is written with expected_revision 2 after operator approval, with rev 2 saved and the rollback dry run passing",
         "for 3 consecutive issues: one tagged post per section with results in the Jetson forum, titles at most 100 characters, 0 failed newspaper-to-discord runs"
