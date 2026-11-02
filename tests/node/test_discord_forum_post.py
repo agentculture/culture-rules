@@ -442,6 +442,11 @@ def test_a_required_tag_with_no_match_names_tags_missing():
     t = ForumTransport(flags=REQUIRE_TAG)
     res = post(t, thread_name="A post", tags=["Nope"])
     assert "tags_missing" in res.error
+
+
+def test_a_required_tag_with_no_match_names_the_missing_tag():
+    t = ForumTransport(flags=REQUIRE_TAG)
+    res = post(t, thread_name="A post", tags=["Nope"])
     assert "Nope" in res.error
 
 
