@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-02T05:37:24Z",
+  "updated": "2026-11-02T05:41:32Z",
   "claims": [
     {
       "id": "c1",
@@ -964,6 +964,51 @@
       "seam": "web ActionPicker",
       "behavior": "the action picker offers thread_name and tags for discord.message",
       "source_text": "discord.message's declaration (culture_rules/model/action_kinds.py:106-113) and the editor's hand-copied one (web/src/rules/ActionPicker.tsx:64-67) gain thread_name and tags as optional params; the Discord targets picker (server/app.py:1018-1054, TEXT_CHANNEL_TYPES (0,5) in discord_rest.py) is not changed: forum channels and their tags are not listed in the editor in this work",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c28",
+      "seam": "testing forum, one real issue",
+      "behavior": "4 posts, 1 matching tag each, title topic - date - summary <= 100 chars",
+      "source_text": "On the testing forum, one real issue yields 4 posts, each with exactly 1 matching tag and a title of the form topic - date - summary at most 100 characters; then on the Jetson forum for 3 consecutive issues, 4 tagged posts per issue (fewer only when a section had no results) and 0 failed newspaper-to-discord runs",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c21",
+      "seam": "title by config",
+      "behavior": "title is heading - date (run.read claim.date) - headline (llm.complete brief headline)",
+      "source_text": "The live flow titles each post heading - date - headline through config: the date read from the issue run (run.read of the claim step's date), the headline from an llm.complete step with brief headline on the part's text, and the title a template in thread_name; when the headline step is skipped or fails (on_error skip), a second send step routed by when posts the title heading - date",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c4",
+      "seam": "routing by when",
+      "behavior": "sections routed by when-conditions on loop body steps; jobs gets the literal tag",
+      "source_text": "Routing by section is a when-condition on a loop body step over an item field (the condition tree already has matches/in/compare, culture_rules/model/condition.py:14-15), because nested loops are refused (culture_rules/engine/runs.py:1803): so each split piece must carry its heading as a field of a single loop item",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c15",
+      "seam": "testing forum first",
+      "behavior": "live tests post only to the testing forum",
+      "source_text": "Live tests of forum posts go first to the testing forum bot-experiments-forum 1566568383082799214 in the Experiments server 1413999242648748195 (operator-designated for exploration/testing); the Jetson AI Lab forum 1563965995788271617 is used only after a clean test",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c33",
+      "seam": "empty sections skipped",
+      "behavior": "the flow never posts a No results section",
+      "source_text": "The live flow posts only real sections: its send steps' when skips the part with an empty heading (the masthead) and parts whose text is the rendered empty-section line, so an issue posts 4 or fewer forum posts and never a No results post (config, not code)",
       "origin": "llm",
       "status": "proposed"
     }

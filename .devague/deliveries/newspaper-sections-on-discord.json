@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sections-on-discord",
   "schema_version": 2,
   "created": "2026-11-02T02:33:09Z",
-  "updated": "2026-11-02T05:37:24Z",
+  "updated": "2026-11-02T05:42:18Z",
   "deviations": [
     {
       "id": "d1",
@@ -298,6 +298,120 @@
       "status": "proposed",
       "superseded": false,
       "seq": 18
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "live run run-2e7ddf784b1643169a4df7703bda065a (newspaper-sections-test rev 5)",
+      "behavior_text": "live run-2e7ddf784b1643169a4df7703bda065a on 11-02 issue run-2fab0865: 4 forum posts, tags Jetson optimization / Jetson jobs / Jetson news / Isaac ROS each found (tags_missing []), titles 92/95/85/55 chars of the form topic - date - summary (headline model senses-thor, test-only)",
+      "contract_text": "On the testing forum, one real issue yields 4 posts, each with exactly 1 matching tag and a title of the form topic - date - summary at most 100 characters; then on the Jetson forum for 3 consecutive issues, 4 tagged posts per issue (fewer only when a section had no results) and 0 failed newspaper-to-discord runs",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live run's stored step inputs and outputs on 0.41.0 (build 2160318)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:58:00",
+        "commit": "2160318"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "live run run-2e7ddf784b1643169a4df7703bda065a (newspaper-sections-test rev 5)",
+      "behavior_text": "live run-2e7ddf784b1643169a4df7703bda065a: thread_name built by the template from item.heading, the claim step's date 2026-11-02 and the headline step's text",
+      "contract_text": "The live flow titles each post heading - date - headline through config: the date read from the issue run (run.read of the claim step's date), the headline from an llm.complete step with brief headline on the part's text, and the title a template in thread_name; when the headline step is skipped or fails (on_error skip), a second send step routed by when posts the title heading - date",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live run's stored step inputs and outputs on 0.41.0 (build 2160318)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:58:00",
+        "commit": "2160318"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "live run run-2e7ddf784b1643169a4df7703bda065a (newspaper-sections-test rev 5)",
+      "behavior_text": "live run-2e7ddf784b1643169a4df7703bda065a: jobs part went to post_jobs with tag Jetson jobs, other parts to post_topic, lead part posted nothing; earlier run-26ca0b80 took the no-headline routes (post_*_plain)",
+      "contract_text": "Routing by section is a when-condition on a loop body step over an item field (the condition tree already has matches/in/compare, culture_rules/model/condition.py:14-15), because nested loops are refused (culture_rules/engine/runs.py:1803): so each split piece must carry its heading as a field of a single loop item",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live run's stored step inputs and outputs on 0.41.0 (build 2160318)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:58:00",
+        "commit": "2160318"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o15",
+      "test_ref": "live run run-2e7ddf784b1643169a4df7703bda065a (newspaper-sections-test rev 5)",
+      "behavior_text": "live run-2e7ddf784b1643169a4df7703bda065a, run-26ca0b80, run-2f5d7b59 all posted to channel 1566568383082799214 in guild 1413999242648748195; nothing posted on the Jetson server",
+      "contract_text": "Live tests of forum posts go first to the testing forum bot-experiments-forum 1566568383082799214 in the Experiments server 1413999242648748195 (operator-designated for exploration/testing); the Jetson AI Lab forum 1563965995788271617 is used only after a clean test",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live run's stored step inputs and outputs on 0.41.0 (build 2160318)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:58:00",
+        "commit": "2160318"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o16",
+      "test_ref": "live run run-2e7ddf784b1643169a4df7703bda065a (newspaper-sections-test rev 5)",
+      "behavior_text": "live run-2e7ddf784b1643169a4df7703bda065a posted Isaac ROS (text '**Isaac ROS**\\n_No results._') as 'Isaac ROS - 2026-11-02 - No results found for Isaac ROS': the test workflow's when lacked the empty-section skip",
+      "contract_text": "The live flow posts only real sections: its send steps' when skips the part with an empty heading (the masthead) and parts whose text is the rendered empty-section line, so an issue posts 4 or fewer forum posts and never a No results post (config, not code)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live run's stored step inputs and outputs on 0.41.0 (build 2160318)",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-11-02T05:58:00",
+        "commit": "2160318"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o16",
+      "test_ref": "live run run-56e5894051bd4864828db4c1ba56be1f (newspaper-sections-test rev 6)",
+      "behavior_text": "after adding not matches item.text '[^\\n]*\\n_No results\\._' to every body step's when, the Isaac ROS part ('_No results._') got no headline call and no post; 3 posts for the 3 sections with results",
+      "contract_text": "The live flow posts only real sections: its send steps' when skips the part with an empty heading (the masthead) and parts whose text is the rendered empty-section line, so an issue posts 4 or fewer forum posts and never a No results post (config, not code)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live run's stored step states on 0.41.0 (build 2160318)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T06:05:00",
+        "commit": "2160318"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
     }
   ],
   "deltas": [],
