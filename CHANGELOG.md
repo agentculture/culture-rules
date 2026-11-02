@@ -14,6 +14,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - llm.complete actor briefs (params.briefs, admin-only, briefs_admin_only) named by a step brief
 - llm.complete always streams: `stream: true` with `stream_options.include_usage`, the reply read as server-sent events (a plain JSON reply still parses), and the whole read bounded by the timeout
 - Review fixes: a streamed reply may be up to 8 MiB; a stalled stream ends at the timeout; a transient mid-stream error event is retryable; SSE `event:`/`id:`/`retry:` lines are read; a forum reply that gets a 429 waits `retry_after` and is resent (at most 3 times); `get_channel` refuses a non-object reply
+- Second review fixes: a forum thread start that times out, gets a 5xx or loses its connection mid-request is an unknown outcome, not retried (only a 429, a refused connection or a failed name lookup stays retryable); a forum that requires a tag fails `bad_params` (naming `tags_missing`) when no tag matched; forum reply waits never pass the step's deadline and are counted by a small budget object; a stream chunk with `"error": null` is not an error; a bare "unavailable" (a model or a feature) in a stream error is no longer transient; the harness prompt files say the `''` lead part comes only when content precedes the first heading of that rank
 - Docs: Forum posts (discord.md), Actor briefs (llm.md), the forum flow as configuration (newspaper.md), and the four harness prompt files
 
 ## [0.40.1] - 2026-11-01

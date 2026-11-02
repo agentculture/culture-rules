@@ -310,6 +310,43 @@ def test_another_error_event_stays_llm_bad_response(error):
     assert _failed(_invoke(port)) == (FAILED, "llm_bad_response", False)
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"message": "model foo unavailable"},
+        {"message": "x", "type": "model_unavailable"},
+        "feature unavailable",
+    ],
+)
+def test_a_bare_unavailable_about_a_model_is_not_transient(error):
+    port, _ = _port(_error_event(error))
+    assert _failed(_invoke(port)) == (FAILED, "llm_bad_response", False)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"message": "x", "type": "server_overloaded"},
+        {"message": "The service is temporarily unavailable"},
+        {"message": "Timeout while waiting for the engine"},
+    ],
+)
+def test_load_wording_is_still_transient(error):
+    port, _ = _port(_error_event(error))
+    assert _failed(_invoke(port)) == (FAILED, "llm_unavailable", True)
+
+
+def _with_null_error(chunk):
+    return {**chunk, "error": None}
+
+
+def test_a_chunk_with_a_null_error_is_not_an_error():
+    chunks = [_with_null_error(_delta(content="Hi")), {"model": SERVED, "choices": []}]
+    body = b"".join(_event(c) for c in chunks) + DONE
+    port, _ = _port(body)
+    assert _invoke(port).output["text"] == "Hi"
+
+
 def test_event_id_and_retry_fields_before_data_are_still_a_stream():
     body = b"event: message\nid: 1\nretry: 1000\n" + _sse("a", "b")
     port, _ = _port(body)

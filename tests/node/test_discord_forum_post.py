@@ -4,7 +4,7 @@ long text continued as replies in the new thread."""
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from culture_rules.apps.discord_rest import MAX_CONTENT
 from culture_rules.engine.actorport import FAILED, InvocationContext
@@ -13,6 +13,7 @@ from culture_rules.node.actions.message import DiscordMessageAction
 from culture_rules.store.memory import MemoryStore
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
+LATER = NOW + timedelta(hours=1)
 FORUM, TEXT_CHANNEL, THREAD = "77", "78", "900"
 TAGS = [{"id": "5001", "name": "Jetson news"}, {"id": "5002", "name": "Other"}]
 
@@ -25,9 +26,18 @@ class ForumTransport:
     """Routes GETs of a channel, the thread POST and reply POSTs; records every request."""
 
     def __init__(
-        self, *, thread_status=201, reply_statuses=(), thread_timeout=False, retry_after=0.5
+        self,
+        *,
+        thread_status=201,
+        reply_statuses=(),
+        thread_timeout=False,
+        retry_after=0.5,
+        thread_exc=None,
+        flags=0,
     ):
         self.calls = []
+        self.thread_exc = thread_exc
+        self.flags = flags
         self.retry_after = retry_after
         self.thread_status = thread_status
         self.reply_statuses = list(reply_statuses)
@@ -40,10 +50,15 @@ class ForumTransport:
         if data is None:  # GET /channels/{id}
             channel = url.rsplit("/", 1)[1]
             kind = 15 if channel == FORUM else 0
-            return 200, {"id": channel, "type": kind, "flags": 0, "available_tags": TAGS}, {}
+            body = {"id": channel, "type": kind, "flags": self.flags, "available_tags": TAGS}
+            return 200, body, {}
         if url.endswith("/threads"):
             if self.thread_timeout:
                 raise TimeoutError("timed out")
+            if self.thread_exc is not None:
+                raise self.thread_exc
+            if self.thread_status == 429:
+                return 429, {"message": "rate limited", "retry_after": self.retry_after}, {}
             return self.thread_status, {"id": THREAD, "message": {"id": "m-start"}}, {}
         self.replies += 1
         status = self.reply_statuses.pop(0) if self.reply_statuses else 200
@@ -58,7 +73,7 @@ class ForumTransport:
         return next(body for url, body in self.calls if url.endswith("/threads"))
 
 
-def port(transport, secrets_seen=None, sleep=None):
+def port(transport, secrets_seen=None, sleep=None, clock=None):
     s = MemoryStore()
     s.put(
         "actors",
@@ -77,13 +92,17 @@ def port(transport, secrets_seen=None, sleep=None):
         return "tok-xyz"
 
     return DiscordMessageAction(
-        s, resolve_secret=resolve, transport=transport, sleep=sleep or (lambda _s: None)
+        s,
+        resolve_secret=resolve,
+        transport=transport,
+        sleep=sleep or (lambda _s: None),
+        clock=clock or (lambda: NOW),
     )
 
 
-def post(transport, secrets_seen=None, sleep=None, **params):
+def post(transport, secrets_seen=None, sleep=None, deadline=LATER, **params):
     params = {"channel": FORUM, "text": "hello forum", **params}
-    return port(transport, secrets_seen, sleep).invoke(params, "k", NOW, context=ctx())
+    return port(transport, secrets_seen, sleep).invoke(params, "k", deadline, context=ctx())
 
 
 # --- the catalogue -------------------------------------------------------------------------
@@ -300,6 +319,10 @@ def _three_piece_text():
     return "a" * MAX_CONTENT + "b" * MAX_CONTENT + "c"
 
 
+def _three_piece():
+    return {"thread_name": "A post", "text": _three_piece_text()}
+
+
 def test_a_rate_limited_reply_is_sent_again_after_retry_after():
     t, slept = ForumTransport(reply_statuses=[429]), []
     res = post(t, sleep=slept.append, thread_name="A post", text=_three_piece_text())
@@ -355,6 +378,90 @@ def test_a_fourth_rate_limit_names_the_replies_posted():
     assert "m-3" in res.error
 
 
+def test_a_wait_past_the_deadline_is_not_slept():
+    t, slept = ForumTransport(reply_statuses=[429], retry_after=8), []
+    post(t, sleep=slept.append, deadline=NOW + timedelta(seconds=5), **_three_piece())
+    assert slept == []
+
+
+def test_a_wait_past_the_deadline_fails_without_retry():
+    t = ForumTransport(reply_statuses=[429], retry_after=8)
+    res = post(t, deadline=NOW + timedelta(seconds=5), **_three_piece())
+    assert (res.outcome, res.retryable) == (FAILED, False)
+
+
+def test_a_wait_past_the_deadline_names_the_thread():
+    t = ForumTransport(reply_statuses=[429], retry_after=8)
+    res = post(t, deadline=NOW + timedelta(seconds=5), **_three_piece())
+    assert THREAD in res.error
+
+
+def test_a_wait_past_the_deadline_says_so():
+    t = ForumTransport(reply_statuses=[429], retry_after=8)
+    res = post(t, deadline=NOW + timedelta(seconds=5), **_three_piece())
+    assert "deadline" in res.error
+
+
+def test_a_wait_within_the_deadline_is_slept():
+    t, slept = ForumTransport(reply_statuses=[429], retry_after=2), []
+    post(t, sleep=slept.append, deadline=NOW + timedelta(seconds=5), **_three_piece())
+    assert slept == [2]
+
+
+def test_the_waits_add_up_against_the_deadline():
+    now = [NOW]
+
+    def sleep(seconds):
+        now[0] += timedelta(seconds=seconds)
+
+    t = ForumTransport(reply_statuses=[429, 429], retry_after=3)
+    p = port(t, sleep=sleep, clock=lambda: now[0])
+    params = {"channel": FORUM, **_three_piece()}
+    p.invoke(params, "k", NOW + timedelta(seconds=5), context=ctx())
+    assert now[0] == NOW + timedelta(seconds=3)
+
+
+# --- a forum that requires a tag ------------------------------------------------------------
+
+REQUIRE_TAG = 1 << 4
+
+
+def test_a_required_tag_with_no_match_fails_bad_params():
+    t = ForumTransport(flags=REQUIRE_TAG)
+    res = post(t, thread_name="A post", tags=["Nope"])
+    assert res.error.startswith("bad_params")
+
+
+def test_a_required_tag_with_no_match_posts_nothing():
+    t = ForumTransport(flags=REQUIRE_TAG)
+    post(t, thread_name="A post", tags=["Nope"])
+    assert t.posts() == []
+
+
+def test_a_required_tag_with_no_match_names_tags_missing():
+    t = ForumTransport(flags=REQUIRE_TAG)
+    res = post(t, thread_name="A post", tags=["Nope"])
+    assert "tags_missing" in res.error
+    assert "Nope" in res.error
+
+
+def test_a_required_tag_with_no_tags_given_fails_bad_params():
+    t = ForumTransport(flags=REQUIRE_TAG)
+    res = post(t, thread_name="A post")
+    assert (res.error.split(":")[0], res.retryable) == ("bad_params", False)
+
+
+def test_a_required_tag_with_a_match_posts():
+    t = ForumTransport(flags=REQUIRE_TAG)
+    res = post(t, thread_name="A post", tags=["Jetson news", "Nope"])
+    assert res.output["tags_missing"] == ["Nope"]
+
+
+def test_other_flags_do_not_require_a_tag():
+    t = ForumTransport(flags=2)
+    assert post(t, thread_name="A post", tags=["Nope"]).outcome == "completed"
+
+
 def test_a_thread_post_timeout_is_an_unknown_outcome_not_retried():
     t = ForumTransport(thread_timeout=True)
     res = post(t, thread_name="A post")
@@ -363,8 +470,32 @@ def test_a_thread_post_timeout_is_an_unknown_outcome_not_retried():
     assert "outcome unknown" in res.error
 
 
-def test_a_thread_post_5xx_stays_retryable():
+def test_a_thread_post_5xx_is_not_retried():
     t = ForumTransport(thread_status=502)
+    res = post(t, thread_name="A post")
+    assert not res.retryable
+
+
+def test_a_thread_post_5xx_says_the_outcome_is_unknown():
+    t = ForumTransport(thread_status=502)
+    res = post(t, thread_name="A post")
+    assert "outcome unknown" in res.error
+
+
+def test_a_thread_post_connection_reset_is_not_retried():
+    t = ForumTransport(thread_exc=ConnectionResetError(104, "reset"))
+    res = post(t, thread_name="A post")
+    assert not res.retryable
+
+
+def test_a_thread_post_refused_connection_stays_retryable():
+    t = ForumTransport(thread_exc=ConnectionRefusedError(111, "refused"))
+    res = post(t, thread_name="A post")
+    assert res.retryable
+
+
+def test_a_thread_post_429_stays_retryable():
+    t = ForumTransport(thread_status=429)
     res = post(t, thread_name="A post")
     assert res.retryable
 
