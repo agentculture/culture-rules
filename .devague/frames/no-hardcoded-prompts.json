@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:30:50Z",
+  "updated": "2026-11-02T17:33:37Z",
   "claims": [
     {
       "id": "c1",
@@ -16,7 +16,7 @@
         {
           "id": "h1",
           "text": "the four parts ship together: briefs in config, answer and cache options, the numbering and replace steps, the validation step",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "diff review: every hardcoded item named in c2-c8 is gone from code or became a step option"
         }
       ],
@@ -35,7 +35,7 @@
         {
           "id": "h2",
           "text": "llm.complete with no brief, or a brief the actor lacks, fails invalid_request before any request; no brief text remains in llm.py",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "unit tests on llm.complete; grep llm.py for the old texts"
         }
       ],
@@ -54,7 +54,7 @@
         {
           "id": "h3",
           "text": "the committed newspaper and transcript bundles still run end to end with briefs only from the actor's params.briefs",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "tests/rules/test_newspaper_flow.py and tests/node/test_transcript_reader_flow.py pass with briefs set on the fixture actor"
         }
       ],
@@ -73,7 +73,7 @@
         {
           "id": "h4",
           "text": "a configured answer shape accepts today's recording answers and refuses the same bad answers with answer_not_json / answer_invalid",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "port the recording_answer.py test cases to the configured shape"
         }
       ],
@@ -92,7 +92,7 @@
         {
           "id": "h5",
           "text": "an existing answer.recording.<sha16>.json cache file is read back with no new request after the change",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "test with a cache file written by the old code"
         }
       ],
@@ -111,7 +111,7 @@
         {
           "id": "h6",
           "text": "newspaper.render renders a prose summary with links unchanged in HTML and EPUB, and the validation step with today's rule as config refuses the same summaries the old _summary_ok refused",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "port tests/node/test_newspaper_render.py summary cases to the validation step"
         }
       ],
@@ -136,7 +136,7 @@
         {
           "id": "h7",
           "text": "the numbering step's output for a list and template is deterministic and numbers from 1 in list order",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "unit tests"
         }
       ],
@@ -155,7 +155,7 @@
         {
           "id": "h8",
           "text": "every [n] with 1 <= n <= len(list) is replaced by the template; an out-of-range [n] is listed in an output and left unchanged",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "unit tests"
         }
       ],
@@ -192,7 +192,7 @@
         {
           "id": "h9",
           "text": "transcript_render.py's parser is untouched in this work",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "git diff shows no change to transcript_render.py parsing"
         }
       ],
@@ -218,8 +218,15 @@
       "kind": "audience",
       "text": "The operator, who configures every prompt, answer shape, citation format and summary rule as actor and step configuration; and the newspaper, transcript and recording flows that must keep working through the change",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "the operator can change each prompt, answer shape, citation template and summary rule with actors update / workflows update alone, no release",
+          "status": "proposed",
+          "instruction": "do each once on a test actor/workflow"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -230,8 +237,15 @@
       "kind": "before_state",
       "text": "Three prompts (newspaper, transcript, recording), the recording answer's shape, the answer cache's trigger and newspaper.render's bullet-and-link summary rule are hardcoded; a cited summary is dropped as 'Summary withheld' because its lines are not bullets",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "the before state is what main 45d2357 holds: _BRIEFS, recording_answer.py, _CACHE_BRIEF and _summary_ok exist there",
+          "status": "proposed",
+          "instruction": "grep main 45d2357"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -242,8 +256,15 @@
       "kind": "after_state",
       "text": "llm.complete holds no prompt text: every brief is actor configuration, steps name their brief, the answer shape and cache are step options, and a section summary can be prose citing [n] links built by two generic steps (number a list, replace references) and checked by a generic validation step",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "on the delivered branch the four hardcoded items are gone and the newspaper renders a cited summary",
+          "status": "proposed",
+          "instruction": "grep and a live newspaper-sections-test-style run"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "grep culture_rules for the old brief constants and fixed answer fields returns nothing; the newspaper issue renders a cited summary",
@@ -254,8 +275,15 @@
       "kind": "why_it_matters",
       "text": "Operator rule: code implements framework only, and process and business logic are configuration; changing a prompt or format becomes an edit, not a release",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "no prompt, format or shape rule needed a release to change after this work",
+          "status": "proposed",
+          "instruction": "review the delivered step and actor options"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -266,11 +294,54 @@
       "kind": "success_signal",
       "text": "After rollout: 0 prompt texts in culture_rules (grep for the three brief texts and _BRIEFS finds 0 matches); the next 3 newspaper issues render every section with results with a summary (0 'Summary unavailable' or 'Summary withheld' while the model is up) whose [n] links each point to that section's result n; transcript and recording flows complete with unchanged outputs for the same input",
       "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "the three counts in the signal are read from live runs, not estimated",
+          "status": "proposed",
+          "instruction": "read 3 issues' render outputs and the transcript and recording runs"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "grep the package; read 3 issues' render outputs and the live runs of transcript-to-reader and the recording flow",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The editor and the describe phrases follow the new options: web/src/rules/ActionPicker.tsx:38,164 lists 'llm.complete's locked briefs' with brief options and 'Newspaper (default)' and must instead offer the bound actor's params.briefs names (no default), plus the answer and cache options; culture_rules/model/describe.py:135 llm.complete phrase; the new steps get StepEditor BUILTINS entries and BUILTIN_WORDS phrases",
+      "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
-      "instruction": "grep the package; read 3 issues' render outputs and the live runs of transcript-to-reader and the recording flow",
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Rollback stays possible: the order is seed the actors' briefs (old code ignores actor briefs named like code briefs, so seeding is safe on 0.41.0), roll out, then move live steps to the new options; rolling the code back to 0.41.0 first requires putting the live steps back (a step using the answer option would otherwise lose its parsing), documented in docs/operations/rollout.md",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "The validation step's verdict reaches the rendered issue: when it refuses a section's summary, newspaper.render still shows that section's results with a note, as LINK_NOTE does today, rather than silently showing no summary (observability of a refused summary)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
       "revisions": []
     }
   ],
