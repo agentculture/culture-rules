@@ -116,8 +116,18 @@ model's name) so its to-do ids stay stable. Delete the
 `usage`, because no tokens were spent.
 
 The request body has exactly `model`, `messages`, `max_tokens`,
-`stream: false` and, when given, `temperature`. It never has a `tools`
-field. Environment proxies are ignored and redirects are not followed.
+`stream: true`, `stream_options: {include_usage: true}` and, when given,
+`temperature`. It never has a `tools` field. Environment proxies are ignored
+and redirects are not followed.
+
+The reply is read as a server-sent event stream (deviation d7: always
+stream). The content deltas of the first choice, joined in order, are the
+text; reasoning deltas are not. The model comes from the chunks and `usage`
+from the last chunk, which `include_usage` asks for. The whole stream must
+arrive within the request's timeout and at most 1 MiB. A stream that ends
+without `data: [DONE]`, has no content delta, or carries an `error` event
+fails `llm_bad_response`, like a truncated JSON reply. A plain JSON reply
+(an error body, or a server that ignores `stream`) is still read as before.
 
 The output is `{text, model, usage}`, plus `answer` (the parsed JSON) and
 `cached` for the recording brief. `text` is the first choice's message,

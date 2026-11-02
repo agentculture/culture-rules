@@ -162,7 +162,7 @@ def test_structured_content_is_serialised_deterministically():
 def test_never_a_tools_field():
     port, transport = _port(_store(_actor(tools=[{"type": "function"}])))
     _invoke(port, tools=[{"type": "function"}], tool_choice="auto")
-    assert set(transport.sent) == {"model", "messages", "max_tokens", "stream"}
+    assert set(transport.sent) == {"model", "messages", "max_tokens", "stream", "stream_options"}
 
 
 def test_no_repo_or_head_fields_are_sent():
