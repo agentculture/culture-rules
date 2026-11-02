@@ -11,9 +11,12 @@ optional ``max_tokens`` (int >= 1, default
 :data:`DEFAULT_MAX_TOKENS`, capped at :data:`MAX_TOKENS_CAP`) and ``temperature`` (a number
 0..2), and optional ``brief``: absent or ``"newspaper"`` selects :data:`NEWSPAPER_BRIEF`,
 ``"transcript"`` selects :data:`TRANSCRIPT_BRIEF`, ``"recording"`` selects
-:data:`RECORDING_BRIEF`, anything else (including null) fails
-``invalid_request`` before any request. Every other param is ignored: a step cannot
-replace the brief, add tools or name a repository.
+:data:`RECORDING_BRIEF`. Any other name is looked up in the bound actor's ``params.briefs`` (a
+mapping of name to non-empty string: the actor's configuration holds the text, never a step);
+an unknown name, a non-string name or an empty or non-string text (including null) fails
+``invalid_request`` before any request. A code brief name always selects its code text: an
+actor brief with that name is ignored. Every other param is ignored: a step can only name a
+brief, not replace it, and cannot add tools or name a repository.
 
 The bound actor is an ``agent`` actor whose ``params`` carry ``base_url`` (``http(s)://host
 [:port][/v1]``, no credentials), ``model`` (non-empty; else the actor's own ``model``) and
@@ -168,6 +171,7 @@ _BRIEFS = {
     "transcript": TRANSCRIPT_BRIEF,
     "recording": RECORDING_BRIEF,
 }
+_BRIEFS_PARAM = "briefs"
 _CACHE = "cache"
 _CACHE_BRIEF = "recording"
 _CACHE_SCHEMA = 1
@@ -253,13 +257,19 @@ def _user_message(content: Any, limit: int) -> str:
     return text
 
 
-def _brief(input: Mapping[str, Any]) -> str:
+def _brief(input: Mapping[str, Any], actor_params: Mapping[str, Any]) -> str:
     if "brief" not in input:
         return NEWSPAPER_BRIEF
     name = input["brief"]
-    if not isinstance(name, str) or name not in _BRIEFS:
-        raise Refused(INVALID, "brief must be 'newspaper', 'transcript' or 'recording'")
-    return _BRIEFS[name]
+    if not isinstance(name, str):
+        raise Refused(INVALID, "brief must be a name")
+    if name in _BRIEFS:  # a code brief always wins: an actor brief cannot replace it
+        return _BRIEFS[name]
+    briefs = actor_params.get(_BRIEFS_PARAM)
+    text = briefs.get(name) if isinstance(briefs, Mapping) else None
+    if not isinstance(text, str) or not text.strip():
+        raise Refused(INVALID, f"brief {name!r} is not a code brief or one of the actor's briefs")
+    return text
 
 
 def _max_tokens(value: Any) -> int:
@@ -492,11 +502,13 @@ class LlmCompletePort:
             raise Refused(INVALID, "the transcript has no text to send")
         return text
 
-    def _request(self, input: Mapping[str, Any], model: str, content: str) -> bytes:
+    def _request(
+        self, input: Mapping[str, Any], model: str, content: str, params: Mapping[str, Any]
+    ) -> bytes:
         body: dict[str, Any] = {
             _MODEL: model,
             "messages": [
-                {"role": "system", _CONTENT: _brief(input)},
+                {"role": "system", _CONTENT: _brief(input, params)},
                 {"role": "user", _CONTENT: content},
             ],
             "max_tokens": _max_tokens(input.get("max_tokens")),
@@ -534,8 +546,8 @@ class LlmCompletePort:
             hit = _cached_answer(*cache)
             if hit is not None:
                 return InvocationResult.completed(hit)
-        _brief(input)  # a bad brief is refused before the content is read
-        data = self._request(input, model, self._user_content(input))
+        _brief(input, actor.params)  # a bad brief is refused before the content is read
+        data = self._request(input, model, self._user_content(input), actor.params)
         headers = self._headers(actor.params)  # may block on a grant lookup (Codex r2 #2)
         url = _completions_url(actor.params["base_url"])
         timeout = self._remaining(input, deadline)
