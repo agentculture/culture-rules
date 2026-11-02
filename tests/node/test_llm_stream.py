@@ -78,7 +78,7 @@ class FakeTransport:
 
 def _store(**params):
     store = MemoryStore()
-    base = {"base_url": LOCAL, "model": MODEL, **params}
+    base = {"base_url": LOCAL, "model": MODEL, "briefs": {"news": "Summarise."}, **params}
     store.put(
         ACTORS_COLLECTION,
         {"id": "llm", "name": "llm", "kind": "agent", "enabled": True, "params": base},
@@ -99,6 +99,7 @@ def _ctx():
 
 def _invoke(port, seconds=120, **params):
     params.setdefault("actor", "llm")
+    params.setdefault("brief", "news")
     params.setdefault("content", "1. A https://a.example/1")
     deadline = datetime.now(UTC) + timedelta(seconds=seconds)
     return port.invoke(params, "k1", deadline, context=_ctx())
@@ -190,11 +191,11 @@ def test_a_raw_line_separator_inside_a_chunk_stays_in_its_text():
     assert _invoke(port).output["text"] == "a\u2028b"
 
 
-def test_the_recording_brief_parses_a_streamed_answer():
-    answer = {"summary": "A call.", "word": "call", "facts": [], "action_items": []}
-    text = json.dumps(answer)
-    port, _ = _port(_sse(text[:10], text[10:]))
-    assert _invoke(port, brief="recording").output["answer"]["word"] == "call"
+def test_the_answer_option_parses_a_streamed_answer():
+    shape = {"type": "object", "fields": {"word": {"type": "word", "lower": True}}}
+    text = json.dumps({"word": "Call"})
+    port, _ = _port(_sse(text[:5], text[5:]))
+    assert _invoke(port, answer={"shape": shape}).output["answer"] == {"word": "call"}
 
 
 def test_a_plain_json_reply_still_parses():
