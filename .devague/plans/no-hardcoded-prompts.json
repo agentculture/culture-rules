@@ -1,0 +1,698 @@
+{
+  "slug": "no-hardcoded-prompts",
+  "title": "No hardcoded prompts",
+  "frame_slug": "no-hardcoded-prompts",
+  "schema_version": 5,
+  "status": "drafting",
+  "created": "2026-11-02T17:59:05Z",
+  "updated": "2026-11-02T18:00:18Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "llm.complete and the render builtins hold no prompt or content-shape rule: briefs, answer shapes, caching, list numbering, reference replacement and output validation are generic steps and options, configured per workflow",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "the four parts ship together: briefs in config, answer and cache options, the numbering and replace steps, the validation step",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "llm.complete's built-in briefs leave the code: every brief name resolves only from the bound actor's params.briefs (admin-only), a step must name its brief, and there is no default brief",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "llm.complete with no brief, or a brief the actor lacks, fails invalid_request before any request; no brief text remains in llm.py",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Every committed bundle and test that uses llm.complete names its brief and carries it as actor config, so nothing that ran before stops running",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "every workflow and bundle test that passed before still passes, with briefs only from actor config",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "A generic `answer` step option checks a model reply's JSON shape from step config (field names; types such as text, lines, word, list of strings; item counts, character limits, patterns), replacing the fixed answer validator in code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "a configured shape accepts the answers the old validator accepted and refuses the same bad ones, with the same codes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "The answer cache is a step option for any brief; its file name and label are step config, defaulting to today's values so existing cache files stay readable",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "a cache file written by the old code is read back with no new request",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "Render builtins do not enforce a content-shape rule: the hardcoded summary check (_summary_ok) leaves render, which shows any text it is given, and the rule becomes the generic validation step's configuration",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "render shows prose with links unchanged, and the validation step configured with the old rule refuses exactly what the old check refused",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "A new generic step numbers a list into text for a model's input ([1] then the configured fields of each item, format in config); today no builtin or {{ }} template can loop over a list (refs.py _text renders a list as str(list))",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "the numbering step's output for a list and template is deterministic and numbers from 1 in list order",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "A new generic replace step rewrites each [n] reference in a text using the nth item of a given list and an output template from step config (for example [{n}]({url})); the step is a basic text operation with no format of its own, and a reference outside the list is reported, never invented",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "every [n] with 1 <= n <= len(list) is replaced by the template; an out-of-range [n] is listed in an output and left unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "Existing builtins that read a parsed answer keep reading it unchanged; no other builtin is removed in this work",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "builtins that read a parsed answer are unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "audience",
+      "text": "The operator, who configures every prompt, answer shape, citation template and validation rule as actor and step configuration, and every existing workflow that must keep running through the change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the operator can change each prompt, answer shape, citation template and summary rule with actors update / workflows update alone, no release",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "before_state",
+      "text": "Built-in briefs, a fixed answer validator, an answer cache tied to one brief name, and a hardcoded bullet-and-link check in a render builtin are code; model output that cites by number is refused because its lines are not bullets",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "the before state is what main 45d2357 holds",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "after_state",
+      "text": "No prompt or shape rule is code: briefs are actor config, steps name their brief, the answer shape and cache are step options, and a workflow can number a list for a model, replace [n] references by a configured template, validate the result by configured rules and render it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "on the delivered branch the hardcoded items are gone and a test workflow renders a cited output",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "why_it_matters",
+      "text": "Operator rule: code implements framework only, and process and business logic are configuration; changing a prompt or format becomes an edit, not a release",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "no prompt, format or shape rule needed a release to change after this work",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "success_signal",
+      "text": "After rollout: 0 prompt texts in culture_rules (grep finds none of the old brief texts); one test workflow numbers a list, asks a model to cite by number, replaces references by a template and validates the result with 0 texts or rules in code; every workflow that ran before the rollout completes its next run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "the three counts in the signal are read from live runs, not estimated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The editor and describe phrases follow the new options: the action picker offers the bound actor's brief names (no built-in list, no default) and the answer and cache options; the new steps get editor catalogue entries and describe phrases",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "the action picker shows only the chosen actor's brief names and the new options, with no built-in list or default",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Rollback stays possible: the order is seed the actors' briefs (old code ignores actor briefs named like code briefs, so seeding is safe on 0.41.0), roll out, then move live steps to the new options; rolling the code back to 0.41.0 first requires putting the live steps back (a step using the answer option would otherwise lose its parsing), documented in docs/operations/rollout.md",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "rollout.md states the order (briefs, code, live steps) and the rollback order (live steps back, then code), and both are dry-run before any apply",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "The validation step outputs a verdict and its reasons alongside the text, so later steps branch on it (when) to show the text or a configured fallback; refused output is never silently dropped",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "a refused output reaches later steps as a verdict with reasons, and a configured fallback is shown instead of nothing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "A generic json.parse step turns a JSON string (for example a shared variable) into a value and validates it against a schema from step config (required, types, min/max, enum, defaults, item limits, unknown keys refused), failing fast with the exact field path",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "a schema in config reproduces every refusal the coded sections check gives today, with the same field path in the error",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "A generic list.filter step keeps the items of a list that satisfy a condition over item (from culture_rules/model/condition.py, extended with contains and any/all over a term list), with optional dedupe by a field, a derived host from a url and a cap",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "list.filter with conditions in config keeps exactly the items the coded filter kept for the same inputs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "Generic value helpers: join strings with a separator, add seconds to a timestamp, and convert a slot time to a local date in an IANA time zone (DST-correct)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "the local-date helper matches the coded slot-to-date result across a DST change, and time-add and join are exact",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "A generic document.render step renders a list of records into HTML and an EPUB (chapters) from a template, CSS, texts and caps in step config, choosing a variant per record by condition (for example text, else items with a fallback note), deterministic so identical input gives identical bytes; it reuses _epub.py",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "document.render with a template in config renders every case the coded renderer handled (no results, text, items with a fallback note), and identical input gives identical bytes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "A generic named lease and send-once ledger replace the coded issue state machine: a key-addressed lease with owner, expiry, takeover and a fence (claim_lost), and a ledger that freezes the first payload, records the attempt before sending, gives a stable idempotency key, bounds retries by a window and marks the outcome uncertain past it; collection, key template, windows and payload fields are step config",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "each of the 12 guarantees in c27 has a test against the lease and ledger steps",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "boundary",
+      "text": "The lease and ledger keep every guarantee the coded state machine gives today: keyed by the configured key not the run; takeover only after expiry; lease renewed at every side-effect fence and a lost lease fails non-retryably; first payload frozen and replayed byte-for-byte; stable idempotency key; attempt recorded before send; never resent past the window (uncertain instead); the outcome id recorded even after a lost lease; a later side effect skipped when already recorded; done only once the send is settled, else the lease is released; an empty recipient list skips the send but completes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "a crash or retry at every fence (before send, after send, before record) neither sends twice nor skips the send",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "With the generic steps in place, the four newsletter builtins (newspaper.sections, newspaper.filter, newspaper.render, newspaper.issue) and their modules are removed from code, and the committed bundle is rewritten as configuration of generic steps",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "after R3 no newspaper.* builtin remains registered, and the committed bundle runs end to end on generic steps only",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "R1: generic shape validator module",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "culture_rules/model/shape.py validates a value against a declarative spec (required, type text/lines/word/list/int/bool/object, min/max, max_items, max_chars, pattern, enum, default, unknown keys refused) and raises with the exact field path",
+        "tests/model/test_shape.py covers every rule with one assert per condition; standard library only"
+      ],
+      "deps": [],
+      "covers": [],
+      "instruction": "New stdlib module culture_rules/model/shape.py plus tests/model/test_shape.py only. It must be able to express the recording answer's rules (summary 1-2 lines of at most 300 chars, word ^[A-Za-z][A-Za-z-]{1,23}$ lowercased, facts/action_items lists of at most 30 strings of at most 300 chars) without naming them; port those rules as test data. No flow names in code."
+    },
+    {
+      "id": "t2",
+      "summary": "R1: llm.complete briefs only from actor config, answer and cache options",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "no brief text remains in llm.py; a missing brief, or one the bound actor lacks, fails invalid_request before any request",
+        "the answer option validates the reply against a shape from step config via culture_rules/model/shape.py; answer_not_json and answer_invalid as today, naming the field",
+        "cache: true works for any brief; cache file name stem and doc label are step config defaulting to today's values; a cache file written by 0.41.0 is read back with no request",
+        "the old recording-answer test cases pass with the shape given as config"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c4",
+        "h16",
+        "c5",
+        "h17"
+      ],
+      "instruction": "Owns culture_rules/node/actions/llm.py, culture_rules/node/actions/recording_answer.py (remove or reduce to nothing flow-specific), culture_rules/model/action_kinds.py (llm.complete params brief, answer, cache) and tests/node/test_llm_*.py. Code briefs, _BRIEFS, the default brief and _CACHE_BRIEF go. Keep think/fence stripping generic."
+    },
+    {
+      "id": "t3",
+      "summary": "R1: text.number step",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "a list plus an item template from step config gives one text, numbered from 1 in list order, deterministic",
+        "refuses a non-list or a template naming a missing field with bad_params"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h7"
+      ],
+      "instruction": "New module culture_rules/node/actions/text_steps.py (number part only) and tests/node/test_text_number.py. Template uses {n} and {field} placeholders; format comes only from config."
+    },
+    {
+      "id": "t4",
+      "summary": "R1: text.replace_refs step",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "each [n] with 1 <= n <= len(list) becomes the configured output template filled from item n (e.g. `[{n}]({url})`)",
+        "an out-of-range [n] is left unchanged and listed in the output missing_refs"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h8"
+      ],
+      "instruction": "New module culture_rules/node/actions/text_refs.py and tests/node/test_text_refs.py. Reference pattern and output template come from config; no default format in code."
+    },
+    {
+      "id": "t5",
+      "summary": "R1: text.validate step",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "outputs ok, reasons and the text; rules from config: every link must be one of a given list's field values, optional line shape (all lines bullets), at least one link",
+        "configured with the old render rule it refuses exactly what _summary_ok refused (port its test cases)"
+      ],
+      "deps": [],
+      "covers": [
+        "c19",
+        "h23"
+      ],
+      "instruction": "New module culture_rules/node/actions/text_validate.py and tests/node/test_text_validate.py. Never drops output silently: a refusal is a verdict, not a failure, so later steps branch with when."
+    },
+    {
+      "id": "t6",
+      "summary": "R1: render builtin holds no shape rule and no fixed texts",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "newspaper_render.py no longer calls a summary-shape check; any summary text renders (prose with links as paragraphs and anchors)",
+        "every user-facing note (no results, unavailable, refused, masthead note) comes from step config (decision c20); a refused-summary verdict input shows the results with the configured note"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h18"
+      ],
+      "instruction": "Owns culture_rules/node/actions/newspaper_render.py and tests/node/test_newspaper_render.py. Keep everything else in this builtin unchanged; it is replaced in R2/R3."
+    },
+    {
+      "id": "t7",
+      "summary": "R1: registry, describe phrases and editor for the R1 options and steps",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "runner.py registers text.number, text.replace_refs and text.validate; describe.py has a phrase for each and for llm.complete's options",
+        "ActionPicker offers the chosen actor's brief names (no built-in list or default) and answer and cache; StepEditor BUILTINS has the three steps; vitest passes"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c17",
+        "h22"
+      ],
+      "instruction": "Owns culture_rules/node/runner.py, culture_rules/model/describe.py, web/src/rules/ActionPicker.tsx, web/src/workflows/StepEditor.tsx and their tests."
+    },
+    {
+      "id": "t8",
+      "summary": "R1: committed bundles and flow tests name their briefs",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "every committed workflow using llm.complete names its brief, and the bundle actor carries its briefs as config",
+        "flow tests pass with briefs only from actor config; builtins that read a parsed answer are unchanged"
+      ],
+      "deps": [
+        "t2",
+        "t6"
+      ],
+      "covers": [
+        "c3",
+        "h15",
+        "c10",
+        "h19"
+      ],
+      "instruction": "Owns docs/rules/**/workflows and actors JSON for llm.complete steps and tests/rules/*, tests/node/test_transcript_reader_flow.py."
+    },
+    {
+      "id": "t9",
+      "summary": "R1: docs, harness files, rollout order and version",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "docs/operations/rollout.md states the rollout order (actor briefs, code, live steps) and the rollback order (live steps back, then code)",
+        "docs/actors/llm.md and the four harness prompt files describe briefs only from config, the answer and cache options and the three text steps; markdownlint clean; minor version bump"
+      ],
+      "deps": [
+        "t7",
+        "t8"
+      ],
+      "covers": [
+        "c18",
+        "h24"
+      ],
+      "instruction": "Owns docs/actors/*.md, docs/operations/*.md, CLAUDE.md, AGENTS.override.md, AGENTS.colleague.md, QWEN.md, CHANGELOG.md, pyproject.toml, docs/rules/pr-fixer/release.json, uv.lock version line. No flow names in new text."
+    },
+    {
+      "id": "t10",
+      "summary": "R1: gate, PR, rollout and live cited-output test",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "full suite, lint gate, web checks and Sonar 0 issues; PR merged after operator review",
+        "live: actor briefs seeded before enable; a test workflow numbers a list, asks a model to cite by number, replaces refs by a template and validates, with every text in config"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c12",
+        "h10",
+        "c13",
+        "h20",
+        "c14",
+        "h21"
+      ],
+      "instruction": "Main agent. Live writes only with the operator's go-ahead, following rollout.md's order."
+    },
+    {
+      "id": "t11",
+      "summary": "R2: json.parse step",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "parses a JSON string and validates with a shape from config via culture_rules/model/shape.py, failing with the exact field path",
+        "configured with the old sections rules it refuses every case the coded check refused"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [
+        "c22",
+        "h25"
+      ],
+      "instruction": "New module culture_rules/node/actions/json_parse.py and tests/node/test_json_parse.py."
+    },
+    {
+      "id": "t12",
+      "summary": "R2: condition ops contains, any, all",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "culture_rules/model/condition.py gains contains (case-insensitive substring) and any/all over a list operand, validated and evaluated without eval",
+        "existing condition tests pass unchanged"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [],
+      "instruction": "Owns culture_rules/model/condition.py and tests/model/test_condition*.py only."
+    },
+    {
+      "id": "t13",
+      "summary": "R2: list.filter step",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "keeps items for which the configured condition holds per item, dedupes by a configured field, derives a host from a url field, caps by a number or a reference",
+        "configured with the old filter rules it keeps exactly what the coded filter kept"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c23",
+        "h26"
+      ],
+      "instruction": "New module culture_rules/node/actions/list_filter.py and tests/node/test_list_filter.py."
+    },
+    {
+      "id": "t14",
+      "summary": "R2: value helpers join, time.add, date.local",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "join, time-add and slot-to-local-date (IANA tz, DST-correct) give exact results; date.local matches the coded result across a DST change"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [
+        "c24",
+        "h27"
+      ],
+      "instruction": "New module culture_rules/node/actions/value_ops.py and tests/node/test_value_ops.py."
+    },
+    {
+      "id": "t15",
+      "summary": "R2: document.render step",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "renders a list of records to HTML and EPUB from template, CSS, texts and caps in config, choosing a variant per record by condition; identical input gives identical bytes (golden test)",
+        "reuses culture_rules/node/actions/_epub.py; every case the coded render handled is expressible as config"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [
+        "c25",
+        "h28"
+      ],
+      "instruction": "New module culture_rules/node/actions/document_render.py and tests/node/test_document_render.py."
+    },
+    {
+      "id": "t16",
+      "summary": "R2: registry, editor, docs, PR, rollout",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "the four R2 steps are registered, phrased and in the editor; docs and harness files updated; version bump; full gate green; PR merged after operator review; rolled out"
+      ],
+      "deps": [
+        "t11",
+        "t13",
+        "t14",
+        "t15"
+      ],
+      "covers": [],
+      "instruction": "Main agent plus a docs/editor subagent; no live flow switches in R2."
+    },
+    {
+      "id": "t17",
+      "summary": "R3: lease and send-once ledger steps",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "a key-addressed lease (owner, expiry, takeover, fence, claim_lost) and a ledger (frozen first payload, stable idempotency key, attempt recorded before send, window then uncertain, settle) over one CAS document, collection and keys from config",
+        "one test per guarantee in c27 plus fault-injection at each fence: no double send, no skipped send"
+      ],
+      "deps": [
+        "t16"
+      ],
+      "covers": [
+        "c26",
+        "h29",
+        "c27",
+        "h30"
+      ],
+      "instruction": "New module culture_rules/node/actions/lease.py and tests/node/test_lease*.py. Model it on the coded issue state machine's invariants without its names."
+    },
+    {
+      "id": "t18",
+      "summary": "R3: committed bundle on generic steps, four builtins removed",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "the committed bundle uses only generic steps; no newspaper.* builtin is registered; its flow test runs end to end",
+        "docs and harness files describe the generic configuration"
+      ],
+      "deps": [
+        "t17"
+      ],
+      "covers": [
+        "c28",
+        "h31"
+      ],
+      "instruction": "Owns the committed newsletter bundle, the four builtin modules (removed), runner.py registrations, their tests and docs."
+    },
+    {
+      "id": "t19",
+      "summary": "R3: PR, rollout, live switch and 3-run check",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "PR merged after operator review; live workflows switched per rollout.md with dry runs first",
+        "0 prompt texts in culture_rules; the next 3 scheduled runs complete with summaries and no double or skipped send; counts read from live runs"
+      ],
+      "deps": [
+        "t18"
+      ],
+      "covers": [
+        "c15",
+        "h13",
+        "c16",
+        "h14"
+      ],
+      "instruction": "Main agent; every live write with the operator's go-ahead."
+    }
+  ],
+  "risks": [],
+  "obligations": []
+}
