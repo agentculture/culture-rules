@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T16:53:26Z",
+  "updated": "2026-11-02T17:25:23Z",
   "claims": [
     {
       "id": "c1",
@@ -69,14 +69,20 @@
     {
       "id": "c6",
       "kind": "requirement",
-      "text": "newspaper.render no longer enforces the summary shape in code: _summary_ok (newspaper_render.py:218-229: every non-blank line a bullet carrying a link to one of the section's results) becomes configuration or a separate generic validation step; render shows any summary it is given (summary_to_xhtml already renders paragraphs and links)",
+      "text": "newspaper.render no longer enforces the summary shape in code: _summary_ok (newspaper_render.py:218-229) is removed from render, which shows any summary it is given (summary_to_xhtml already renders paragraphs and links); the shape and allowed-links rule moves to a generic validation step whose rules (allowed links from a given list and field, line shape) are step config",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "newspaper.render no longer enforces the summary shape in code: _summary_ok (newspaper_render.py:218-229: every non-blank line a bullet carrying a link to one of the section's results) becomes configuration or a separate generic validation step; render shows any summary it is given (summary_to_xhtml already renders paragraphs and links)",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02 q1: generic configurable validation step"
+        }
+      ]
     },
     {
       "id": "c7",
@@ -93,14 +99,20 @@
     {
       "id": "c8",
       "kind": "requirement",
-      "text": "A new generic step replaces each [n] reference in a text with a configured field (for example url, as a markdown link) of the nth item of a list; a reference outside the list is reported, never invented",
+      "text": "A new generic replace step rewrites each [n] reference in a text using the nth item of a given list and an output template from step config (for example [{n}]({url})); the step is a basic text operation with no format of its own, and a reference outside the list is reported, never invented",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "A new generic step replaces each [n] reference in a text with a configured field (for example url, as a markdown link) of the nth item of a list; a reference outside the list is reported, never invented",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: replaced with [n](url), but as a configured replace-string step, not hardcoded"
+        }
+      ]
     },
     {
       "id": "c9",
@@ -120,6 +132,18 @@
       "text": "transcript.render keeps reading the parsed answer it is given; its own lenient parser (transcript_render.py:177-227) is not removed in this work",
       "origin": "llm",
       "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "decision",
+      "text": "Code holds only basic units and operations (number a list, replace references, validate a shape, render); every prompt, format, template and shape rule is step or actor configuration",
+      "origin": "user",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
