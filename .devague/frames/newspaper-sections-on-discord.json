@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-01T22:45:45Z",
+  "updated": "2026-11-02T05:37:24Z",
   "claims": [
     {
       "id": "c1",
@@ -867,5 +867,105 @@
       "status": "approved"
     }
   ],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c6",
+      "seam": "markdown.from_html split_at",
+      "behavior": "split_at returns one part per section with its heading, parts uncapped",
+      "source_text": "markdown.from_html gains a generic option split_at (a heading tag h1-h6): a heading of that rank or higher always starts a new part, and a new output parts lists [{heading, text, index}], one whole part per heading with no size cap, beside the unchanged markdown, chunks and count; text before the first split heading is a part with an empty heading",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c7",
+      "seam": "markdown.from_html without split_at",
+      "behavior": "output without split_at is unchanged",
+      "source_text": "Without split_at, markdown.from_html output is byte-identical to today (the live newspaper-to-discord rev 2 keeps working unchanged until its own revision)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c9",
+      "seam": "discord.message thread_name/tags",
+      "behavior": "a forum post with tags by name, tags_missing, non-forum refused",
+      "source_text": "discord.message takes two optional generic params, thread_name and tags (a list of tag names): when given, the step reads the channel (GET /channels/{id}), requires a forum (type 15), resolves each tag name against the forum's available_tags, and creates a forum post (POST /channels/{id}/threads with name, applied_tags and message.content, mentions suppressed as today); outputs message_id and thread_id; without thread_name the step behaves exactly as today",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c10",
+      "seam": "Discord REST create_forum_post",
+      "behavior": "forum post failure mapping mirrors messages, never auto-retried",
+      "source_text": "A forum post fails the same way a message does: a timeout is outcome_unknown and never retried (a retry could create a second post), 429 and 5xx retry, other 4xx refuse; thread_name on a non-forum channel or tags without thread_name fail bad_params before any post; a tag name the forum lacks is left off and listed in an output tags_missing; a thread_name longer than Discord's 100 characters is cut at a word boundary",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c19",
+      "seam": "discord.message long text",
+      "behavior": "long text starts the thread and continues as replies",
+      "source_text": "A forum post whose text is longer than one Discord message (2000 characters) starts the thread with the first piece and posts the rest as replies in the same thread, split at line breaks, in order; outputs message_id (the starter), thread_id and the reply message ids",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c31",
+      "seam": "discord.message after the thread exists",
+      "behavior": "no re-creation by retry once the thread exists",
+      "source_text": "A forum post with replies is never re-created by a retry: once the thread exists, any later failure (a reply refused, a 5xx, a timeout) fails the step non-retryably with thread_id and the ids posted so far in the error, so a retry cannot open a second thread for the same part",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c32",
+      "seam": "discord.message tag limit",
+      "behavior": "more than 5 tags refused before any request",
+      "source_text": "discord.message refuses more than 5 tags (Discord's per-post limit) with bad_params before any request; a forum whose require-tag flag is set and where none of the named tags exist is refused by Discord (4xx, not retried) and the error says so",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c20",
+      "seam": "llm.complete actor briefs",
+      "behavior": "a step names an actor brief; code briefs stay locked",
+      "source_text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text; changing it is admin-only, c30), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c30",
+      "seam": "actor save check",
+      "behavior": "changing params.briefs is admin-only",
+      "source_text": "Changing an actor's params.briefs is admin-only, enforced the way runner commands are (a save check comparing before and after, 403 with a code such as briefs_admin_only for a non-admin), across API, CLI, MCP and bundle import; editors can still pick a brief by name in a step",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c8",
+      "seam": "web StepEditor",
+      "behavior": "the editor declares split_at and the parts output",
+      "source_text": "The editor's step catalog declares the new parts output of markdown.from_html (web/src/workflows/StepEditor.tsx:325-329), the setup guide docs/operations/newspaper.md:370-377 describes split_at and parts, and describe/runner registrations stay as they are (runner.py:334-337, describe.py:88)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c11",
+      "seam": "web ActionPicker",
+      "behavior": "the action picker offers thread_name and tags for discord.message",
+      "source_text": "discord.message's declaration (culture_rules/model/action_kinds.py:106-113) and the editor's hand-copied one (web/src/rules/ActionPicker.tsx:64-67) gain thread_name and tags as optional params; the Discord targets picker (server/app.py:1018-1054, TEXT_CHANNEL_TYPES (0,5) in discord_rest.py) is not changed: forum channels and their tags are not listed in the editor in this work",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
 }

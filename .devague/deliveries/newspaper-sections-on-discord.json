@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sections-on-discord",
   "schema_version": 2,
   "created": "2026-11-02T02:33:09Z",
-  "updated": "2026-11-02T05:31:04Z",
+  "updated": "2026-11-02T05:37:24Z",
   "deviations": [
     {
       "id": "d1",
@@ -89,7 +89,217 @@
       "seq": 7
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_markdown_html.py",
+      "behavior_text": "split_at h2 on a newspaper-shaped page gives the lead part then one part per h2 section, whole text each; bad split_at fails bad_params (37 tests)",
+      "contract_text": "markdown.from_html gains a generic option split_at (a heading tag h1-h6): a heading of that rank or higher always starts a new part, and a new output parts lists [{heading, text, index}], one whole part per heading with no size cap, beside the unchanged markdown, chunks and count; text before the first split heading is a part with an empty heading",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/node/test_markdown_html.py",
+      "behavior_text": "the 21 pre-existing tests pass unchanged and output without split_at has no parts key",
+      "contract_text": "Without split_at, markdown.from_html output is byte-identical to today (the live newspaper-to-discord rev 2 keeps working unchanged until its own revision)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/node/test_discord_forum_post.py",
+      "behavior_text": "non-forum channel fails bad_params with no POST; tags resolved by exact name, unknown names in tags_missing; title cut at a word to <=100",
+      "contract_text": "discord.message takes two optional generic params, thread_name and tags (a list of tag names): when given, the step reads the channel (GET /channels/{id}), requires a forum (type 15), resolves each tag name against the forum's available_tags, and creates a forum post (POST /channels/{id}/threads with name, applied_tags and message.content, mentions suppressed as today); outputs message_id and thread_id; without thread_name the step behaves exactly as today",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/apps/test_discord_rest_forum.py",
+      "behavior_text": "timeout outcome_unknown non-retryable, 429/503 retryable, 400 refused, one POST only",
+      "contract_text": "A forum post fails the same way a message does: a timeout is outcome_unknown and never retried (a retry could create a second post), 429 and 5xx retry, other 4xx refuse; thread_name on a non-forum channel or tags without thread_name fail bad_params before any post; a tag name the forum lacks is left off and listed in an output tags_missing; a thread_name longer than Discord's 100 characters is cut at a word boundary",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/node/test_discord_forum_post.py",
+      "behavior_text": "4500-character text: starter <=2000, replies to the thread id each <=2000, joining back to the text",
+      "contract_text": "A forum post whose text is longer than one Discord message (2000 characters) starts the thread with the first piece and posts the rest as replies in the same thread, split at line breaks, in order; outputs message_id (the starter), thread_id and the reply message ids",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_discord_forum_post.py",
+      "behavior_text": "thread 201 then a reply 503 fails non-retryable naming the thread id and the posted ids",
+      "contract_text": "A forum post with replies is never re-created by a retry: once the thread exists, any later failure (a reply refused, a 5xx, a timeout) fails the step non-retryably with thread_id and the ids posted so far in the error, so a retry cannot open a second thread for the same part",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_discord_forum_post.py",
+      "behavior_text": "6 tags fail bad_params with no request; tags without thread_name fail bad_params",
+      "contract_text": "discord.message refuses more than 5 tags (Discord's per-post limit) with bad_params before any request; a forum whose require-tag flag is set and where none of the named tags exist is refused by Discord (4xx, not retried) and the error says so",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/node/test_llm_actor_briefs.py",
+      "behavior_text": "actor brief text sent as the system message; unknown brief invalid_request before any request; a code brief name is never replaced",
+      "contract_text": "llm.complete reads briefs from configuration: an agent actor may declare named briefs (params.briefs, a map of name to system-prompt text; changing it is admin-only, c30), and a step's brief selects one by name; the step can still only pick a brief, never write or edit one; the three briefs in code keep working unchanged; the headline prompt (one plain line of at most N characters, the length and wording) is actor config, not code",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/server/test_actor_briefs_admin.py",
+      "behavior_text": "editor create/update/import changing briefs gets 403 briefs_admin_only and nothing is stored; admin succeeds; editor unchanged briefs succeeds",
+      "contract_text": "Changing an actor's params.briefs is admin-only, enforced the way runner commands are (a save check comparing before and after, 403 with a code such as briefs_admin_only for a non-admin), across API, CLI, MCP and bundle import; editors can still pick a brief by name in a step",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "web/src/workflows/StepEditor.builtin.test.tsx",
+      "behavior_text": "markdown.from_html declares split_at input and parts output (vitest)",
+      "contract_text": "The editor's step catalog declares the new parts output of markdown.from_html (web/src/workflows/StepEditor.tsx:325-329), the setup guide docs/operations/newspaper.md:370-377 describes split_at and parts, and describe/runner registrations stay as they are (runner.py:334-337, describe.py:88)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "web/src/rules/ActionPicker.discord.test.tsx",
+      "behavior_text": "discord.message catalogue has thread_name and tags and the fields render (vitest)",
+      "contract_text": "discord.message's declaration (culture_rules/model/action_kinds.py:106-113) and the editor's hand-copied one (web/src/rules/ActionPicker.tsx:64-67) gain thread_name and tags as optional params; the Discord targets picker (server/app.py:1018-1054, TEXT_CHANNEL_TYPES (0,5) in discord_rest.py) is not changed: forum channels and their tags are not listed in the editor in this work",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the test file ran green at the named commit on the integration branch",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T05:36:41",
+        "commit": "0f3ae1b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    }
+  ],
   "deltas": [],
   "supersessions": []
 }
