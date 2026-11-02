@@ -482,6 +482,28 @@
           "kind": "llm.complete",
           "params": {
             "actor": "cortex-spark2",
+            "answer": {
+              "shape": {
+                "extra": "drop",
+                "fields": {
+                  "summary": {
+                    "max": 2,
+                    "max_chars": 300,
+                    "min": 1,
+                    "required": true,
+                    "type": "lines"
+                  },
+                  "word": {
+                    "lower": true,
+                    "pattern": "^[A-Za-z][A-Za-z-]{1,23}$",
+                    "required": true,
+                    "strip": true,
+                    "type": "word"
+                  }
+                },
+                "type": "object"
+              }
+            },
             "brief": "transcript",
             "content_max_chars": 48000,
             "content_path": "inputs.result_path",
@@ -513,7 +535,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Summarise the recording",
-      "notes": "llm.complete on cortex-spark2 with the locked transcript brief: it reads the first 48000 characters of the transcript itself (content_path, d2), so the transcript text never enters the run; the reply is JSON {summary, word}. on_error skip: the book still ships, titled <date> <HHMM> recording, with \"Summary unavailable.\" (that book is not kept, so a later run with a summary replaces it).",
+      "notes": "llm.complete on cortex-spark2 with the brief named transcript (the actor's params.briefs): it reads the first 48000 characters of the transcript itself (content_path, d2), so the transcript text never enters the run; the reply is JSON {summary, word}. on_error skip: the book still ships, titled <date> <HHMM> recording, with \"Summary unavailable.\" (that book is not kept, so a later run with a summary replaces it).",
       "outputs": [
         {
           "description": "",

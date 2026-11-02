@@ -22,7 +22,7 @@ from culture_rules.apps.resend import RESEND_EMAILS_URL
 from culture_rules.engine.runs import RUNS_COLLECTION, step_key, step_state
 from culture_rules.node.actions.email import EmailSendPort
 from culture_rules.node.actions.library import LibraryPushPort
-from culture_rules.node.actions.llm import NEWSPAPER_BRIEF, LlmCompletePort
+from culture_rules.node.actions.llm import LlmCompletePort
 from culture_rules.node.actions.newspaper import (
     FILTER_BUILTIN,
     ISSUE_BUILTIN,
@@ -34,12 +34,8 @@ from culture_rules.node.actions.newspaper import (
     NewspaperRenderPort,
     NewspaperSectionsPort,
 )
-from culture_rules.node.actions.newspaper_render import (
-    NO_RESULTS,
-    SUMMARIES_UNAVAILABLE,
-    SUMMARY_UNAVAILABLE,
-)
 from culture_rules.node.actions.search import SearchWebPort
+from culture_rules.node.actions.text_validate import TEXT_VALIDATE_BUILTIN, TextValidatePort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
 from culture_rules.node.runner import BuiltinCodePort, NoopAction
@@ -48,6 +44,7 @@ from tests.engine.run_helpers import Clock, enrol_online, machine
 from tests.node.test_node import BEATS
 from tests.rules.test_newspaper_bundle import (
     EMAIL,
+    LLM,
     RULE,
     VARIABLES,
     bundle,
@@ -78,6 +75,10 @@ POOL = "qwen-spark2"
 KEY_WINDOW = timedelta(hours=24)
 EMAIL_SENT = "email_sent"
 KEY = "idempotency_key"
+# The texts the shipped bundle configures on its render step (the bundle test pins them).
+NO_RESULTS = "No results."
+SUMMARY_UNAVAILABLE = "Summary unavailable."
+SUMMARIES_UNAVAILABLE = "Summaries were unavailable for this issue."
 
 
 # --------------------------------------------------------------------------- the fakes
@@ -111,6 +112,7 @@ class Cortex:
 
     def __init__(self) -> None:
         self.down = False
+        self.text = None
         self.requests: list[dict] = []
 
     def __call__(self, url, data, headers, timeout):
@@ -120,6 +122,7 @@ class Cortex:
             raise ConnectionRefusedError("gateway down")
         results = json.loads(request["messages"][1][CONTENT])
         text = "\n".join(f"- [{r['title']}]({r['url']}): {r['snippet']}" for r in results)
+        text = self.text if self.text is not None else text
         reply = {
             MODEL: request[MODEL],
             "choices": [{"message": {"role": "assistant", CONTENT: text or "No results."}}],
@@ -179,6 +182,11 @@ class Library:
 
 
 # --------------------------------------------------------------------------- the world
+
+
+def bundle_brief(name: str) -> str:
+    """The text the shipped llm actor carries under ``params.briefs[name]``."""
+    return {a.id: a for a in bundle().actors}[LLM].params["briefs"][name]
 
 
 def seeded_actors() -> list[dict]:
@@ -250,6 +258,7 @@ class World:
                     SECTIONS_BUILTIN: NewspaperSectionsPort(),
                     FILTER_BUILTIN: NewspaperFilterPort(),
                     RENDER_BUILTIN: NewspaperRenderPort(),
+                    TEXT_VALIDATE_BUILTIN: TextValidatePort(),
                     ISSUE_BUILTIN: NewspaperIssuePort(base, clock=clock),
                 }
             ),
@@ -323,7 +332,7 @@ def test_each_section_is_searched_once_with_its_queries_joined():
     assert world.brave.queries == ["edge ai OR jetson", "humanoid robot"]
 
 
-def test_the_summaries_come_from_cortex_with_the_locked_brief_and_no_tools():  # c11
+def test_the_summaries_come_from_cortex_with_the_actor_brief_and_no_tools():  # c11
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
     assert len(world.cortex.requests) == 2
@@ -331,7 +340,7 @@ def test_the_summaries_come_from_cortex_with_the_locked_brief_and_no_tools():  #
     assert "tools" not in request
     assert request[MODEL] == "cortex-spark2"
     assert request["max_tokens"] == 2000
-    assert request["messages"][0][CONTENT] == NEWSPAPER_BRIEF
+    assert request["messages"][0][CONTENT] == bundle_brief("newspaper")
 
 
 def test_every_summarised_link_is_a_result_and_the_summary_is_shown():  # h5
@@ -842,3 +851,29 @@ def test_no_recipients_reports_it_in_the_run_outputs():  # d6
     (run,) = no_recipients().runs()
     reported = (run[OUTPUTS][EMAIL_SENT], run[OUTPUTS]["no_recipients"])
     assert reported == (False, True)
+
+
+def test_refused_summary_keeps_results_and_shows_the_configured_note():
+    world = World()
+    world.cortex.text = "- Invented [source](https://outside.example/invented)"
+    world.run_until(TODAY + timedelta(minutes=20))
+    finished(world)
+    html = world.html()
+    assert "https://outside.example/invented" not in html
+    assert html.count("Summary withheld:") == 2
+    checks = [s for s in world.runs()[0]["steps"] if s["def"] == "check"]
+    assert len(checks) == 2
+    assert all(s["outputs"]["ok"] is False for s in checks)
+    assert all("link_not_allowed" in s["outputs"]["reasons"] for s in checks)
+
+
+def test_editing_the_actor_brief_changes_the_request():
+    world = World()
+    actor = world.base.get(ACTORS_COLLECTION, LLM)
+    actor["params"]["briefs"]["newspaper"] = "Use this operator-configured brief."
+    world.base.put(ACTORS_COLLECTION, actor)
+    world.run_until(TODAY + timedelta(minutes=20))
+    finished(world)
+    assert world.cortex.requests[0]["json"]["messages"][0][CONTENT] == (
+        "Use this operator-configured brief."
+    )
