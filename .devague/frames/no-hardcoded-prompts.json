@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:39:25Z",
+  "updated": "2026-11-02T17:39:44Z",
   "claims": [
     {
       "id": "c1",
@@ -485,7 +485,7 @@
     {
       "id": "s1",
       "surface": "culture_rules/node/actions/llm.py",
-      "finding": "_brief() at 342-355 defaults to NEWSPAPER_BRIEF and lets code names win; the briefs are fixed text at 156-194",
+      "finding": "_brief() at 342-355 falls back to a built-in brief when none is named and lets built-in names win over actor briefs; the built-in brief texts are fixed at 156-194",
       "seeds": [
         "c2"
       ]
@@ -493,7 +493,7 @@
     {
       "id": "s2",
       "surface": "docs/rules bundles",
-      "finding": "only daily-newspaper (no brief) and transcript-to-reader (brief transcript) use llm.complete; cortex-spark2.json has no briefs",
+      "finding": "two committed bundles use llm.complete: one names no brief (relying on the built-in default), one names a built-in brief; the bundle actor carries no briefs",
       "seeds": [
         "c3"
       ]
@@ -501,7 +501,7 @@
     {
       "id": "s3",
       "surface": "culture_rules/node/actions/recording_answer.py",
-      "finding": "the only answer parser, invoked when brief == 'recording' (llm.py:758); no generic JSON-shape validator exists in the repo (model/schema.py and validate.py cover dataclass models only)",
+      "finding": "the only answer validator, switched on by one brief name (llm.py:758); no generic JSON-shape validator exists in the repo (model/schema.py and validate.py cover dataclass models only)",
       "seeds": [
         "c4"
       ]
@@ -509,7 +509,7 @@
     {
       "id": "s4",
       "surface": "llm.py answer cache",
-      "finding": "_cache_path 525-541 requires brief == 'recording'; key is content bytes + the name; filename pinned by tests/node/test_llm_complete.py:1012",
+      "finding": "_cache_path 525-541 requires one specific brief name; the key is the content bytes plus that name; the file name is pinned by tests/node/test_llm_complete.py:1012",
       "seeds": [
         "c5"
       ]
@@ -517,7 +517,7 @@
     {
       "id": "s5",
       "surface": "culture_rules/node/actions/newspaper_render.py",
-      "finding": "_body 333-340 is the only caller of _summary_ok; prose with [n](url) links renders fine but line 229 rejects non-bullet lines",
+      "finding": "_body 333-340 is the only caller of _summary_ok; prose with [n](url) links renders fine, but line 229 rejects any non-bullet line",
       "seeds": [
         "c6"
       ]
@@ -525,7 +525,7 @@
     {
       "id": "s6",
       "surface": "culture_rules/model/refs.py and builtins",
-      "finding": "templates substitute scalars only; markdown.render, json.read, select and document.sections do not number lists; the newspaper model input is the results list as JSON (llm.py _user_message 325-338, content inputs.item.results)",
+      "finding": "templates substitute scalars only; markdown.render, json.read, select and document.sections do not number lists; llm.complete sends a list content as JSON",
       "seeds": [
         "c7"
       ]
@@ -549,7 +549,7 @@
     {
       "id": "s9",
       "surface": "culture_rules/node/actions/transcript_render.py",
-      "finding": "duplicates fence/think/word logic but needs only summary and word",
+      "finding": "a render builtin duplicates the fence, think and word parsing but needs only two fields of the parsed answer",
       "seeds": [
         "c10"
       ]
@@ -557,7 +557,7 @@
     {
       "id": "s10",
       "surface": "challenge pass / adjacent-systems lens: web/src/rules/ActionPicker.tsx, culture_rules/model/describe.py",
-      "finding": "the editor hard-lists the code briefs and a newspaper default (ActionPicker.tsx:38-42,164); describe.py:135 phrases llm.complete",
+      "finding": "the action picker hard-lists the built-in briefs with a default (ActionPicker.tsx:38-42,164); describe.py:135 phrases llm.complete",
       "seeds": [
         "c17"
       ]
@@ -565,7 +565,7 @@
     {
       "id": "s11",
       "surface": "challenge pass / reversibility lens: llm.py _brief, live recording flow",
-      "finding": "seeding briefs is safe before rollout (on 0.41.0 code names win over actor briefs); rolling back after live steps move to the answer option would drop parsing",
+      "finding": "giving actors their briefs is safe before rollout (on 0.41.0 built-in names win over actor briefs); rolling the code back after live steps move to the answer option would drop parsing",
       "seeds": [
         "c18"
       ]
@@ -573,7 +573,7 @@
     {
       "id": "s12",
       "surface": "challenge pass / observability lens: newspaper_render.py _body 333-340",
-      "finding": "today render picks summary, SUMMARY_UNAVAILABLE or LINK_NOTE itself; once the check moves out, render needs the refusal as input to keep the note",
+      "finding": "render today chooses between the text and two fallback notes itself; once the check moves out, the refusal must reach later steps to keep a fallback visible",
       "seeds": [
         "c19"
       ]
@@ -581,7 +581,7 @@
     {
       "id": "s13",
       "surface": "challenge pass / unstated-assumption lens: newspaper_render.py:96-99",
-      "finding": "the frame covers prompts and the shape rule, but render still holds four user-facing note texts; routed to a question",
+      "finding": "the frame covers prompts and the shape rule, but a render builtin still holds four user-facing note texts; routed to a question",
       "seeds": []
     },
     {
