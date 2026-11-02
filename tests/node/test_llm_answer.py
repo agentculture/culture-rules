@@ -412,6 +412,7 @@ def test_an_unwritable_folder_still_returns_the_answer(tmp_path):
         {"cache_name": "../x"},
         {"cache_name": "a.b"},
         {"cache_name": ""},
+        {"cache_name": "digest\n"},
         {"cache_label": ""},
         {"cache_label": 3},
     ],

@@ -599,7 +599,7 @@ def _cache_name(input: Mapping[str, Any]) -> tuple[str, str]:
     """The cache file stem and document label from step config, defaulting to 0.41.0's."""
     name = input.get("cache_name", DEFAULT_CACHE_NAME)
     label = input.get("cache_label", DEFAULT_CACHE_LABEL)
-    if not isinstance(name, str) or not _CACHE_NAME_RE.match(name):
+    if not isinstance(name, str) or not _CACHE_NAME_RE.fullmatch(name):
         raise Refused(INVALID, "cache_name must be 1-64 letters, digits, '-' or '_'")
     if not isinstance(label, str) or not label.strip():
         raise Refused(INVALID, "cache_label must be a non-empty string")
