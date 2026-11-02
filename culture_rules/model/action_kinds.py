@@ -16,6 +16,8 @@ a Discord app actor (the form before ``discord.message`` existed) keeps posting 
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
 the server the channel was picked from, and ``buttons`` (a list) puts buttons under the text;
 a button's optional ``value`` is kept in the store and carried by its click as ``data.value``.
+With ``thread_name`` the channel is a forum: the text starts a post of that title, tagged by the
+names in ``tags`` (at most 5), and a text longer than one message continues as replies in it.
 ``discord.read`` reads one message in full (its
 text untruncated and its attachments) with the same actor's token, within its allow-list;
 ``discord.react`` adds the bot's reaction (a unicode emoji or a custom ``name:id``) to one
@@ -110,6 +112,8 @@ _KINDS = (
         channel=_RS,
         text=_RS,
         buttons=ParamSpec("list"),
+        thread_name=_S,  # set: channel is a forum and the text starts a post titled so
+        tags=ParamSpec("list"),  # forum tag names, with thread_name only
     ),
     _k(
         "discord.read",
