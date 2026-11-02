@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:39:44Z",
+  "updated": "2026-11-02T17:47:37Z",
   "claims": [
     {
       "id": "c1",
@@ -72,7 +72,7 @@
         {
           "id": "h15",
           "text": "every workflow and bundle test that passed before still passes, with briefs only from actor config",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "full test suite"
         }
       ],
@@ -103,7 +103,7 @@
         {
           "id": "h16",
           "text": "a configured shape accepts the answers the old validator accepted and refuses the same bad ones, with the same codes",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "port the old validator's test cases to a configured shape"
         }
       ],
@@ -134,7 +134,7 @@
         {
           "id": "h17",
           "text": "a cache file written by the old code is read back with no new request",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "test with a file written by 0.41.0"
         }
       ],
@@ -165,7 +165,7 @@
         {
           "id": "h18",
           "text": "render shows prose with links unchanged, and the validation step configured with the old rule refuses exactly what the old check refused",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "port the old check's test cases to the validation step"
         }
       ],
@@ -263,7 +263,7 @@
         {
           "id": "h19",
           "text": "builtins that read a parsed answer are unchanged",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "git diff"
         }
       ],
@@ -300,7 +300,7 @@
         {
           "id": "h10",
           "text": "the operator can change each prompt, answer shape, citation template and summary rule with actors update / workflows update alone, no release",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "do each once on a test actor/workflow"
         }
       ],
@@ -331,7 +331,7 @@
         {
           "id": "h20",
           "text": "the before state is what main 45d2357 holds",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "grep main 45d2357"
         }
       ],
@@ -362,7 +362,7 @@
         {
           "id": "h21",
           "text": "on the delivered branch the hardcoded items are gone and a test workflow renders a cited output",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "grep and one live test-workflow run"
         }
       ],
@@ -387,7 +387,7 @@
         {
           "id": "h13",
           "text": "no prompt, format or shape rule needed a release to change after this work",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "review the delivered step and actor options"
         }
       ],
@@ -406,7 +406,7 @@
         {
           "id": "h14",
           "text": "the three counts in the signal are read from live runs, not estimated",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "read 3 issues' render outputs and the transcript and recording runs"
         }
       ],
@@ -427,7 +427,14 @@
       "text": "The editor and describe phrases follow the new options: the action picker offers the bound actor's brief names (no built-in list, no default) and the answer and cache options; the new steps get editor catalogue entries and describe phrases",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "the action picker shows only the chosen actor's brief names and the new options, with no built-in list or default",
+          "status": "proposed",
+          "instruction": "vitest on ActionPicker and StepEditor"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -457,7 +464,14 @@
       "text": "The validation step outputs a verdict and its reasons alongside the text, so later steps branch on it (when) to show the text or a configured fallback; refused output is never silently dropped",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "a refused output reaches later steps as a verdict with reasons, and a configured fallback is shown instead of nothing",
+          "status": "proposed",
+          "instruction": "unit test of the validation step plus a when branch in a test workflow"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -468,6 +482,18 @@
           "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
         }
       ]
+    },
+    {
+      "id": "c20",
+      "kind": "decision",
+      "text": "Render builtins take every user-facing text (empty, unavailable and refused notes) from step configuration; the code cannot tell which flows run on it",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
