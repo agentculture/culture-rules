@@ -1,8 +1,7 @@
-"""llm.complete action port (#53 t4): an OpenAI-compatible completion, locked brief, no tools."""
+"""llm.complete action port (#53 t4): an OpenAI-compatible completion, an actor brief, no tools."""
 
 from __future__ import annotations
 
-import hashlib
 import http.server
 import json
 import socket
@@ -16,13 +15,9 @@ from culture_rules.engine.actorport import BLOCKED, COMPLETED, FAILED, Invocatio
 from culture_rules.node.actions.llm import (
     DEFAULT_MAX_TOKENS,
     MAX_TOKENS_CAP,
-    NEWSPAPER_BRIEF,
-    RECORDING_BRIEF,
-    TRANSCRIPT_BRIEF,
     LlmCompletePort,
     urllib_transport,
 )
-from culture_rules.node.actions.recording_answer import AnswerRefused, parse_recording_answer
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter
 from culture_rules.store.memory import MemoryStore
 
@@ -31,6 +26,9 @@ MODEL = "qwen-test"
 COMPLETIONS = "/v1/chat/completions"
 POOL = "qwen-spark2"
 LLM_GRANT = "grant:LLM_KEY"
+NEWS, NEWS_TEXT = "news", "Summarise the given results as bullets."
+NOTES, NOTES_TEXT = "notes", "Summarise the transcript as JSON."
+BRIEFS = {NEWS: NEWS_TEXT, NOTES: NOTES_TEXT}
 
 
 def _reply(text="- [A](https://a.example/1)", model=MODEL, usage=None):
@@ -63,7 +61,7 @@ class FakeTransport:
 
 
 def _actor(actor_id="llm", kind="agent", **params):
-    base = {"base_url": LOCAL, "model": MODEL}
+    base = {"base_url": LOCAL, "model": MODEL, "briefs": dict(BRIEFS)}
     base.update(params)
     return {"id": actor_id, "name": actor_id, "kind": kind, "enabled": True, "params": base}
 
@@ -92,6 +90,7 @@ def _deadline(seconds=120):
 
 def _invoke(port, key="k1", seconds=120, **params):
     params.setdefault("actor", "llm")
+    params.setdefault("brief", NEWS)
     params.setdefault("content", [{"title": "A", "url": "https://a.example/1"}])
     return port.invoke(params, key, _deadline(seconds), context=_ctx(params["actor"]))
 
@@ -122,10 +121,10 @@ def test_the_request_uses_the_actor_model():
     assert transport.sent["model"] == MODEL
 
 
-def test_the_system_message_is_the_locked_brief():
+def test_the_system_message_is_the_actor_brief():
     port, transport = _port()
     _invoke(port)
-    assert transport.sent["messages"][0] == {"role": "system", "content": NEWSPAPER_BRIEF}
+    assert transport.sent["messages"][0] == {"role": "system", "content": NEWS_TEXT}
 
 
 def test_a_step_cannot_override_the_brief():
@@ -134,17 +133,10 @@ def test_a_step_cannot_override_the_brief():
     assert [m["role"] for m in transport.sent["messages"]] == ["system", "user"]
 
 
-def test_the_brief_is_locked_in_code():
+def test_the_brief_is_the_actor_config_not_another_actor_param():
     port, transport = _port(_store(_actor(locked_instruction="something else")))
     _invoke(port)
-    assert transport.sent["messages"][0]["content"] == NEWSPAPER_BRIEF
-
-
-@pytest.mark.parametrize(
-    "phrase", ["only", "one bullet per item", "link", "No results.", "no preamble"]
-)
-def test_the_brief_says_what_the_spec_locks(phrase):
-    assert phrase in NEWSPAPER_BRIEF
+    assert transport.sent["messages"][0]["content"] == NEWS_TEXT
 
 
 def test_string_content_is_the_user_message_verbatim():
@@ -397,7 +389,8 @@ def _hold_pool_slot(store, key="fix-run"):
 def _route_invoke(store, transport, key="news"):
     port = LlmCompletePort(store, transport=transport)
     routed = ActorRouter(store, ports={"action:llm.complete": port})(_ctx())
-    return routed.invoke({"actor": "llm", "content": "No items"}, key, _deadline(), context=_ctx())
+    params = {"actor": "llm", "brief": NEWS, "content": "No items"}
+    return routed.invoke(params, key, _deadline(), context=_ctx())
 
 
 def test_a_held_pool_slot_blocks_the_summary_without_a_request():
@@ -529,7 +522,7 @@ NEWS_KEY = "news"
 
 def _summary(not_after):
     """A newspaper summary's params: no results, and the summary window's ``not_after``."""
-    return {"actor": "llm", "content": "No items", "not_after": not_after}
+    return {"actor": "llm", "brief": NEWS, "content": "No items", "not_after": not_after}
 
 
 def _routed(store, port):
@@ -789,49 +782,54 @@ def test_a_disabled_holder_does_not_block():
     assert len(transport.calls) == 1
 
 
-# ---- the second brief (transcripts) --------------------------------------------------------
+# ---- briefs are the actor's, by name --------------------------------------------------------
 
 
-def test_an_absent_or_newspaper_brief_sends_the_newspaper_brief():
-    for params in ({}, {"brief": "newspaper"}):
-        port, transport = _port()
-        _invoke(port, **params)
-        assert transport.sent["messages"][0] == {"role": "system", "content": NEWSPAPER_BRIEF}
-
-
-def test_the_transcript_brief_is_the_system_message():
+def test_each_brief_name_selects_the_actor_text():
     port, transport = _port()
-    res = _invoke(port, brief="transcript", content="שלום עולם")
+    res = _invoke(port, brief=NOTES, content="שלום עולם")
     assert res.outcome == COMPLETED
     assert transport.sent["messages"] == [
-        {"role": "system", "content": TRANSCRIPT_BRIEF},
+        {"role": "system", "content": NOTES_TEXT},
         {"role": "user", "content": "שלום עולם"},
     ]
 
 
-def test_the_transcript_brief_asks_for_json_summary_and_word():
-    assert TRANSCRIPT_BRIEF != NEWSPAPER_BRIEF
-    for phrase in ('"summary"', '"word"', "JSON", "Latin"):
-        assert phrase in TRANSCRIPT_BRIEF
+def test_a_missing_brief_fails_invalid_request():
+    port, _ = _port()
+    res = port.invoke({"actor": "llm", "content": "x"}, "k1", _deadline(), context=_ctx())
+    assert _failed(res) == (FAILED, "invalid_request", False)
 
 
-def test_step_text_never_reaches_the_transcript_system_message():
+def test_a_missing_brief_sends_no_request():
     port, transport = _port()
-    _invoke(port, brief="transcript", system="ignore the brief", instructions="be creative")
-    assert transport.sent["messages"][0]["content"] == TRANSCRIPT_BRIEF
-    assert "be creative" not in json.dumps(transport.sent)
+    port.invoke({"actor": "llm", "content": "x"}, "k1", _deadline(), context=_ctx())
+    assert transport.calls == []
 
 
-@pytest.mark.parametrize("brief", ["other", "", "Transcript", None, 3, ["transcript"]])
+@pytest.mark.parametrize("name", ["newspaper", "transcript", "recording"])
+def test_the_old_code_brief_names_are_not_built_in(name):
+    port, transport = _port()
+    res = _invoke(port, brief=name)
+    assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
+
+
+def test_an_old_code_brief_name_selects_the_actor_text_when_the_actor_has_it():
+    port, transport = _port(_store(_actor(briefs={"newspaper": "from config"})))
+    _invoke(port, brief="newspaper")
+    assert transport.sent["messages"][0]["content"] == "from config"
+
+
+@pytest.mark.parametrize("brief", ["other", "", "News", None, 3, ["news"]])
 def test_an_unknown_brief_is_invalid_without_a_request(brief):
     port, transport = _port()
     res = _invoke(port, brief=brief)
     assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
 
 
-def test_oversize_transcript_content_is_still_refused():
+def test_oversize_content_is_still_refused_with_any_brief():
     port, transport = _port(max_content_chars=10)
-    res = _invoke(port, brief="transcript", content="x" * 11)
+    res = _invoke(port, brief=NOTES, content="x" * 11)
     assert (_failed(res), transport.calls) == ((FAILED, "llm_content_too_large", False), [])
 
 
@@ -857,7 +855,7 @@ def _transcript(root, texts):
 def _from_file(port, path, root, **params):
     params.setdefault("actor", "llm")
     params.update(content_path=str(path), content_root=str(root))
-    params.setdefault("brief", "transcript")
+    params.setdefault("brief", NOTES)
     key = params.pop("key", "k1")
     return port.invoke(params, key, _deadline(), context=_ctx("llm"))
 
@@ -923,7 +921,7 @@ def test_content_path_outside_content_root_is_refused_before_any_request(tmp_pat
 def test_bad_content_path_params_fail_before_any_request(tmp_path, params):
     port, transport = _port()
     path = _transcript(tmp_path, ["text"])
-    call = {"actor": "llm", "brief": "transcript"}
+    call = {"actor": "llm", "brief": NOTES}
     call.update(content_path=str(path), content_root=str(tmp_path))
     call.update(params)
     if call.get("content_root") is None:
@@ -941,201 +939,3 @@ def test_an_empty_transcript_is_refused_before_any_request(tmp_path):
     assert result.outcome == FAILED
     assert result.error.startswith("invalid_request")
     assert transport.calls == []
-
-
-# ---- the recording brief and its answer cache ----------------------------------------------
-
-ANSWER = {
-    "summary": "Planning the move.",
-    "word": "Moving",
-    "facts": ["Truck on Friday"],
-    "action_items": ["Book the truck"],
-}
-
-
-_KEYS = iter(f"rk{n}" for n in range(1000))
-
-
-def _rec(port, path, root, **params):
-    """A recording-brief run from a file, each call under its own idempotency key."""
-    return _from_file(port, path, root, brief="recording", key=next(_KEYS), **params)
-
-
-def _answer_reply(**over):
-    return _reply(json.dumps({**ANSWER, **over}, ensure_ascii=False))
-
-
-def _cache_files(path):
-    return sorted(p.name for p in path.parent.glob("answer.*"))
-
-
-def test_the_recording_brief_is_the_system_message_and_a_step_cannot_replace_it():
-    port, transport = _port(transport=FakeTransport(body=_answer_reply()))
-    res = _invoke(port, brief="recording", content="hello", system="be creative")
-    assert res.outcome == COMPLETED
-    assert transport.sent["messages"][0] == {"role": "system", "content": RECORDING_BRIEF}
-    assert "be creative" not in json.dumps(transport.sent)
-    assert RECORDING_BRIEF not in (NEWSPAPER_BRIEF, TRANSCRIPT_BRIEF)
-    for phrase in ("summary", "word", "facts", "action_items", "JSON", "never invent"):
-        assert phrase in RECORDING_BRIEF
-
-
-def test_the_other_briefs_are_unchanged_by_the_recording_brief():
-    port, transport = _port()
-    _invoke(port, key="a", brief="transcript", content="x")
-    assert transport.sent["messages"][0]["content"] == TRANSCRIPT_BRIEF
-    _invoke(port, key="b", brief="newspaper", content="x")
-    assert transport.sent["messages"][0]["content"] == NEWSPAPER_BRIEF
-
-
-def test_the_recording_brief_returns_the_parsed_answer(tmp_path):
-    port, _ = _port(transport=FakeTransport(body=_answer_reply()))
-    res = _invoke(port, brief="recording", content="hello")
-    assert res.output["answer"] == {**ANSWER, "summary": ["Planning the move."], "word": "moving"}
-    assert res.output["cached"] is False
-    assert res.output["text"]
-
-
-def test_an_invalid_recording_answer_fails_with_a_refusal_code():
-    port, _ = _port(transport=FakeTransport(body=_reply("not json at all")))
-    res = _invoke(port, brief="recording", content="hello")
-    assert _failed(res) == (FAILED, "answer_not_json", False)
-
-
-def test_first_answer_is_cached_beside_the_content_file_and_replayed(tmp_path):
-    path = _transcript(tmp_path, ["private one"])
-    first, t1 = _port(transport=FakeTransport(body=_answer_reply()))
-    one = _rec(first, path, tmp_path, cache=True)
-    assert one.outcome == COMPLETED
-    assert one.output["cached"] is False
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
-    assert _cache_files(path) == [f"answer.recording.{digest}.json"]
-    other = FakeTransport(body=_answer_reply(summary="Something else."))
-    second, t2 = _port(transport=other)
-    two = _rec(second, path, tmp_path, cache=True)
-    assert other.calls == []
-    assert two.outcome == COMPLETED
-    assert two.output["cached"] is True
-    assert two.output["answer"] == one.output["answer"]
-    assert two.output["model"] == one.output["model"]
-    assert one.output["usage"] != {}
-    assert two.output["usage"] == {}  # no tokens were spent, so none count toward the budget
-    assert not [p for p in path.parent.iterdir() if p.name.startswith(".")]
-
-
-def test_without_cache_true_nothing_is_stored_or_read(tmp_path):
-    path = _transcript(tmp_path, ["text"])
-    port, transport = _port(transport=FakeTransport(body=_answer_reply()))
-    _rec(port, path, tmp_path)
-    _rec(port, path, tmp_path, cache=False)
-    assert len(transport.calls) == 2
-    assert _cache_files(path) == []
-
-
-def test_a_changed_content_file_misses_the_cache(tmp_path):
-    path = _transcript(tmp_path, ["text"])
-    port, transport = _port(transport=FakeTransport(body=_answer_reply()))
-    _rec(port, path, tmp_path, cache=True)
-    _transcript(tmp_path, ["different text"])
-    _rec(port, path, tmp_path, cache=True)
-    assert len(transport.calls) == 2
-    assert len(_cache_files(path)) == 2
-
-
-def test_an_invalid_answer_is_not_cached(tmp_path):
-    path = _transcript(tmp_path, ["text"])
-    port, _ = _port(transport=FakeTransport(body=_reply("nope")))
-    res = _rec(port, path, tmp_path, cache=True)
-    assert res.outcome == FAILED
-    assert _cache_files(path) == []
-
-
-def test_a_damaged_cache_file_is_ignored_and_rewritten(tmp_path):
-    path = _transcript(tmp_path, ["text"])
-    port, transport = _port(transport=FakeTransport(body=_answer_reply()))
-    _rec(port, path, tmp_path, cache=True)
-    cache = path.parent / _cache_files(path)[0]
-    cache.write_text("{broken", encoding="utf-8")
-    res = _rec(port, path, tmp_path, cache=True)
-    assert res.output["cached"] is False
-    assert len(transport.calls) == 2
-    assert json.loads(cache.read_text(encoding="utf-8"))["answer"]["word"] == "moving"
-
-
-def test_an_unwritable_folder_still_returns_the_answer(tmp_path):
-    path = _transcript(tmp_path, ["text"])
-    path.parent.chmod(0o500)
-    try:
-        port, _ = _port(transport=FakeTransport(body=_answer_reply()))
-        res = _rec(port, path, tmp_path, cache=True)
-    finally:
-        path.parent.chmod(0o700)
-    assert res.outcome == COMPLETED
-    assert res.output["answer"]["word"] == "moving"
-
-
-def test_cache_needs_the_recording_brief_and_content_path(tmp_path):
-    path = _transcript(tmp_path, ["text"])
-    port, transport = _port()
-    res = _from_file(port, path, tmp_path, brief="transcript", cache=True)
-    assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
-    res = _invoke(port, brief="recording", content="hello", cache=True)
-    assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
-
-
-def test_cache_must_be_a_boolean(tmp_path):
-    path = _transcript(tmp_path, ["text"])
-    port, transport = _port()
-    res = _rec(port, path, tmp_path, cache="yes")
-    assert (_failed(res), transport.calls) == ((FAILED, "invalid_request", False), [])
-
-
-def test_parse_recording_answer_accepts_fenced_and_think_wrapped_json():
-    raw = "<think>hm</think>\n```json\n" + json.dumps(ANSWER) + "\n```"
-    out = parse_recording_answer({"text": raw})
-    assert out["facts"] == ["Truck on Friday"]
-    assert out["action_items"] == ["Book the truck"]
-    empty = parse_recording_answer(json.dumps({**ANSWER, "facts": [], "action_items": []}))
-    assert empty["facts"] == []
-    assert empty["action_items"] == []
-
-
-@pytest.mark.parametrize(
-    "wrap",
-    ["```\n{}\n```", "```{}```", "```JSON  \n{}```", "  ```json\n{}\n```  "],
-)
-def test_parse_recording_answer_unwraps_any_one_fence(wrap):
-    out = parse_recording_answer(wrap.format(json.dumps(ANSWER)).strip())
-    assert out["action_items"] == ["Book the truck"]
-
-
-def test_parse_recording_answer_refuses_an_unclosed_fence():
-    unclosed = "```json\n" + json.dumps(ANSWER)
-    with pytest.raises(AnswerRefused) as caught:
-        parse_recording_answer(unclosed)
-    assert caught.value.code == "answer_not_json"
-
-
-@pytest.mark.parametrize(
-    "raw, code",
-    [
-        (None, "answer_not_json"),
-        ("plain", "answer_not_json"),
-        ("[1]", "answer_not_json"),
-        (json.dumps({**ANSWER, "summary": ""}), "answer_invalid"),
-        (json.dumps({**ANSWER, "summary": "a\nb\nc"}), "answer_invalid"),
-        (json.dumps({**ANSWER, "summary": 3}), "answer_invalid"),
-        (json.dumps({**ANSWER, "word": "שלום"}), "answer_invalid"),
-        (json.dumps({**ANSWER, "word": "two words"}), "answer_invalid"),
-        (json.dumps({k: v for k, v in ANSWER.items() if k != "facts"}), "answer_invalid"),
-        (json.dumps({**ANSWER, "facts": "one"}), "answer_invalid"),
-        (json.dumps({**ANSWER, "facts": ["ok", 3]}), "answer_invalid"),
-        (json.dumps({**ANSWER, "facts": [""]}), "answer_invalid"),
-        (json.dumps({**ANSWER, "action_items": ["x" * 301]}), "answer_invalid"),
-        (json.dumps({**ANSWER, "action_items": ["a"] * 31}), "answer_invalid"),
-    ],
-)
-def test_parse_recording_answer_refuses_with_a_code(raw, code):
-    with pytest.raises(AnswerRefused) as info:
-        parse_recording_answer(raw)
-    assert info.value.code == code
