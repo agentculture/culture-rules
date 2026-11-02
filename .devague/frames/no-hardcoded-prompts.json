@@ -2,9 +2,9 @@
   "slug": "no-hardcoded-prompts",
   "title": "No hardcoded prompts",
   "schema_version": 6,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:58:50Z",
+  "updated": "2026-11-02T17:58:54Z",
   "claims": [
     {
       "id": "c1",
@@ -456,7 +456,7 @@
         {
           "id": "h24",
           "text": "rollout.md states the order (briefs, code, live steps) and the rollback order (live steps back, then code), and both are dry-run before any apply",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "read docs/operations/rollout.md; dry-run each step"
         }
       ],
@@ -524,7 +524,7 @@
         {
           "id": "h25",
           "text": "a schema in config reproduces every refusal the coded sections check gives today, with the same field path in the error",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "port the coded check's test cases to json.parse with a schema"
         }
       ],
@@ -543,7 +543,7 @@
         {
           "id": "h26",
           "text": "list.filter with conditions in config keeps exactly the items the coded filter kept for the same inputs",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "port the coded filter's test cases"
         }
       ],
@@ -562,7 +562,7 @@
         {
           "id": "h27",
           "text": "the local-date helper matches the coded slot-to-date result across a DST change, and time-add and join are exact",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "unit tests including DST boundaries"
         }
       ],
@@ -581,7 +581,7 @@
         {
           "id": "h28",
           "text": "document.render with a template in config renders every case the coded renderer handled (no results, text, items with a fallback note), and identical input gives identical bytes",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "port the render test cases plus a golden test"
         }
       ],
@@ -600,7 +600,7 @@
         {
           "id": "h29",
           "text": "each of the 12 guarantees in c27 has a test against the lease and ledger steps",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "one test per guarantee"
         }
       ],
@@ -619,7 +619,7 @@
         {
           "id": "h30",
           "text": "a crash or retry at every fence (before send, after send, before record) neither sends twice nor skips the send",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "fault-injection tests at each fence"
         }
       ],
@@ -638,7 +638,7 @@
         {
           "id": "h31",
           "text": "after R3 no newspaper.* builtin remains registered, and the committed bundle runs end to end on generic steps only",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "grep runner.py; run the bundle flow test"
         }
       ],
