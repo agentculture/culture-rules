@@ -21,10 +21,6 @@ from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
 from culture_rules.node.actions import newspaper_render
 from culture_rules.node.actions.newspaper import NewspaperRenderPort
 from culture_rules.node.actions.newspaper_render import (
-    LINK_NOTE,
-    NO_RESULTS,
-    SUMMARIES_UNAVAILABLE,
-    SUMMARY_UNAVAILABLE,
     summary_links,
     summary_to_xhtml,
 )
@@ -37,6 +33,16 @@ OPF_NS = "{http://www.idpf.org/2007/opf}"
 CONTAINER_NS = "{urn:oasis:names:tc:opendocument:xmlns:container}"
 XHTML_TYPE = "application/xhtml+xml"
 HOSTILE = "<script>alert(1)</script>"
+NO_RESULTS = "Nothing today."
+SUMMARY_UNAVAILABLE = "No summary here."
+SUMMARIES_UNAVAILABLE = "No summaries this issue."
+LINK_NOTE = "Summary refused."
+TEXTS = {
+    "no_results": NO_RESULTS,
+    "summary_unavailable": SUMMARY_UNAVAILABLE,
+    "summaries_unavailable": SUMMARIES_UNAVAILABLE,
+    "summary_refused": LINK_NOTE,
+}
 
 
 def ctx():
@@ -52,7 +58,8 @@ def sec(name="AI", results=None, summary=None):
 
 
 def render(sections, **extra):
-    payload = {"date": DATE, "title": "Daily newspaper", "sections": sections, **extra}
+    payload = {"date": DATE, "title": "Daily newspaper", "sections": sections, "texts": TEXTS}
+    payload.update(extra)
     return NewspaperRenderPort().invoke(payload, "k", DEADLINE, context=ctx())
 
 
@@ -296,44 +303,95 @@ def test_parallel_results_as_for_each_result_objects():
 # ------------------------------------------------------------------ the link check (h5)
 
 
-def test_summary_linking_outside_its_results_is_dropped():
-    bad = sec(results=[hit(URL_A, title="Alpha")], summary="- [x](https://evil.example/)")
-    html = ok([bad])["html"]
-    assert "evil.example" not in html
-    assert LINK_NOTE in html
+def refused(summary, **kw):
+    return ok([sec(results=[hit(URL_A, title="Alpha")], summary=summary)], **kw)["html"]
+
+
+def test_any_summary_text_renders_without_a_shape_rule():
+    html = refused("Prose with [a link](https://evil.example/) and no bullet.")
+    assert '<p>Prose with <a href="https://evil.example/">a link</a> and no bullet.</p>' in html
+
+
+def test_a_summary_linking_outside_its_results_renders():
+    assert 'href="https://evil.example/"' in refused("- [x](https://evil.example/)")
+
+
+def test_a_summary_without_any_link_renders():
+    assert "<p>All quiet today.</p>" in refused("All quiet today.")
+
+
+def test_a_summary_with_a_true_verdict_renders():
+    assert "<p>Fine.</p>" in refused("Fine.", summary_ok=[True])
+
+
+def test_a_refused_verdict_shows_the_results_with_the_note():
+    html = refused("Prose.", summary_ok=[False])
     assert f'<a href="{URL_A}">Alpha</a>' in html
+    assert f'<p class="note">{LINK_NOTE}</p>' in html
 
 
-def test_summary_linking_another_sections_result_is_dropped():
-    first = sec(name="One", results=[hit(URL_A)], summary=f"- [a]({URL_A})")
-    second = sec(name="Two", results=[hit(URL_B)], summary=f"- [a]({URL_A})")
-    html = ok([first, second])["html"]
-    assert html.count(LINK_NOTE) == 1
+def test_a_refused_verdict_drops_the_summary_text():
+    assert "Prose." not in refused("Prose.", summary_ok=[False])
 
 
-def test_bullet_without_a_link_drops_the_summary():
-    unsourced = sec(results=[hit(URL_A)], summary=f"- [a]({URL_A})\n- invented claim")
-    html = ok([unsourced])["html"]
-    assert "invented claim" not in html
-    assert LINK_NOTE in html
+def test_a_refused_verdict_as_an_object_refuses():
+    assert LINK_NOTE in refused("Prose.", summary_ok=[{"ok": False}])
 
 
-def test_unlinked_prose_before_a_linked_bullet_drops_the_summary():
-    """Codex r1 #5: an unsourced paragraph must not ride along with one valid bullet."""
-    summary = f"Markets crashed today, insiders say.\n- [a]({URL_A})"
-    html = ok([sec(results=[hit(URL_A)], summary=summary)])["html"]
-    assert "insiders say" not in html
+def test_a_verdict_on_the_section_refuses():
+    section = sec(results=[hit(URL_A)], summary="Prose.") | {"summary_ok": False}
+    assert LINK_NOTE in ok([section])["html"]
 
 
-def test_unlinked_prose_falls_back_to_the_results_with_the_note():
-    summary = f"# Heading\n- [a]({URL_A})"
-    html = ok([sec(results=[hit(URL_A, title="Alpha")], summary=summary)])["html"]
-    assert LINK_NOTE in html
+def test_a_refused_verdict_counts_one_per_section():
+    first = sec(name="One", results=[hit(URL_A)], summary="a")
+    second = sec(name="Two", results=[hit(URL_B)], summary="b")
+    assert ok([first, second], summary_ok=[False, True])["html"].count(LINK_NOTE) == 1
 
 
-def test_summary_without_any_link_is_dropped():
-    html = ok([sec(results=[hit(URL_A)], summary="All quiet today.")])["html"]
-    assert "All quiet" not in html
+def test_a_refused_verdict_is_not_the_issue_note():
+    assert SUMMARIES_UNAVAILABLE not in refused("Prose.", summary_ok=[False])
+
+
+def test_no_note_text_lives_in_the_module():
+    assert not hasattr(newspaper_render, "NO_RESULTS")
+
+
+def test_the_module_has_no_summary_check():
+    assert not hasattr(newspaper_render, "_summary_ok")
+
+
+def missing(name, sections):
+    texts = {k: v for k, v in TEXTS.items() if k != name}
+    return render(sections, texts=texts)
+
+
+@pytest.mark.parametrize(
+    ("name", "sections"),
+    [
+        ("no_results", [sec()]),
+        ("summary_unavailable", [SUMMARISED, sec(name="B", results=[hit(URL_B)])]),
+        ("summaries_unavailable", [sec(results=[hit(URL_A)])]),
+        ("summary_refused", [SUMMARISED | {"summary_ok": False}]),
+    ],
+)
+def test_a_missing_text_fails_naming_it(name, sections):
+    result = missing(name, sections)
+    assert (result.outcome, result.retryable) == (FAILED, False)
+    assert f"bad_input: texts.{name}" in result.error
+
+
+def test_texts_are_not_needed_when_no_case_occurs():
+    assert render([SUMMARISED], texts={}).outcome == COMPLETED
+
+
+def test_texts_must_be_an_object():
+    assert "texts" in render([SUMMARISED], texts="x").error
+
+
+def test_a_text_is_escaped():
+    html = ok([sec()], texts={**TEXTS, "no_results": HOSTILE})["html"]
+    assert HOSTILE not in html
 
 
 def test_summary_links_extracted():
@@ -369,10 +427,10 @@ def test_javascript_result_url_is_not_linked():
     assert "Bad" in html
 
 
-def test_javascript_summary_link_drops_the_summary():
+def test_javascript_summary_link_is_not_linked():
     js = "javascript:alert(1)"
     html = ok([sec(results=[hit(js), hit(URL_A)], summary=f"- [x]({js})")])["html"]
-    assert "javascript:" not in html
+    assert 'href="javascript:' not in html
 
 
 def test_raw_html_in_a_summary_is_escaped():
