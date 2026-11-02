@@ -736,7 +736,7 @@
               "allowed": "inputs.item.results"
             }
           },
-          "description": "Checks that each line of the summary links to one of the section's results.",
+          "description": "",
           "enabled": true,
           "id": "check",
           "inputs": [

@@ -43,13 +43,13 @@
           "depth": 1,
           "label": "4.1",
           "step": "summary",
-          "text": "llm.complete as cortex-spark2, when deliver = true and results ≠ {} (≤2 attempts)"
+          "text": "llm.complete as cortex-spark2 brief newspaper, when deliver = true and results ≠ {} (≤2 attempts)"
         },
         {
           "depth": 1,
           "label": "4.2",
           "step": "check",
-          "text": "builtin text.validate, when deliver = true"
+          "text": "text.validate: check text against configured rules, returning a verdict and reasons, when deliver = true"
         },
         {
           "depth": 0,
@@ -97,8 +97,8 @@
         "  3.1 search_web — search.web as newspaper-search, when deliver = true (≤3 attempts)",
         "  3.2 filter — builtin newspaper.filter, when deliver = true",
         "4 summarise — for each item (≤20):",
-        "  4.1 summary — llm.complete as cortex-spark2, when deliver = true and results ≠ {} (≤2 attempts)",
-        "  4.2 check — builtin text.validate, when deliver = true",
+        "  4.1 summary — llm.complete as cortex-spark2 brief newspaper, when deliver = true and results ≠ {} (≤2 attempts)",
+        "  4.2 check — text.validate: check text against configured rules, returning a verdict and reasons, when deliver = true",
         "5 render — builtin newspaper.render, when deliver = true",
         "6 email_gate — builtin newspaper.issue, when deliver = true",
         "7 email — email.send as newspaper-email, when send = true (≤3 attempts)",
@@ -2444,7 +2444,7 @@
           "depth": 0,
           "label": "4",
           "step": "summary",
-          "text": "llm.complete as cortex-spark2 brief transcript (≤2 attempts)"
+          "text": "llm.complete as cortex-spark2 brief transcript checking the answer against its configured shape (≤2 attempts)"
         },
         {
           "depth": 0,
@@ -2465,7 +2465,7 @@
         "1 fallback — audio.transcribe as stt-he, when language = en and empty_window_count = window_count (≤3 attempts)",
         "2 keep — select: the outputs of the path that ran (one source for the next step), when not (language = en and empty_window_count = window_count)",
         "3 pick — select: the outputs of the path that ran (one source for the next step)",
-        "4 summary — llm.complete as cortex-spark2 brief transcript (≤2 attempts)",
+        "4 summary — llm.complete as cortex-spark2 brief transcript checking the answer against its configured shape (≤2 attempts)",
         "5 render — transcript.render",
         "6 push — library.push as newspaper-library kind transcript (private) (≤3 attempts)"
       ],

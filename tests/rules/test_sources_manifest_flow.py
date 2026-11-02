@@ -47,11 +47,14 @@ SECTIONS_CONFIG = {
 }
 
 
+TEXTS = {"no_results": "No results.", "summary_unavailable": "Summary unavailable."}
+
+
 def _issue(day: str) -> dict:
     """The sections a daily issue is rendered from: two with a link, one saying "No results"."""
     return {
         "date": day,
-        "texts": {"no_results": "No results.", "summary_unavailable": "Summary unavailable."},
+        "texts": TEXTS,
         "title": "Daily newspaper",
         "sections": [
             {
@@ -226,7 +229,7 @@ def daily_workflow() -> dict:
         "steps": [
             _step(
                 "render",
-                {"builtin": "newspaper.render"},
+                {"builtin": "newspaper.render", "with": {"texts": TEXTS}},
                 [_port("date", "string"), _port("sections", "array")],
                 [_port("epub_base64", "string")],
             ),
