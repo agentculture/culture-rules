@@ -55,6 +55,10 @@ def _issue(**extra: Any) -> dict[str, Any]:
                 {"name": "Robots", "results": [hit], "summary": None},
                 {"name": "Empty", "results": []},
             ],
+            "texts": {
+                "no_results": "No results.",
+                "summary_unavailable": "Summary unavailable.",
+            },
             **extra,
         }
     )
