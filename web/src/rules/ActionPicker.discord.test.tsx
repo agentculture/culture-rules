@@ -286,3 +286,21 @@ describe("discord.message buttons", () => {
     expect(input.value).toHaveLength(77);
   });
 });
+
+describe("discord.message forum posts", () => {
+  it("catalogues thread_name as optional text and tags as an optional list", () => {
+    const p = ACTION_KINDS["discord.message"].params;
+    expect(p.thread_name.type).toBe("str");
+    expect(p.thread_name.required).toBeFalsy();
+    expect(p.tags.type).toBe("list");
+    expect(p.tags.required).toBeFalsy();
+  });
+
+  it("offers Thread name and Tags fields", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    expect(screen.getByLabelText("Thread name")).toBeTruthy();
+    expect(screen.getByLabelText("Tags")).toBeTruthy();
+  });
+});

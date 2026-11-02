@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { Step, WorkflowDef } from "../api/workflows";
-import { StepEditor } from "./StepEditor";
+import { BUILTINS, StepEditor } from "./StepEditor";
 
 /* A code step can be made a markdown.render built-in: its config and its typed ports. */
 
@@ -139,5 +139,14 @@ describe("keyset built-ins", () => {
     const last = setup({ id: "remember", kind: "code" });
     await user.selectOptions(screen.getByLabelText("Built-in"), "keyset.add");
     expect(last().outputs?.map((p) => p.name)).toEqual(["added", "already_present", "keyless"]);
+  });
+});
+
+describe("markdown.from_html built-in", () => {
+  it("declares an optional split_at input and the parts output", () => {
+    const b = BUILTINS["markdown.from_html"];
+    expect(b.inputs.find((p) => p.name === "split_at")).toMatchObject({ required: false });
+    expect(b.outputs.find((p) => p.name === "parts")).toMatchObject({ type: "array" });
+    expect(b.outputs.map((p) => p.name)).toEqual(expect.arrayContaining(["markdown", "chunks", "count"]));
   });
 });
