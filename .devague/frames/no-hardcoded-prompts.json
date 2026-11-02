@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:33:37Z",
+  "updated": "2026-11-02T17:33:47Z",
   "claims": [
     {
       "id": "c1",
@@ -428,6 +428,54 @@
       "seeds": [
         "c10"
       ]
+    },
+    {
+      "id": "s10",
+      "surface": "challenge pass / adjacent-systems lens: web/src/rules/ActionPicker.tsx, culture_rules/model/describe.py",
+      "finding": "the editor hard-lists the code briefs and a newspaper default (ActionPicker.tsx:38-42,164); describe.py:135 phrases llm.complete",
+      "seeds": [
+        "c17"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "challenge pass / reversibility lens: llm.py _brief, live recording flow",
+      "finding": "seeding briefs is safe before rollout (on 0.41.0 code names win over actor briefs); rolling back after live steps move to the answer option would drop parsing",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / observability lens: newspaper_render.py _body 333-340",
+      "finding": "today render picks summary, SUMMARY_UNAVAILABLE or LINK_NOTE itself; once the check moves out, render needs the refusal as input to keep the note",
+      "seeds": [
+        "c19"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / unstated-assumption lens: newspaper_render.py:96-99",
+      "finding": "the frame covers prompts and the shape rule, but render still holds four user-facing note texts; routed to a question",
+      "seeds": []
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / security lens: auth/guards.py check_actor_briefs",
+      "finding": "prompts stay admin-only (briefs_admin_only); the new answer, citation and validation options are workflow step config editors may change, which carry no prompt text; clean pass",
+      "seeds": []
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / migration lens: llm.py answer cache 525-587",
+      "finding": "c5 covers the cache name and label defaults; checklist ids depend on unchanged answers, residual risk only if the configured shape normalises differently (h4 checks it)",
+      "seeds": []
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / concurrency lens: the new numbering, replace and validation steps",
+      "finding": "pure functions of their inputs, no shared state added; clean pass",
+      "seeds": []
     }
   ],
   "lapses": [],
