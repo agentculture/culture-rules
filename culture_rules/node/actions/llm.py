@@ -31,8 +31,18 @@ port never goes through the coding-agent bridge, even when the actor also has a
 
 The request is ``POST <base_url>/v1/chat/completions`` with exactly ``model``,
 ``messages`` (the system message is the chosen locked brief, the user message the
-content), ``max_tokens``, ``stream: false`` and, when given, ``temperature`` - never a
-``tools`` field. Proxies from the environment are ignored and redirects are not followed.
+content), ``max_tokens``, ``stream: true``, ``stream_options: {include_usage: true}`` and,
+when given, ``temperature`` - never a ``tools`` field. Proxies from the environment are
+ignored and redirects are not followed.
+
+The reply is read as server-sent events (d7, operator 2026-11-02: "Always use stream"):
+``data: <chunk>`` lines ending with ``data: [DONE]``. The first choice's ``delta.content``
+pieces, joined in order, are the text (``reasoning`` / ``reasoning_content`` deltas are
+not); the model is the chunks' ``model`` and the usage the usage chunk's. The default
+transport reads the whole stream within the request's timeout (a stream still trickling in
+when it ends raises ``TimeoutError``, so ``llm_unavailable``) and at most
+:data:`MAX_RESPONSE_BYTES`. A body that is not an event stream (an error body, or a server
+that ignores ``stream``) is read as one JSON reply, as before.
 
 An optional ``not_after`` param (an ISO-8601 time with a UTC offset) is the latest time the
 work may start: at or past it the port fails ``llm_deadline`` (not retryable) without a
@@ -76,7 +86,9 @@ actor's token budget counts them; the recording brief also returns ``answer``, t
   unavailable.", and when no section got a summary the masthead also says so;
 * ``llm_deadline`` (not retryable) - ``not_after`` has passed;
 * ``llm_rejected`` (not retryable) - any other non-2xx answer;
-* ``llm_bad_response`` (not retryable) - not JSON, or no string message content;
+* ``llm_bad_response`` (not retryable) - not JSON, or no string message content; for a
+  stream also a chunk that is not a JSON object, an ``error`` event, a stream that ends
+  without ``data: [DONE]`` (like a truncated JSON body) or one with no content delta;
 * ``model_taken`` (not retryable) - another enabled endpoint actor holds this actor's model
   (``model_taken: <holder id>``; checked before any request);
 * ``llm_content_too_large``, ``invalid_request``, ``llm_actor_invalid``,
@@ -90,6 +102,10 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
+import re
+import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,7 +121,7 @@ from culture_rules.node.actions._endpoint import (
     check_not_after,
     is_number,
     model_taken,
-    post,
+    opener,
     time_left,
 )
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
@@ -182,6 +198,7 @@ DEFAULT_MAX_CONTENT_CHARS = 48_000
 MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_TIMEOUT = 600.0
 COMPLETIONS_PATH = "/chat/completions"
+READ_CHUNK = 64 * 1024
 LEDGER_SIZE = DEFAULT_LEDGER_SIZE
 """How many completed results the port keeps for :meth:`LlmCompletePort.replay`."""
 
@@ -199,6 +216,8 @@ _CONTENT_PATH, _CONTENT_ROOT, _CONTENT_MAX_CHARS = (
 
 _RETRYABLE_4XX = frozenset({408, 429})
 _THINK_OPEN, _THINK_CLOSE = "<think>", "</think>"
+_DATA, _DONE = "data:", "[DONE]"
+_SSE_LINE_END = re.compile(r"\r\n|\r|\n")
 _USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total_tokens")
 
 Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
@@ -212,9 +231,36 @@ Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
 def urllib_transport(
     url: str, data: bytes, headers: Mapping[str, str], timeout: float
 ) -> tuple[int, bytes]:
-    """POST ``data`` to ``url`` (http/https only, checked by the caller) with urllib."""
-    status, _headers, body = post(url, data, headers, timeout, MAX_RESPONSE_BYTES)
-    return status, body
+    """POST ``data`` to ``url`` (http/https only, checked by the caller) with urllib: the
+    status and at most ``MAX_RESPONSE_BYTES + 1`` bytes of the body, all read within
+    ``timeout`` seconds of the call (a stream still arriving then raises ``TimeoutError``)."""
+    ends_at = time.monotonic() + timeout
+    request = urllib.request.Request(url, data=data, headers=dict(headers), method="POST")
+    try:
+        response = opener().open(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        response = exc  # a non-2xx answer is still an answer
+    with response:
+        status = int(getattr(response, "status", None) or response.code)
+        return status, _read_within(response, ends_at, MAX_RESPONSE_BYTES + 1)
+
+
+def _read_within(response: Any, ends_at: float, max_bytes: int) -> bytes:
+    """Read ``response`` to its end, or to ``max_bytes``, before the monotonic ``ends_at``:
+    each read waits at most the socket timeout, and the whole body is cut off at ``ends_at``
+    so a stream that keeps trickling cannot outlast the request's timeout."""
+    chunks: list[bytes] = []
+    size = 0
+    while size < max_bytes:
+        if time.monotonic() >= ends_at:
+            raise TimeoutError("the reply did not end within the request's timeout")
+        want = min(READ_CHUNK, max_bytes - size)
+        chunk = response.read1(want) if hasattr(response, "read1") else response.read(want)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+    return b"".join(chunks)
 
 
 # ------------------------------------------------------------------ actor and input checks
@@ -295,8 +341,14 @@ def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
     if len(raw) > MAX_RESPONSE_BYTES:
         raise Refused(BAD_RESPONSE, "response too large")
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except ValueError as exc:  # UnicodeDecodeError is a ValueError
+        body = raw.decode("utf-8")
+    except ValueError as exc:  # UnicodeDecodeError
+        raise Refused(BAD_RESPONSE, "response is not JSON") from exc
+    if _is_event_stream(body):
+        return _parse_stream(body, fallback_model)
+    try:
+        data = json.loads(body)
+    except ValueError as exc:
         raise Refused(BAD_RESPONSE, "response is not JSON") from exc
     choices = data.get("choices") if isinstance(data, dict) else None
     first = choices[0] if isinstance(choices, list) and choices else None
@@ -308,6 +360,77 @@ def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
     usage = data.get("usage")
     return {
         "text": _without_think(text),
+        _MODEL: model if isinstance(model, str) and model else fallback_model,
+        "usage": _usage(usage if isinstance(usage, dict) else {}),
+    }
+
+
+def _event_lines(body: str) -> list[str]:
+    """The stream's field lines (ended by CR, LF or CRLF only, so a U+2028 inside a chunk's
+    JSON stays in its line): blank separators and ``:`` comments dropped."""
+    lines = _SSE_LINE_END.split(body)
+    return [line for line in lines if line.strip() and not line.startswith(":")]
+
+
+def _is_event_stream(body: str) -> bool:
+    """Whether ``body`` is server-sent events (its first field line is ``data:``) rather
+    than one JSON reply (an error body, or a server that ignored ``stream``)."""
+    lines = _event_lines(body)
+    return bool(lines) and lines[0].startswith(_DATA)
+
+
+def _stream_chunks(body: str) -> list[dict[str, Any]]:
+    """The JSON chunks of an event stream up to ``data: [DONE]``; a stream that ends
+    without it was cut short, like a truncated JSON body."""
+    chunks: list[dict[str, Any]] = []
+    for line in _event_lines(body):
+        if not line.startswith(_DATA):
+            continue  # event:, id:, retry: carry nothing a completion needs
+        payload = line[len(_DATA) :].strip()
+        if payload == _DONE:
+            return chunks
+        try:
+            chunk = json.loads(payload)
+        except ValueError as exc:
+            raise Refused(BAD_RESPONSE, "a stream chunk is not JSON") from exc
+        if not isinstance(chunk, dict):
+            raise Refused(BAD_RESPONSE, "a stream chunk is not an object")
+        if "error" in chunk:
+            raise Refused(BAD_RESPONSE, "the stream reported an error")
+        chunks.append(chunk)
+    raise Refused(BAD_RESPONSE, "the stream ended without [DONE]")
+
+
+def _delta_content(chunk: Mapping[str, Any]) -> str | None:
+    """The first choice's ``delta.content`` in ``chunk`` (never its reasoning), else None."""
+    choices = chunk.get("choices")
+    if not isinstance(choices, list):
+        return None
+    for choice in choices:
+        if not isinstance(choice, dict) or choice.get("index", 0) != 0:
+            continue
+        delta = choice.get("delta")
+        content = delta.get(_CONTENT) if isinstance(delta, dict) else None
+        return content if isinstance(content, str) else None
+    return None
+
+
+def _parse_stream(body: str, fallback_model: str) -> dict[str, Any]:
+    pieces: list[str] = []
+    model: Any = None
+    usage: Any = None
+    for chunk in _stream_chunks(body):
+        piece = _delta_content(chunk)
+        if piece is not None:
+            pieces.append(piece)
+        if not (isinstance(model, str) and model):
+            model = chunk.get(_MODEL)
+        if isinstance(chunk.get("usage"), dict):
+            usage = chunk["usage"]
+    if not pieces:
+        raise Refused(BAD_RESPONSE, "no message content in the first choice")
+    return {
+        "text": _without_think("".join(pieces)),
         _MODEL: model if isinstance(model, str) and model else fallback_model,
         "usage": _usage(usage if isinstance(usage, dict) else {}),
     }
@@ -512,7 +635,8 @@ class LlmCompletePort:
                 {"role": "user", _CONTENT: content},
             ],
             "max_tokens": _max_tokens(input.get("max_tokens")),
-            "stream": False,
+            "stream": True,
+            "stream_options": {"include_usage": True},
         }
         temperature = _temperature(input.get("temperature"))
         if temperature is not None:
@@ -520,7 +644,10 @@ class LlmCompletePort:
         return json.dumps(body).encode("utf-8")
 
     def _headers(self, params: Mapping[str, Any]) -> dict[str, str]:
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream, application/json",  # an error body is JSON
+        }
         key = params.get("api_key")
         if key:
             try:
