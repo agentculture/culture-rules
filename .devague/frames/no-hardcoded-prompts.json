@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:57:57Z",
+  "updated": "2026-11-02T17:58:50Z",
   "claims": [
     {
       "id": "c1",
@@ -871,5 +871,168 @@
     }
   ],
   "lapses": [],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "llm.complete brief resolution",
+      "behavior": "a step with no brief, or a brief the bound actor lacks, fails invalid_request before any request; the system message is exactly the actor's params.briefs text",
+      "source_text": "llm.complete's built-in briefs leave the code: every brief name resolves only from the bound actor's params.briefs (admin-only), a step must name its brief, and there is no default brief",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "committed bundles and their tests",
+      "behavior": "every committed workflow using llm.complete names its brief and its tests pass with briefs only from actor config",
+      "source_text": "Every committed bundle and test that uses llm.complete names its brief and carries it as actor config, so nothing that ran before stops running",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "llm.complete answer option",
+      "behavior": "a reply matching the configured JSON shape is returned parsed; a non-JSON reply fails answer_not_json and a shape violation fails answer_invalid, naming the field",
+      "source_text": "A generic `answer` step option checks a model reply's JSON shape from step config (field names; types such as text, lines, word, list of strings; item counts, character limits, patterns), replacing the fixed answer validator in code",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c5",
+      "seam": "llm.complete cache option",
+      "behavior": "a cached answer for the same content is returned with no request for any brief; a cache file written by 0.41.0 is read back",
+      "source_text": "The answer cache is a step option for any brief; its file name and label are step config, defaulting to today's values so existing cache files stay readable",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c6",
+      "seam": "render builtin",
+      "behavior": "render shows any text it is given (prose with links renders as paragraphs and anchors) and holds no shape rule",
+      "source_text": "Render builtins do not enforce a content-shape rule: the hardcoded summary check (_summary_ok) leaves render, which shows any text it is given, and the rule becomes the generic validation step's configuration",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c7",
+      "seam": "numbering step",
+      "behavior": "a list and a template give deterministic text numbered from 1 in list order",
+      "source_text": "A new generic step numbers a list into text for a model's input ([1] then the configured fields of each item, format in config); today no builtin or {{ }} template can loop over a list (refs.py _text renders a list as str(list))",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c8",
+      "seam": "replace step",
+      "behavior": "each [n] in range is replaced by the configured template with item n's fields; an out-of-range [n] is left unchanged and listed in an output",
+      "source_text": "A new generic replace step rewrites each [n] reference in a text using the nth item of a given list and an output template from step config (for example [{n}]({url})); the step is a basic text operation with no format of its own, and a reference outside the list is reported, never invented",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c17",
+      "seam": "editor",
+      "behavior": "the action picker offers the chosen actor's brief names and the answer and cache options, with no built-in list or default; new steps appear in the step catalogue",
+      "source_text": "The editor and describe phrases follow the new options: the action picker offers the bound actor's brief names (no built-in list, no default) and the answer and cache options; the new steps get editor catalogue entries and describe phrases",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c18",
+      "seam": "rollout and rollback order",
+      "behavior": "docs/operations/rollout.md documents both orders and each step dry-runs cleanly",
+      "source_text": "Rollback stays possible: the order is seed the actors' briefs (old code ignores actor briefs named like code briefs, so seeding is safe on 0.41.0), roll out, then move live steps to the new options; rolling the code back to 0.41.0 first requires putting the live steps back (a step using the answer option would otherwise lose its parsing), documented in docs/operations/rollout.md",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c19",
+      "seam": "validation step",
+      "behavior": "a refused text yields verdict false with reasons and later steps can branch on it to a configured fallback",
+      "source_text": "The validation step outputs a verdict and its reasons alongside the text, so later steps branch on it (when) to show the text or a configured fallback; refused output is never silently dropped",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c20",
+      "seam": "render texts",
+      "behavior": "every user-facing note a render builtin shows comes from step config; none is a code constant",
+      "source_text": "Render builtins take every user-facing text (empty, unavailable and refused notes) from step configuration; the code cannot tell which flows run on it",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c22",
+      "seam": "json.parse",
+      "behavior": "a JSON string parses and validates against the configured schema; the first violation fails with its exact field path before any later step",
+      "source_text": "A generic json.parse step turns a JSON string (for example a shared variable) into a value and validates it against a schema from step config (required, types, min/max, enum, defaults, item limits, unknown keys refused), failing fast with the exact field path",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c23",
+      "seam": "list.filter",
+      "behavior": "items are kept exactly when the configured condition holds per item (including contains and any/all), deduped by the configured field and capped",
+      "source_text": "A generic list.filter step keeps the items of a list that satisfy a condition over item (from culture_rules/model/condition.py, extended with contains and any/all over a term list), with optional dedupe by a field, a derived host from a url and a cap",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c24",
+      "seam": "value helpers",
+      "behavior": "join, time-add and slot-to-local-date give exact results, including across a DST change",
+      "source_text": "Generic value helpers: join strings with a separator, add seconds to a timestamp, and convert a slot time to a local date in an IANA time zone (DST-correct)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c25",
+      "seam": "document.render",
+      "behavior": "records render to HTML and EPUB from the configured template, choosing a variant per record by condition; identical input gives identical bytes",
+      "source_text": "A generic document.render step renders a list of records into HTML and an EPUB (chapters) from a template, CSS, texts and caps in step config, choosing a variant per record by condition (for example text, else items with a fallback note), deterministic so identical input gives identical bytes; it reuses _epub.py",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c26",
+      "seam": "lease and ledger steps",
+      "behavior": "a key-addressed lease grants one owner, allows takeover only after expiry, and fails claim_lost after loss; the ledger freezes the first payload and gives a stable idempotency key",
+      "source_text": "A generic named lease and send-once ledger replace the coded issue state machine: a key-addressed lease with owner, expiry, takeover and a fence (claim_lost), and a ledger that freezes the first payload, records the attempt before sending, gives a stable idempotency key, bounds retries by a window and marks the outcome uncertain past it; collection, key template, windows and payload fields are step config",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c27",
+      "seam": "send safety",
+      "behavior": "across retries and crashes at each fence the send happens at most once and is never skipped while within its window; past the window it is recorded uncertain",
+      "source_text": "The lease and ledger keep every guarantee the coded state machine gives today: keyed by the configured key not the run; takeover only after expiry; lease renewed at every side-effect fence and a lost lease fails non-retryably; first payload frozen and replayed byte-for-byte; stable idempotency key; attempt recorded before send; never resent past the window (uncertain instead); the outcome id recorded even after a lost lease; a later side effect skipped when already recorded; done only once the send is settled, else the lease is released; an empty recipient list skips the send but completes",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c28",
+      "seam": "builtin registry",
+      "behavior": "no newspaper.* builtin is registered after R3 and the committed bundle runs end to end on generic steps",
+      "source_text": "With the generic steps in place, the four newsletter builtins (newspaper.sections, newspaper.filter, newspaper.render, newspaper.issue) and their modules are removed from code, and the committed bundle is rewritten as configuration of generic steps",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
 }
