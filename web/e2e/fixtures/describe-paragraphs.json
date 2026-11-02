@@ -2408,7 +2408,7 @@
           "depth": 0,
           "label": "4",
           "step": "summary",
-          "text": "llm.complete as cortex-spark2 (≤2 attempts)"
+          "text": "llm.complete as cortex-spark2 brief transcript (≤2 attempts)"
         },
         {
           "depth": 0,
@@ -2429,7 +2429,7 @@
         "1 fallback — audio.transcribe as stt-he, when language = en and empty_window_count = window_count (≤3 attempts)",
         "2 keep — select: the outputs of the path that ran (one source for the next step), when not (language = en and empty_window_count = window_count)",
         "3 pick — select: the outputs of the path that ran (one source for the next step)",
-        "4 summary — llm.complete as cortex-spark2 (≤2 attempts)",
+        "4 summary — llm.complete as cortex-spark2 brief transcript (≤2 attempts)",
         "5 render — transcript.render",
         "6 push — library.push as newspaper-library kind transcript (private) (≤3 attempts)"
       ],

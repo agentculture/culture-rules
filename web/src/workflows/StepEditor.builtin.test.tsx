@@ -142,6 +142,24 @@ describe("keyset built-ins", () => {
   });
 });
 
+describe("text built-ins", () => {
+  it.each([
+    ["text.number", ["text", "count"]],
+    ["text.replace_refs", ["text", "replaced", "missing_refs"]],
+    ["text.validate", ["ok", "reasons", "text", "links"]],
+  ])("offers %s with its outputs", async (name, outputs) => {
+    const user = userEvent.setup();
+    const last = setup({ id: "t", kind: "code" });
+    await user.selectOptions(screen.getByLabelText("Built-in"), name);
+    expect(last().config).toEqual({ builtin: name });
+    expect(last().outputs?.map((p) => p.name)).toEqual(outputs);
+  });
+
+  it("needs text.validate's text and no rule", () => {
+    expect(BUILTINS["text.validate"].inputs.filter((p) => p.required !== false).map((p) => p.name)).toEqual(["text"]);
+  });
+});
+
 describe("markdown.from_html built-in", () => {
   it("declares an optional split_at input and the parts output", () => {
     const b = BUILTINS["markdown.from_html"];

@@ -42,7 +42,7 @@ export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
   { name: "machine.command", summary: "Run a registered command on a machine" },
   { name: "email.send", summary: "Send an email through an email app" },
   { name: "search.web", summary: "Search the web through a search app" },
-  { name: "llm.complete", summary: "Complete a locked brief with an OpenAI-compatible model (no tools)" },
+  { name: "llm.complete", summary: "Complete one of the actor's named briefs with an OpenAI-compatible model (no tools)" },
   { name: "library.push", summary: "Upload a file (EPUB, Markdown, PDF, …) to a library (and queue it when the library has a device queue)" },
 ];
 

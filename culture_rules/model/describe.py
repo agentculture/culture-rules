@@ -96,6 +96,11 @@ BUILTIN_WORDS: dict[str, str] = {
     "cursor.advance": "cursor.advance: move a stored cursor on, only from the value read",
     "keyset.filter": "keyset.filter: drop the items whose key a named set already holds",
     "keyset.add": "keyset.add: remember the items' keys in a named set for a window",
+    "text.number": "text.number: number items into text using a template and separator",
+    "text.replace_refs": "text.replace_refs: swap each reference in a text for its item's text",
+    "text.validate": (
+        "text.validate: check text against configured rules, returning a verdict and reasons"
+    ),
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
@@ -132,7 +137,13 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "machine.command": (("command", "`{}`"),),
     "email.send": (("subject", _QUOTED),),
     "search.web": (("query", _QUOTED),),
-    "llm.complete": (),
+    "llm.complete": (
+        ("brief", "brief {}"),
+        ("answer", "checking the answer against its configured shape"),
+        ("cache", "keeping the first valid answer"),
+        ("cache_name", "cache name {}"),
+        ("cache_label", "cache label {}"),
+    ),
     "audio.transcribe": (("audio_path", "of {}"),),
     "transcript.render": (("result_path", "of {}"),),
     "decider.assess": (),
@@ -378,7 +389,10 @@ def _param_words(kind: str, params: Mapping[str, Any]) -> list[str]:
         value = params.get(param)
         if isinstance(value, (list, tuple)):
             value = " and ".join(str(v) for v in value if not _dynamic(v))
-        if value not in (None, "") and not _dynamic(value):
+        if kind == "llm.complete" and param == "answer":
+            if isinstance(value, Mapping) and "shape" in value:
+                words.append(template)
+        elif value is not False and value not in (None, "") and not _dynamic(value):
             words.append(template.format(value))
     return words
 

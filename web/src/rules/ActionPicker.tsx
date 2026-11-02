@@ -4,7 +4,7 @@ import { useDiscordTargets, type LoadTargets } from "./useDiscordTargets";
 import type { Actor, HttpPolicy, RunnerActorParams } from "../api/actors";
 import type { Action, DiscordButton, Workflow } from "../api/types";
 
-type ParamType = "str" | "int" | "number" | "bool" | "dict" | "list" | "any";
+type ParamType = "str" | "int" | "number" | "bool" | "dict" | "list" | "any" | "json";
 
 interface Choice {
   value: string;
@@ -16,7 +16,7 @@ interface ParamSpec {
   required?: boolean;
   /** A closed set of values, picked from a select whose empty option reads `choose`. */
   options?: readonly Choice[];
-  /** Like `options`, but the values are the list in the chosen actor's `params[optionsFrom]`. */
+  /** Like `options`, but the values are the list or mapping keys in the chosen actor's `params[optionsFrom]`. */
   optionsFrom?: string;
   choose?: string;
 }
@@ -35,12 +35,6 @@ const RI: ParamSpec = { type: "int", required: true };
 
 const METHODS: readonly Choice[] = ["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => ({ value: m, label: m }));
 /** Brave's freshness windows (search.web `freshness`). */
-/** llm.complete's locked briefs. */
-const BRIEFS: readonly Choice[] = [
-  { value: "newspaper", label: "Newspaper" },
-  { value: "transcript", label: "Transcript" },
-  { value: "recording", label: "Recording: summary, key facts, action items" },
-];
 /** transcript.render's output formats. */
 const RENDER_FORMATS: readonly Choice[] = [
   { value: "epub", label: "EPUB book" },
@@ -161,7 +155,8 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     label: "Summarise with a language model",
     params: {
       actor: RS,
-      brief: { ...S, options: BRIEFS, choose: "Newspaper (default)" },
+      brief: { ...RS, optionsFrom: "briefs", choose: "Choose one of the actor's briefs…" },
+      answer: { type: "json" },
       content: { type: "any" },
       content_path: S,
       content_root: S,
@@ -170,6 +165,8 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
       temperature: { type: "number" },
       not_after: S,
       cache: { type: "bool" },
+      cache_name: S,
+      cache_label: S,
     },
     anyOf: [["content", "content_path"]],
   },
@@ -515,6 +512,32 @@ function ListInput({ id, value, onChange }: Readonly<{ id: string; value: unknow
   );
 }
 
+/** An editable JSON object. Invalid drafts stay in state so save validation refuses them. */
+function JsonObjectInput({ id, value, onChange }: Readonly<{ id: string; value: unknown; onChange: (v: unknown) => void }>) {
+  const display = typeof value === "string" ? value : value === undefined ? "" : JSON.stringify(value);
+  const [text, setText] = useState(display);
+  useEffect(() => {
+    setText(display);
+  }, [display]);
+  return <textarea
+    aria-labelledby={`${id}-name`}
+    aria-invalid={value !== undefined && !isJsonObject(value)}
+    value={text}
+    rows={4}
+    onChange={(e) => {
+      const next = e.target.value;
+      setText(next);
+      if (!next.trim()) { onChange(undefined); return; }
+      try {
+        const parsed: unknown = JSON.parse(next);
+        onChange(isJsonObject(parsed) ? parsed : next);
+      } catch {
+        onChange(next);
+      }
+    }}
+  />;
+}
+
 /** The fixed-value input for a param: read-only for a stored object, a textarea for long text. */
 function LiteralInput({
   id,
@@ -529,7 +552,9 @@ function LiteralInput({
   const literal = (v: string) => literalOf(type, v);
   const numeric = type === "int" || type === "number";
   let control;
-  if (type === "list") {
+  if (type === "json") {
+    control = <JsonObjectInput id={id} value={value} onChange={onChange} />;
+  } else if (type === "list") {
     control = <ListInput id={id} value={value} onChange={onChange} />;
   } else if (value !== undefined && value !== null && typeof value === "object") {
     control = <input aria-labelledby={`${id}-name`} value={JSON.stringify(value)} readOnly />;
@@ -835,15 +860,18 @@ function hiddenForActor(kind: string, name: string, actor: Actor | undefined): b
 }
 
 /**
- * On an actor change, the library.push values the new actor makes moot or refuses: a
+ * On an actor change, clear an unavailable model brief or library values the actor refuses: a
  * `device_id` it has no `queue_path` for, a `kind` or `visibility` it does not list (#91 review).
  * Hidden values would otherwise stay saved where the step can no longer show or fix them.
  */
-function libraryCarryOver(
+function actorCarryOver(
   kind: string,
   params: Record<string, unknown>,
   actor: Actor | undefined,
 ): Record<string, unknown> {
+  if (kind === "llm.complete") {
+    return { brief: actorChoices(actor, "briefs").some((c) => c.value === params.brief) ? params.brief : undefined };
+  }
   if (kind !== "library.push") return {};
   const listed = (key: string, value: unknown) =>
     actorChoices(actor, key).some((c) => c.value === value) ? value : undefined;
@@ -855,9 +883,15 @@ function libraryCarryOver(
   };
 }
 
-/** The string list an actor's `params[key]` holds (library.push `kinds`), as choices. */
+/**
+ * The names an actor's `params[key]` holds as choices: a string list (library.push `kinds`) or
+ * the keys of a mapping (llm.complete `briefs`, name to text; the text is never read here).
+ */
 function actorChoices(actor: Actor | undefined, key: string): Choice[] {
   const list = actor?.params?.[key];
+  if (key === "briefs") {
+    return isJsonObject(list) ? Object.keys(list).map((v) => ({ value: v, label: cap(v) })) : [];
+  }
   if (!Array.isArray(list)) return [];
   return list.filter((v): v is string => typeof v === "string").map((v) => ({ value: v, label: cap(v) }));
 }
@@ -1228,7 +1262,7 @@ export default function ActionPicker({
                 args: undefined,
                 guild: undefined,
                 channel: DISCORD_TARGET_KINDS.has(kind) ? undefined : params.channel,
-                ...libraryCarryOver(kind, params, actors.find((a) => a.id === e.target.value)),
+                ...actorCarryOver(kind, params, actors.find((a) => a.id === e.target.value)),
               })
             }
           >
