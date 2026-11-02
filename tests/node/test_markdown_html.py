@@ -305,3 +305,8 @@ def test_bad_split_at_fails_bad_params_without_retry(bad):
         {"html": "<p>x</p>"}, "k", DEADLINE, context=ctx_with(split_at=bad)
     )
     assert (res.outcome, res.retryable, "bad_params" in res.error) == (FAILED, False, True)
+
+
+def test_split_at_without_a_heading_of_that_rank_is_one_lead_part():
+    parts = html_to_markdown("<h1>Paper</h1><p>x</p><h3>Deep</h3>", split_at="h2")["parts"]
+    assert [(p["heading"], p["text"]) for p in parts] == [("", "**Paper**\nx\n\n**Deep**")]

@@ -15,15 +15,17 @@ Input: ``html`` (a string). Config (each may instead be an input):
 * ``italic_classes`` - paragraphs with one of these classes are written in italics;
 * ``item_paragraphs`` - keep only the first N paragraphs of each list item (unset: all);
 * ``split_at`` - one of ``h1`` to ``h6``: also give ``parts``, one per heading of that rank or
-  higher (a new part starts at each; shallower headings before the first of that rank stay in
-  the leading masthead part), each holding its whole text with no ``max_chars`` cap.
+  higher (shallower headings before the first of that rank stay in the lead part), each
+  holding its whole text with no ``max_chars`` cap.
 
 Chunks break between blocks (a heading starts one); a block longer than a chunk breaks
 between its lines, a line longer than a chunk at a space outside any link, and a heading
 always opens the chunk that holds its block's first line. Outputs: ``markdown`` (the whole
 document), ``chunks`` (in order) and ``count``; with ``split_at`` also ``parts``, objects with
-``index``, ``heading`` (its plain text; ``''`` for the masthead before the first heading of
-exactly that rank, where shallower headings, e.g. a title, stay) and ``text``. Final failure:
+``index``, ``heading`` (its plain text) and ``text``. Everything before the first heading of exactly
+the ``split_at`` rank is the lead part (heading ``''``, shallower headings such as a title
+stay in it); from that heading on, each heading of that rank or higher starts a part, so a page
+with no heading of that rank is one lead part. Final failure:
 ``bad_params``. Standard library only; the same HTML and config always give the same output.
 """
 
@@ -259,7 +261,7 @@ def _parts(kept: list[tuple[tuple[int, str] | None, str]], rank: int) -> list[di
     """Blocks grouped into parts: one starts at every heading of ``rank`` or higher."""
     heads: list[str] = []
     texts: list[list[str]] = []
-    first = next((i for i, (h, _) in enumerate(kept) if h is not None and h[0] == rank), 0)
+    first = next((i for i, (h, _) in enumerate(kept) if h is not None and h[0] == rank), len(kept))
     for i, (head, text) in enumerate(kept):
         if head is not None and head[0] <= rank and i >= first:
             heads.append(head[1])
