@@ -22,25 +22,25 @@ Edit the Owner/Model columns before approving gate 2 — the default Model is a 
 
 | Task | Owner | Model |
 | --- | --- | --- |
-| `t1` |  | sonnet |
-| `t3` |  | sonnet |
-| `t4` |  | sonnet |
-| `t5` |  | sonnet |
-| `t6` |  | sonnet |
-| `t2` |  | sonnet |
-| `t7` |  | sonnet |
-| `t8` |  | sonnet |
-| `t9` |  | sonnet |
-| `t10` |  | sonnet |
-| `t11` |  | sonnet |
-| `t12` |  | sonnet |
-| `t14` |  | sonnet |
-| `t15` |  | sonnet |
-| `t13` |  | sonnet |
-| `t16` |  | sonnet |
-| `t17` |  | sonnet |
-| `t18` |  | sonnet |
-| `t19` |  | sonnet |
+| `t1` | subagent (worktree) | sonnet |
+| `t3` | subagent (worktree) | sonnet |
+| `t4` | subagent (worktree) | sonnet |
+| `t5` | subagent (worktree) | sonnet |
+| `t6` | subagent (worktree) | sonnet |
+| `t2` | subagent (worktree) | opus |
+| `t7` | subagent (worktree) | sonnet |
+| `t8` | subagent (worktree) | sonnet |
+| `t9` | subagent (worktree) | sonnet |
+| `t10` | main agent + operator go-ahead | opus |
+| `t11` | subagent (worktree) | sonnet |
+| `t12` | subagent (worktree) | opus |
+| `t14` | subagent (worktree) | sonnet |
+| `t15` | subagent (worktree) | opus |
+| `t13` | subagent (worktree) | sonnet |
+| `t16` | main agent + sonnet subagent | opus |
+| `t17` | subagent (worktree) | opus |
+| `t18` | subagent (worktree) | opus |
+| `t19` | main agent + operator go-ahead | opus |
 
 ## Wave 1
 
