@@ -170,6 +170,31 @@ operator step, not a recorded rollout step.
 `cr rollout show <version>` prints the rollout document: the snapshot and each
 applied step's outcome.
 
+### When a release moves behaviour into configuration
+
+Some releases move text or rules out of code and into configuration: actor
+params, step config. Code that has dropped a built-in then refuses a step that
+still relies on it, so the configuration has to be in place on both sides of
+the upgrade. The order is:
+
+1. **Actor configuration first**, before `pause`: add what the new code reads
+   from actors (for example each agent actor's `params.briefs`, admin only).
+   The release in use ignores it, so this changes nothing yet.
+2. **The code**: `pause`, then `upgrade` every host, as above.
+3. **Live steps**, while the rules are still paused (after `import`, before
+   `enable`): edit each live workflow so its steps name or carry what the code
+   no longer supplies (a step's `brief`, an `answer` shape, a renderer's texts,
+   a check step), then `enable` and `resume`.
+
+A step edit that the release in use already accepts, such as naming a brief
+that release also knows, may go in at step 1 too, so there is less to do while
+paused.
+
+**Rollback** runs the other way round: put the live steps back to their saved
+bodies (keep each workflow's body from before step 3), then roll the code back
+to the previous wheel. The actor configuration from step 1 can stay, because
+the older release ignores it.
+
 ### The rollout document
 
 Each applied step is recorded with `POST /rollouts/<version>/steps/<step>`. The

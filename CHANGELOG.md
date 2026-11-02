@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2026-11-02
+
+### Added
+
+- `culture_rules/model/shape.py`: a generic, declarative shape validator (text, word, lines, int, bool, list, object; strip, lower, limits, pattern, enum, required, default, object `extra` refuse or drop) that names the failing field path
+- llm.complete `answer: {shape}` (the reply read as JSON and checked against the step's spec; `answer_not_json`, `answer_invalid`) and `cache` / `cache_name` / `cache_label` for any brief with an answer and a `content_path`
+- The builtins `text.number` (items into numbered text by a template), `text.replace_refs` (numbered references swapped for a template filled from the item) and `text.validate` (explicit rules answered as a verdict, `ok` and `reasons`); registered, described and offered in the editor
+- `newspaper.render` takes `texts` (every note it adds) and a per-section `summary_ok` verdict
+- Docs: text steps guide (docs/operations/text-steps.md), structured answers and the cache (llm.md), the order for a release that moves behaviour into configuration (rollout.md), and the four harness prompt files
+
+### Changed
+
+- llm.complete holds no prompt text: `brief` is required and names one of the bound actor's `params.briefs`; the three code briefs and the default are gone (actors must carry them before the upgrade)
+- `newspaper.render` has no summary-shape rule and no built-in notes; a step before it (`text.validate`) checks the summary as configured
+- Every `<think>` block is dropped from a reply, not only a leading one
+- The committed bundles carry their briefs on the actor and name them in each step; the newspaper bundle checks its summaries with `text.validate` and gives the renderer its texts
+- The editor's llm.complete picker offers the chosen actor's brief names, an answer shape and the cache options
+
+### Removed
+
+- `culture_rules/node/actions/recording_answer.py` (the recording answer is an `answer` shape in step config)
+
 ## [0.41.0] - 2026-11-02
 
 ### Added

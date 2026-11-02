@@ -84,7 +84,7 @@ plan. What exists today:
     `jetson-ai-lab.org`, a recipient allowlist);
   - action kinds `email.send` (Resend), `search.web` (Brave),
     `llm.complete` (an OpenAI-compatible endpoint on an `agent` actor, with
-    a locked brief and no tools) and `library.push` (an EPUB to the library its actor describes),
+    a brief from the actor's configuration and no tools) and `library.push` (an EPUB to the library its actor describes),
     plus the `newspaper.*` builtins;
   - the step option `config.on_error: "skip"`, which turns a failed step
     `skipped`;
@@ -147,7 +147,7 @@ plan. What exists today:
     transcript file under a given root: titled `<YYYY-MM-DD> <HHMM> <word>`
     (the Asia/Jerusalem date and time of `recorded_at`), a 1-2 line summary, then the
     transcript, right to left unless the language is `en`;
-  - `llm.complete` takes `brief: transcript` (a second locked brief) and
+  - `llm.complete` takes `brief: transcript` (a brief named from the actor's briefs) and
     `content_path` + `content_root`, reading the transcript itself so its
     text never enters run state (d2); `library.push` takes `kind`;
   - the workflow `transcript-to-reader` and the rule `pocket-to-reader`
@@ -184,7 +184,7 @@ plan. What exists today:
   - `library.push` takes a `format` the actor lists (`md` among them) and
     replaces an item's file by `item_id` through the actor's `replace_path` and
     `replace_method` (the route is culture-library#10's);
-  - `llm.complete`'s locked `recording` brief returns {summary, word, facts,
+  - `llm.complete` with a `recording` brief and an `answer` shape returns {summary, word, facts,
     action_items}, and `cache: true` keeps the first valid answer beside the
     transcript; `transcript.render` takes `format: md`;
   - the builtins `json.read` (fields from a JSON file under a root) and
@@ -279,7 +279,8 @@ plan. What exists today:
     and the next resumes; outputs are counts only;
   - the bundle `docs/rules/repodocs` runs it every 15 minutes on spark, one run at a time,
     and ships disabled.
-- **Forum posts and actor briefs**: `markdown.from_html` takes `split_at` (h1-h6) and then also outputs `parts` (`{index, heading, text}`, a `''` lead part first when content precedes the first heading of that rank); `discord.message` takes `thread_name` and `tags` to post into a forum as a thread (tags matched by name, unknown ones listed in `tags_missing`, text over 2000 characters posted as replies, a failure after the thread exists is not retried); `llm.complete` takes a `brief` naming one of the agent actor's `params.briefs` (the code briefs keep their text; only admins may edit `params.briefs`, else `briefs_admin_only`). Flows that use them are configured live, never committed (guides `docs/actors/discord.md`, `docs/actors/llm.md`, `docs/operations/newspaper.md`).
+- **Forum posts and actor briefs**: `markdown.from_html` takes `split_at` (h1-h6) and then also outputs `parts` (`{index, heading, text}`, a `''` lead part first when content precedes the first heading of that rank); `discord.message` takes `thread_name` and `tags` to post into a forum as a thread (tags matched by name, unknown ones listed in `tags_missing`, text over 2000 characters posted as replies, a failure after the thread exists is not retried); `llm.complete` takes a `brief` naming one of the agent actor's `params.briefs` (only admins may edit `params.briefs`, else `briefs_admin_only`). Flows that use them are configured live, never committed (guides `docs/actors/discord.md`, `docs/actors/llm.md`, `docs/operations/newspaper.md`).
+- **No prompts in code**: `llm.complete` takes its system prompt only from the bound actor's `params.briefs` (a step's `brief` names one; there is no built-in brief and no default; only admins edit briefs), an optional `answer: {shape}` checked by the generic shape validator (`culture_rules/model/shape.py`: `text`, `word`, `lines`, `int`, `bool`, `list`, `object`; `answer_not_json` / `answer_invalid`), and `cache` / `cache_name` / `cache_label` for any brief with an answer and a `content_path`. The generic builtins `text.number` (items into numbered text by a template), `text.replace_refs` (numbered references swapped for a template, e.g. a link) and `text.validate` (explicit rules, a verdict `ok` + `reasons`, never a failure) take every format and rule as step config (guide `docs/operations/text-steps.md`); `newspaper.render` takes its notes as `texts` and a per-section `summary_ok` verdict and holds no shape rule. A release that moves behaviour into configuration rolls out actor configuration first, then the code, then the live steps (`docs/operations/rollout.md`).
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

@@ -45,14 +45,19 @@ step is a built-in or an action:
    A result whose URL does not parse is dropped; the others are kept.
 4. `summarise` is a `for_each` over the filtered results. `summary`
    (`llm.complete` on `cortex-spark2`) writes one bullet per result, each
-   linking its source. The brief is locked in code and the request sends no
-   tools. Its `not_after` is `summaries_until`: no summary starts after it.
+   linking its source. It names the brief `newspaper`, whose text is in the
+   actor's `params.briefs` (admin only), and the request sends no tools.
+   Its `not_after` is `summaries_until`: no summary starts after it.
    A section whose filtered results are empty skips its summary (its `when`
    needs a non-empty `item.results`), so no request is made for it.
+   Then `check` (`text.validate`) checks the summary with the rule in its
+   config: every line a bullet holding a link, at least one link, and every
+   link one of the section's result URLs.
 5. `render` (`newspaper.render`) builds the HTML email body and the EPUB.
-   A summary is shown only when every line is a bullet that links one of
-   its section's results; otherwise the section shows its results. A
-   section with no results says "No results."
+   A summary is shown only when its `check` verdict (`summary_ok`) is not
+   false; otherwise the section shows its results and the `summary_refused`
+   text. A section with no results shows the `no_results` text. Every
+   line the renderer adds is in its `texts` config, none is in code.
 6. `email_gate` (`newspaper.issue`, phase `before_email`) fences the email.
    It renews the run's lease on the date. On the date's first fence it
    freezes the whole request: the recipients (`newspaper_to`), the sender

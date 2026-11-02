@@ -3,7 +3,8 @@
 An LLM actor is an **agent** actor (not an app actor) that points at an
 OpenAI-compatible chat completions endpoint, such as a vLLM server or a
 gateway in front of one. The `llm.complete` action sends it one request with
-a brief locked in code and returns the model's text. It never goes through
+a system prompt named from the actor's own configuration (its briefs) and returns
+the model's text. No prompt text lives in code. It never goes through
 the coding-agent bridge, never sends tools and never names a repository,
 even when the same actor also has a `bridge_url`.
 
@@ -87,33 +88,58 @@ The `llm.complete` action takes:
 | `content_path` | one of the two | a schema-1 transcript file the port reads itself (the text never enters run state); needs `content_root` |
 | `content_root` | with `content_path` | the folder `content_path` must resolve under |
 | `content_max_chars` | no | how much of the transcript to send |
-| `brief` | no | which brief: `newspaper` (default), `transcript` or `recording` (code briefs), or the name of one of the actor's own briefs (see Actor briefs) |
-| `cache` | no | `true` with `brief: recording` and a `content_path`: keep the first valid answer beside the file |
+| `brief` | yes | the name of one of the actor's briefs (`params.briefs`, see Actor briefs); there is no default |
+| `answer` | no | `{"shape": <spec>}`: read the reply as JSON and check it against the spec (see Structured answers) |
+| `cache` | no | `true` with `answer` and a `content_path`: keep the first valid answer beside the file |
+| `cache_name` | no | the cache file's stem (1-64 letters, digits, `-` or `_`); default `recording` |
+| `cache_label` | no | the label stored in the cache file's `brief` field; default `recording` |
 | `max_tokens` | no | default 1500, capped at 4000 |
 | `temperature` | no | a number from 0 to 2 |
 | `not_after` | no | an ISO-8601 time with a UTC offset: the work does not start after it, and the request's timeout ends at it |
 
-Every other param is ignored. The system message is a code brief from
-`culture_rules/node/actions/llm.py` or one of the actor's briefs, and a step
-names one but cannot supply or replace the text:
+Every other param is ignored. The system message is the text of the named
+brief in the bound actor's `params.briefs`; a step names a brief but cannot
+supply or replace its text. A step with no `brief`, or one naming a brief the
+actor does not hold, fails `invalid_request` before any request.
 
-- `NEWSPAPER_BRIEF`: summarise only the given search results, one bullet per
-  item, each linking its source, and reply "No results." to an empty list.
-- `TRANSCRIPT_BRIEF`: a JSON `{summary, word}` for a transcript.
-- `RECORDING_BRIEF`: a JSON `{summary, word, facts, action_items}` for a
-  transcript, with empty lists when there are none and nothing invented. The
-  answer is checked: a reply that is not that JSON fails `answer_not_json` or
-  `answer_invalid` and is never cached.
+### Structured answers
 
-With `cache: true`, the first valid recording answer is written beside the
-content file as `answer.recording.<first 16 hex of its sha256>.json`. A later
-run for the same file returns it without calling the model, so re-extracting
-a transcript gives the same answer. A changed file has a new sha256 and is
-asked again. The cache follows the content, not the model: after moving the
-step to another model, a cached transcript keeps its first answer (and that
-model's name) so its to-do ids stay stable. Delete the
-`answer.recording.*.json` files to ask again. A cache hit reports empty
-`usage`, because no tokens were spent.
+With `answer: {"shape": <spec>}`, the reply (every `<think>` block and one
+Markdown fence dropped) is read as JSON and checked against the spec. The spec
+is plain data in the step, so the answer's fields, types and limits are
+configuration. Its types are `text`, `word`, `lines`, `int`, `bool`, `list`
+and `object`; each takes `required` and `default`, text types take `strip`,
+`lower`, `min_chars`, `max_chars`, `pattern` and `enum`, `lines` and `list`
+take counts (`min`/`max`, `min_items`/`max_items`), and `object` takes
+`fields` and `extra` (`refuse`, the default, or `drop`). For example:
+
+```json
+{"answer": {"shape": {"type": "object", "extra": "drop", "fields": {
+  "summary": {"type": "lines", "required": true, "min": 1, "max": 2, "max_chars": 300},
+  "word": {"type": "word", "required": true, "strip": true, "lower": true,
+           "pattern": "^[A-Za-z][A-Za-z-]{1,23}$"},
+  "facts": {"type": "list", "default": [], "items": {"type": "text", "strip": true}}
+}}}}
+```
+
+A reply that is not JSON (or not an object for an `object` shape) fails
+`answer_not_json`; one that does not fit fails `answer_invalid` naming the
+field path (`facts[3]: ...`). Neither is retried, and neither is cached. A
+malformed spec fails `invalid_request` before any request. The normalised
+value is the output `answer`.
+
+### The answer cache
+
+With `cache: true`, an `answer` and a `content_path`, the first valid answer
+is written beside the content file as
+`answer.<cache_name>.<first 16 hex of the file's sha256>.json`. A later run
+for the same file returns it without calling the model, so re-extracting a
+file gives the same answer. A changed file has a new sha256 and is asked
+again. The cache follows the content, not the model or the brief text: after
+moving the step to another model, a cached file keeps its first answer (and
+that model's name). Delete the `answer.<cache_name>.*.json` files to ask
+again. A cache hit reports empty `usage`, because no tokens were spent. The
+defaults (`recording`) read the files 0.41.0 wrote.
 
 The request body has exactly `model`, `messages`, `max_tokens`,
 `stream: true`, `stream_options: {include_usage: true}` and, when given,
@@ -137,18 +163,17 @@ fails `llm_bad_response`, like a truncated JSON reply (`"error": null` in a
 chunk is no error). A plain JSON reply
 (an error body, or a server that ignores `stream`) is still read as before.
 
-The output is `{text, model, usage}`, plus `answer` (the parsed JSON) and
-`cached` for the recording brief. `text` is the first choice's message,
-with a leading `<think>` block dropped. On a cache hit (`cached: true`),
-`text` is the stored answer as canonical JSON (its `summary` a list of
-lines), not the model's original reply. `transcript.render` reads either form,
-or the whole output. `usage` keeps the token counts, which
+The output is `{text, model, usage}`, plus `answer` (the checked value) and
+`cached` when the step has an `answer`. `text` is the first choice's message,
+with every `<think>` block dropped. On a cache hit (`cached: true`), `text`
+is the stored answer as canonical JSON, not the model's original reply. `usage` keeps the token counts, which
 count toward the actor's token budget.
 
 ## Actor briefs
 
-An actor can hold briefs of its own in `params.briefs`, a map of name to
-non-empty text, so a new kind of summary is configuration rather than a release:
+An agent actor holds its briefs in `params.briefs`, a map of name to
+non-empty text. They are the only place prompt text lives, so a new kind of
+summary, or a change to one, is configuration rather than a release:
 
 ```json
 {"briefs": {"one-line": "<the system prompt text>"}}
@@ -156,17 +181,19 @@ non-empty text, so a new kind of summary is configuration rather than a release:
 
 A step selects one with `brief: "one-line"`. The rules:
 
-- The three code briefs (`newspaper`, `transcript`, `recording`) always keep
-  their code text. An actor brief with one of those names is ignored.
-- Any other name is looked up in the bound actor's `params.briefs`. A name the
-  actor does not hold, or one whose text is empty, fails `invalid_request`
-  before any request is made.
+- A name the actor does not hold, or one whose text is empty or not a
+  string, fails `invalid_request` before any request is made. There is no
+  built-in brief and no default.
 - No step param supplies prompt text; a step only names a brief. The request
   still has no `tools`.
 - **Admins only.** Adding, changing or removing `params.briefs` on an actor is
   an admin action, because the text is a system prompt. Anyone else gets HTTP
   403 `briefs_admin_only` from the API (create and update) and from a bundle
   import. Setting the actor's other params is unchanged.
+- **Before upgrading from 0.41.0**, give each actor the briefs its live steps
+  use, and have every step name its brief: 0.41.0 kept three briefs in code
+  and a step without `brief` used one of them. See the rollout order in
+  [rolling out a release](../operations/rollout.md).
 
 ## Failures
 
@@ -176,9 +203,10 @@ A step selects one with `brief: "one-line"`. The rules:
 | `llm_deadline` | `not_after` has passed (checked before the pool queues the work) | no |
 | `llm_rejected` | any other non-2xx answer | no |
 | `llm_bad_response` | not JSON, or no message text | no |
+| `answer_not_json`, `answer_invalid` | the reply does not fit the step's `answer` shape | no |
 | `actor_kind_mismatch` | the actor is not an `agent` | no |
 | `llm_actor_invalid` | `base_url`, `model` or `api_key` is unusable | no |
-| `invalid_request`, `llm_content_too_large` | the content is empty, a `brief` is neither a code brief nor one of the actor's, not serialisable or too long, or `not_after` is malformed | no |
+| `invalid_request`, `llm_content_too_large` | the content is empty, not serialisable or too long, the `brief` is missing or not one of the actor's, the `answer` shape or a cache param is malformed, or `not_after` is malformed | no |
 | `secret_unresolved` | the key could not be resolved on the node | no |
 
 A failure never echoes a response body, a header value or a secret.
@@ -188,7 +216,8 @@ A failure never echoes a response body, a header value or a secret.
 `docs/rules/newspaper/actors/cortex-spark2.json` is an LLM actor on machine
 `spark`. It points at the lobes gateway on spark's loopback with model
 `cortex-spark2` and `grant:LOBES_GATEWAY_API_KEY`, in pool `qwen-spark2` with
-`max_concurrency: 1`. That pool is shared with the PR fixer, so each
+`max_concurrency: 1`, and it carries the briefs the bundle's steps name in
+`params.briefs`. That pool is shared with the PR fixer, so each
 summary waits behind a running fix. The newspaper's summary step sets
 `config.on_error: "skip"`, so a failed summary leaves that section with its
 results and "Summary unavailable."; see
