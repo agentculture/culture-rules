@@ -27,8 +27,12 @@ the last space) and tagged with the forum tags whose names match ``tags`` exactl
 names the forum lacks come back in ``tags_missing``). A text longer than one message is split at
 line breaks (a longer single line hard) into pieces that join back to the text: the first
 starts the thread and the rest are replies in it, in order (a piece that is only blank space
-is not posted, since Discord refuses a blank message). A reply Discord rate-limits (a 429: not
-posted) is sent again after its ``retry_after`` (at most 10 s a wait, at most 3 waits a step).
+is not posted, since Discord refuses a blank message). A forum whose flags require a tag
+(``REQUIRE_TAG``) fails ``bad_params`` before any post when none of ``tags`` matched. Starting
+the thread is retryable only when Discord surely did not create it (a 429, a refused
+connection); a timeout, a 5xx or a lost connection is an unknown outcome, not retried. A reply
+Discord rate-limits (a 429: not posted) is sent again after its ``retry_after`` (at most 10 s a
+wait, at most 3 waits a step, and never a wait that would reach the step's deadline).
 Once the thread exists any other failure is not retryable (a retry would start a second
 thread) and its error names the thread and the replies posted. The output is
 ``{"message_id", "thread_id", "reply_ids", "tags_missing"}``.
@@ -42,7 +46,7 @@ import shutil
 import subprocess  # nosec B404 - only for TimeoutExpired; the CLI runs in node.mesh
 import time
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors import secrets
@@ -71,6 +75,34 @@ MAX_THREAD_NAME = 100
 MAX_REPLY_WAIT_S = 10.0
 MAX_REPLY_WAITS = 3
 DEFAULT_REPLY_WAIT_S = 1.0
+#: Discord's channel flag of a forum on which every post must carry a tag
+REQUIRE_TAG = 1 << 4
+
+
+def _flags(channel: Mapping[str, Any]) -> int:
+    flags = channel.get("flags")
+    return flags if isinstance(flags, int) and not isinstance(flags, bool) else 0
+
+
+class _ReplyWaits:
+    """The rate-limit waits one forum step has left: at most :data:`MAX_REPLY_WAITS`, and
+    none that would end at or past the step's ``deadline`` (when there is one)."""
+
+    def __init__(self, deadline: datetime | None, clock: Callable[[], datetime]) -> None:
+        self.left = MAX_REPLY_WAITS
+        self._deadline = deadline
+        self._clock = clock
+
+    def take(self, seconds: float) -> str | None:
+        """Use one wait of ``seconds``: ``None`` when it may be slept, else why not."""
+        if self.left <= 0:
+            return f"no rate-limit waits left (at most {MAX_REPLY_WAITS} a step)"
+        if self._deadline is not None and (
+            self._clock() + timedelta(seconds=seconds) >= self._deadline
+        ):
+            return "waiting would pass the step deadline"
+        self.left -= 1
+        return None
 
 
 def _forum_params(input: Mapping[str, Any]) -> tuple[str, list[str]] | None:  # noqa: A002
@@ -154,7 +186,7 @@ class MessageAction:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
-        del idempotency_key, deadline
+        del idempotency_key
         channel, text = input.get("channel"), input.get("text")
         if not isinstance(channel, str) or not channel or not isinstance(text, str) or not text:
             return _fail("message needs a non-empty channel and text")
@@ -165,7 +197,7 @@ class MessageAction:
             except ValueError as exc:
                 return _fail(f"bad_params: {exc}")
             if forum is not None:
-                return self._forum(context.actor, channel, text, *forum)
+                return self._forum(context.actor, channel, text, *forum, deadline=deadline)
             poster = self._posted_by(context.run_id, context.step_id) if valued else None
             return self._discord(context.actor, channel, text, components, valued, poster)
         return self._mesh(channel, text)
@@ -253,7 +285,14 @@ class MessageAction:
         return DiscordClient(bot, **kwargs)
 
     def _forum(
-        self, actor_id: str, channel: str, text: str, name: str, tags: list[str]
+        self,
+        actor_id: str,
+        channel: str,
+        text: str,
+        name: str,
+        tags: list[str],
+        *,
+        deadline: datetime | None = None,
     ) -> InvocationResult:
         """Start a post in the forum ``channel`` and continue a long ``text`` as replies."""
         bot = self._discord_token(actor_id, channel)
@@ -272,6 +311,11 @@ class MessageAction:
             by_name.setdefault(tag["name"], tag["id"])
         tag_ids = list(dict.fromkeys(by_name[t] for t in tags if t in by_name))
         missing = [t for t in tags if t not in by_name]
+        if _flags(forum) & REQUIRE_TAG and not tag_ids:
+            return _fail(
+                f"bad_params: forum {channel!r} requires a tag and none of tags matched"
+                f" (tags_missing: {missing})"
+            )
         first, *rest = split_text(text)
         try:
             started = client.create_forum_post(channel, thread_title(name), first, tag_ids)
@@ -280,7 +324,7 @@ class MessageAction:
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
         thread_id = started["thread_id"]
         reply_ids: list[str] = []
-        waits = [MAX_REPLY_WAITS]
+        waits = _ReplyWaits(deadline, self._clock)
         for piece in rest:
             if not piece.strip():  # Discord refuses a blank message; nothing visible is lost
                 continue
@@ -304,20 +348,23 @@ class MessageAction:
         )
 
     def _reply(
-        self, client: DiscordClient, thread_id: str, piece: str, waits: list[int]
+        self, client: DiscordClient, thread_id: str, piece: str, waits: _ReplyWaits
     ) -> dict[str, str]:
         """Post one reply in ``thread_id``; a 429 (Discord did not post it) waits its
         ``retry_after`` (at most :data:`MAX_REPLY_WAIT_S`) and sends the same reply again,
-        while ``waits[0]`` (the step's remaining waits) lasts. Any other failure raises."""
+        while ``waits`` allows it. Any other failure, or a wait it refuses, raises."""
         while True:
             try:
                 return client.post_message(thread_id, piece)
             except DiscordError as exc:
-                if not exc.rate_limited or waits[0] <= 0:
+                if not exc.rate_limited:
                     raise
-                waits[0] -= 1
                 wait = DEFAULT_REPLY_WAIT_S if exc.retry_after is None else exc.retry_after
-                self._sleep(min(max(wait, 0.0), MAX_REPLY_WAIT_S))
+                wait = min(max(wait, 0.0), MAX_REPLY_WAIT_S)
+                refusal = waits.take(wait)
+                if refusal:
+                    raise DiscordError(f"{exc}; {refusal}", retryable=False) from exc
+                self._sleep(wait)
 
     def _discord_token(self, actor_id: str, channel: str) -> str | InvocationResult:
         """The bot token of the Discord app actor ``actor_id`` when it may post to ``channel``,

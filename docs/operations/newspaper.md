@@ -391,7 +391,7 @@ the repository.
 - **`markdown.from_html` with `split_at`** (`h1` to `h6`, as step config or
   input) adds the output `parts`, a list of `{index, heading, text}`. Everything
   before the first heading of exactly that rank is the lead part, with heading
-  `''`; from that heading on, each heading of that rank or higher starts a new
+  `''` (no lead part when nothing precedes that heading); from that heading on, each heading of that rank or higher starts a new
   part. A page with no such heading is one part with heading `''`. Parts are not
   cut to `max_chars`; `markdown`, `chunks` and `count` are unchanged. A bad
   `split_at` fails `bad_params`.

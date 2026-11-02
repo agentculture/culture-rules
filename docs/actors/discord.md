@@ -422,10 +422,18 @@ action fails `bad_params` before anything is posted.
   `thread_name` or more than 5 tags. The bot needs permission to create posts and send
   messages in the forum. The Discord server and channel pickers are unchanged: pick
   the forum the way you pick any channel.
-- **Failures.** Creating the thread is sent once and never retried automatically. A
+- **Required tags.** A forum set to require a tag on every post fails `bad_params`
+  before anything is posted when none of `tags` matched; the error lists the
+  `tags_missing`.
+- **Failures.** Creating the thread is sent once and never retried automatically.
+  The step is retryable only when Discord surely did not create the thread: a 429,
+  a refused connection or a host name that does not resolve. A timeout, a 5xx or a
+  connection lost mid-request may have created it, so the step fails with
+  "outcome unknown" and is not retried; check the forum before running it again. A
   reply Discord rate-limits (a 429, so not posted) is sent again after its
-  `retry_after`, waiting at most 10 seconds each time and at most 3 times a step. Once
-  the thread exists, any other failure (a reply that is refused, say) is not
+  `retry_after`, waiting at most 10 seconds each time, at most 3 times a step, and
+  never past the step's deadline. Once the thread exists, any other failure (a
+  reply that is refused, or a wait that would pass the deadline) is not
   retryable, because a retry would start a second thread; the error names the
   `thread_id` and the reply ids posted so far, so the rest can be finished by hand.
 

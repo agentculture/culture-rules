@@ -84,14 +84,15 @@ actor's token budget counts them; the recording brief also returns ``answer``, t
 
 * ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
   5xx, 408 or 429, or a stream ``error`` event saying the same (a 5xx / 408 / 429 ``code``
-  or ``status``, or a ``type`` / ``message`` saying overloaded, unavailable or timeout). The
+  or ``status``, or a ``type`` / ``message`` saying overloaded, service or temporarily
+  unavailable, or timeout; a bare "unavailable", say of a model, is not). The
   newspaper's summary step tolerates any failure (``config.on_error: "skip"``): that section
   goes out with its results and "Summary unavailable.", and when no section got a summary the
   masthead also says so;
 * ``llm_deadline`` (not retryable) - ``not_after`` has passed;
 * ``llm_rejected`` (not retryable) - any other non-2xx answer;
 * ``llm_bad_response`` (not retryable) - not JSON, or no string message content; for a
-  stream also a chunk that is not a JSON object, any other ``error`` event, a stream that ends
+  stream also a chunk that is not a JSON object, any other non-null ``error``, a stream that ends
   without ``data: [DONE]`` (like a truncated JSON body) or one with no content delta;
 * ``model_taken`` (not retryable) - another enabled endpoint actor holds this actor's model
   (``model_taken: <holder id>``; checked before any request);
@@ -227,7 +228,11 @@ _THINK_OPEN, _THINK_CLOSE = "<think>", "</think>"
 _DATA, _DONE = "data:", "[DONE]"
 _SSE_LINE_END = re.compile(r"\r\n|\r|\n")
 _SSE_FIELDS = frozenset({"event", "data", "id", "retry"})
-_TRANSIENT_WORDS = re.compile(r"overload|unavailable|time[d ]?\s?out", re.IGNORECASE)
+#: load or time words only: a bare "unavailable" ("model foo unavailable") is not transient
+_TRANSIENT_WORDS = re.compile(
+    r"overload|service[\s_-]+unavailable|temporarily[\s_-]+unavailable|time[d_ ]?\s?out",
+    re.IGNORECASE,
+)
 _USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total_tokens")
 
 Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
@@ -426,8 +431,9 @@ def _is_event_stream(lines: list[str]) -> bool:
 
 def _error_is_transient(error: Any) -> bool:
     """Whether a stream's ``error`` event reads as the server being busy or down (a 5xx,
-    408 or 429 ``code`` / ``status``, or a ``type`` / ``message`` saying overloaded,
-    unavailable or timeout), as the same answer over HTTP would be ``llm_unavailable``."""
+    408 or 429 ``code`` / ``status``, or a ``type`` / ``message`` saying overloaded, service
+    or temporarily unavailable, or timeout), as the same answer over HTTP would be
+    ``llm_unavailable``. A bare "unavailable" (a model or a feature) is not transient."""
     if not isinstance(error, Mapping):
         return isinstance(error, str) and bool(_TRANSIENT_WORDS.search(error))
     for key in ("code", "status"):
@@ -457,7 +463,7 @@ def _stream_chunks(lines: list[str]) -> list[dict[str, Any]]:
             raise Refused(BAD_RESPONSE, "a stream chunk is not JSON") from exc
         if not isinstance(chunk, dict):
             raise Refused(BAD_RESPONSE, "a stream chunk is not an object")
-        if "error" in chunk:
+        if chunk.get("error") is not None:  # "error": null is no error
             if _error_is_transient(chunk["error"]):
                 raise Refused(UNAVAILABLE, "the stream reported a server error", retryable=True)
             raise Refused(BAD_RESPONSE, "the stream reported an error")

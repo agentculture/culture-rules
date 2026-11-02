@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import urllib.error
 
 import pytest
@@ -98,8 +99,36 @@ def test_timeout_is_not_retryable():
     assert not _fail(FakeTransport(exc=TimeoutError())).retryable
 
 
-def test_unreachable_is_retryable():
-    assert _fail(FakeTransport(exc=urllib.error.URLError("down"))).retryable
+def test_a_refused_connection_is_retryable():
+    exc = urllib.error.URLError(ConnectionRefusedError(111, "refused"))
+    assert _fail(FakeTransport(exc=exc)).retryable
+
+
+def test_a_bare_refused_connection_is_retryable():
+    assert _fail(FakeTransport(exc=ConnectionRefusedError(111, "refused"))).retryable
+
+
+def test_a_name_lookup_failure_is_retryable():
+    exc = urllib.error.URLError(socket.gaierror(-2, "Name or service not known"))
+    assert _fail(FakeTransport(exc=exc)).retryable
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ConnectionResetError(104, "reset"),
+        urllib.error.URLError(ConnectionResetError(104, "reset")),
+        urllib.error.URLError("down"),
+        BrokenPipeError(32, "broken pipe"),
+    ],
+)
+def test_another_connection_error_is_not_retryable(exc):
+    assert not _fail(FakeTransport(exc=exc)).retryable
+
+
+@pytest.mark.parametrize("exc", [ConnectionResetError(104, "reset"), urllib.error.URLError("down")])
+def test_another_connection_error_is_an_unknown_outcome(exc):
+    assert _fail(FakeTransport(exc=exc)).outcome_unknown
 
 
 def test_429_is_retryable_with_retry_after():
@@ -107,8 +136,20 @@ def test_429_is_retryable_with_retry_after():
     assert (err.retryable, err.retry_after) == (True, 2.5)
 
 
-def test_503_is_retryable():
-    assert _fail(FakeTransport(503, {})).retryable
+def test_503_is_not_retryable():
+    assert not _fail(FakeTransport(503, {})).retryable
+
+
+def test_503_is_an_unknown_outcome():
+    assert _fail(FakeTransport(503, {})).outcome_unknown
+
+
+def test_503_is_not_taken_as_refused():
+    assert not _fail(FakeTransport(503, {})).refused
+
+
+def test_429_is_not_an_unknown_outcome():
+    assert not _fail(FakeTransport(429, {"retry_after": 1})).outcome_unknown
 
 
 def test_400_is_refused_with_discord_message():

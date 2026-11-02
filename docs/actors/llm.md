@@ -129,10 +129,12 @@ stream must arrive within the request's timeout (a stream that stalls times
 out when the time is up, not a socket timeout later) and at most 8 MiB, room
 for 4000 tokens at a few hundred bytes of SSE each. An `error` event that
 says the server is busy or down (a 5xx, 408 or 429 `code` or `status`, or a
-`type` or `message` saying overloaded, unavailable or timeout) fails
-`llm_unavailable`, which is retried. A stream that ends without
-`data: [DONE]`, has no content delta, or carries any other `error` event
-fails `llm_bad_response`, like a truncated JSON reply. A plain JSON reply
+`type` or `message` saying overloaded, service or temporarily unavailable,
+or timeout) fails `llm_unavailable`, which is retried; a bare "unavailable",
+say of a model, is not transient. A stream that ends without
+`data: [DONE]`, has no content delta, or carries any other non-null `error`
+fails `llm_bad_response`, like a truncated JSON reply (`"error": null` in a
+chunk is no error). A plain JSON reply
 (an error body, or a server that ignores `stream`) is still read as before.
 
 The output is `{text, model, usage}`, plus `answer` (the parsed JSON) and
