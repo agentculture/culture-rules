@@ -4,14 +4,14 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:47:57Z",
+  "updated": "2026-11-02T17:50:46Z",
   "claims": [
     {
       "id": "c1",
       "kind": "announcement",
       "text": "llm.complete and the render builtins hold no prompt or content-shape rule: briefs, answer shapes, caching, list numbering, reference replacement and output validation are generic steps and options, configured per workflow",
       "origin": "user",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h1",
@@ -36,7 +36,7 @@
       "kind": "requirement",
       "text": "llm.complete's built-in briefs leave the code: every brief name resolves only from the bound actor's params.briefs (admin-only), a step must name its brief, and there is no default brief",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h2",
@@ -61,7 +61,7 @@
       "kind": "requirement",
       "text": "Every committed bundle and test that uses llm.complete names its brief and carries it as actor config, so nothing that ran before stops running",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h3",
@@ -92,7 +92,7 @@
       "kind": "requirement",
       "text": "A generic `answer` step option checks a model reply's JSON shape from step config (field names; types such as text, lines, word, list of strings; item counts, character limits, patterns), replacing the fixed answer validator in code",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h4",
@@ -123,7 +123,7 @@
       "kind": "requirement",
       "text": "The answer cache is a step option for any brief; its file name and label are step config, defaulting to today's values so existing cache files stay readable",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h5",
@@ -154,7 +154,7 @@
       "kind": "requirement",
       "text": "Render builtins do not enforce a content-shape rule: the hardcoded summary check (_summary_ok) leaves render, which shows any text it is given, and the rule becomes the generic validation step's configuration",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h6",
@@ -234,7 +234,7 @@
       "kind": "assumption",
       "text": "Rollout order: actors receive their briefs (admin actors update) before code that needs them is enabled, since rollout import does not touch actors; live steps move to the new options only after the new code runs",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -252,7 +252,7 @@
       "kind": "boundary",
       "text": "Existing builtins that read a parsed answer keep reading it unchanged; no other builtin is removed in this work",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h9",
@@ -295,7 +295,7 @@
       "kind": "audience",
       "text": "The operator, who configures every prompt, answer shape, citation template and validation rule as actor and step configuration, and every existing workflow that must keep running through the change",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h10",
@@ -320,7 +320,7 @@
       "kind": "before_state",
       "text": "Built-in briefs, a fixed answer validator, an answer cache tied to one brief name, and a hardcoded bullet-and-link check in a render builtin are code; model output that cites by number is refused because its lines are not bullets",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h11",
@@ -351,7 +351,7 @@
       "kind": "after_state",
       "text": "No prompt or shape rule is code: briefs are actor config, steps name their brief, the answer shape and cache are step options, and a workflow can number a list for a model, replace [n] references by a configured template, validate the result by configured rules and render it",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h12",
@@ -401,7 +401,7 @@
       "kind": "success_signal",
       "text": "After rollout: 0 prompt texts in culture_rules (grep finds none of the old brief texts); one test workflow numbers a list, asks a model to cite by number, replaces references by a template and validates the result with 0 texts or rules in code; every workflow that ran before the rollout completes its next run",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h14",
@@ -426,12 +426,12 @@
       "kind": "requirement",
       "text": "The editor and describe phrases follow the new options: the action picker offers the bound actor's brief names (no built-in list, no default) and the answer and cache options; the new steps get editor catalogue entries and describe phrases",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h22",
           "text": "the action picker shows only the chosen actor's brief names and the new options, with no built-in list or default",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "vitest on ActionPicker and StepEditor"
         }
       ],
@@ -463,12 +463,12 @@
       "kind": "requirement",
       "text": "The validation step outputs a verdict and its reasons alongside the text, so later steps branch on it (when) to show the text or a configured fallback; refused output is never silently dropped",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h23",
           "text": "a refused output reaches later steps as a verdict with reasons, and a configured fallback is shown instead of nothing",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": "unit test of the validation step plus a when branch in a test workflow"
         }
       ],
@@ -506,6 +506,90 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "A generic json.parse step turns a JSON string (for example a shared variable) into a value and validates it against a schema from step config (required, types, min/max, enum, defaults, item limits, unknown keys refused), failing fast with the exact field path",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "A generic list.filter step keeps the items of a list that satisfy a condition over item (from culture_rules/model/condition.py, extended with contains and any/all over a term list), with optional dedupe by a field, a derived host from a url and a cap",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "Generic value helpers: join strings with a separator, add seconds to a timestamp, and convert a slot time to a local date in an IANA time zone (DST-correct)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "A generic document.render step renders a list of records into HTML and an EPUB (chapters) from a template, CSS, texts and caps in step config, choosing a variant per record by condition (for example text, else items with a fallback note), deterministic so identical input gives identical bytes; it reuses _epub.py",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "A generic named lease and send-once ledger replace the coded issue state machine: a key-addressed lease with owner, expiry, takeover and a fence (claim_lost), and a ledger that freezes the first payload, records the attempt before sending, gives a stable idempotency key, bounds retries by a window and marks the outcome uncertain past it; collection, key template, windows and payload fields are step config",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "boundary",
+      "text": "The lease and ledger keep every guarantee the coded state machine gives today: keyed by the configured key not the run; takeover only after expiry; lease renewed at every side-effect fence and a lost lease fails non-retryably; first payload frozen and replayed byte-for-byte; stable idempotency key; attempt recorded before send; never resent past the window (uncertain instead); the outcome id recorded even after a lost lease; a later side effect skipped when already recorded; done only once the send is settled, else the lease is released; an empty recipient list skips the send but completes",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "With the generic steps in place, the four newsletter builtins (newspaper.sections, newspaper.filter, newspaper.render, newspaper.issue) and their modules are removed from code, and the committed bundle is rewritten as configuration of generic steps",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -523,8 +607,8 @@
       "text": "The newsletter has its own builtins in code (culture_rules/node/actions/newspaper.py, newspaper_issue.py, newspaper_render.py): flow-specific code under the operator's rule (a newsletter is a flow; Discord and Markdown are generic). This work only removes their hardcoded prompt and shape rules; replacing them with generic steps is a later frame",
       "kind": "follow_up",
       "claim_id": null,
-      "resolved": false,
-      "resolution": "",
+      "resolved": true,
+      "resolution": "operator 2026-11-02: include the builtins in this frame",
       "resolution_claim_id": null
     }
   ],
@@ -648,6 +732,62 @@
       "surface": "challenge pass / concurrency lens: the new numbering, replace and validation steps",
       "finding": "pure functions of their inputs, no shared state added; clean pass",
       "seeds": []
+    },
+    {
+      "id": "s17",
+      "surface": "culture_rules/node/actions/newspaper.py:133-307 (sections)",
+      "finding": "parse, length, type, range, default and hostname checks are coded with fixed field names and caps; no step parses a JSON string (json.read reads files under a root)",
+      "seeds": [
+        "c22"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "culture_rules/node/actions/newspaper.py:250-332 (filter)",
+      "finding": "must/must_not substring terms over title and snippet, host allow/deny with subdomains, dedupe by url and a count cap are coded; conditions have no contains, no any/all and do not filter lists",
+      "seeds": [
+        "c23"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "culture_rules/node/actions/newspaper_issue.py:174-198, newspaper.py:237-247",
+      "finding": "local date from slot and tz, summaries_until and the OR-join are coded inside two builtins",
+      "seeds": [
+        "c24"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "culture_rules/node/actions/newspaper_render.py, _epub.py",
+      "finding": "fixed HTML structure, CSS, texts, field limits, EPUB id and the per-section fallback chain are coded; _epub.py helpers are generic but not exposed as a step",
+      "seeds": [
+        "c25"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "culture_rules/node/actions/newspaper_issue.py:132-570, culture_rules/engine/claims.py",
+      "finding": "the coded phases (claim, before_email, before_push, record) hold the dedupe guarantees; engine claims are keyed by run and step, not by a caller key, and no named-lease step exists",
+      "seeds": [
+        "c26"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "newspaper_issue.py invariants",
+      "finding": "12 invariants listed by the scope read; a double-send window opens if lease and ledger are split across two independent documents",
+      "seeds": [
+        "c27"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "culture_rules/node/runner.py builtin registry",
+      "finding": "four newspaper.* builtins registered; the committed bundle's steps sections, claim, filter, render, email_gate, push_gate and record call them",
+      "seeds": [
+        "c28"
+      ]
     }
   ],
   "lapses": [],
