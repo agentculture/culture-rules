@@ -2,7 +2,7 @@
   "plan_slug": "newspaper-sections-on-discord",
   "schema_version": 2,
   "created": "2026-11-02T02:33:09Z",
-  "updated": "2026-11-02T05:42:18Z",
+  "updated": "2026-11-02T06:18:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -412,6 +412,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 24
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o17",
+      "test_ref": "live: newspaper-to-discord rev 3, run-a2be37f02aff4e39b539edb8091f6f7a",
+      "behavior_text": "rev 3 applied with expected_revision 2 after the operator's approval ('T9 approved and can publish'), following the clean testing-forum runs; run-a2be37f0 (11-02 issue by hand) posted 3 posts to the Jetson forum with tags Jetson optimization / Jetson jobs / Jetson news, tags_missing [], Isaac ROS (no results) skipped",
+      "contract_text": "The live newspaper-to-discord flow gets a new revision only after a clean test: a test workflow first posts one real issue's sections to the testing forum; then revision 3 posts each section as a tagged forum post to the Jetson AI Lab forum 1563965995788271617 and stops the size-cut posts to #bot-experimentations",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live run's stored step states and the CLI dry run on 0.41.0 (build 2160318)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T06:50:00",
+        "commit": "2160318"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o18",
+      "test_ref": "live: newspaper-to-discord rev 3, run-a2be37f02aff4e39b539edb8091f6f7a",
+      "behavior_text": "workflows update newspaper-to-discord --body ntd-rev2-rollback.json --expected-revision 3 dry run passes against live rev 3",
+      "contract_text": "Rollback is one CLI write: newspaper-to-discord rev 3 is replaced by the saved rev 2 body with workflows update --expected-revision 3; posts already made stay in the forum (Discord posts are not deleted by the rollback)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live run's stored step states and the CLI dry run on 0.41.0 (build 2160318)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-02T06:50:00",
+        "commit": "2160318"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
     }
   ],
   "deltas": [],

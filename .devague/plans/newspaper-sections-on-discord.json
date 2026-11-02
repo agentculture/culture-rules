@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T22:45:52Z",
-  "updated": "2026-11-02T05:52:55Z",
+  "updated": "2026-11-02T06:18:02Z",
   "targets": [
     {
       "id": "c1",
@@ -606,6 +606,22 @@
       "text": "llm.urllib_transport duplicates _endpoint.post (request, opener, HTTPError-as-answer) to get a deadline-aware streaming read; decider/stt still use post, so the two can drift (code review PR #134 finding 8)",
       "kind": "follow_up",
       "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "llm.complete sends stream_options with no fallback: a strict OpenAI-compatible server that refuses unknown fields answers 400 (llm_rejected); every mesh gateway accepts it today (code review 2 finding 4)",
+      "kind": "follow_up",
+      "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "discord_rest.py has four copies of the POST/429/timeout error mapping (post_message, create_forum_post, \u2026); a shared _post_json helper would remove them (code review 2 finding 9)",
+      "kind": "follow_up",
+      "task_id": "t2",
       "resolved": false,
       "resolution": ""
     }

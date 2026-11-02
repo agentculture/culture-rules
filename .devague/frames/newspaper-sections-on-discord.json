@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T21:41:26Z",
-  "updated": "2026-11-02T05:41:32Z",
+  "updated": "2026-11-02T06:18:31Z",
   "claims": [
     {
       "id": "c1",
@@ -1009,6 +1009,24 @@
       "seam": "empty sections skipped",
       "behavior": "the flow never posts a No results section",
       "source_text": "The live flow posts only real sections: its send steps' when skips the part with an empty heading (the masthead) and parts whose text is the rendered empty-section line, so an issue posts 4 or fewer forum posts and never a No results post (config, not code)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c23",
+      "seam": "newspaper-to-discord rev 3",
+      "behavior": "rev 3 written only after a clean test, then posts tagged sections to the Jetson forum",
+      "source_text": "The live newspaper-to-discord flow gets a new revision only after a clean test: a test workflow first posts one real issue's sections to the testing forum; then revision 3 posts each section as a tagged forum post to the Jetson AI Lab forum 1563965995788271617 and stops the size-cut posts to #bot-experimentations",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c35",
+      "seam": "rollback",
+      "behavior": "rollback is one CLI write of the saved rev 2 body",
+      "source_text": "Rollback is one CLI write: newspaper-to-discord rev 3 is replaced by the saved rev 2 body with workflows update --expected-revision 3; posts already made stay in the forum (Discord posts are not deleted by the rollback)",
       "origin": "llm",
       "status": "proposed"
     }
