@@ -26,7 +26,7 @@ const NEWSPAPER_ACTORS: Actor[] = [
     params: { surface: "email", connection: { api_key: "grant:resend" } },
   },
   { id: "brave", name: "Brave", kind: "app", enabled: true, params: { surface: "search", connection: {} } },
-  { id: "cortex", name: "Cortex", kind: "agent", enabled: true, params: { base_url: "http://localhost:8000", model: "qwen" } },
+  { id: "cortex", name: "Cortex", kind: "agent", enabled: true, params: { base_url: "http://localhost:8000", model: "qwen", briefs: { summary: "Text" } } },
   { id: "plain-agent", name: "Plain agent", kind: "agent", enabled: true },
   {
     id: "xteink",
@@ -158,9 +158,16 @@ describe("llm.complete", () => {
     await user.type(screen.getByLabelText("Path for Content"), "workflow.outputs.results");
     await user.type(screen.getByLabelText("Max tokens"), "800");
     await user.type(screen.getByLabelText("Temperature"), "0.2");
+    await user.selectOptions(screen.getByLabelText("Brief"), "summary");
     expect(saved()).toEqual({
       kind: "llm.complete",
-      params: { actor: "cortex", content: "workflow.outputs.results", max_tokens: 800, temperature: 0.2 },
+      params: {
+        actor: "cortex",
+        brief: "summary",
+        content: "workflow.outputs.results",
+        max_tokens: 800,
+        temperature: 0.2,
+      },
     });
     expect(actionProblem(saved())).toBeNull();
   });
