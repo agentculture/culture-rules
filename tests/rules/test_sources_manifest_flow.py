@@ -51,6 +51,7 @@ def _issue(day: str) -> dict:
     """The sections a daily issue is rendered from: two with a link, one saying "No results"."""
     return {
         "date": day,
+        "texts": {"no_results": "No results.", "summary_unavailable": "Summary unavailable."},
         "title": "Daily newspaper",
         "sections": [
             {

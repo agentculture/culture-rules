@@ -37,7 +37,19 @@
           "depth": 0,
           "label": "4",
           "step": "summarise",
-          "text": "for each item (≤20): llm.complete as cortex-spark2, when deliver = true and results ≠ {} (≤2 attempts)"
+          "text": "for each item (≤20):"
+        },
+        {
+          "depth": 1,
+          "label": "4.1",
+          "step": "summary",
+          "text": "llm.complete as cortex-spark2, when deliver = true and results ≠ {} (≤2 attempts)"
+        },
+        {
+          "depth": 1,
+          "label": "4.2",
+          "step": "check",
+          "text": "builtin text.validate, when deliver = true"
         },
         {
           "depth": 0,
@@ -84,7 +96,9 @@
         "3 search — for each item (≤20):",
         "  3.1 search_web — search.web as newspaper-search, when deliver = true (≤3 attempts)",
         "  3.2 filter — builtin newspaper.filter, when deliver = true",
-        "4 summarise — for each item (≤20): llm.complete as cortex-spark2, when deliver = true and results ≠ {} (≤2 attempts)",
+        "4 summarise — for each item (≤20):",
+        "  4.1 summary — llm.complete as cortex-spark2, when deliver = true and results ≠ {} (≤2 attempts)",
+        "  4.2 check — builtin text.validate, when deliver = true",
         "5 render — builtin newspaper.render, when deliver = true",
         "6 email_gate — builtin newspaper.issue, when deliver = true",
         "7 email — email.send as newspaper-email, when send = true (≤3 attempts)",
@@ -252,6 +266,28 @@
             "text": "Asks the language model for a short summary of the section's results."
           },
           {
+            "depth": 1,
+            "fallback": false,
+            "gap": true,
+            "grouped": false,
+            "keys": [
+              "then",
+              "if"
+            ],
+            "name": "Check the summary",
+            "part": "step",
+            "phrase": "Then, if deliver is true,",
+            "sentence": 6,
+            "shown": "check the summary",
+            "standin": true,
+            "step": "check",
+            "tail": ", carrying on even if it fails.",
+            "tail_keys": [
+              "on_error_skip"
+            ],
+            "text": "Check the summary"
+          },
+          {
             "depth": 0,
             "fallback": false,
             "gap": false,
@@ -263,7 +299,7 @@
             "name": "Render the issue",
             "part": "step",
             "phrase": "Then, if deliver is true,",
-            "sentence": 6,
+            "sentence": 7,
             "shown": "renders the issue as an email and as an EPUB",
             "standin": false,
             "step": "render",
@@ -282,7 +318,7 @@
             "name": "Fence the email",
             "part": "step",
             "phrase": "; then",
-            "sentence": 6,
+            "sentence": 7,
             "shown": "checks the email has not been sent yet and freezes what will be sent",
             "standin": false,
             "step": "email_gate",
@@ -302,7 +338,7 @@
             "name": "Email the issue",
             "part": "step",
             "phrase": "Then, if send is true,",
-            "sentence": 7,
+            "sentence": 8,
             "shown": "sends the issue by email",
             "standin": false,
             "step": "email",
@@ -325,7 +361,7 @@
             "name": "Record the email, fence the push",
             "part": "step",
             "phrase": "Then, if deliver is true,",
-            "sentence": 8,
+            "sentence": 9,
             "shown": "records the sent email and checks the reader does not have the issue yet",
             "standin": false,
             "step": "push_gate",
@@ -345,7 +381,7 @@
             "name": "Put the EPUB in the library",
             "part": "step",
             "phrase": "Then, if deliver is true and push is true,",
-            "sentence": 9,
+            "sentence": 10,
             "shown": "queues the EPUB on the e-reader",
             "standin": false,
             "step": "push",
@@ -367,7 +403,7 @@
             "name": "Record the delivery",
             "part": "step",
             "phrase": "Then, if deliver is true,",
-            "sentence": 10,
+            "sentence": 11,
             "shown": "marks the day's issue as delivered",
             "standin": false,
             "step": "record",
@@ -381,7 +417,7 @@
             ],
             "part": "then",
             "rules": [],
-            "sentence": 11,
+            "sentence": 12,
             "text": "Nothing continues from here."
           },
           {
@@ -392,11 +428,11 @@
             "rules": [
               "daily-newspaper"
             ],
-            "sentence": 12,
+            "sentence": 13,
             "text": "When it is done, nothing else happens."
           }
         ],
-        "text": "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.\nFirst reads the configured sections and their search queries; then claims today's issue, unless it was already delivered.\nThen searches the web for each section, for each item (up to 20).\nEach time, from here on, only if deliver is true, runs the section's web search, trying up to 3 times; then keeps only the results the issue may show.\nThen summarises each section, for each item (up to 20).\nEach time, if deliver is true and results is not {}, asks the language model for a short summary of the section's results, trying up to 2 times, carrying on even if it fails.\nThen, if deliver is true, renders the issue as an email and as an EPUB; then checks the email has not been sent yet and freezes what will be sent.\nThen, if send is true, sends the issue by email, trying up to 3 times, carrying on even if it fails.\nThen, if deliver is true, records the sent email and checks the reader does not have the issue yet.\nThen, if deliver is true and push is true, queues the EPUB on the e-reader, trying up to 3 times.\nThen, if deliver is true, marks the day's issue as delivered.\nNothing continues from here.\nWhen it is done, nothing else happens."
+        "text": "It starts on cron 0 5 * * * (Asia/Jerusalem), on spark.\nFirst reads the configured sections and their search queries; then claims today's issue, unless it was already delivered.\nThen searches the web for each section, for each item (up to 20).\nEach time, from here on, only if deliver is true, runs the section's web search, trying up to 3 times; then keeps only the results the issue may show.\nThen summarises each section, for each item (up to 20).\nEach time, if deliver is true and results is not {}, asks the language model for a short summary of the section's results, trying up to 2 times, carrying on even if it fails.\nThen, if deliver is true, check the summary, carrying on even if it fails.\nThen, if deliver is true, renders the issue as an email and as an EPUB; then checks the email has not been sent yet and freezes what will be sent.\nThen, if send is true, sends the issue by email, trying up to 3 times, carrying on even if it fails.\nThen, if deliver is true, records the sent email and checks the reader does not have the issue yet.\nThen, if deliver is true and push is true, queues the EPUB on the e-reader, trying up to 3 times.\nThen, if deliver is true, marks the day's issue as delivered.\nNothing continues from here.\nWhen it is done, nothing else happens."
       }
     },
     "discord-message-to-library": {
@@ -5795,6 +5831,18 @@
           "source_port": "push",
           "target": "push",
           "target_port": "push"
+        },
+        {
+          "source": "summary",
+          "source_port": "text",
+          "target": "check",
+          "target_port": "text"
+        },
+        {
+          "source": "summarise",
+          "source_port": "ok",
+          "target": "render",
+          "target_port": "summary_ok"
         }
       ],
       "enabled": true,
@@ -6139,6 +6187,7 @@
                   "kind": "llm.complete",
                   "params": {
                     "actor": "cortex-spark2",
+                    "brief": "newspaper",
                     "content": "inputs.item.results",
                     "max_tokens": 2000,
                     "not_after": "inputs.not_after"
@@ -6199,7 +6248,7 @@
               "kind": "code",
               "max_iterations": null,
               "name": "cortex summary",
-              "notes": "llm.complete: the locked brief, no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool. Skipped for a section whose filtered results are empty: it needs no summary and renders \"No results.\".",
+              "notes": "llm.complete: the brief named newspaper (the actor's params.briefs), no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool. Skipped for a section whose filtered results are empty: it needs no summary and renders \"No results.\".",
               "outputs": [
                 {
                   "description": "",
@@ -6227,6 +6276,77 @@
                 "max_attempts": 2
               },
               "timeout_s": 600.0
+            },
+            {
+              "body": [],
+              "config": {
+                "allowed_field": "url",
+                "builtin": "text.validate",
+                "line_shape": "linked_bullets",
+                "link_schemes": [
+                  "http",
+                  "https"
+                ],
+                "on_error": "skip",
+                "require_links": true,
+                "when": {
+                  "cmp": "==",
+                  "left": {
+                    "field": "deliver"
+                  },
+                  "op": "compare",
+                  "right": {
+                    "literal": true
+                  }
+                },
+                "with": {
+                  "allowed": "inputs.item.results"
+                }
+              },
+              "description": "",
+              "enabled": true,
+              "id": "check",
+              "inputs": [
+                {
+                  "description": "{results} of the section",
+                  "name": "item",
+                  "required": true,
+                  "type": "object"
+                },
+                {
+                  "description": "the summary",
+                  "name": "text",
+                  "required": true,
+                  "type": "string"
+                },
+                {
+                  "description": "newspaper.issue's claim: false ends the run quietly",
+                  "name": "deliver",
+                  "required": true,
+                  "type": "boolean"
+                }
+              ],
+              "kind": "code",
+              "max_iterations": null,
+              "name": "Check the summary",
+              "notes": "text.validate with the rule the renderer used to hold: every line a bullet with a link, at least one link, and every link (http or https) one of this section's result urls. ok false makes the renderer show the results and its summary_refused text instead. Skipped with the summary (on_error skip), so the verdict is then null and accepts.",
+              "outputs": [
+                {
+                  "description": "",
+                  "name": "ok",
+                  "required": true,
+                  "type": "boolean"
+                },
+                {
+                  "description": "",
+                  "name": "reasons",
+                  "required": false,
+                  "type": "array"
+                }
+              ],
+              "placement": null,
+              "retry": null,
+              "timeout_s": null
             }
           ],
           "config": {
@@ -6258,12 +6378,18 @@
           "kind": "for_each",
           "max_iterations": 20,
           "name": "Summarise each section",
-          "notes": "One iteration per section: llm.complete on cortex-spark2 (pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
+          "notes": "One iteration per section: llm.complete on cortex-spark2 (pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1). Each summary is then checked by text.validate (the link rule, as config); its verdict goes to the renderer as summary_ok.",
           "outputs": [
             {
               "description": "",
               "name": "text",
               "required": true,
+              "type": "array"
+            },
+            {
+              "description": "text.validate's verdict per section; null when the summary was skipped",
+              "name": "ok",
+              "required": false,
               "type": "array"
             }
           ],
@@ -6283,6 +6409,14 @@
               "op": "compare",
               "right": {
                 "literal": true
+              }
+            },
+            "with": {
+              "texts": {
+                "no_results": "No results.",
+                "summaries_unavailable": "Summaries were unavailable for this issue.",
+                "summary_refused": "Summary withheld: it linked to a page outside the results of this section.",
+                "summary_unavailable": "Summary unavailable."
               }
             }
           },
@@ -6315,6 +6449,12 @@
               "type": "array"
             },
             {
+              "description": "text.validate's verdict per section",
+              "name": "summary_ok",
+              "required": false,
+              "type": "array"
+            },
+            {
               "description": "newspaper.issue's claim: false ends the run quietly",
               "name": "deliver",
               "required": true,
@@ -6324,7 +6464,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Render the issue",
-          "notes": "newspaper.render: the dated HTML email body and the EPUB; a summary that links outside its section's results is withheld, a section with no results says so.",
+          "notes": "newspaper.render: the dated HTML email body and the EPUB; a summary whose text.validate verdict is false is withheld (summary_refused), a section with no results says so.",
           "outputs": [
             {
               "description": "",
@@ -12654,6 +12794,28 @@
               "kind": "llm.complete",
               "params": {
                 "actor": "cortex-spark2",
+                "answer": {
+                  "shape": {
+                    "extra": "drop",
+                    "fields": {
+                      "summary": {
+                        "max": 2,
+                        "max_chars": 300,
+                        "min": 1,
+                        "required": true,
+                        "type": "lines"
+                      },
+                      "word": {
+                        "lower": true,
+                        "pattern": "^[A-Za-z][A-Za-z-]{1,23}$",
+                        "required": true,
+                        "strip": true,
+                        "type": "word"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
                 "brief": "transcript",
                 "content_max_chars": 48000,
                 "content_path": "inputs.result_path",
@@ -12685,7 +12847,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "Summarise the recording",
-          "notes": "llm.complete on cortex-spark2 with the locked transcript brief: it reads the first 48000 characters of the transcript itself (content_path, d2), so the transcript text never enters the run; the reply is JSON {summary, word}. on_error skip: the book still ships, titled <date> <HHMM> recording, with \"Summary unavailable.\" (that book is not kept, so a later run with a summary replaces it).",
+          "notes": "llm.complete on cortex-spark2 with the brief named transcript (the actor's params.briefs): it reads the first 48000 characters of the transcript itself (content_path, d2), so the transcript text never enters the run; the reply is JSON {summary, word}. on_error skip: the book still ships, titled <date> <HHMM> recording, with \"Summary unavailable.\" (that book is not kept, so a later run with a summary replaces it).",
           "outputs": [
             {
               "description": "",

@@ -206,6 +206,7 @@ def test_the_workflow_builtins_in_order():
         "newspaper.sections",
         "newspaper.issue",
         "newspaper.filter",
+        "text.validate",
         "newspaper.render",
         "newspaper.issue",
         "newspaper.issue",
@@ -228,11 +229,11 @@ def test_no_summary_starts_after_the_window():  # Codex r1 #3
     assert action_spec(summary)["params"]["not_after"] == "inputs.not_after"
 
 
-def test_only_the_summary_and_the_email_tolerate_their_failure():
+def test_the_summary_check_and_email_tolerate_their_failure():
     """The email's failure goes on to the push fence, which fails the run unless the first
     attempt is past its 23-hour window (Codex r3)."""
     tolerant = [s.id for s in every_step(workflow()) if s.config.get("on_error") == "skip"]
-    assert tolerant == ["summary", EMAIL_STEP]
+    assert tolerant == ["summary", "check", EMAIL_STEP]
 
 
 def test_the_email_step_sends_until_the_fence_window_closes():  # Codex r3
@@ -365,3 +366,30 @@ def test_the_summary_runs_for_a_section_with_results():
     (summary,) = [s for s in every_step(workflow()) if s.id == "summary"]
     ctx = {"deliver": True, "item": {"results": [{"url": "https://a.example"}]}}
     assert cond.evaluate(summary.config["when"], {"trigger": ctx, "variables": ctx}) is True
+
+
+def test_every_committed_llm_step_names_a_committed_actor_brief():
+    # pocket-transcribe deliberately shares cortex-spark2 from the newspaper bundle.
+    root = ROOT / "docs" / "rules"
+    actor_docs = [json.loads(p.read_text()) for p in root.glob("*/actors/*.json")]
+    by_id = {a["id"]: a for a in actor_docs}
+
+    def steps(items):
+        for item in items:
+            yield item
+            yield from steps(item.get("body", []))
+
+    found = []
+    for path in root.glob("*/workflows/*.json"):
+        for step in steps(json.loads(path.read_text())["steps"]):
+            action = step.get("config", {}).get("action", {})
+            if action.get("kind") != "llm.complete":
+                continue
+            params = action["params"]
+            brief = params["brief"]
+            assert by_id[params["actor"]]["params"]["briefs"][brief].strip()
+            found.append((path.stem, brief))
+    assert sorted(found) == [
+        ("daily-newspaper", "newspaper"),
+        ("transcript-to-reader", "transcript"),
+    ]
