@@ -2,7 +2,7 @@
   "plan_slug": "no-hardcoded-prompts",
   "schema_version": 2,
   "created": "2026-11-02T18:04:32Z",
-  "updated": "2026-11-02T18:11:41Z",
+  "updated": "2026-11-02T19:41:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -41,6 +41,19 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t8 replaced tests/rules/test_green_merge_flow.py::test_the_delivery_commits_no_rule_or_workflow (diffed docs/rules against origin/main, so it fails on any later branch that edits a committed workflow) with test_committed_bundles_do_not_pin_a_merge_workflow (no committed bundle holds a github.merge step); t8 also added the new check step's condition to tests/model/snapshots/condition_text_docs_rules.json and fixed test_sources_manifest_flow.py's render step to pass texts through config.with",
+      "task_ref": "t8",
+      "reason": "the old green-merge test was scoped to its own delivery's diff and blocks every later bundle change; the snapshot and manifest test follow from the new bundle step and the render texts",
+      "affects": [
+        "t8"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
