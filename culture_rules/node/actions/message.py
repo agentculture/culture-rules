@@ -26,7 +26,8 @@ stay (the TTL index deletes them). With buttons the output is
 the last space) and tagged with the forum tags whose names match ``tags`` exactly (at most 5;
 names the forum lacks come back in ``tags_missing``). A text longer than one message is split at
 line breaks (a longer single line hard) into pieces that join back to the text: the first
-starts the thread and the rest are replies in it, in order. Once the thread exists any failure
+starts the thread and the rest are replies in it, in order (a piece that is only blank space
+is not posted, since Discord refuses a blank message). Once the thread exists any failure
 is not retryable (a retry would start a second thread) and its error names the thread and the
 replies posted. The output is ``{"message_id", "thread_id", "reply_ids", "tags_missing"}``.
 ``tags`` without ``thread_name`` and ``buttons`` with it are ``bad_params``.
