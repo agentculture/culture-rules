@@ -1,0 +1,95 @@
+{
+  "plan_slug": "newspaper-sections-on-discord",
+  "schema_version": 2,
+  "created": "2026-11-02T02:33:09Z",
+  "updated": "2026-11-02T05:31:04Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "create_forum_post also caps the thread name at 100 characters and the content at MAX_CONTENT (2000), and adds Discord's 4xx message (at most 200 characters) to the error",
+      "task_ref": "t2",
+      "reason": "post_message already caps content at MAX_CONTENT; the cap is a last-resort guard so a too-long field is never sent as a 400 \u2014 t5 still cuts the title at a word and continues long text as replies before calling it",
+      "affects": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t3 acceptance criteria 1 and 4 conflict; resolved as: the code brief names newspaper, transcript and recording always resolve to their code text, any other name resolves against the actor's params.briefs",
+      "task_ref": "t3",
+      "reason": "criterion 1 says actor briefs are looked up first, criterion 4 says an actor brief named like a code brief does not replace it; the spec (c20, h23) intends that code briefs stay locked, so code names win and only new names come from config",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "split_at parts: headings shallower than split_at before the first heading of exactly that rank stay in the lead '' part; a page with no such heading is one '' part (the literal 'rank <= split_at' rule applies only after the first exact-rank heading)",
+      "task_ref": "t1",
+      "reason": "the instruction (every heading of rank <= split_at starts a part) contradicts t1's own acceptance test (h1 masthead must be the '' part); decider: hybrid 0.55, exact_only 0.22, literal 0.17, but P(predictable)=0.22, so the fallback to the literal rule was dropped to keep the rule one sentence",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "check_actor_briefs also guards actor create, applies to every actor kind, and runs on the model-actor routes through save_check; the auth/policy.py docstring line naming briefs moves to t6",
+      "task_ref": "t4",
+      "reason": "save_check is the single place check_runner_commands runs, so one wiring line covers create, update, import and model routes; policy.py is outside t4's files",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "discord.message forum path: empty tags without thread_name accepted; blank thread_name refused; pieces keep their trailing line break so they join back with ''; a blank later piece is not posted; the after-thread error also names the starter id; forum handling sits in the shared MessageAction path, so the legacy message kind naming a Discord actor would honour thread_name though its catalogue entry does not list it",
+      "task_ref": "t5",
+      "reason": "interpretations the brief left open, each covered by a test; the legacy message kind exposure is undocumented surface",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t7 opens the PR only after t8's live test passes and /validate-delivery and /summarize-delivery are done; t8 runs on a pre-merge build of rules/discord-sections rolled out to the nodes; t9's 3-issue check on the Jetson forum continues after the PR as follow-up evidence",
+      "task_ref": "t7",
+      "reason": "operator goal 2026-11-02: live-test, /validate-delivery and /summarize-delivery before the PR; precedent 0.24.1 was rolled out pre-merge",
+      "affects": [
+        "t8",
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky",
+      "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "llm.complete sends stream: true and assembles the server-sent-event deltas (content and reasoning) into the same outputs; non-streamed requests are no longer sent",
+      "task_ref": "t3",
+      "reason": "operator 2026-11-02: 'Always use stream' \u2014 GLM (cortex-spark) under load answered nothing to stream:false calls until the request timed out",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
