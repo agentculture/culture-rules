@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:47:37Z",
+  "updated": "2026-11-02T17:47:57Z",
   "claims": [
     {
       "id": "c1",
@@ -494,6 +494,18 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "A newsletter is a flow and is never named in code or spec; Discord and Markdown are generic surfaces and may be",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -501,6 +513,15 @@
       "id": "v1",
       "text": "Whether docs/rules bundles should carry the live briefs' text (committed prompts as example config) or only placeholders, given 'commit is code and logic, user content lives in the store'",
       "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "The newsletter has its own builtins in code (culture_rules/node/actions/newspaper.py, newspaper_issue.py, newspaper_render.py): flow-specific code under the operator's rule (a newsletter is a flow; Discord and Markdown are generic). This work only removes their hardcoded prompt and shape rules; replacing them with generic steps is a later frame",
+      "kind": "follow_up",
       "claim_id": null,
       "resolved": false,
       "resolution": "",
