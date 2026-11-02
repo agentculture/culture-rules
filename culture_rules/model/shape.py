@@ -89,6 +89,7 @@ def _check_spec(spec: Any, where: str = "spec") -> None:
 
     kind = _check_type(spec, bad)
     _check_keys(spec, kind, bad)
+    _check_flags(spec, bad)
     _check_numbers(spec, bad)
     _check_options(spec, bad)
     _check_children(spec, kind, where, bad)
@@ -120,10 +121,13 @@ def _check_keys(spec: dict[str, Any], kind: str, bad: Any) -> None:
         raise bad(f"unknown key {key!r}")
 
 
-def _check_numbers(spec: dict[str, Any], bad: Any) -> None:
+def _check_flags(spec: dict[str, Any], bad: Any) -> None:
     for key in _FLAGS:
         if key in spec and not isinstance(spec[key], bool):
             raise bad(f"{key} must be true or false")
+
+
+def _check_numbers(spec: dict[str, Any], bad: Any) -> None:
     for key in _BOUNDS + ("min", "max"):
         if key not in spec:
             continue
