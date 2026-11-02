@@ -151,6 +151,16 @@ def split_text(text: str, limit: int = MAX_CONTENT) -> list[str]:
     return pieces
 
 
+def resolve_tags(forum: dict[str, Any], tags: list[str]) -> tuple[list[str], list[str]]:
+    """The ids of the forum tags named exactly in ``tags`` (in order, without repeats) and the
+    names the forum lacks."""
+    by_name: dict[str, str] = {}
+    for tag in forum.get("available_tags") or []:
+        by_name.setdefault(tag["name"], tag["id"])
+    tag_ids = list(dict.fromkeys(by_name[t] for t in tags if t in by_name))
+    return tag_ids, [t for t in tags if t not in by_name]
+
+
 class MessageAction:
     """Action port for ``message`` (and its legacy alias ``mesh.message``)."""
 
@@ -306,11 +316,7 @@ class MessageAction:
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
         if forum.get("type") != FORUM_CHANNEL_TYPE:
             return _fail(f"bad_params: channel {channel!r} is not a forum channel")
-        by_name: dict[str, str] = {}
-        for tag in forum.get("available_tags") or []:
-            by_name.setdefault(tag["name"], tag["id"])
-        tag_ids = list(dict.fromkeys(by_name[t] for t in tags if t in by_name))
-        missing = [t for t in tags if t not in by_name]
+        tag_ids, missing = resolve_tags(forum, tags)
         if _flags(forum) & REQUIRE_TAG and not tag_ids:
             return _fail(
                 f"bad_params: forum {channel!r} requires a tag and none of tags matched"
