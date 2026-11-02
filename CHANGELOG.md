@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - markdown.from_html split_at and the parts output; the editor declares both
 - discord.message forum posts: thread_name and tags (by name, tags_missing), long text as replies; the action picker offers both
 - llm.complete actor briefs (params.briefs, admin-only, briefs_admin_only) named by a step brief
+- llm.complete always streams: `stream: true` with `stream_options.include_usage`, the reply read as server-sent events (a plain JSON reply still parses), and the whole read bounded by the timeout
 - Docs: Forum posts (discord.md), Actor briefs (llm.md), the forum flow as configuration (newspaper.md), and the four harness prompt files
 
 ## [0.40.1] - 2026-11-01

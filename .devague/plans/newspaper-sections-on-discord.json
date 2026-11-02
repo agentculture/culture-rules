@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T22:45:52Z",
-  "updated": "2026-11-02T02:27:50Z",
+  "updated": "2026-11-02T03:32:29Z",
   "targets": [
     {
       "id": "c1",
@@ -576,6 +576,23 @@
       "instruction": "Only after the operator approves t8's result: save newspaper-to-discord rev 2's body in the rollout worktree, dry-run the rollback update, then write rev 3 (expected_revision 2) with the t8 steps pointed at forum 1563965995788271617 and the size-cut posts to #bot-experimentations removed. Read the next 3 issues' runs and the forum; file evidence per issue."
     }
   ],
-  "risks": [],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "params.briefs is not validated at save time: an admin can store a non-mapping value that llm.complete then refuses at run time (invalid_request); colleague review suggestion 2",
+      "kind": "follow_up",
+      "task_id": "t4",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "actors update dry run accepted a body carrying the server-owned updated_at field that the apply then refused (422 unknown field); found in t8 setting cortex-spark2 briefs",
+      "kind": "follow_up",
+      "task_id": "t8",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
   "obligations": []
 }
