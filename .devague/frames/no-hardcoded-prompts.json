@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-11-02T16:53:24Z",
-  "updated": "2026-11-02T17:52:49Z",
+  "updated": "2026-11-02T17:57:57Z",
   "claims": [
     {
       "id": "c1",
@@ -451,8 +451,15 @@
       "kind": "requirement",
       "text": "Rollback stays possible: the order is seed the actors' briefs (old code ignores actor briefs named like code briefs, so seeding is safe on 0.41.0), roll out, then move live steps to the new options; rolling the code back to 0.41.0 first requires putting the live steps back (a step using the answer option would otherwise lose its parsing), documented in docs/operations/rollout.md",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "rollout.md states the order (briefs, code, live steps) and the rollback order (live steps back, then code), and both are dry-run before any apply",
+          "status": "proposed",
+          "instruction": "read docs/operations/rollout.md; dry-run each step"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -512,8 +519,15 @@
       "kind": "requirement",
       "text": "A generic json.parse step turns a JSON string (for example a shared variable) into a value and validates it against a schema from step config (required, types, min/max, enum, defaults, item limits, unknown keys refused), failing fast with the exact field path",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "a schema in config reproduces every refusal the coded sections check gives today, with the same field path in the error",
+          "status": "proposed",
+          "instruction": "port the coded check's test cases to json.parse with a schema"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -524,8 +538,15 @@
       "kind": "requirement",
       "text": "A generic list.filter step keeps the items of a list that satisfy a condition over item (from culture_rules/model/condition.py, extended with contains and any/all over a term list), with optional dedupe by a field, a derived host from a url and a cap",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "list.filter with conditions in config keeps exactly the items the coded filter kept for the same inputs",
+          "status": "proposed",
+          "instruction": "port the coded filter's test cases"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -536,8 +557,15 @@
       "kind": "requirement",
       "text": "Generic value helpers: join strings with a separator, add seconds to a timestamp, and convert a slot time to a local date in an IANA time zone (DST-correct)",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "the local-date helper matches the coded slot-to-date result across a DST change, and time-add and join are exact",
+          "status": "proposed",
+          "instruction": "unit tests including DST boundaries"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -548,8 +576,15 @@
       "kind": "requirement",
       "text": "A generic document.render step renders a list of records into HTML and an EPUB (chapters) from a template, CSS, texts and caps in step config, choosing a variant per record by condition (for example text, else items with a fallback note), deterministic so identical input gives identical bytes; it reuses _epub.py",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "document.render with a template in config renders every case the coded renderer handled (no results, text, items with a fallback note), and identical input gives identical bytes",
+          "status": "proposed",
+          "instruction": "port the render test cases plus a golden test"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -560,8 +595,15 @@
       "kind": "requirement",
       "text": "A generic named lease and send-once ledger replace the coded issue state machine: a key-addressed lease with owner, expiry, takeover and a fence (claim_lost), and a ledger that freezes the first payload, records the attempt before sending, gives a stable idempotency key, bounds retries by a window and marks the outcome uncertain past it; collection, key template, windows and payload fields are step config",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "each of the 12 guarantees in c27 has a test against the lease and ledger steps",
+          "status": "proposed",
+          "instruction": "one test per guarantee"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -572,8 +614,15 @@
       "kind": "boundary",
       "text": "The lease and ledger keep every guarantee the coded state machine gives today: keyed by the configured key not the run; takeover only after expiry; lease renewed at every side-effect fence and a lost lease fails non-retryably; first payload frozen and replayed byte-for-byte; stable idempotency key; attempt recorded before send; never resent past the window (uncertain instead); the outcome id recorded even after a lost lease; a later side effect skipped when already recorded; done only once the send is settled, else the lease is released; an empty recipient list skips the send but completes",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "a crash or retry at every fence (before send, after send, before record) neither sends twice nor skips the send",
+          "status": "proposed",
+          "instruction": "fault-injection tests at each fence"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -584,8 +633,15 @@
       "kind": "requirement",
       "text": "With the generic steps in place, the four newsletter builtins (newspaper.sections, newspaper.filter, newspaper.render, newspaper.issue) and their modules are removed from code, and the committed bundle is rewritten as configuration of generic steps",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "after R3 no newspaper.* builtin remains registered, and the committed bundle runs end to end on generic steps only",
+          "status": "proposed",
+          "instruction": "grep runner.py; run the bundle flow test"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
