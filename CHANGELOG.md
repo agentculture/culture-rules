@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.1] - 2026-11-03
+
+### Fixed
+
+- A Markdown link's text may hold one balanced level of brackets: `[[1]](url)` is a link whose text is `[1]` in `text.validate` and in the newspaper renderer (before, neither found the link). The example cited summary in docs/operations/text-steps.md uses that form
+
 ## [0.42.0] - 2026-11-02
 
 ### Added

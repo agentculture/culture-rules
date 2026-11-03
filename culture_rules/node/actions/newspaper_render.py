@@ -106,7 +106,10 @@ _ELLIPSIS = "…"
 
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_LINK_RE = re.compile(r"\[([^\]\n]{1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,2048})\)")
+# Link text may hold one balanced level of brackets, so "[[1]](url)" shows "[1]" as the link.
+_LINK_RE = re.compile(
+    r"\[((?:[^\[\]\n]|\[[^\[\]\n]{0,300}\]){1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,2048})\)"
+)
 _BOLD_RE = re.compile(r"\*\*([^*\n]+)\*\*")
 _BULLET_RE = re.compile(r"^\s*(?:[-*•]|\d{1,3}[.)])\s+")
 _HEADING_RE = re.compile(r"^\s*#{1,6}\s*")
