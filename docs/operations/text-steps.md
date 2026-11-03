@@ -51,7 +51,7 @@ none given, the text is ok.
 | Input | Meaning |
 |---|---|
 | `text` | the text (required) |
-| `allowed`, `allowed_field` | a list of objects and the field holding the only URLs a Markdown link (`[label](url)`) may point to; give both or neither |
+| `allowed`, `allowed_field` | a list of objects and the field holding the only URLs a Markdown link (`[label](url)`) may point to; give both or neither. A label may hold one balanced level of brackets, so `[[1]](url)` is a link whose text is `[1]` |
 | `require_links` | at least one link |
 | `line_shape` | `bullets` (every non-blank line is a bullet) or `linked_bullets` (a bullet that also holds a link) |
 | `link_schemes` | the schemes a usable URL may have; `http` and `https` when unset |
@@ -71,7 +71,8 @@ link. The prompt, the formats and the rule are all step config.
    model to cite each claim with the `[n]` of its source, and gets that text as
    its `content`.
 3. `text.replace_refs` turns each `[n]` into a link, with
-   `pattern: "\\[(\\d+)\\]"` and `template: "[{n}]({url})"`.
+   `pattern: "\\[(\\d+)\\]"` and `template: "[[{n}]]({url})"`, so the link
+   text is `[1]` (wider to tap than `1`).
 4. `text.validate`, with `allowed` the sources, `allowed_field: "url"` and
    `require_links: true`, checks that every link is one of the sources; a step
    after it can fall back to the plain list when `ok` is false.

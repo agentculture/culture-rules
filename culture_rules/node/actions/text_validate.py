@@ -36,7 +36,10 @@ __all__ = ["TEXT_VALIDATE_BUILTIN", "TextValidatePort", "text_validate"]
 
 TEXT_VALIDATE_BUILTIN = "text.validate"
 _BAD_PARAMS = "bad_params"
-_LINK_RE = re.compile(r"\[([^\]\n]{1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,2048})\)")
+# Link text may hold one balanced level of brackets, so "[[1]](url)" shows "[1]" as the link.
+_LINK_RE = re.compile(
+    r"\[((?:[^\[\]\n]|\[[^\[\]\n]{0,300}\]){1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,2048})\)"
+)
 _BULLET_RE = re.compile(r"^\s*(?:[-*•]|\d{1,3}[.)])\s+")
 _SHAPES = ("bullets", "linked_bullets")
 _DEFAULT_SCHEMES = ("http", "https")

@@ -530,3 +530,13 @@ def test_default_caps():
 def test_long_fields_are_truncated():
     html = ok([sec(results=[hit(URL_A, snippet="s" * 5000)])])["html"]
     assert "s" * 1001 not in html
+
+
+def test_a_bracketed_label_renders_as_one_link():
+    url = "https://example.com/thor"
+    assert newspaper_render.summary_links(f"- Thor kit [[1]]({url})") == [url]
+
+
+def test_a_bracketed_label_keeps_its_brackets_as_link_text():
+    html = newspaper_render.summary_to_xhtml("- Thor kit [[1]](https://example.com/thor)")
+    assert ">[1]</a>" in html

@@ -163,3 +163,19 @@ def test_hostless_url_is_refused():
 @pytest.mark.parametrize("bad", [[], "http", [1]])
 def test_bad_link_schemes_is_bad_params(bad):
     assert run("x", {"link_schemes": bad}).error.startswith("bad_params:")
+
+
+# ---- link text may hold one level of brackets: [[1]](url) shows "[1]" as the link
+
+
+def test_a_bracketed_label_is_a_link():
+    assert verdict(f"- told [[1]]({URL_A})")["links"] == [URL_A]
+
+
+def test_bracketed_labels_pass_the_linked_bullet_rule():
+    out = old(f"- one [[1]]({URL_A})\n- two [[2]]({URL_B})")
+    assert out["ok"] is True
+
+
+def test_an_unbalanced_label_is_not_a_link():
+    assert verdict(f"- told [[1]({URL_A})")["links"] == [URL_A]
