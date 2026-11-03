@@ -246,7 +246,7 @@ _KINDS = (
     ),
     _k(
         "llm.complete",
-        "Complete a locked brief with an OpenAI-compatible model on an agent actor (no tools)",
+        "Complete an actor's brief with an OpenAI-compatible model on an agent actor (no tools)",
         any_of=(("content", "content_path"),),
         actor=_RS,
         content=ParamSpec("any"),  # or content_path (d2): one of the two is required
@@ -256,8 +256,11 @@ _KINDS = (
         max_tokens=_I,
         temperature=ParamSpec("any"),
         not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
-        brief=_S,  # which locked brief: newspaper (default), transcript or recording
-        cache=ParamSpec("bool"),  # recording + content_path: keep the first valid answer
+        brief=_S,  # a name in the actor's params.briefs; required at run time, no default
+        answer=ParamSpec("dict"),  # {shape: <culture_rules.model.shape spec>}: a JSON answer
+        cache=ParamSpec("bool"),  # answer + content_path: keep the first valid answer
+        cache_name=_S,  # the cache file stem (answer.<name>.<sha16>.json), default "recording"
+        cache_label=_S,  # the cache document's brief label, default "recording"
     ),
     _k(
         "decider.assess",

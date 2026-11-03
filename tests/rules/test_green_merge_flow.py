@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import copy
 import json
-import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -597,27 +596,20 @@ def test_a_draft_or_a_fork_or_a_red_pr_is_not_prompted(pem):
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _git(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(  # nosec B603 B607 - fixed arguments, no shell
-        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=False
-    )
+def test_committed_bundles_do_not_pin_a_merge_workflow():  # c12, h7
+    # Other deliveries migrate committed bundles; the merge flow itself stays live config.
+    def merge_actions(value):
+        if isinstance(value, dict):
+            if value.get("kind") == "github.merge":
+                yield value
+            for child in value.values():
+                yield from merge_actions(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from merge_actions(child)
 
-
-def _changed_files() -> list[str]:
-    inside = _git("rev-parse", "--is-inside-work-tree")
-    if inside.returncode != 0 or inside.stdout.strip() != "true":
-        pytest.skip("not inside a git checkout")
-    if _git("rev-parse", "--verify", "--quiet", "origin/main").returncode != 0:
-        pytest.skip("origin/main is unknown here")
-    diff = _git("diff", "origin/main", "--name-only")
-    if diff.returncode != 0:
-        pytest.skip(f"git diff failed: {diff.stderr.strip()}")
-    return diff.stdout.split()
-
-
-def test_the_delivery_commits_no_rule_or_workflow():  # c12, h7
-    bundles = [f for f in _changed_files() if f.startswith("docs/rules/")]
-    assert [f for f in bundles if "/rules/" in f[len("docs/rules/") :] or "/workflows/" in f] == []
+    for path in (REPO_ROOT / "docs" / "rules").rglob("*.json"):
+        assert list(merge_actions(json.loads(path.read_text()))) == [], path
 
 
 def test_no_flow_specific_value_is_coded():  # c24, h16

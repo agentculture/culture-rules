@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from culture_rules.engine.actorport import FAILED
-from culture_rules.node.actions.llm import NEWSPAPER_BRIEF, RECORDING_BRIEF
 from tests.node.test_llm_complete import _actor, _invoke, _port, _store
 
 
@@ -66,22 +65,10 @@ def test_a_non_string_brief_name_sends_no_request():
     assert transport.calls == []
 
 
-def test_an_actor_brief_named_like_a_code_brief_does_not_replace_it():
-    port, transport = _with_briefs({"newspaper": "evil", "recording": "evil"})
-    _invoke(port, brief="newspaper")
-    assert transport.sent["messages"][0]["content"] == NEWSPAPER_BRIEF
-
-
-def test_an_actor_brief_named_recording_does_not_replace_the_code_brief():
-    port, transport = _with_briefs({"recording": "evil"})
-    _invoke(port, brief="recording")
-    assert transport.sent["messages"][0]["content"] == RECORDING_BRIEF
-
-
-def test_no_brief_still_selects_the_newspaper_code_brief():
+def test_no_brief_fails_invalid_request_without_a_request():
     port, transport = _with_briefs({"headline": "X"})
-    _invoke(port)
-    assert transport.sent["messages"][0]["content"] == NEWSPAPER_BRIEF
+    res = _invoke(port, brief=None)
+    assert (res.error.split(":", 1)[0], transport.calls) == ("invalid_request", [])
 
 
 def test_a_step_param_cannot_supply_brief_text():
@@ -90,7 +77,7 @@ def test_a_step_param_cannot_supply_brief_text():
     assert transport.sent["messages"][0]["content"] == "X"
 
 
-def test_an_actor_brief_is_not_cached_like_the_recording_brief():
+def test_cache_without_an_answer_shape_sends_no_request():
     port, transport = _with_briefs({"headline": "X"})
     _invoke(port, brief="headline", cache=True, content_path="a.json", content_root="/tmp")
     assert transport.calls == []

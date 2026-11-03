@@ -1,4 +1,4 @@
-"""``llm.complete`` action port: one OpenAI-compatible chat completion, locked brief, no tools.
+"""``llm.complete`` action port: one OpenAI-compatible chat completion, an actor brief, no tools.
 
 Params (``culture_rules.model.action_kinds``): ``actor`` (required; falls back to
 ``context.actor``), ``content`` (a string, sent verbatim, or any JSON-able value,
@@ -9,14 +9,14 @@ serialised deterministically with sorted keys) or, instead, ``content_path`` wit
 is summarised from its start instead of refused; the text never enters the run's outputs),
 optional ``max_tokens`` (int >= 1, default
 :data:`DEFAULT_MAX_TOKENS`, capped at :data:`MAX_TOKENS_CAP`) and ``temperature`` (a number
-0..2), and optional ``brief``: absent or ``"newspaper"`` selects :data:`NEWSPAPER_BRIEF`,
-``"transcript"`` selects :data:`TRANSCRIPT_BRIEF`, ``"recording"`` selects
-:data:`RECORDING_BRIEF`. Any other name is looked up in the bound actor's ``params.briefs`` (a
-mapping of name to non-empty string: the actor's configuration holds the text, never a step);
-an unknown name, a non-string name or an empty or non-string text (including null) fails
-``invalid_request`` before any request. A code brief name always selects its code text: an
-actor brief with that name is ignored. Every other param is ignored: a step can only name a
-brief, not replace it, and cannot add tools or name a repository.
+0..2), and ``brief`` (required at run time): a name looked up in the bound actor's
+``params.briefs`` (a mapping of name to non-empty string: the actor's configuration holds the
+text, never a step or this code). An absent brief, a name the actor lacks, a non-string name or
+an empty or non-string text (including null) fails ``invalid_request`` before any request. A step
+can only name a brief, not supply its text, and cannot add tools or name a repository. Optional
+``answer`` (``{shape: <spec>}``, a :mod:`culture_rules.model.shape` spec) asks for a structured
+answer, and ``cache`` / ``cache_name`` / ``cache_label`` keep it (below). Every other param is
+ignored.
 
 The bound actor is an ``agent`` actor whose ``params`` carry ``base_url`` (``http(s)://host
 [:port][/v1]``, no credentials), ``model`` (non-empty; else the actor's own ``model``) and
@@ -30,7 +30,7 @@ port never goes through the coding-agent bridge, even when the actor also has a
 ``bridge_url``.
 
 The request is ``POST <base_url>/v1/chat/completions`` with exactly ``model``,
-``messages`` (the system message is the chosen locked brief, the user message the
+``messages`` (the system message is the actor's named brief, the user message the
 content), ``max_tokens``, ``stream: true``, ``stream_options: {include_usage: true}`` and,
 when given, ``temperature`` - never a ``tools`` field. Proxies from the environment are
 ignored and redirects are not followed.
@@ -64,22 +64,30 @@ summary waiting ``blocked`` behind a busy pool gives up at its next re-ask after
 issue's ``summaries_until`` (the slot plus the summary window), so the issue goes out on
 time with the results only (Codex r1 #3).
 
-Answer cache (``brief: "recording"`` only): with the param ``cache: true`` and a ``content_path``,
-the parsed answer is kept beside the content file as
-``answer.recording.<first 16 hex of the content file's sha256>.json`` (written atomically,
-like ``transcript.render``'s book) and a later run over the same file bytes returns it without
-calling the model (``cached: true``). Only a parsed, valid answer is stored; a cache file that
-does not check out is ignored and rewritten; a folder that cannot be written still returns the
-answer. ``cache`` is a boolean, and only the recording brief has a parser, so ``cache: true``
-with another brief or without ``content_path`` fails ``invalid_request`` before any request.
-The recording brief's reply is parsed by
-:func:`~culture_rules.node.actions.recording_answer.parse_recording_answer`; a reply that does
-not qualify fails ``answer_not_json`` / ``answer_invalid`` (not retryable).
+Answer (``answer.shape``): the reply, with every ``<think>`` block and one Markdown fence
+dropped, is read as JSON and validated by :func:`culture_rules.model.shape.validate` against the
+step's ``answer.shape`` (:func:`parse_answer`); the normalised value is the output ``answer``. A
+reply that is not JSON (or not a JSON object for an ``object`` shape) fails ``answer_not_json``,
+one that does not fit fails ``answer_invalid: <field path>: <reason>`` (neither retryable). A
+malformed shape fails ``invalid_request`` before any request.
+
+Answer cache: with ``cache: true``, an ``answer.shape`` and a ``content_path`` (any brief), the
+validated answer is kept beside the content file as ``answer.<cache_name>.<first 16 hex of the
+content file's sha256>.json`` (written atomically, like ``transcript.render``'s book), a document
+``{schema: 1, brief: <cache_label>, content_sha256, model, usage, answer}``, and a later run over
+the same file bytes returns it without calling the model (``cached: true``). ``cache_name`` (a
+file stem: letters, digits, ``-``, ``_``) and ``cache_label`` default to ``"recording"``, so a
+file 0.41.0 wrote reads back. A stored answer is already normalised, so it is checked against the
+shape's stored form (a ``lines`` field is its list of lines); one that does not fit, a
+different label or content hash, or a damaged file is ignored and rewritten. Only a valid answer
+is stored; a folder that cannot be written still returns the answer. ``cache`` is a boolean, and
+``cache: true`` without ``answer.shape`` or ``content_path`` fails ``invalid_request`` before any
+request.
 
 Outcome: completed ``{text, model, usage}`` (``text`` is the first choice's message content
 with a leading ``<think>`` block dropped; ``usage`` keeps the integer token counts, so the
-actor's token budget counts them; the recording brief also returns ``answer``, the parsed
-``{summary: [lines], word, facts, action_items}``, and ``cached``). Failures
+actor's token budget counts them; with ``answer.shape`` also ``answer``, the normalised answer,
+and ``cached``). Failures
 (``"<code>: <detail>"``, never a body, a header value or a secret):
 
 * ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
@@ -108,6 +116,7 @@ import contextlib
 import http.client
 import json
 import re
+import string
 import time
 import urllib.error
 import urllib.request
@@ -119,6 +128,7 @@ from typing import Any
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
+from culture_rules.model.shape import ShapeError, ShapeSpecError, validate
 from culture_rules.node.actions._endpoint import (
     INVALID,
     Refused,
@@ -131,7 +141,6 @@ from culture_rules.node.actions._endpoint import (
 )
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.machine import load_bound_actor
-from culture_rules.node.actions.recording_answer import AnswerRefused, parse_recording_answer
 from culture_rules.node.actions.transcript_file import (
     ExcerptRefused,
     _under,
@@ -141,61 +150,32 @@ from culture_rules.node.actions.transcript_file import (
 )
 
 __all__ = [
+    "ANSWER_INVALID",
+    "ANSWER_NOT_JSON",
+    "DEFAULT_CACHE_LABEL",
+    "DEFAULT_CACHE_NAME",
     "DEFAULT_MAX_CONTENT_CHARS",
     "DEFAULT_MAX_TOKENS",
     "MAX_TOKENS_CAP",
-    "NEWSPAPER_BRIEF",
-    "RECORDING_BRIEF",
-    "TRANSCRIPT_BRIEF",
+    "AnswerRefused",
     "LlmCompletePort",
     "Transport",
     "check_llm_actor",
+    "parse_answer",
     "urllib_transport",
 ]
 
-NEWSPAPER_BRIEF = (
-    "You write one section of a daily newspaper. The user message holds that section's web "
-    "search results. Summarise only the given results: one bullet per item, each bullet a "
-    "short summary that includes the item's link as a markdown link [title](url). Use no "
-    "other sources and add nothing that is not in the results. If the list of results is "
-    'empty, reply with exactly "No results." and nothing else. Write no preamble, no '
-    "heading and no closing remarks: only the bullets."
-)
-"""The locked system prompt. It lives in code: no actor param or step param replaces it."""
-
-TRANSCRIPT_BRIEF = (
-    "You summarise one audio recording from its transcript. The user message holds the "
-    "transcript text, often in Hebrew. Reply with only a JSON object of exactly this shape: "
-    '{"summary": "...", "word": "..."}. "summary" is one or two short lines, in the same '
-    'language as the transcript, saying what the recording is about. "word" is a single '
-    "short English word, in Latin letters (letters and hyphens only), naming its topic. Use "
-    "only what the transcript says. Write no other text, no markdown fence and no preamble."
-)
-"""The locked system prompt for ``brief: "transcript"``. Also code-only, never built from params."""
-
-RECORDING_BRIEF = (
-    "You digest one audio recording from its transcript. The user message holds the "
-    "transcript text, in any language. Reply with only a JSON object of exactly this shape: "
-    '{"summary": "...", "word": "...", "facts": ["..."], "action_items": ["..."]}. '
-    '"summary" is one or two short lines, in the same language as the transcript, saying '
-    'what the recording is about. "word" is a single short English word, in Latin letters '
-    '(letters and hyphens only), naming its topic. "facts" is a list of short key facts the '
-    'recording states. "action_items" is a list of short imperative to-dos that the '
-    "recording actually states or agrees on. Use an empty list when there are none, and "
-    "never invent a fact or a to-do. Use only what the transcript says. Write no other text, "
-    "no markdown fence and no preamble."
-)
-"""The locked system prompt for ``brief: "recording"``. Code-only, never built from params."""
-
-_BRIEFS = {
-    "newspaper": NEWSPAPER_BRIEF,
-    "transcript": TRANSCRIPT_BRIEF,
-    "recording": RECORDING_BRIEF,
-}
 _BRIEFS_PARAM = "briefs"
 _CACHE = "cache"
-_CACHE_BRIEF = "recording"
 _CACHE_SCHEMA = 1
+DEFAULT_CACHE_NAME = "recording"
+"""The cache file's stem when a step names none (``answer.recording.<sha16>.json``, as 0.41.0
+wrote it)."""
+DEFAULT_CACHE_LABEL = "recording"
+"""The cache document's ``brief`` label when a step names none (as 0.41.0 wrote it)."""
+_CACHE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_ANSWER, _SHAPE = "answer", "shape"
+ANSWER_NOT_JSON, ANSWER_INVALID = "answer_not_json", "answer_invalid"
 
 DEFAULT_MAX_TOKENS = 1500
 MAX_TOKENS_CAP = 4000
@@ -225,7 +205,9 @@ _CONTENT_PATH, _CONTENT_ROOT, _CONTENT_MAX_CHARS = (
 
 _RETRYABLE_4XX = frozenset({408, 429})
 _THINK_OPEN, _THINK_CLOSE = "<think>", "</think>"
+_THINK_BLOCKS = re.compile(r"<think>.*?</think>", re.DOTALL)
 _DATA, _DONE = "data:", "[DONE]"
+_FENCE = "```"
 _SSE_LINE_END = re.compile(r"\r\n|\r|\n")
 _SSE_FIELDS = frozenset({"event", "data", "id", "retry"})
 #: load or time words only: a bare "unavailable" ("model foo unavailable") is not transient
@@ -340,18 +322,38 @@ def _user_message(content: Any, limit: int) -> str:
 
 
 def _brief(input: Mapping[str, Any], actor_params: Mapping[str, Any]) -> str:
-    if "brief" not in input:
-        return NEWSPAPER_BRIEF
-    name = input["brief"]
-    if not isinstance(name, str):
+    """The system message: the text the bound actor's ``params.briefs`` holds under the step's
+    ``brief`` name. There is no code brief and no default: a step names one, the actor has it."""
+    name = input.get("brief")
+    if name is None:
+        raise Refused(INVALID, "brief is required: name one of the actor's briefs")
+    if not isinstance(name, str) or not name:
         raise Refused(INVALID, "brief must be a name")
-    if name in _BRIEFS:  # a code brief always wins: an actor brief cannot replace it
-        return _BRIEFS[name]
     briefs = actor_params.get(_BRIEFS_PARAM)
     text = briefs.get(name) if isinstance(briefs, Mapping) else None
     if not isinstance(text, str) or not text.strip():
-        raise Refused(INVALID, f"brief {name!r} is not a code brief or one of the actor's briefs")
+        raise Refused(INVALID, f"brief {name!r} is not one of the actor's briefs")
     return text
+
+
+def _answer_shape(input: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The step's ``answer.shape`` (a :mod:`culture_rules.model.shape` spec), checked, or None
+    when the step asks for no structured answer."""
+    option = input.get(_ANSWER)
+    if option is None:
+        return None
+    if not isinstance(option, dict) or set(option) != {_SHAPE}:
+        raise Refused(INVALID, "answer must be an object with exactly one key, shape")
+    spec = option[_SHAPE]
+    if not isinstance(spec, dict):
+        raise Refused(INVALID, "answer.shape must be a shape spec object")
+    try:
+        validate(None, spec)  # a malformed spec raises before any value is looked at
+    except ShapeSpecError as exc:
+        raise Refused(INVALID, f"answer.shape: {exc}") from exc
+    except ShapeError:
+        pass  # the spec is fine; None simply is not a value of it
+    return spec
 
 
 def _max_tokens(value: Any) -> int:
@@ -522,15 +524,100 @@ def _usage(usage: Mapping[str, Any]) -> dict[str, int]:
     }
 
 
-def _cache_path(input: Mapping[str, Any]) -> tuple[Path, str] | None:
-    """``(answer cache file, content sha256)`` when ``cache: true`` applies, else None."""
+# ------------------------------------------------------------------ the answer and its cache
+
+
+class AnswerRefused(ValueError):
+    """A reply that is not a valid answer under the step's shape; ``code`` says why."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
+def _unfenced(text: str) -> str:
+    """The body of a reply wrapped in one Markdown code fence (its language word dropped)."""
+    if len(text) < 2 * len(_FENCE) or not (text.startswith(_FENCE) and text.endswith(_FENCE)):
+        return text
+    return text[len(_FENCE) : -len(_FENCE)].lstrip(string.ascii_letters).strip()
+
+
+def parse_answer(value: Any, shape: Mapping[str, Any]) -> Any:
+    """The reply as JSON, validated and normalised by ``shape`` (a
+    :mod:`culture_rules.model.shape` spec, from step config).
+
+    ``value`` is the reply text, or a mapping with a ``text`` field (an ``llm.complete``
+    output). Every ``<think>...</think>`` block, then one Markdown fence, is dropped first.
+    Raises :class:`AnswerRefused`: ``answer_not_json`` when the text is not JSON (or not a JSON
+    object for an ``object`` shape), ``answer_invalid`` naming the field otherwise. Never
+    repaired or truncated."""
+    if isinstance(value, Mapping):
+        value = value.get("text")
+    if not isinstance(value, str):
+        raise AnswerRefused(ANSWER_NOT_JSON, "the reply has no text")
+    text = _unfenced(_THINK_BLOCKS.sub("", value).strip())
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError) as exc:
+        raise AnswerRefused(ANSWER_NOT_JSON, "the reply is not JSON") from exc
+    if shape.get("type") == "object" and not isinstance(data, dict):
+        raise AnswerRefused(ANSWER_NOT_JSON, "the reply is not a JSON object")
+    try:
+        return validate(data, dict(shape))
+    except ShapeSpecError as exc:
+        raise AnswerRefused(INVALID, f"answer.shape: {exc}") from exc
+    except ShapeError as exc:
+        raise AnswerRefused(ANSWER_INVALID, str(exc)) from exc
+
+
+def _stored_form(spec: Mapping[str, Any]) -> dict[str, Any]:
+    """``spec`` for an answer it already normalised: a ``lines`` field is stored as its list of
+    stripped, non-empty lines, so it reads back as a ``list`` of ``text`` items bounded the same
+    way (``min``/``max`` lines become ``min_items``/``max_items``). Every other normalisation
+    (``strip``, ``lower``) is idempotent and is kept as it is."""
+    kind = spec.get("type")
+    if kind == "lines":
+        item = {"type": "text", "min_chars": max(1, spec.get("min_chars", 1))}
+        item.update({k: spec[k] for k in ("lower", "max_chars", "pattern") if k in spec})
+        out: dict[str, Any] = {"type": "list", "items": item}
+        for low, high in (("min", "min_items"), ("max", "max_items")):
+            if low in spec:
+                out[high] = spec[low]
+        if "required" in spec:
+            out["required"] = spec["required"]
+        return out
+    out = {k: v for k, v in spec.items() if k not in ("fields", "items", "default")}
+    if kind == "object" and isinstance(spec.get("fields"), Mapping):
+        out["fields"] = {name: _stored_form(sub) for name, sub in spec["fields"].items()}
+    if isinstance(spec.get("items"), Mapping):
+        out["items"] = _stored_form(spec["items"])
+    return out
+
+
+def _cache_name(input: Mapping[str, Any]) -> tuple[str, str]:
+    """The cache file stem and document label from step config, defaulting to 0.41.0's."""
+    name = input.get("cache_name", DEFAULT_CACHE_NAME)
+    label = input.get("cache_label", DEFAULT_CACHE_LABEL)
+    if not isinstance(name, str) or not _CACHE_NAME_RE.fullmatch(name):
+        raise Refused(INVALID, "cache_name must be 1-64 letters, digits, '-' or '_'")
+    if not isinstance(label, str) or not label.strip():
+        raise Refused(INVALID, "cache_label must be a non-empty string")
+    return name, label
+
+
+def _cache_path(
+    input: Mapping[str, Any], shape: Mapping[str, Any] | None
+) -> tuple[Path, str, str] | None:
+    """``(answer cache file, content sha256, label)`` when ``cache: true`` applies, else None."""
     flag = input.get(_CACHE)
     if flag is None or flag is False:
         return None
     if flag is not True:
         raise Refused(INVALID, "cache must be a boolean")
-    if input.get("brief") != _CACHE_BRIEF or input.get(_CONTENT_PATH) is None:
-        raise Refused(INVALID, "cache needs brief 'recording' and a content_path")
+    if shape is None or input.get(_CONTENT_PATH) is None:
+        raise Refused(INVALID, "cache needs answer.shape and a content_path")
+    name, label = _cache_name(input)
     try:
         path = _under(input.get(_CONTENT_PATH), input.get(_CONTENT_ROOT))
         digest = file_sha256(path)
@@ -538,25 +625,23 @@ def _cache_path(input: Mapping[str, Any]) -> tuple[Path, str] | None:
         raise Refused(exc.code, exc.detail) from exc
     except OSError as exc:
         raise Refused(INVALID, "the content file is not readable") from exc
-    return path.parent / f"answer.{_CACHE_BRIEF}.{digest[:16]}.json", digest
+    return path.parent / f"answer.{name}.{digest[:16]}.json", digest, label
 
 
-def _cached_answer(file: Path, digest: str) -> dict[str, Any] | None:
-    """The outputs stored for exactly this content file, or None (a damaged file is ignored)."""
+def _cached_answer(
+    file: Path, digest: str, label: str, shape: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """The outputs stored for exactly this content file, or None (a damaged file, or one whose
+    answer does not fit the step's shape, is ignored)."""
     try:
         doc = json.loads(file.read_text(encoding="utf-8"))
         if not isinstance(doc, dict) or doc.get("content_sha256") != digest:
             return None
-        if doc.get("schema") != _CACHE_SCHEMA or doc.get("brief") != _CACHE_BRIEF:
+        if doc.get("schema") != _CACHE_SCHEMA or doc.get("brief") != label:
             return None
-        stored = doc.get("answer")
-        if not isinstance(stored, dict) or not isinstance(stored.get("summary"), list):
-            return None
-        answer = parse_recording_answer(
-            json.dumps({**stored, "summary": "\n".join(map(str, stored["summary"]))})
-        )
+        answer = validate(doc.get("answer"), _stored_form(shape))
         model, usage = doc.get(_MODEL), doc.get("usage")
-    except (OSError, ValueError, RecursionError):
+    except (OSError, ValueError, RecursionError):  # ShapeError is a ValueError
         return None
     if not isinstance(model, str) or not model or not isinstance(usage, dict):
         return None
@@ -569,12 +654,12 @@ def _cached_answer(file: Path, digest: str) -> dict[str, Any] | None:
     }
 
 
-def _store_answer(file: Path, digest: str, out: Mapping[str, Any]) -> None:
-    """Keep a parsed answer beside its content file (best effort: an unwritable folder only
+def _store_answer(file: Path, digest: str, label: str, out: Mapping[str, Any]) -> None:
+    """Keep a validated answer beside its content file (best effort: an unwritable folder only
     means the model is asked again next time)."""
     doc = {
         "schema": _CACHE_SCHEMA,
-        "brief": _CACHE_BRIEF,
+        "brief": label,
         "content_sha256": digest,
         _MODEL: out[_MODEL],
         "usage": out["usage"],
@@ -738,12 +823,13 @@ class LlmCompletePort:
         if problem:
             raise Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
         model = str(actor.params.get(_MODEL) or actor.model).strip()
-        cache = _cache_path(input)
-        if cache is not None:
-            hit = _cached_answer(*cache)
+        _brief(input, actor.params)  # a missing or unknown brief is refused before anything
+        shape = _answer_shape(input)
+        cache = _cache_path(input, shape)
+        if cache is not None and shape is not None:
+            hit = _cached_answer(*cache, shape)
             if hit is not None:
                 return InvocationResult.completed(hit)
-        _brief(input, actor.params)  # a bad brief is refused before the content is read
         data = self._request(input, model, self._user_content(input), actor.params)
         headers = self._headers(actor.params)  # may block on a grant lookup (Codex r2 #2)
         url = _completions_url(actor.params["base_url"])
@@ -755,9 +841,9 @@ class LlmCompletePort:
         if not 200 <= status < 300:
             raise _status_failure(status)
         out = _parse(raw, model)
-        if input.get("brief") == _CACHE_BRIEF:
+        if shape is not None:
             try:
-                out["answer"] = parse_recording_answer(out["text"])
+                out["answer"] = parse_answer(out["text"], shape)
             except AnswerRefused as exc:
                 raise Refused(exc.code, exc.detail) from exc
             out["cached"] = False

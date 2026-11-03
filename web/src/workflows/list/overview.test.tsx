@@ -42,10 +42,10 @@ describe("stepCount", () => {
     expect(stepCount([step("a"), step("b", { kind: "for_each", body: [step("c"), step("d", { kind: "retry_until", body: [step("e")] })] })])).toBe(5);
   });
 
-  it("gives the committed workflows their full counts (daily-newspaper 13, pr-fix 14)", () => {
+  it("gives the committed workflows their full counts (daily-newspaper 14, pr-fix 14)", () => {
     const all = [...load<WorkflowDef>("newspaper/workflows"), ...load<WorkflowDef>("pr-fixer/workflows")];
     const byId = Object.fromEntries(all.map((w) => [w.id, stepCount(w.steps)]));
-    expect(byId["daily-newspaper"]).toBe(13);
+    expect(byId["daily-newspaper"]).toBe(14);
     expect(byId["pr-fix"]).toBe(14);
     expect(all.some((w) => (w.steps ?? []).length < stepCount(w.steps))).toBe(true);
   });
@@ -112,7 +112,7 @@ describe("Overview", () => {
   it("shows the full step count of a loop workflow", () => {
     const newspaper = load<WorkflowDef>("newspaper/workflows");
     show(newspaper);
-    expect(screen.getByText("13 steps")).toBeInTheDocument();
+    expect(screen.getByText("14 steps")).toBeInTheDocument();
   });
 
   it("has an empty state with New workflow", () => {

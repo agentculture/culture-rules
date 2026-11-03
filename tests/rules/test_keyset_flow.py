@@ -48,7 +48,6 @@ from culture_rules.node.actions.newspaper import (
     NewspaperRenderPort,
     NewspaperSectionsPort,
 )
-from culture_rules.node.actions.newspaper_render import NO_RESULTS
 from culture_rules.node.actions.search import SearchWebPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
@@ -61,6 +60,7 @@ REPO = Path(__file__).resolve().parents[2]
 SET = "flow-links"
 SEARCH_ACTOR = "flow-search"
 FAKE_STEP = "test.fake"
+NO_RESULTS = "Nothing found."  # the texts.no_results this tests render step configures
 NORMALISE = {
     "lower_host": True,
     "drop_scheme": True,
@@ -306,7 +306,16 @@ def newspaper_workflow() -> dict:
             },
             _step(
                 "render",
-                {"builtin": RENDER_BUILTIN},
+                {
+                    "builtin": RENDER_BUILTIN,
+                    "with": {
+                        "texts": {
+                            "no_results": NO_RESULTS,
+                            "summary_unavailable": "Summary unavailable.",
+                            "summaries_unavailable": "Summaries were unavailable for this issue.",
+                        }
+                    },
+                },
                 [
                     _port("date", "string"),
                     _port("sections", "array"),
@@ -685,9 +694,10 @@ def test_the_add_stores_the_keys_of_the_iterations_that_ran(world):  # c10
 
 UNTOUCHED = [
     "culture_rules/node/actions/newspaper.py",
-    "culture_rules/node/actions/newspaper_render.py",
     "culture_rules/node/actions/newspaper_issue.py",
 ]
+# newspaper_render.py left this list for no-hardcoded-prompts: its notes now come from
+# step config; the keysets still add no rendering behavior.
 # trusted.py and validate.py left this list with the green PR merge prompt: github.merge needs
 # the merge trust role and the click's custom_id filter needs its trigger check, so a branch
 # diff cannot tell keyset work from them either. The keysets still add no trust role or check.

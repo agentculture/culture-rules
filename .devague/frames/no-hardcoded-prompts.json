@@ -1,0 +1,1038 @@
+{
+  "slug": "no-hardcoded-prompts",
+  "title": "No hardcoded prompts",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-11-02T16:53:24Z",
+  "updated": "2026-11-02T17:58:54Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "llm.complete and the render builtins hold no prompt or content-shape rule: briefs, answer shapes, caching, list numbering, reference replacement and output validation are generic steps and options, configured per workflow",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "the four parts ship together: briefs in config, answer and cache options, the numbering and replace steps, the validation step",
+          "status": "confirmed",
+          "instruction": "diff review: every hardcoded item named in c2-c8 is gone from code or became a step option"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "llm.complete has no prompt in code: every brief, the answer shape, the summary check and citation numbering are configuration on generic steps",
+          "kind": "announcement",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "llm.complete's built-in briefs leave the code: every brief name resolves only from the bound actor's params.briefs (admin-only), a step must name its brief, and there is no default brief",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "llm.complete with no brief, or a brief the actor lacks, fails invalid_request before any request; no brief text remains in llm.py",
+          "status": "confirmed",
+          "instruction": "unit tests on llm.complete; grep llm.py for the old texts"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The three code briefs (llm.py:156-194 NEWSPAPER_BRIEF, TRANSCRIPT_BRIEF, RECORDING_BRIEF, _BRIEFS) leave the code: llm.complete resolves every `brief` name only from the bound actor's params.briefs (admin-only via check_actor_briefs), with no code default (today an absent brief means newspaper, llm.py:343-344)",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Every committed bundle and test that uses llm.complete names its brief and carries it as actor config, so nothing that ran before stops running",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "the committed newspaper and transcript bundles still run end to end with briefs only from the actor's params.briefs",
+          "status": "rejected",
+          "instruction": "tests/rules/test_newspaper_flow.py and tests/node/test_transcript_reader_flow.py pass with briefs set on the fixture actor"
+        },
+        {
+          "id": "h15",
+          "text": "every workflow and bundle test that passed before still passes, with briefs only from actor config",
+          "status": "confirmed",
+          "instruction": "full test suite"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Every llm.complete step names its brief: the committed daily-newspaper summary step (docs/rules/newspaper/workflows/daily-newspaper.json:600-670, no brief today) gains brief newspaper; transcript-to-reader keeps brief transcript; the bundle actor docs/rules/newspaper/actors/cortex-spark2.json gains params.briefs for both with today's exact text",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "A generic `answer` step option checks a model reply's JSON shape from step config (field names; types such as text, lines, word, list of strings; item counts, character limits, patterns), replacing the fixed answer validator in code",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "a configured answer shape accepts today's recording answers and refuses the same bad answers with answer_not_json / answer_invalid",
+          "status": "rejected",
+          "instruction": "port the recording_answer.py test cases to the configured shape"
+        },
+        {
+          "id": "h16",
+          "text": "a configured shape accepts the answers the old validator accepted and refuses the same bad ones, with the same codes",
+          "status": "confirmed",
+          "instruction": "port the old validator's test cases to a configured shape"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The recording answer becomes step configuration: a generic `answer` option checks the reply's JSON shape from config (field names, types such as text-lines, word, list of strings, item and character limits, a pattern) instead of recording_answer.py's fixed {summary, word, facts, action_items} validator (MAX_ITEMS 30, MAX_ITEM_CHARS 300, word ^[A-Za-z][A-Za-z-]{1,23}$)",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "The answer cache is a step option for any brief; its file name and label are step config, defaulting to today's values so existing cache files stay readable",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "an existing answer.recording.<sha16>.json cache file is read back with no new request after the change",
+          "status": "rejected",
+          "instruction": "test with a cache file written by the old code"
+        },
+        {
+          "id": "h17",
+          "text": "a cache file written by the old code is read back with no new request",
+          "status": "confirmed",
+          "instruction": "test with a file written by 0.41.0"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The answer cache works for any brief by step config; existing files answer.recording.<sha16>.json with doc brief 'recording' and schema 1 stay readable (the cache name and label default to today's values), so recordings are not re-asked and checklist ids stay stable",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "Render builtins do not enforce a content-shape rule: the hardcoded summary check (_summary_ok) leaves render, which shows any text it is given, and the rule becomes the generic validation step's configuration",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "newspaper.render renders a prose summary with links unchanged in HTML and EPUB, and the validation step with today's rule as config refuses the same summaries the old _summary_ok refused",
+          "status": "rejected",
+          "instruction": "port tests/node/test_newspaper_render.py summary cases to the validation step"
+        },
+        {
+          "id": "h18",
+          "text": "render shows prose with links unchanged, and the validation step configured with the old rule refuses exactly what the old check refused",
+          "status": "confirmed",
+          "instruction": "port the old check's test cases to the validation step"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "newspaper.render no longer enforces the summary shape in code: _summary_ok (newspaper_render.py:218-229: every non-blank line a bullet carrying a link to one of the section's results) becomes configuration or a separate generic validation step; render shows any summary it is given (summary_to_xhtml already renders paragraphs and links)",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02 q1: generic configurable validation step"
+        },
+        {
+          "text": "newspaper.render no longer enforces the summary shape in code: _summary_ok (newspaper_render.py:218-229) is removed from render, which shows any summary it is given (summary_to_xhtml already renders paragraphs and links); the shape and allowed-links rule moves to a generic validation step whose rules (allowed links from a given list and field, line shape) are step config",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "A new generic step numbers a list into text for a model's input ([1] then the configured fields of each item, format in config); today no builtin or {{ }} template can loop over a list (refs.py _text renders a list as str(list))",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "the numbering step's output for a list and template is deterministic and numbers from 1 in list order",
+          "status": "confirmed",
+          "instruction": "unit tests"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "A new generic replace step rewrites each [n] reference in a text using the nth item of a given list and an output template from step config (for example [{n}]({url})); the step is a basic text operation with no format of its own, and a reference outside the list is reported, never invented",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "every [n] with 1 <= n <= len(list) is replaced by the template; an out-of-range [n] is listed in an output and left unchanged",
+          "status": "confirmed",
+          "instruction": "unit tests"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "A new generic step replaces each [n] reference in a text with a configured field (for example url, as a markdown link) of the nth item of a list; a reference outside the list is reported, never invented",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: replaced with [n](url), but as a configured replace-string step, not hardcoded"
+        }
+      ]
+    },
+    {
+      "id": "c9",
+      "kind": "assumption",
+      "text": "Rollout order: actors receive their briefs (admin actors update) before code that needs them is enabled, since rollout import does not touch actors; live steps move to the new options only after the new code runs",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Rollout order: the live actors get params.briefs (admin `actors update`) before the new code is enabled, because rollout import does not touch actors (cli/_commands/rollout.py:725-735) and rollout seed covers variables only; the live recording flow (configured live, docs/operations/library-items.md:22,57) must name its brief and answer option before enable",
+          "kind": "assumption",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "Existing builtins that read a parsed answer keep reading it unchanged; no other builtin is removed in this work",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "transcript_render.py's parser is untouched in this work",
+          "status": "rejected",
+          "instruction": "git diff shows no change to transcript_render.py parsing"
+        },
+        {
+          "id": "h19",
+          "text": "builtins that read a parsed answer are unchanged",
+          "status": "confirmed",
+          "instruction": "git diff"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "transcript.render keeps reading the parsed answer it is given; its own lenient parser (transcript_render.py:177-227) is not removed in this work",
+          "kind": "boundary",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c11",
+      "kind": "decision",
+      "text": "Code holds only basic units and operations (number a list, replace references, validate a shape, render); every prompt, format, template and shape rule is step or actor configuration",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "audience",
+      "text": "The operator, who configures every prompt, answer shape, citation template and validation rule as actor and step configuration, and every existing workflow that must keep running through the change",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "the operator can change each prompt, answer shape, citation template and summary rule with actors update / workflows update alone, no release",
+          "status": "confirmed",
+          "instruction": "do each once on a test actor/workflow"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The operator, who configures every prompt, answer shape, citation format and summary rule as actor and step configuration; and the newspaper, transcript and recording flows that must keep working through the change",
+          "kind": "audience",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c13",
+      "kind": "before_state",
+      "text": "Built-in briefs, a fixed answer validator, an answer cache tied to one brief name, and a hardcoded bullet-and-link check in a render builtin are code; model output that cites by number is refused because its lines are not bullets",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "the before state is what main 45d2357 holds: _BRIEFS, recording_answer.py, _CACHE_BRIEF and _summary_ok exist there",
+          "status": "rejected",
+          "instruction": "grep main 45d2357"
+        },
+        {
+          "id": "h20",
+          "text": "the before state is what main 45d2357 holds",
+          "status": "confirmed",
+          "instruction": "grep main 45d2357"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Three prompts (newspaper, transcript, recording), the recording answer's shape, the answer cache's trigger and newspaper.render's bullet-and-link summary rule are hardcoded; a cited summary is dropped as 'Summary withheld' because its lines are not bullets",
+          "kind": "before_state",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c14",
+      "kind": "after_state",
+      "text": "No prompt or shape rule is code: briefs are actor config, steps name their brief, the answer shape and cache are step options, and a workflow can number a list for a model, replace [n] references by a configured template, validate the result by configured rules and render it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "on the delivered branch the four hardcoded items are gone and the newspaper renders a cited summary",
+          "status": "rejected",
+          "instruction": "grep and a live newspaper-sections-test-style run"
+        },
+        {
+          "id": "h21",
+          "text": "on the delivered branch the hardcoded items are gone and a test workflow renders a cited output",
+          "status": "confirmed",
+          "instruction": "grep and one live test-workflow run"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "grep culture_rules for the old brief constants and fixed answer fields returns nothing; the newspaper issue renders a cited summary",
+      "revisions": [
+        {
+          "text": "llm.complete holds no prompt text: every brief is actor configuration, steps name their brief, the answer shape and cache are step options, and a section summary can be prose citing [n] links built by two generic steps (number a list, replace references) and checked by a generic validation step",
+          "kind": "after_state",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c15",
+      "kind": "why_it_matters",
+      "text": "Operator rule: code implements framework only, and process and business logic are configuration; changing a prompt or format becomes an edit, not a release",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "no prompt, format or shape rule needed a release to change after this work",
+          "status": "confirmed",
+          "instruction": "review the delivered step and actor options"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "success_signal",
+      "text": "After rollout: 0 prompt texts in culture_rules (grep finds none of the old brief texts); one test workflow numbers a list, asks a model to cite by number, replaces references by a template and validates the result with 0 texts or rules in code; every workflow that ran before the rollout completes its next run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "the three counts in the signal are read from live runs, not estimated",
+          "status": "confirmed",
+          "instruction": "read 3 issues' render outputs and the transcript and recording runs"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "grep the package; read 3 issues' render outputs and the live runs of transcript-to-reader and the recording flow",
+      "revisions": [
+        {
+          "text": "After rollout: 0 prompt texts in culture_rules (grep for the three brief texts and _BRIEFS finds 0 matches); the next 3 newspaper issues render every section with results with a summary (0 'Summary unavailable' or 'Summary withheld' while the model is up) whose [n] links each point to that section's result n; transcript and recording flows complete with unchanged outputs for the same input",
+          "kind": "success_signal",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The editor and describe phrases follow the new options: the action picker offers the bound actor's brief names (no built-in list, no default) and the answer and cache options; the new steps get editor catalogue entries and describe phrases",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "the action picker shows only the chosen actor's brief names and the new options, with no built-in list or default",
+          "status": "confirmed",
+          "instruction": "vitest on ActionPicker and StepEditor"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The editor and the describe phrases follow the new options: web/src/rules/ActionPicker.tsx:38,164 lists 'llm.complete's locked briefs' with brief options and 'Newspaper (default)' and must instead offer the bound actor's params.briefs names (no default), plus the answer and cache options; culture_rules/model/describe.py:135 llm.complete phrase; the new steps get StepEditor BUILTINS entries and BUILTIN_WORDS phrases",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Rollback stays possible: the order is seed the actors' briefs (old code ignores actor briefs named like code briefs, so seeding is safe on 0.41.0), roll out, then move live steps to the new options; rolling the code back to 0.41.0 first requires putting the live steps back (a step using the answer option would otherwise lose its parsing), documented in docs/operations/rollout.md",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "rollout.md states the order (briefs, code, live steps) and the rollback order (live steps back, then code), and both are dry-run before any apply",
+          "status": "confirmed",
+          "instruction": "read docs/operations/rollout.md; dry-run each step"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "The validation step outputs a verdict and its reasons alongside the text, so later steps branch on it (when) to show the text or a configured fallback; refused output is never silently dropped",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "a refused output reaches later steps as a verdict with reasons, and a configured fallback is shown instead of nothing",
+          "status": "confirmed",
+          "instruction": "unit test of the validation step plus a when branch in a test workflow"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The validation step's verdict reaches the rendered issue: when it refuses a section's summary, newspaper.render still shows that section's results with a note, as LINK_NOTE does today, rather than silently showing no summary (observability of a refused summary)",
+          "kind": "requirement",
+          "reason": "operator 2026-11-02: no mention of any actual flow; the spec brings tools only"
+        }
+      ]
+    },
+    {
+      "id": "c20",
+      "kind": "decision",
+      "text": "Render builtins take every user-facing text (empty, unavailable and refused notes) from step configuration; the code cannot tell which flows run on it",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "A newsletter is a flow and is never named in code or spec; Discord and Markdown are generic surfaces and may be",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "A generic json.parse step turns a JSON string (for example a shared variable) into a value and validates it against a schema from step config (required, types, min/max, enum, defaults, item limits, unknown keys refused), failing fast with the exact field path",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "a schema in config reproduces every refusal the coded sections check gives today, with the same field path in the error",
+          "status": "confirmed",
+          "instruction": "port the coded check's test cases to json.parse with a schema"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "A generic list.filter step keeps the items of a list that satisfy a condition over item (from culture_rules/model/condition.py, extended with contains and any/all over a term list), with optional dedupe by a field, a derived host from a url and a cap",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "list.filter with conditions in config keeps exactly the items the coded filter kept for the same inputs",
+          "status": "confirmed",
+          "instruction": "port the coded filter's test cases"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "Generic value helpers: join strings with a separator, add seconds to a timestamp, and convert a slot time to a local date in an IANA time zone (DST-correct)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "the local-date helper matches the coded slot-to-date result across a DST change, and time-add and join are exact",
+          "status": "confirmed",
+          "instruction": "unit tests including DST boundaries"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "A generic document.render step renders a list of records into HTML and an EPUB (chapters) from a template, CSS, texts and caps in step config, choosing a variant per record by condition (for example text, else items with a fallback note), deterministic so identical input gives identical bytes; it reuses _epub.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "document.render with a template in config renders every case the coded renderer handled (no results, text, items with a fallback note), and identical input gives identical bytes",
+          "status": "confirmed",
+          "instruction": "port the render test cases plus a golden test"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "A generic named lease and send-once ledger replace the coded issue state machine: a key-addressed lease with owner, expiry, takeover and a fence (claim_lost), and a ledger that freezes the first payload, records the attempt before sending, gives a stable idempotency key, bounds retries by a window and marks the outcome uncertain past it; collection, key template, windows and payload fields are step config",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "each of the 12 guarantees in c27 has a test against the lease and ledger steps",
+          "status": "confirmed",
+          "instruction": "one test per guarantee"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "boundary",
+      "text": "The lease and ledger keep every guarantee the coded state machine gives today: keyed by the configured key not the run; takeover only after expiry; lease renewed at every side-effect fence and a lost lease fails non-retryably; first payload frozen and replayed byte-for-byte; stable idempotency key; attempt recorded before send; never resent past the window (uncertain instead); the outcome id recorded even after a lost lease; a later side effect skipped when already recorded; done only once the send is settled, else the lease is released; an empty recipient list skips the send but completes",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "a crash or retry at every fence (before send, after send, before record) neither sends twice nor skips the send",
+          "status": "confirmed",
+          "instruction": "fault-injection tests at each fence"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "With the generic steps in place, the four newsletter builtins (newspaper.sections, newspaper.filter, newspaper.render, newspaper.issue) and their modules are removed from code, and the committed bundle is rewritten as configuration of generic steps",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "after R3 no newspaper.* builtin remains registered, and the committed bundle runs end to end on generic steps only",
+          "status": "confirmed",
+          "instruction": "grep runner.py; run the bundle flow test"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "decision",
+      "text": "Three releases: R1 briefs, answer, cache, numbering, replace and validation; R2 json.parse, list.filter, value helpers, document.render; R3 lease and ledger, then the four builtins are removed; the live flow keeps running between releases",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "decision",
+      "text": "document.render's output may differ from today's once, at the switch; a golden test pins it afterwards",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether docs/rules bundles should carry the live briefs' text (committed prompts as example config) or only placeholders, given 'commit is code and logic, user content lives in the store'",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "The newsletter has its own builtins in code (culture_rules/node/actions/newspaper.py, newspaper_issue.py, newspaper_render.py): flow-specific code under the operator's rule (a newsletter is a flow; Discord and Markdown are generic). This work only removes their hardcoded prompt and shape rules; replacing them with generic steps is a later frame",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": true,
+      "resolution": "operator 2026-11-02: include the builtins in this frame",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_rules/node/actions/llm.py",
+      "finding": "_brief() at 342-355 falls back to a built-in brief when none is named and lets built-in names win over actor briefs; the built-in brief texts are fixed at 156-194",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "docs/rules bundles",
+      "finding": "two committed bundles use llm.complete: one names no brief (relying on the built-in default), one names a built-in brief; the bundle actor carries no briefs",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_rules/node/actions/recording_answer.py",
+      "finding": "the only answer validator, switched on by one brief name (llm.py:758); no generic JSON-shape validator exists in the repo (model/schema.py and validate.py cover dataclass models only)",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "llm.py answer cache",
+      "finding": "_cache_path 525-541 requires one specific brief name; the key is the content bytes plus that name; the file name is pinned by tests/node/test_llm_complete.py:1012",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_rules/node/actions/newspaper_render.py",
+      "finding": "_body 333-340 is the only caller of _summary_ok; prose with [n](url) links renders fine, but line 229 rejects any non-bullet line",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_rules/model/refs.py and builtins",
+      "finding": "templates substitute scalars only; markdown.render, json.read, select and document.sections do not number lists; llm.complete sends a list content as JSON",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "culture_rules/node/actions (new step)",
+      "finding": "nothing turns [n] into links today; summary_to_xhtml then renders the links",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "rollout and import",
+      "finding": "rollout import imports workflows and rules only; docs/operations/rollout.md:241-242 says live actor changes are `actors update` between import and enable",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_rules/node/actions/transcript_render.py",
+      "finding": "a render builtin duplicates the fence, think and word parsing but needs only two fields of the parsed answer",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "challenge pass / adjacent-systems lens: web/src/rules/ActionPicker.tsx, culture_rules/model/describe.py",
+      "finding": "the action picker hard-lists the built-in briefs with a default (ActionPicker.tsx:38-42,164); describe.py:135 phrases llm.complete",
+      "seeds": [
+        "c17"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "challenge pass / reversibility lens: llm.py _brief, live recording flow",
+      "finding": "giving actors their briefs is safe before rollout (on 0.41.0 built-in names win over actor briefs); rolling the code back after live steps move to the answer option would drop parsing",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / observability lens: newspaper_render.py _body 333-340",
+      "finding": "render today chooses between the text and two fallback notes itself; once the check moves out, the refusal must reach later steps to keep a fallback visible",
+      "seeds": [
+        "c19"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / unstated-assumption lens: newspaper_render.py:96-99",
+      "finding": "the frame covers prompts and the shape rule, but a render builtin still holds four user-facing note texts; routed to a question",
+      "seeds": []
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / security lens: auth/guards.py check_actor_briefs",
+      "finding": "prompts stay admin-only (briefs_admin_only); the new answer, citation and validation options are workflow step config editors may change, which carry no prompt text; clean pass",
+      "seeds": []
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / migration lens: llm.py answer cache 525-587",
+      "finding": "c5 covers the cache name and label defaults; checklist ids depend on unchanged answers, residual risk only if the configured shape normalises differently (h4 checks it)",
+      "seeds": []
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / concurrency lens: the new numbering, replace and validation steps",
+      "finding": "pure functions of their inputs, no shared state added; clean pass",
+      "seeds": []
+    },
+    {
+      "id": "s17",
+      "surface": "culture_rules/node/actions/newspaper.py:133-307 (sections)",
+      "finding": "parse, length, type, range, default and hostname checks are coded with fixed field names and caps; no step parses a JSON string (json.read reads files under a root)",
+      "seeds": [
+        "c22"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "culture_rules/node/actions/newspaper.py:250-332 (filter)",
+      "finding": "must/must_not substring terms over title and snippet, host allow/deny with subdomains, dedupe by url and a count cap are coded; conditions have no contains, no any/all and do not filter lists",
+      "seeds": [
+        "c23"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "culture_rules/node/actions/newspaper_issue.py:174-198, newspaper.py:237-247",
+      "finding": "local date from slot and tz, summaries_until and the OR-join are coded inside two builtins",
+      "seeds": [
+        "c24"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "culture_rules/node/actions/newspaper_render.py, _epub.py",
+      "finding": "fixed HTML structure, CSS, texts, field limits, EPUB id and the per-section fallback chain are coded; _epub.py helpers are generic but not exposed as a step",
+      "seeds": [
+        "c25"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "culture_rules/node/actions/newspaper_issue.py:132-570, culture_rules/engine/claims.py",
+      "finding": "the coded phases (claim, before_email, before_push, record) hold the dedupe guarantees; engine claims are keyed by run and step, not by a caller key, and no named-lease step exists",
+      "seeds": [
+        "c26"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "newspaper_issue.py invariants",
+      "finding": "12 invariants listed by the scope read; a double-send window opens if lease and ledger are split across two independent documents",
+      "seeds": [
+        "c27"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "culture_rules/node/runner.py builtin registry",
+      "finding": "four newspaper.* builtins registered; the committed bundle's steps sections, claim, filter, render, email_gate, push_gate and record call them",
+      "seeds": [
+        "c28"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "llm.complete brief resolution",
+      "behavior": "a step with no brief, or a brief the bound actor lacks, fails invalid_request before any request; the system message is exactly the actor's params.briefs text",
+      "source_text": "llm.complete's built-in briefs leave the code: every brief name resolves only from the bound actor's params.briefs (admin-only), a step must name its brief, and there is no default brief",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "committed bundles and their tests",
+      "behavior": "every committed workflow using llm.complete names its brief and its tests pass with briefs only from actor config",
+      "source_text": "Every committed bundle and test that uses llm.complete names its brief and carries it as actor config, so nothing that ran before stops running",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "llm.complete answer option",
+      "behavior": "a reply matching the configured JSON shape is returned parsed; a non-JSON reply fails answer_not_json and a shape violation fails answer_invalid, naming the field",
+      "source_text": "A generic `answer` step option checks a model reply's JSON shape from step config (field names; types such as text, lines, word, list of strings; item counts, character limits, patterns), replacing the fixed answer validator in code",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c5",
+      "seam": "llm.complete cache option",
+      "behavior": "a cached answer for the same content is returned with no request for any brief; a cache file written by 0.41.0 is read back",
+      "source_text": "The answer cache is a step option for any brief; its file name and label are step config, defaulting to today's values so existing cache files stay readable",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c6",
+      "seam": "render builtin",
+      "behavior": "render shows any text it is given (prose with links renders as paragraphs and anchors) and holds no shape rule",
+      "source_text": "Render builtins do not enforce a content-shape rule: the hardcoded summary check (_summary_ok) leaves render, which shows any text it is given, and the rule becomes the generic validation step's configuration",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c7",
+      "seam": "numbering step",
+      "behavior": "a list and a template give deterministic text numbered from 1 in list order",
+      "source_text": "A new generic step numbers a list into text for a model's input ([1] then the configured fields of each item, format in config); today no builtin or {{ }} template can loop over a list (refs.py _text renders a list as str(list))",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c8",
+      "seam": "replace step",
+      "behavior": "each [n] in range is replaced by the configured template with item n's fields; an out-of-range [n] is left unchanged and listed in an output",
+      "source_text": "A new generic replace step rewrites each [n] reference in a text using the nth item of a given list and an output template from step config (for example [{n}]({url})); the step is a basic text operation with no format of its own, and a reference outside the list is reported, never invented",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c17",
+      "seam": "editor",
+      "behavior": "the action picker offers the chosen actor's brief names and the answer and cache options, with no built-in list or default; new steps appear in the step catalogue",
+      "source_text": "The editor and describe phrases follow the new options: the action picker offers the bound actor's brief names (no built-in list, no default) and the answer and cache options; the new steps get editor catalogue entries and describe phrases",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c18",
+      "seam": "rollout and rollback order",
+      "behavior": "docs/operations/rollout.md documents both orders and each step dry-runs cleanly",
+      "source_text": "Rollback stays possible: the order is seed the actors' briefs (old code ignores actor briefs named like code briefs, so seeding is safe on 0.41.0), roll out, then move live steps to the new options; rolling the code back to 0.41.0 first requires putting the live steps back (a step using the answer option would otherwise lose its parsing), documented in docs/operations/rollout.md",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c19",
+      "seam": "validation step",
+      "behavior": "a refused text yields verdict false with reasons and later steps can branch on it to a configured fallback",
+      "source_text": "The validation step outputs a verdict and its reasons alongside the text, so later steps branch on it (when) to show the text or a configured fallback; refused output is never silently dropped",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c20",
+      "seam": "render texts",
+      "behavior": "every user-facing note a render builtin shows comes from step config; none is a code constant",
+      "source_text": "Render builtins take every user-facing text (empty, unavailable and refused notes) from step configuration; the code cannot tell which flows run on it",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c22",
+      "seam": "json.parse",
+      "behavior": "a JSON string parses and validates against the configured schema; the first violation fails with its exact field path before any later step",
+      "source_text": "A generic json.parse step turns a JSON string (for example a shared variable) into a value and validates it against a schema from step config (required, types, min/max, enum, defaults, item limits, unknown keys refused), failing fast with the exact field path",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c23",
+      "seam": "list.filter",
+      "behavior": "items are kept exactly when the configured condition holds per item (including contains and any/all), deduped by the configured field and capped",
+      "source_text": "A generic list.filter step keeps the items of a list that satisfy a condition over item (from culture_rules/model/condition.py, extended with contains and any/all over a term list), with optional dedupe by a field, a derived host from a url and a cap",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c24",
+      "seam": "value helpers",
+      "behavior": "join, time-add and slot-to-local-date give exact results, including across a DST change",
+      "source_text": "Generic value helpers: join strings with a separator, add seconds to a timestamp, and convert a slot time to a local date in an IANA time zone (DST-correct)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c25",
+      "seam": "document.render",
+      "behavior": "records render to HTML and EPUB from the configured template, choosing a variant per record by condition; identical input gives identical bytes",
+      "source_text": "A generic document.render step renders a list of records into HTML and an EPUB (chapters) from a template, CSS, texts and caps in step config, choosing a variant per record by condition (for example text, else items with a fallback note), deterministic so identical input gives identical bytes; it reuses _epub.py",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c26",
+      "seam": "lease and ledger steps",
+      "behavior": "a key-addressed lease grants one owner, allows takeover only after expiry, and fails claim_lost after loss; the ledger freezes the first payload and gives a stable idempotency key",
+      "source_text": "A generic named lease and send-once ledger replace the coded issue state machine: a key-addressed lease with owner, expiry, takeover and a fence (claim_lost), and a ledger that freezes the first payload, records the attempt before sending, gives a stable idempotency key, bounds retries by a window and marks the outcome uncertain past it; collection, key template, windows and payload fields are step config",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c27",
+      "seam": "send safety",
+      "behavior": "across retries and crashes at each fence the send happens at most once and is never skipped while within its window; past the window it is recorded uncertain",
+      "source_text": "The lease and ledger keep every guarantee the coded state machine gives today: keyed by the configured key not the run; takeover only after expiry; lease renewed at every side-effect fence and a lost lease fails non-retryably; first payload frozen and replayed byte-for-byte; stable idempotency key; attempt recorded before send; never resent past the window (uncertain instead); the outcome id recorded even after a lost lease; a later side effect skipped when already recorded; done only once the send is settled, else the lease is released; an empty recipient list skips the send but completes",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c28",
+      "seam": "builtin registry",
+      "behavior": "no newspaper.* builtin is registered after R3 and the committed bundle runs end to end on generic steps",
+      "source_text": "With the generic steps in place, the four newsletter builtins (newspaper.sections, newspaper.filter, newspaper.render, newspaper.issue) and their modules are removed from code, and the committed bundle is rewritten as configuration of generic steps",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
+}

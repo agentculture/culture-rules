@@ -264,6 +264,18 @@
       "source_port": "push",
       "target": "push",
       "target_port": "push"
+    },
+    {
+      "source": "summary",
+      "source_port": "text",
+      "target": "check",
+      "target_port": "text"
+    },
+    {
+      "source": "summarise",
+      "source_port": "ok",
+      "target": "render",
+      "target_port": "summary_ok"
     }
   ],
   "enabled": true,
@@ -608,6 +620,7 @@
               "kind": "llm.complete",
               "params": {
                 "actor": "cortex-spark2",
+                "brief": "newspaper",
                 "content": "inputs.item.results",
                 "max_tokens": 2000,
                 "not_after": "inputs.not_after"
@@ -668,7 +681,7 @@
           "kind": "code",
           "max_iterations": null,
           "name": "cortex summary",
-          "notes": "llm.complete: the locked brief, no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool. Skipped for a section whose filtered results are empty: it needs no summary and renders \"No results.\".",
+          "notes": "llm.complete: the brief named newspaper (the actor's params.briefs), no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool. Skipped for a section whose filtered results are empty: it needs no summary and renders \"No results.\".",
           "outputs": [
             {
               "description": "",
@@ -696,6 +709,77 @@
             "max_attempts": 2
           },
           "timeout_s": 600.0
+        },
+        {
+          "body": [],
+          "config": {
+            "allowed_field": "url",
+            "builtin": "text.validate",
+            "line_shape": "linked_bullets",
+            "link_schemes": [
+              "http",
+              "https"
+            ],
+            "on_error": "skip",
+            "require_links": true,
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "deliver"
+              },
+              "op": "compare",
+              "right": {
+                "literal": true
+              }
+            },
+            "with": {
+              "allowed": "inputs.item.results"
+            }
+          },
+          "description": "",
+          "enabled": true,
+          "id": "check",
+          "inputs": [
+            {
+              "description": "{results} of the section",
+              "name": "item",
+              "required": true,
+              "type": "object"
+            },
+            {
+              "description": "the summary",
+              "name": "text",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "newspaper.issue's claim: false ends the run quietly",
+              "name": "deliver",
+              "required": true,
+              "type": "boolean"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Check the summary",
+          "notes": "text.validate with the rule the renderer used to hold: every line a bullet with a link, at least one link, and every link (http or https) one of this section's result urls. ok false makes the renderer show the results and its summary_refused text instead. Skipped with the summary (on_error skip), so the verdict is then null and accepts.",
+          "outputs": [
+            {
+              "description": "",
+              "name": "ok",
+              "required": true,
+              "type": "boolean"
+            },
+            {
+              "description": "",
+              "name": "reasons",
+              "required": false,
+              "type": "array"
+            }
+          ],
+          "placement": null,
+          "retry": null,
+          "timeout_s": null
         }
       ],
       "config": {
@@ -727,12 +811,18 @@
       "kind": "for_each",
       "max_iterations": 20,
       "name": "Summarise each section",
-      "notes": "One iteration per section: llm.complete on cortex-spark2 (pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
+      "notes": "One iteration per section: llm.complete on cortex-spark2 (pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1). Each summary is then checked by text.validate (the link rule, as config); its verdict goes to the renderer as summary_ok.",
       "outputs": [
         {
           "description": "",
           "name": "text",
           "required": true,
+          "type": "array"
+        },
+        {
+          "description": "text.validate's verdict per section; null when the summary was skipped",
+          "name": "ok",
+          "required": false,
           "type": "array"
         }
       ],
@@ -752,6 +842,14 @@
           "op": "compare",
           "right": {
             "literal": true
+          }
+        },
+        "with": {
+          "texts": {
+            "no_results": "No results.",
+            "summaries_unavailable": "Summaries were unavailable for this issue.",
+            "summary_refused": "Summary withheld: it linked to a page outside the results of this section.",
+            "summary_unavailable": "Summary unavailable."
           }
         }
       },
@@ -784,6 +882,12 @@
           "type": "array"
         },
         {
+          "description": "text.validate's verdict per section",
+          "name": "summary_ok",
+          "required": false,
+          "type": "array"
+        },
+        {
           "description": "newspaper.issue's claim: false ends the run quietly",
           "name": "deliver",
           "required": true,
@@ -793,7 +897,7 @@
       "kind": "code",
       "max_iterations": null,
       "name": "Render the issue",
-      "notes": "newspaper.render: the dated HTML email body and the EPUB; a summary that links outside its section's results is withheld, a section with no results says so.",
+      "notes": "newspaper.render: the dated HTML email body and the EPUB; a summary whose text.validate verdict is false is withheld (summary_refused), a section with no results says so.",
       "outputs": [
         {
           "description": "",

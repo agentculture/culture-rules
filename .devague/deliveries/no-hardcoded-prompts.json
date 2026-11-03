@@ -1,0 +1,62 @@
+{
+  "plan_slug": "no-hardcoded-prompts",
+  "schema_version": 2,
+  "created": "2026-11-02T18:04:32Z",
+  "updated": "2026-11-03T04:26:10Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "text.validate adds line_shape linked_bullets (every line a bullet holding a link) so the old render rule is reproducible as config; link_schemes defaults to http and https when unset (a safety default); the old XML control-character URL check is not carried (render escapes)",
+      "task_ref": "t5",
+      "reason": "the old rule refused a bullet without a link, which plain 'bullets' cannot express; http/https keeps javascript: and other schemes refused when a flow forgets to set it",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t6 also edited tests/node/test_epub_bytes_pinned.py (passes the old note texts as config so the pinned bytes hold); the other importers of the removed render constants (tests/rules/test_newspaper_flow.py, test_keyset_flow.py, test_sources_manifest_flow.py, tests/node/test_sections.py) move to t8, which owns the bundles and flow tests; they fail between the t6 merge and t8",
+      "task_ref": "t6",
+      "reason": "render texts became required config (c20); the pinned-bytes test is render's own; flow tests belong to t8",
+      "affects": [
+        "t8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "llm.complete: brief is enforced at run time but not marked required in the action catalogue; cache: true now needs an answer shape and a content_path; the llm.complete catalogue tests live in tests/node/test_llm_answer.py; shape.py gains object option extra (refuse default, drop) so old answers with extra keys still pass",
+      "task_ref": "t2",
+      "reason": "marking brief required would break validation of stored workflows before they are migrated (t8 and the live steps); only a validated answer is cached; h16 needs extra keys accepted",
+      "affects": [
+        "t1",
+        "t8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t8 replaced tests/rules/test_green_merge_flow.py::test_the_delivery_commits_no_rule_or_workflow (diffed docs/rules against origin/main, so it fails on any later branch that edits a committed workflow) with test_committed_bundles_do_not_pin_a_merge_workflow (no committed bundle holds a github.merge step); t8 also added the new check step's condition to tests/model/snapshots/condition_text_docs_rules.json and fixed test_sources_manifest_flow.py's render step to pass texts through config.with",
+      "task_ref": "t8",
+      "reason": "the old green-merge test was scoped to its own delivery's diff and blocks every later bundle change; the snapshot and manifest test follow from the new bundle step and the render texts",
+      "affects": [
+        "t8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

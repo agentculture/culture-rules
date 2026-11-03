@@ -25,7 +25,7 @@ from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
 from culture_rules.io.exchange import read_bundle
-from culture_rules.node.actions.llm import TRANSCRIPT_BRIEF, LlmCompletePort
+from culture_rules.node.actions.llm import LlmCompletePort
 from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort
 from culture_rules.node.actions.transcript_file import result_path, write_atomic
 from culture_rules.node.actions.transcript_render import TranscriptRenderPort
@@ -125,6 +125,12 @@ class StubLibrary:
         self.items.setdefault(digest, len(self.items) + 1)
         item = self.items[digest]
         return InvocationResult.completed({"item_id": item, "created": created, "queue_id": item})
+
+
+def _transcript_brief() -> str:
+    """The text the shipped cortex-spark2 actor carries as ``params.briefs.transcript``."""
+    actors = {a.id: a for a in read_bundle(NEWSPAPER).bundle.actors}
+    return actors["cortex-spark2"].params["briefs"]["transcript"]
 
 
 def _actors():
@@ -301,7 +307,7 @@ def test_a_run_after_a_summary_failure_ships_the_summarised_book(world):
 def test_the_summary_reads_the_transcript_itself_with_the_transcript_brief(world):
     world.land(language="he")
     (call,) = world.llm.calls
-    assert call["messages"][0]["content"] == TRANSCRIPT_BRIEF
+    assert call["messages"][0]["content"] == _transcript_brief()
     assert PRIVATE_TEXT in call["messages"][1]["content"]
 
 

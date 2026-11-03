@@ -833,3 +833,37 @@ def test_condition_text_is_byte_identical_over_docs_rules():
     snap = json.loads((Path(__file__).parent / "snapshots" / SNAPSHOT).read_text())
     now = {k: condition_text(v) for k, v in _committed_conditions().items()}
     assert now == snap
+
+
+@pytest.mark.parametrize(
+    ("params", "words"),
+    [
+        ({"brief": "notes"}, "brief notes"),
+        (
+            {"answer": {"shape": {"type": "text"}}},
+            "checking the answer against its configured shape",
+        ),
+        ({"cache": True}, "keeping the first valid answer"),
+        ({"cache": False}, ""),
+        ({"cache_name": "notes"}, "cache name notes"),
+        ({"cache_label": "Notes"}, "cache label Notes"),
+    ],
+)
+def test_llm_options_have_generic_phrases(params, words):
+    from culture_rules.model.describe import action_text
+
+    assert action_text({"kind": "llm.complete", "params": params}) == " ".join(
+        part for part in ("llm.complete", words) if part
+    )
+
+
+@pytest.mark.parametrize(
+    ("builtin", "phrase"),
+    [
+        ("text.number", "number items into text using a template and separator"),
+        ("text.replace_refs", "swap each reference in a text for its item's text"),
+        ("text.validate", "check text against configured rules, returning a verdict and reasons"),
+    ],
+)
+def test_text_steps_have_generic_phrases(builtin, phrase):
+    assert step_text({"kind": "code", "config": {"builtin": builtin}}) == f"{builtin}: {phrase}"

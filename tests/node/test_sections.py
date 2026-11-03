@@ -73,6 +73,7 @@ def issue():
     )
     payload = {
         "date": "2026-10-27",
+        "texts": {"no_results": "No results.", "summary_unavailable": "Summary unavailable."},
         "title": "Daily newspaper",
         "sections": [
             {

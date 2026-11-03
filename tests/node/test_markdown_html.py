@@ -43,8 +43,16 @@ def digest_issue(html, **over):
     return html_to_markdown(html, **{**NEWSPAPER, **over})
 
 
+# The renderer's notes are step config (no texts in code).
+TEXTS = {
+    "no_results": "No results.",
+    "summary_unavailable": "Summary unavailable.",
+    "summaries_unavailable": "Summaries were unavailable for this issue.",
+}
+
+
 def html_of(sections):
-    payload = {"date": DATE, "title": "Daily newspaper", "sections": sections}
+    payload = {"date": DATE, "title": "Daily newspaper", "sections": sections, "texts": TEXTS}
     result = NewspaperRenderPort().invoke(payload, "k", DEADLINE, context=ctx())
     assert result.outcome == COMPLETED, result.error
     return result.output["html"]

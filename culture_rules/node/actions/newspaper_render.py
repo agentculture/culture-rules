@@ -9,7 +9,7 @@ Input
 ``date`` (``YYYY-MM-DD``, the issue's local date), ``title`` (default
 :data:`DEFAULT_TITLE`) and ``sections`` (1..:data:`MAX_SECTIONS`). When at least one section
 has results and none of those sections has a summary (cortex was down, or the summary window
-closed first), the masthead carries :data:`SUMMARIES_UNAVAILABLE` once, in the email and in
+closed first), the masthead carries ``texts.summaries_unavailable`` once, in the email and in
 the EPUB's first chapter; an empty section needs no summary and does not count.
 Each section is ``{name, results, summary}``: ``results`` a list of ``{title, url, snippet,
 age, source}`` (search.web's shape) and ``summary`` the model's text or null. A ``for_each``
@@ -21,15 +21,20 @@ be ``{text: ...}`` (llm.complete's output).
 
 Each section renders as exactly one of:
 
-* **No results** - the section's results are empty: the line :data:`NO_RESULTS`, never the
-  summary (h6: nothing is filled in).
-* **The summary** - it passes the link check: every non-blank line is a bullet (the locked
-  brief's format), every bullet carries a link, and every link is an ``http``/``https`` URL
-  that is one of *this* section's result URLs (c19/h5: every summarised item links its
-  source; a paragraph or heading fails the check).
+* **No results** - the section's results are empty: the configured ``texts.no_results`` line,
+  never the summary (h6: nothing is filled in).
+* **The summary** - any summary text, as paragraphs and bullets with anchors. The renderer
+  holds no shape rule: whether a summary is acceptable is decided by an earlier step, which
+  hands the verdict in as ``summary_ok`` (below).
 * **The results** - title linked, snippet, ``source · age`` - followed by
-  :data:`SUMMARY_UNAVAILABLE` when the summary is missing, or :data:`LINK_NOTE` when it failed
-  the link check (the summary is dropped).
+  ``texts.summary_unavailable`` when the summary is missing, or ``texts.summary_refused`` when
+  its verdict is false (the summary is dropped).
+
+``texts`` (c20) holds every user-facing note and has no defaults in code: ``no_results``,
+``summary_unavailable``, ``summaries_unavailable`` (the masthead note) and ``summary_refused``.
+A text is required only when its case occurs; otherwise ``bad_input: texts.<name>`` names it.
+``summary_ok`` is optional, a list parallel to ``sections`` (or a key on the section) of a
+bool or ``{ok: bool}`` per section; only ``false`` refuses, anything else (absent, null) accepts.
 
 The summary is markdown-ish: ``-``/``*``/``•``/``1.`` bullets, ``[text](url)`` links,
 ``**bold**``, other lines as paragraphs (:func:`summary_to_xhtml`; the link check admits
@@ -81,10 +86,6 @@ __all__ = [
     "DEFAULT_TITLE",
     "EPUB_CAP",
     "HTML_CAP",
-    "LINK_NOTE",
-    "NO_RESULTS",
-    "SUMMARIES_UNAVAILABLE",
-    "SUMMARY_UNAVAILABLE",
     "RenderError",
     "http_host",
     "render_issue",
@@ -93,10 +94,6 @@ __all__ = [
 ]
 
 DEFAULT_TITLE = "Daily newspaper"
-NO_RESULTS = "No results."
-SUMMARY_UNAVAILABLE = "Summary unavailable."
-SUMMARIES_UNAVAILABLE = "Summaries were unavailable for this issue."
-LINK_NOTE = "Summary withheld: it linked to a page outside the results of this section."
 HTML_CAP = 1 << 20  # 1 MiB
 EPUB_CAP = 5 << 20  # 5 MiB
 MAX_SECTIONS = 20
@@ -133,6 +130,7 @@ class _Section:
     name: str
     results: tuple[Mapping[str, str], ...]
     summary: str | None
+    refused: bool = False
 
 
 # ------------------------------------------------------------------ text and links
@@ -215,20 +213,6 @@ def summary_to_xhtml(text: str) -> str:
     return "".join(out)
 
 
-def _summary_ok(summary: str, results: Sequence[Mapping[str, str]]) -> bool:
-    """The link check (module doc): bullets only, each sourced from this section's results.
-
-    The locked brief asks for bullets and nothing else, so any non-bullet line (a paragraph,
-    a heading) fails the check: an unsourced paragraph can't ride along with one linked
-    bullet (Codex r1 #5). The section then renders its results instead.
-    """
-    allowed = {r["url"] for r in results if http_host(r["url"])}
-    links = summary_links(summary)
-    if not links or any(url not in allowed for url in links):
-        return False
-    return all(bullet and _LINK_RE.search(content) for bullet, content in _lines(summary))
-
-
 # ------------------------------------------------------------------ input
 
 
@@ -282,7 +266,19 @@ def _pick(raw: Mapping[str, Any], key: str, parallel: Sequence[Any], index: int)
     return parallel[index] if index < len(parallel) else None
 
 
-def _section(raw: Any, index: int, results: Sequence[Any], summaries: Sequence[Any]) -> _Section:
+def _refused(value: Any) -> bool:
+    """A verdict: ``false`` or ``{ok: false}`` refuses; anything else (absent, null) accepts."""
+    if isinstance(value, Mapping):
+        value = value.get("ok")
+    return value is False
+
+
+def _section(
+    raw: Any,
+    index: int,
+    parallel: tuple[Sequence[Any], Sequence[Any], Sequence[Any]],
+) -> _Section:
+    results, summaries, verdicts = parallel
     path = f"sections[{index}]"
     if not isinstance(raw, Mapping):
         raise _fail(path, "must be an object")
@@ -297,15 +293,52 @@ def _section(raw: Any, index: int, results: Sequence[Any], summaries: Sequence[A
     if not isinstance(found, list):
         raise _fail(f"{path}.results", "must be a list")
     kept = tuple(_result(item) for item in found if isinstance(item, Mapping))[:MAX_RESULTS]
-    return _Section(name, kept, _summary(_pick(raw, "summary", summaries, index)))
+    summary = _summary(_pick(raw, "summary", summaries, index))
+    refused = _refused(_pick(raw, "summary_ok", verdicts, index))
+    return _Section(name, kept, summary, refused)
 
 
 def _sections(payload: Mapping[str, Any]) -> list[_Section]:
     raw = payload.get("sections")
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_SECTIONS:
         raise _fail("sections", f"must be a list of 1 to {MAX_SECTIONS} sections")
-    results, summaries = _parallel(payload, "results"), _parallel(payload, "summaries")
-    return [_section(item, n, results, summaries) for n, item in enumerate(raw)]
+    parallel = (
+        _parallel(payload, "results"),
+        _parallel(payload, "summaries"),
+        _parallel(payload, "summary_ok"),
+    )
+    return [_section(item, n, parallel) for n, item in enumerate(raw)]
+
+
+_TEXT_MAX = 500
+
+
+def _text(texts: Mapping[str, Any], name: str, why: str) -> str:
+    value = texts.get(name)
+    if not isinstance(value, str) or not _clean(value, _TEXT_MAX):
+        raise _fail(f"texts.{name}", f"required, a non-empty string ({why})")
+    return _clean(value, _TEXT_MAX)
+
+
+def _texts(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    texts = payload.get("texts")
+    if texts is None:
+        return {}
+    if not isinstance(texts, Mapping):
+        raise _fail("texts", "must be an object")
+    return texts
+
+
+def _check_texts(texts: Mapping[str, Any], sections: list[_Section], unavailable: bool) -> None:
+    """Fail naming the first configured text a case in this issue needs and lacks."""
+    if any(not s.results for s in sections):
+        _text(texts, "no_results", "a section has no results")
+    if any(s.results and s.summary is None for s in sections):
+        _text(texts, "summary_unavailable", "a section has no summary")
+    if any(s.results and s.summary is not None and s.refused for s in sections):
+        _text(texts, "summary_refused", "a summary was refused")
+    if unavailable:
+        _text(texts, "summaries_unavailable", "no section has a summary")
 
 
 # ------------------------------------------------------------------ XHTML fragments
@@ -330,13 +363,13 @@ def _note(text: str) -> str:
     return f'<p class="note">{esc(text)}</p>'
 
 
-def _body(section: _Section) -> str:
+def _body(section: _Section, texts: Mapping[str, Any]) -> str:
     if not section.results:
-        return f'<p class="empty">{esc(NO_RESULTS)}</p>'
-    if section.summary is not None and _summary_ok(section.summary, section.results):
+        return f'<p class="empty">{esc(texts["no_results"])}</p>'
+    if section.summary is not None and not section.refused:
         return summary_to_xhtml(section.summary)
     items = "".join(_result_item(result) for result in section.results)
-    note = SUMMARY_UNAVAILABLE if section.summary is None else LINK_NOTE
+    note = texts["summary_unavailable" if section.summary is None else "summary_refused"]
     return f"<ul>{items}</ul>{_note(note)}"
 
 
@@ -346,23 +379,25 @@ def _summaries_unavailable(sections: list[_Section]) -> bool:
     return bool(wanted) and all(section.summary is None for section in wanted)
 
 
-def _masthead(title: str, day: str, unavailable: bool) -> str:
+def _masthead(title: str, day: str, note: str | None) -> str:
     head = f'<h1>{esc(title)}</h1><p class="date">{esc(day)}</p>'
-    return head + (_note(SUMMARIES_UNAVAILABLE) if unavailable else "")
+    return head + (_note(note) if note else "")
 
 
 # ------------------------------------------------------------------ HTML
 
 
-def _html(title: str, day: str, sections: list[_Section], unavailable: bool) -> str:
+def _html(
+    title: str, day: str, sections: list[_Section], texts: Mapping[str, Any], note: str | None
+) -> str:
     body = "".join(
-        f'<section id="{_cid(n)}"><h2>{esc(s.name)}</h2>{_body(s)}</section>'
+        f'<section id="{_cid(n)}"><h2>{esc(s.name)}</h2>{_body(s, texts)}</section>'
         for n, s in enumerate(sections, 1)
     )
     return (
         '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"/>'
         f"<title>{esc(title)} {esc(day)}</title><style>{_CSS}</style></head>"
-        f"<body>{_masthead(title, day, unavailable)}{body}</body></html>\n"
+        f"<body>{_masthead(title, day, note)}{body}</body></html>\n"
     )
 
 
@@ -379,8 +414,9 @@ def _xhtml(title: str, body: str, *, css: bool = True) -> str:
     )
 
 
-def _chapter(n: int, section: _Section, head: str) -> str:
-    body = f'{head}<section id="{_cid(n)}"><h2>{esc(section.name)}</h2>{_body(section)}</section>'
+def _chapter(n: int, section: _Section, head: str, texts: Mapping[str, Any]) -> str:
+    name = esc(section.name)
+    body = f'{head}<section id="{_cid(n)}"><h2>{name}</h2>{_body(section, texts)}</section>'
     return _xhtml(section.name, body)
 
 
@@ -388,7 +424,9 @@ def _nav(entries: list[tuple[str, str]]) -> str:
     return _xhtml("Contents", nav_body(entries), css=False)
 
 
-def _epub(title: str, day: str, sections: list[_Section], unavailable: bool) -> bytes:
+def _epub(
+    title: str, day: str, sections: list[_Section], texts: Mapping[str, Any], note: str | None
+) -> bytes:
     uid = f"urn:culture-rules:newspaper:{day}"
     chapters = [_cid(n) for n in range(1, len(sections) + 1)]
     entries = [(s.name, _cid(n)) for n, s in enumerate(sections, 1)]
@@ -399,9 +437,11 @@ def _epub(title: str, day: str, sections: list[_Section], unavailable: bool) -> 
         (f"{OEBPS}toc.ncx", ncx(uid, f"{title} {day}", entries)),
         (f"{OEBPS}style.css", _CSS),
     ]
-    head = _masthead(title, day, unavailable)
+    head = _masthead(title, day, note)
     for n, section in enumerate(sections, 1):
-        files.append((f"{OEBPS}{_cid(n)}.xhtml", _chapter(n, section, head if n == 1 else "")))
+        files.append(
+            (f"{OEBPS}{_cid(n)}.xhtml", _chapter(n, section, head if n == 1 else "", texts))
+        )
     return pack(files)
 
 
@@ -415,12 +455,15 @@ def render_issue(
     day = _date(payload.get("date"))
     title = _title(payload.get("title"))
     sections = _sections(payload)
+    texts = _texts(payload)
     unavailable = _summaries_unavailable(sections)
-    page = _html(title, day, sections, unavailable)
+    _check_texts(texts, sections, unavailable)
+    note = _text(texts, "summaries_unavailable", "") if unavailable else None
+    page = _html(title, day, sections, texts, note)
     page_size = len(page.encode(ENCODING))
     if page_size > html_cap:
         raise RenderError(f"html_too_large: {page_size} bytes > {html_cap}")
-    book = _epub(title, day, sections, unavailable)
+    book = _epub(title, day, sections, texts, note)
     if len(book) > epub_cap:
         raise RenderError(f"epub_too_large: {len(book)} bytes > {epub_cap}")
     return {

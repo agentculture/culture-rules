@@ -68,7 +68,7 @@ The **daily newspaper** (#53, spec
 `docs/operations/newspaper.md`, actor guides in `docs/actors/`) adds `email`
 and `search` app surfaces and four action kinds: `email.send` (Resend),
 `search.web` (Brave), `llm.complete` (an OpenAI-compatible endpoint, a
-locked brief, no tools) and `library.push` (an EPUB to the library its actor describes). It also adds
+brief from the actor's configuration, no tools) and `library.push` (an EPUB to the library its actor describes). It also adds
 the step option `config.on_error: "skip"` and the disabled bundle
 `docs/rules/newspaper`.
 
@@ -143,7 +143,7 @@ Each push step names its `kind`. The bundles push to culture-library
 `transcript`, `private`.
 
 **Library items** (guide `docs/operations/library-items.md`). `library.push` takes a
-`format` and replaces an item by `item_id`; `llm.complete`'s `recording` brief returns
+`format` and replaces an item by `item_id`; `llm.complete` with a `recording` brief and an `answer` shape returns
 summary, key facts and action items, with an answer cache; `transcript.render` writes
 Markdown; the builtins `json.read` and `checklist.merge|set|render|bind` keep a stored
 to-do list with stable ids; `audio.transcribe` hashes the audio itself. The flows that
@@ -196,7 +196,9 @@ default-branch version at the head sha, its working draft when the disk differs,
 for vanished files and spec links. A state file keeps unchanged cycles silent; outputs are
 counts only. The bundle `docs/rules/repodocs` runs it every 15 minutes on spark (disabled).
 
-**Forum posts and actor briefs**: `markdown.from_html` takes `split_at` (h1-h6) and then also outputs `parts` (`{index, heading, text}`, a `''` lead part first when content precedes the first heading of that rank); `discord.message` takes `thread_name` and `tags` to post into a forum as a thread (tags matched by name, unknown ones listed in `tags_missing`, text over 2000 characters posted as replies, a failure after the thread exists is not retried); `llm.complete` takes a `brief` naming one of the agent actor's `params.briefs` (the code briefs keep their text; only admins may edit `params.briefs`, else `briefs_admin_only`). Flows that use them are configured live, never committed (guides `docs/actors/discord.md`, `docs/actors/llm.md`, `docs/operations/newspaper.md`).
+**Forum posts and actor briefs**: `markdown.from_html` takes `split_at` (h1-h6) and then also outputs `parts` (`{index, heading, text}`, a `''` lead part first when content precedes the first heading of that rank); `discord.message` takes `thread_name` and `tags` to post into a forum as a thread (tags matched by name, unknown ones listed in `tags_missing`, text over 2000 characters posted as replies, a failure after the thread exists is not retried); `llm.complete` takes a `brief` naming one of the agent actor's `params.briefs` (only admins may edit `params.briefs`, else `briefs_admin_only`). Flows that use them are configured live, never committed (guides `docs/actors/discord.md`, `docs/actors/llm.md`, `docs/operations/newspaper.md`).
+
+**No prompts in code**: `llm.complete` takes its system prompt only from the bound actor's `params.briefs` (a step's `brief` names one; there is no built-in brief and no default; only admins edit briefs), an optional `answer: {shape}` checked by the generic shape validator (`culture_rules/model/shape.py`: `text`, `word`, `lines`, `int`, `bool`, `list`, `object`; `answer_not_json` / `answer_invalid`), and `cache` / `cache_name` / `cache_label` for any brief with an answer and a `content_path`. The generic builtins `text.number` (items into numbered text by a template), `text.replace_refs` (numbered references swapped for a template, e.g. a link) and `text.validate` (explicit rules, a verdict `ok` + `reasons`, never a failure) take every format and rule as step config (guide `docs/operations/text-steps.md`); `newspaper.render` takes its notes as `texts` and a per-section `summary_ok` verdict and holds no shape rule. A release that moves behaviour into configuration rolls out actor configuration first, then the code, then the live steps (`docs/operations/rollout.md`).
 
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's

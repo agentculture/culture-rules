@@ -15,9 +15,10 @@ import pytest
 from culture_rules.engine.actorport import COMPLETED, InvocationContext
 from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.node.actions import transcript_render as tr
-from culture_rules.node.actions.recording_answer import parse_recording_answer
+from culture_rules.node.actions.llm import parse_answer
 from culture_rules.node.actions.transcript_file import build_result
 from culture_rules.node.actions.transcript_render import TranscriptRenderPort, parse_summary
+from tests.node.test_llm_answer import RECORDING
 
 SHA = "ab" * 32
 PRIVATE_TEXT = "sentinel-private-words"
@@ -458,7 +459,7 @@ def _llm_recording_output(*, cached: bool) -> dict[str, Any]:
             "action_items": ["Book the truck"],
         }
     )
-    answer = parse_recording_answer(reply)
+    answer = parse_answer(reply, RECORDING)
     text = json.dumps(answer, sort_keys=True) if cached else reply
     return {"text": text, "model": "m", "usage": {}, "answer": answer, "cached": cached}
 
