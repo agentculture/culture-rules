@@ -182,6 +182,40 @@ def test_markdown_in_headlines_and_summaries_is_escaped():
     assert r"- [\[Video\] top 10\] \_\_init\_\_ \*x\*](<" in text
 
 
+def _link_line(label: str) -> str:
+    return html_to_markdown(f'<p><a href="{URL_A}">{label}</a></p>')["markdown"]
+
+
+def test_a_numbered_link_label_keeps_its_brackets_unescaped():
+    assert _link_line("[1]") == f"[[1]](<{URL_A}>)"
+
+
+def test_a_balanced_label_still_escapes_other_markdown():
+    assert _link_line("[Video] __init__") == rf"[[Video] \_\_init\_\_](<{URL_A}>)"
+
+
+def test_an_unpaired_bracket_in_a_label_stays_escaped():
+    assert _link_line("a] b") == rf"[a\] b](<{URL_A}>)"
+
+
+def test_brackets_two_levels_deep_in_a_label_stay_escaped():
+    assert _link_line("[[1]]") == rf"[\[\[1\]\]](<{URL_A}>)"
+
+
+def test_a_label_cannot_form_a_link_of_its_own():
+    assert _link_line("[x](https://b.example)") == rf"[\[x\](https://b.example)](<{URL_A}>)"
+
+
+def test_brackets_outside_a_link_stay_escaped():
+    assert html_to_markdown("<p>[1]</p>")["markdown"] == r"\[1\]"
+
+
+def test_long_lines_never_break_inside_a_label_with_brackets():
+    html = f"<p>{'word ' * 70}<a href=\"{URL_A}\">[Big] model here</a></p>"
+    chunks = html_to_markdown(html, max_chars=300)["chunks"]
+    assert sum(c.count(f"[[Big] model here](<{URL_A}>)") for c in chunks) == 1
+
+
 def test_a_url_cannot_close_its_angle_brackets():
     html = (
         '<h1>T</h1><p class="date">2026-10-11</p><section><h2>AI</h2><ul><li><p>'

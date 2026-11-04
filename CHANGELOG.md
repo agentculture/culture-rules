@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.2] - 2026-11-04
+
+### Fixed
+
+- markdown.from_html keeps one balanced level of brackets unescaped in a link label, so a numbered link posts to Discord as `[1]` rather than `\[1\]`; other brackets in a label stay escaped, and a label holding `](` stays escaped so page text never forms its own link. Long lines no longer break inside such a label.
+
 ## [0.42.1] - 2026-11-03
 
 ### Fixed

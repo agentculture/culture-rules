@@ -400,6 +400,9 @@ the repository.
   part. A page with no such heading is one part with heading `''`. Parts are not
   cut to `max_chars`; `markdown`, `chunks` and `count` are unchanged. A bad
   `split_at` fails `bad_params`.
+  Text from the HTML has its Markdown characters escaped. A link label with one
+  balanced level of brackets keeps them as they are, because Discord shows a
+  backslash inside a label: `<a href="...">[1]</a>` becomes `[[1]](<...>)`.
 - **A workflow** that reads `render.html` as above, splits it at `h2`, and runs a
   `for_each` over `parts`. The body step has a `when` on the heading (not empty),
   so the `''` lead part is skipped; an `llm.complete` step names an actor brief

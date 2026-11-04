@@ -5,7 +5,10 @@ headings (``h1``-``h6``), paragraphs, lists, links, bold and italic - and writes
 a heading as a bold line, a list item as ``- ``, a link as ``[label](<url>)`` (the angle
 brackets keep Discord and other chat apps from embedding a preview per link), bold as
 ``**x**`` and italic as ``_x_``. Text from the HTML has the Markdown characters escaped, so
-``[Video] __init__`` stays text. ``script``, ``style`` and ``head`` are dropped.
+``[Video] __init__`` stays text. A link label whose brackets are one balanced level keeps them
+unescaped, because Discord shows a backslash inside a label: ``<a>[1]</a>`` is ``[[1]](<url>)``.
+Any other bracket in a label is escaped, and so is a label holding ``](``, so text from the HTML
+never forms a link of its own. ``script``, ``style`` and ``head`` are dropped.
 
 Input: ``html`` (a string). Config (each may instead be an input):
 
@@ -49,7 +52,8 @@ _HIDDEN = ("script", "style", "head")
 _STRONG, _EM = ("strong", "b"), ("em", "i")
 _VOID = ("br", "img", "hr", "meta", "link")  # no end tag: never opens a dropped span
 _MD = re.compile(r"([\\*_~`|>\[\]#])")
-_LINK = re.compile(r"\[(?:\\.|[^\]\\])*\]\(<[^>]*>\)")
+_MD_LABEL = re.compile(r"([\\*_~`|>#])")  # _MD without the brackets, for a balanced label
+_LINK = re.compile(r"\[(?:\\.|\[(?:\\.|[^\[\]\\])*\]|[^\[\]\\])*\]\(<[^>]*>\)")
 
 
 class _Refused(Exception):
@@ -59,6 +63,21 @@ class _Refused(Exception):
 def _md(text: str) -> str:
     """Markdown characters as literals."""
     return _MD.sub(r"\\\1", text)
+
+
+def _balanced(text: str) -> bool:
+    """Whether every bracket in ``text`` pairs up, one level deep, with no ``](`` among them."""
+    depth = 0
+    for char in text:
+        depth += (char == "[") - (char == "]")
+        if not 0 <= depth <= 1:
+            return False
+    return depth == 0 and "](" not in text
+
+
+def _label_md(text: str) -> str:
+    """A link label's Markdown characters as literals (module doc)."""
+    return _MD_LABEL.sub(r"\\\1", text) if _balanced(text) else _md(text)
 
 
 def _href(url: str) -> str:
@@ -81,7 +100,7 @@ class _Doc(HTMLParser):
         self._item_paragraphs = 0
         self._dropping = 0  # depth inside dropped or hidden elements
         self._href: str | None = None
-        self._label: list[str] = []
+        self._label: list[str] = []  # the open link's text, unescaped
         self._mark: tuple[str, int] | None = None  # an open bold/italic: marker, start
 
     # -- helpers
@@ -145,7 +164,7 @@ class _Doc(HTMLParser):
             self._close(tag)
 
     def _end_link(self) -> None:
-        label = "".join(self._label).strip()
+        label = _label_md("".join(self._label).strip())
         href, self._href = self._href or "", None
         self._text.append(f"[{label}](<{_href(href)}>)" if href else label)
 
@@ -171,13 +190,12 @@ class _Doc(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._dropping:
             return
-        text = _md(data)
         if self._where in _HEADINGS:
             self._raw.append(data)
         if self._href is not None:
-            self._label.append(text)
+            self._label.append(data)
         elif self._where is not None or data.strip():
-            self._text.append(text)
+            self._text.append(_md(data))
 
     def close(self) -> None:
         super().close()
