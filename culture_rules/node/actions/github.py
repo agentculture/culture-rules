@@ -19,16 +19,8 @@ failure (5xx, 408, a network error, the deadline, an unreadable answer) may foll
 created comment, so the claim stays (state ``unknown``, with the error): at most once, never
 twice. A node that dies between the claim and the post leaves the claim too.
 
-``status`` (optional bool, d26): ``true`` makes the body the **final section of the run's
-chain's status comment** (:mod:`culture_rules.node.fixer_status`). The action stores it as
-the chain's pending final (:meth:`~culture_rules.node.status_board.StatusBoard.finish`)
-before any credential is resolved and completes at once: it never calls GitHub and never
-fails the run; the status stage of the node on the App actor's machine - the comment's
-single writer (:meth:`GitHubCommentPort.status_tick`) - delivers it. Outside a chain whose
-rules opt in (this action, or the rule's other one, with ``status: true``) on the same
-repository and PR, or when the App actor has no machine (no single writer, so no live
-status), it posts a plain comment: the text made inert, then the run link. It cannot be
-combined with ``once_key``.
+``status`` (d26, a chain's live status comment) was removed in R1: an input with ``status``
+other than absent or false fails ``bad_input`` rather than posting a plain comment.
 """
 
 from __future__ import annotations
@@ -114,10 +106,10 @@ def _refused(code: str | None) -> bool:
 
 
 def _options_ok(once: Any, status: Any) -> bool:
-    """``once_key`` is absent or a non-empty string, ``status`` a bool, and not both."""
+    """``once_key`` is absent or a non-empty string, and ``status`` absent or false."""
     if once is not None and (not isinstance(once, str) or not once):
         return False
-    return isinstance(status, bool) and not (status and once is not None)
+    return status is False
 
 
 RESOLVE_WORKERS = 2
@@ -158,7 +150,6 @@ class GitHubCommentPort:
         self._apps: dict[str, tuple[tuple[Any, ...], GitHubApp]] = {}
         self._resolve_slots = threading.BoundedSemaphore(RESOLVE_WORKERS)
         self._clock = clock
-        self._board: Any = None
 
     def _connection(self, actor_id: str | None) -> Mapping[str, Any] | None:
         if not actor_id:
@@ -268,75 +259,15 @@ class GitHubCommentPort:
             number, body = int(input["number"]), str(input["body"])
         except (KeyError, TypeError, ValueError):
             return InvocationResult.failed(BAD_INPUT, retryable=False)
-        once, status = input.get("once_key"), input.get("status", False)
-        if not _options_ok(once, status):
+        once = input.get("once_key")
+        if not _options_ok(once, input.get("status", False)):
             return InvocationResult.failed(BAD_INPUT, retryable=False)
-        if status:  # d26: stored first, no credential and no network (module doc)
-            return self._post_status(str(actor_id), conn, allowed, (repo, number, body), context)
         app = self._app(str(actor_id), conn, allowed)
         if app is None:
             return InvocationResult.failed(SECRET_UNAVAILABLE, retryable=False)
         if once is None:
             return self._post(app, repo, number, body)
         return self._post_once(app, repo, number, body, once)
-
-    # ------------------------------------------------------------------ d26: status comment
-
-    @property
-    def status_board(self) -> Any:
-        """The :class:`~culture_rules.node.status_board.StatusBoard` of this port (lazily)."""
-        if self._board is None:
-            from culture_rules.node.status_board import StatusBoard  # noqa: PLC0415
-
-            self._board = StatusBoard(self._store, clock=self._clock)
-        return self._board
-
-    def _status_app(self, actor_id: str, repo: str, deadline: datetime) -> GitHubApp:
-        """The App ``actor_id`` serving ``repo``, resolved within ``deadline``
-        (:meth:`_app_within`: a cold ``grant get`` never holds the status stage past its
-        budget); raises :class:`GitHubError` otherwise."""
-        conn = self._connection(actor_id)
-        if conn is None:
-            raise GitHubError(ACTOR_NOT_FOUND)
-        allowed, refusal = repo_refusal(conn, repo)
-        if refusal:
-            raise GitHubError(refusal)
-        now = self._clock() if self._clock is not None else datetime.now(UTC)
-        real = datetime.now(UTC) + (deadline - now)  # the board's clock may be injected
-        app = self._app_within(actor_id, conn, allowed, real)
-        if app is None:
-            raise GitHubError(SECRET_UNAVAILABLE)
-        return app
-
-    def status_tick(self, host: str) -> int:
-        """The node's status stage (:meth:`StatusBoard.tick`): the single writer of the
-        status comments of the App actors placed on ``host``; returns how many writes GitHub
-        acknowledged."""
-        return self.status_board.tick(self._status_app, host)
-
-    def _post_status(
-        self,
-        actor_id: str,
-        conn: Mapping[str, Any],
-        allowed: set[str],
-        comment: tuple[str, int, str],
-        context: InvocationContext,
-    ) -> InvocationResult:
-        """``status: true`` (module doc): the chain's pending final, stored before any
-        credential is resolved; outside a status chain, a plain inert comment with the run
-        link (only that path resolves the App)."""
-        from culture_rules.actors.secrets import known_values  # noqa: PLC0415
-        from culture_rules.node.fixer_status import plain_final  # noqa: PLC0415
-
-        repo, number, body = comment
-        run = self._store.get("runs", context.run_id) if context.run_id else None
-        out = self.status_board.finish(run, body, where=(repo, number))
-        if out is not None:
-            return InvocationResult.completed(out)
-        app = self._app(actor_id, conn, allowed)
-        if app is None:
-            return InvocationResult.failed(SECRET_UNAVAILABLE, retryable=False)
-        return self._post(app, repo, number, plain_final(body, context.run_id, known_values()))
 
     @staticmethod
     def _post(app: GitHubApp, repo: str, number: int, body: str) -> InvocationResult:

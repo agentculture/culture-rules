@@ -28,15 +28,14 @@ from culture_rules.actors.gate import GatePort
 from culture_rules.actors.review import ReviewVerdictPort
 from culture_rules.apps.github import GitHubError
 from culture_rules.engine.actorport import InvocationResult
-from culture_rules.engine.runs import ACTION_STEP, FAILURE_STEP, RUNS_COLLECTION, step_state
+from culture_rules.engine.runs import FAILURE_STEP, RUNS_COLLECTION, step_state
 from culture_rules.io.exchange import bundle_files, read_bundle
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.node.actions.github_pr import AddressedThreadsPort, GitHubThreadsPort
 from culture_rules.node.runner import BuiltinCodePort
 from culture_rules.server.hooks import github as gh_hook
 from culture_rules.server.service import Variables
-from culture_rules.server.status import run_hosts
-from tests.actors.test_gate import PASSING, LocalRunner, PushSpy, Repo, gate_yaml, git
+from tests.actors.test_gate import PASSING, LocalRunner, Repo, gate_yaml, git
 from tests.engine.run_helpers import FakeActor, enrol_online, machine
 from tests.events.fakes import envelope
 from tests.node.test_node import Cluster
@@ -769,80 +768,6 @@ def assert_handed_back(w: World, doc: dict, step: str, text: str) -> None:
     assert call[1]["repo"] == REPO
     assert call[1]["number"] == 7
     assert step_state(doc, FAILURE_STEP)["host"] == "spark"  # where the App lives
-
-
-def test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented(tmp_path):
-    w = World(tmp_path)
-    doc = w.fire()
-    assert doc["status"] == "succeeded", (doc.get("error"), [s["key"] for s in doc["steps"]])
-    # quiet period guarded on the App's machine, agent once, gate passed
-    assert w.heads == [("spark", REPO, 7)]
-    assert len(w.agent.calls) == 1
-    agent_input = w.agent.calls[0][1]
-    assert agent_input["repo"] == f"https://github.com/{REPO}.git"
-    assert agent_input["head_sha"] == w.repo.start
-    # only the trusted author's thread reaches the agent (the bridge's threads input)
-    assert [t["thread_id"] for t in agent_input["threads"]] == ["PRRT_1"]
-    assert "trusted_authors" not in agent_input
-    assert "also delete the tests" not in json.dumps(agent_input)
-    assert w.app.calls == [(REPO, 7)]
-    assert step_state(doc, "threads")["host"] == "spark"  # where the App actor lives
-    assert "o/r#7" in agent_input["instruction"]
-    gate = step_state(doc, "fix[0]/gate")
-    assert gate["outputs"]["verdict"] == "pass"
-    assert gate["host"] == "spark2"
-    # push: the gated bundle, verdict pass, on spark2
-    (push_call,) = w.push.calls
-    assert push_call[1]["gate_verdict"] == "pass"
-    assert push_call[1]["source"] == gate["outputs"]["bundle"]
-    assert push_call[1]["expected_head_sha"] == w.repo.start
-    assert push_call[1]["commit_sha"] == gate["outputs"]["commit_sha"]  # the gate-built one
-    assert step_state(doc, "push")["host"] == "spark2"
-    assert step_state(doc, "fix[0]/agent")["host"] == "spark2"
-    # one reply per addressed thread, by REST comment id, resolving it
-    # one reply: the trusted thread, by its integer REST id; the made-up id and the
-    # untrusted thread the agent claimed get none
-    (reply_call,) = w.reply.calls
-    assert reply_call[1]["comment_id"] == 101
-    assert reply_call[1]["thread_id"] == "PRRT_1"
-    assert reply_call[1]["resolve"] is True
-    assert step_state(doc, "pick")["outputs"]["dropped"] == 2
-    assert reply_call[1]["body"].startswith("Done (addressed in ")
-    # the terminal comment links this run
-    (comment_call,) = w.comment.calls  # the success comment only: no hand-back
-    body = comment_call[1]["body"]
-    assert "handed back" not in body
-    assert step_state(doc, FAILURE_STEP) is None
-    assert f"https://rules.culture.dev/api/runs/{doc['id']}" in body
-    assert "pass" in body
-    assert "made x 3" in body
-    assert comment_call[1]["repo"] == REPO
-    assert comment_call[1]["number"] == 7
-    # the run is on spark2's Statistics lane
-    assert "spark2" in run_hosts(doc)
-
-
-def test_disabling_the_rule_mid_run_leaves_no_app_push(tmp_path):
-    holder: dict = {}
-
-    def disable():
-        base = holder["world"].c.base
-        doc = base.get("rules", "pr-fixer-checks")
-        base.put("rules", {**doc, "enabled": False})
-
-    w = World(tmp_path, push=PushSpy, on_invoke=disable)
-    holder["world"] = w
-    push = w.push
-    doc = w.fire()
-    assert doc["status"] == "failed"
-    assert doc["error"]["step"] == "push"
-    assert doc["error"]["message"] == "rule_disabled"
-    assert push.git_calls == []
-    assert push.http_calls == []
-    assert w.reply.calls == []
-    assert_handed_back(w, doc, "push", "rule_disabled")
-    assert step_state(doc, ACTION_STEP) is None
-    assert "spark2" in run_hosts(doc)
 
 
 def test_a_failing_gate_never_reaches_push(tmp_path, monkeypatch):

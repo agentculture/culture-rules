@@ -1,13 +1,14 @@
-"""What a release deploys: the node installer, the pr-fixer bundle and its two manifests.
+"""What a release deploys: the node installer and the release bundle with its two manifests.
 
 The wheel carries them in this package (``hatch_build.py`` force-includes them; they are never
 committed here):
 
 * ``install.sh`` - ``deploy/node/install.sh``, the engine node installer;
-* ``pr-fixer/{workflows,rules,actors}/*.json`` - ``docs/rules/pr-fixer``, in the import format;
-* ``pr-fixer/variables.json`` - every seed variable ``{name, value, description}``
+* ``<BUNDLE>/{workflows,rules,actors}/*.json`` - ``docs/rules/<BUNDLE>`` (:data:`BUNDLE`),
+  in the import format;
+* ``<BUNDLE>/variables.json`` - every seed variable ``{name, value, description}``
   (``seed-variables.sh`` reads the same file);
-* ``pr-fixer/release.json`` - ``{version, new_rules, new_variables}``: the release this bundle
+* ``<BUNDLE>/release.json`` - ``{version, new_rules, new_variables}``: the release this bundle
   belongs to (equal to the package version) and what it adds.
 
 Running from a source checkout (an editable install, the tests) the helpers fall back to those
@@ -49,7 +50,8 @@ def install_script() -> Path:
 
 
 def bundle_dir() -> Path:
-    """The pr-fixer bundle: ``workflows/``, ``rules/``, ``actors/`` and the two manifests."""
+    """The release bundle (:data:`BUNDLE`): ``workflows/``, ``rules/``, ``actors/`` and the
+    two manifests."""
     packaged = _packaged() / BUNDLE
     if (packaged / _VARIABLES).is_file():
         return packaged

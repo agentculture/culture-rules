@@ -481,19 +481,3 @@ def test_a_restore_keeps_the_comment_once_claims(s3, clock):
     target = MemoryStore()
     make_backup(s3, store, clock).restore(target)
     assert target.get(ONCE_COLLECTION, "c" * 64)["state"] == "posted"
-
-
-def test_a_restore_keeps_the_status_comments(s3, clock):
-    # d26: without them a restored chain would post a second status comment
-    from culture_rules.node.daemon import NODE_COLLECTIONS
-    from culture_rules.node.fixer_status import STATUS_COLLECTION
-
-    assert STATUS_COLLECTION in NODE_COLLECTIONS
-    store = MemoryStore()
-    seed(store)
-    doc = {"id": "run-1", "repo": "o/r", "number": 7, "comment_id": 9, "final": False}
-    store.put(STATUS_COLLECTION, doc)
-    make_backup(s3, store, clock).snapshot()
-    target = MemoryStore()
-    make_backup(s3, store, clock).restore(target)
-    assert target.get(STATUS_COLLECTION, "run-1")["comment_id"] == 9

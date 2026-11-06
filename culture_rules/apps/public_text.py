@@ -1,11 +1,10 @@
 """Text from an agent or a bridge, made inert for a public GitHub comment (d26).
 
-The PR fixer's status comment (:mod:`culture_rules.node.fixer_status`) relays text the
-engine did not write: the agent's free status notes, its fix summary, a reviewer's findings
-inside a hand-back. Posted as the App, such text could ping people, smuggle links or
-images, forge headings or sections, break the comment with HTML or a fence, or leak a
-credential. So untrusted text is never "cleaned" Markdown: it is **normalized, checked,
-then escaped** into plain characters (pure, standard-library only):
+A comment the engine posts as a GitHub App may relay text the engine did not write: an
+agent's free notes or summary, a reviewer's findings. Posted as the App, such text could
+ping people, smuggle links or images, forge headings or sections, break the comment with
+HTML or a fence, or leak a credential. So untrusted text is never "cleaned" Markdown: it
+is **normalized, checked, then escaped** into plain characters (pure, standard-library only):
 
 1. :func:`normalize` - Unicode NFKC; control and format characters (zero-width, bidi)
    removed; every URL (``scheme://...``, ``//host...``, ``www.``) dropped; whitespace
@@ -31,7 +30,7 @@ and links never pass through here: the caller renders them from validated values
 Residual risk, plainly: these checks stop accidents and the obvious leaks. An agent
 determined to exfiltrate through an encoding of its own choosing cannot be fully stopped by
 any filter; the known-secret check covers only the values the checking process holds. What
-the fixer's agent holds is its bridge token, scoped to its own bridge.
+an agent holds is its bridge token, scoped to its own bridge.
 """
 
 from __future__ import annotations
