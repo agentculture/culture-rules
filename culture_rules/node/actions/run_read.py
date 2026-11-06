@@ -5,7 +5,7 @@ only that workflow's declared outputs in its trigger; ``run.read`` reaches the r
 the run produced - any step's outputs - without the earlier workflow having to change.
 
 Which run: with no ``run_id`` it reads the run that started this one, verified from the
-store (:func:`culture_rules.actors.lineage.upstream`: started by its rule firing on a genuine
+store (:func:`culture_rules.engine.run_chain.upstream`: started by its rule firing on a genuine
 run event, and that run succeeded), so a pasted trigger cannot point it elsewhere. With a
 ``run_id`` (input or config), it reads that run, which must have succeeded: the way to run a
 continuation by hand for a run that already happened.
@@ -23,8 +23,8 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from culture_rules.actors.lineage import LineageError, upstream
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.engine.run_chain import LineageError, upstream
 from culture_rules.engine.runs import RUNS_COLLECTION
 
 __all__ = ["RUN_READ_BUILTIN", "RunReadPort"]

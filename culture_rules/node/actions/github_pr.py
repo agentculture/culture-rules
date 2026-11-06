@@ -138,13 +138,12 @@ from culture_rules.actors.review import (
 from culture_rules.actors.trusted import doc_refusal
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.engine.runs import (
-    ADHOC_RULE_PREFIX,
-    RULES_COLLECTION,
-    RUNS_COLLECTION,
-    WORKFLOWS_COLLECTION,
+from culture_rules.engine.runs import RUNS_COLLECTION
+from culture_rules.node.actions.github import (
+    GitHubCommentPort,
+    repo_refusal,
+    source_rule_refusal,
 )
-from culture_rules.node.actions.github import GitHubCommentPort, repo_refusal
 from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
@@ -246,28 +245,6 @@ def subprocess_git(argv: Sequence[str], env: Mapping[str, str], timeout: float) 
     if _signal_group(proc.pid, 0):
         _signal_group(proc.pid, signal.SIGKILL)
     return proc.returncode, out or ""
-
-
-def _live(doc: Mapping[str, Any] | None) -> bool:
-    return bool(doc) and not doc.get("deleted_at") and doc.get("enabled") is not False
-
-
-def source_rule_refusal(store: Any, run_id: str) -> str | None:
-    """Why the run ``run_id`` may no longer act (``rule_disabled`` ...), or ``None`` if it may.
-
-    The rule is read from the store *now*, not from the run's pinned copy, so disabling a
-    rule mid-run stops its pushes. A direct workflow run (``adhoc:`` rule) checks its workflow.
-    """
-    run = store.get(RUNS_COLLECTION, run_id) if run_id else None
-    if not run:
-        return "run_not_found"
-    rule_id = run.get("rule_id")
-    if isinstance(rule_id, str) and rule_id.startswith(ADHOC_RULE_PREFIX):
-        workflow_id = run.get("workflow_id")
-        doc = store.get(WORKFLOWS_COLLECTION, workflow_id) if workflow_id else None
-        return None if _live(doc) else "workflow_disabled"
-    doc = store.get(RULES_COLLECTION, rule_id) if isinstance(rule_id, str) else None
-    return None if _live(doc) else "rule_disabled"
 
 
 _ALREADY = "already"

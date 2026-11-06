@@ -28,7 +28,7 @@ store, so a refusal reads no secret and makes no network call:
      run, a run started through the API and a run chained from another rule are all
      refused. Which user may click is the click rule's ``users`` filter (configuration);
    * its source rule is still live and enabled, read now (``rule_disabled``,
-     :func:`~culture_rules.node.actions.github_pr.source_rule_refusal`);
+     :func:`~culture_rules.node.actions.github.source_rule_refusal`);
    * the clicked button's one-time code (deviation d3,
      :func:`~culture_rules.apps.discord_buttons.use_code`): the **stored** click event's
      ``data.code`` (the gateway copies it from ``discord_buttons``, never from the click;
@@ -103,8 +103,8 @@ from culture_rules.node.actions.github import (
     GitHubCommentPort,
     _refused,
     repo_refusal,
+    source_rule_refusal,
 )
-from culture_rules.node.actions.github_pr import source_rule_refusal
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError, StoreError
 
