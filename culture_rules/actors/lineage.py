@@ -39,6 +39,16 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+# moved to the generic engine/run_chain.py; re-exported for the callers here
+from culture_rules.engine.run_chain import (
+    CHAIN_UNVERIFIED,
+    RUN_FAILED,
+    RUN_SUCCEEDED,
+    LineageError,
+    step_state,
+    upstream,
+)
+
 __all__ = [
     "CHAIN_UNVERIFIED",
     "FinalGate",
@@ -56,9 +66,6 @@ __all__ = [
     "upstream",
 ]
 
-CHAIN_UNVERIFIED = "chain_unverified"
-RUN_SUCCEEDED = "rules.run.succeeded"
-RUN_FAILED = "rules.run.failed"
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION (not imported: no engine cycle)
 _EVENTS = "events"  # culture_rules.events.ingest.EVENTS_COLLECTION
 QUEUE_DISPATCH = "rules.queue.dispatch"  # culture_rules.node.actions.queue.DISPATCH_TYPE
@@ -66,50 +73,6 @@ QUEUE_ADD = "queue.add"  # culture_rules.node.actions.queue.QUEUE_ADD_BUILTIN
 _RULES = "rules"
 _ADHOC = "adhoc:"
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
-
-
-class LineageError(Exception):
-    """The chain cannot be verified: ``code`` (with ``detail``) is the refusal."""
-
-    def __init__(self, code: str, detail: str = "") -> None:
-        super().__init__(f"{code}: {detail}" if detail else code)
-        self.code = code
-        self.detail = detail
-
-
-def step_state(run: Mapping[str, Any], key: str) -> dict[str, Any] | None:
-    """The state of step ``key`` in ``run`` (``None`` when absent)."""
-    return next((s for s in run.get("steps", ()) if s.get("key") == key), None)
-
-
-def upstream(store: Any, run: Mapping[str, Any], *, failed: bool = False) -> Mapping[str, Any]:
-    """The verified run whose ``rules.run.succeeded`` event started ``run`` (module doc).
-
-    ``failed`` (d37, only for a retry's ``queue.add`` link): the run whose verified
-    ``rules.run.failed`` event started it instead, and that run failed - a fixer try whose
-    agent ran out of time, put back in line by ``pr-fixer-retry-failed``. Every other link
-    (a review, a publish, a re-fix) still needs the run above it to have succeeded."""
-    # node layer, lazily
-    from culture_rules.node.firing import run_id_for  # noqa: PLC0415
-    from culture_rules.node.run_events import verify_run_event  # noqa: PLC0415
-
-    trigger = run.get("trigger")
-    want = RUN_FAILED if failed else RUN_SUCCEEDED
-    if not isinstance(trigger, Mapping) or trigger.get("type") != want:
-        raise LineageError(CHAIN_UNVERIFIED, "the run was not started by a run succeeding")
-    rule_id, event_id = run.get("rule_id"), trigger.get("id")
-    if not (isinstance(rule_id, str) and isinstance(event_id, str) and rule_id and event_id):
-        raise LineageError(CHAIN_UNVERIFIED, "the run names no rule or trigger event")
-    if run.get("id") != run_id_for(rule_id, event_id):
-        raise LineageError(CHAIN_UNVERIFIED, "the run was not started by its rule's firing")
-    why = verify_run_event(store, trigger)
-    if why is not None:
-        raise LineageError(CHAIN_UNVERIFIED, f"its trigger is not a genuine run event: {why}")
-    data = trigger.get("data") if isinstance(trigger.get("data"), Mapping) else {}
-    up = store.get(_RUNS, data.get("run_id")) if isinstance(data.get("run_id"), str) else None
-    if not up or up.get("status") != ("failed" if failed else "succeeded"):
-        raise LineageError(CHAIN_UNVERIFIED, "the upstream run did not succeed")
-    return up
 
 
 def fix_ancestry(

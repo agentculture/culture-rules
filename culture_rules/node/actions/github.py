@@ -52,6 +52,12 @@ from culture_rules.apps.github import (
     pr_facts,
 )
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.engine.runs import (
+    ADHOC_RULE_PREFIX,
+    RULES_COLLECTION,
+    RUNS_COLLECTION,
+    WORKFLOWS_COLLECTION,
+)
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import DuplicateKeyError
 
@@ -61,6 +67,7 @@ __all__ = [
     "GitHubCommentPort",
     "GitHubPrHeadPort",
     "on_base_branch",
+    "source_rule_refusal",
 ]
 
 log = logging.getLogger(__name__)
@@ -75,6 +82,28 @@ BAD_INPUT, ACTOR_NOT_FOUND, SECRET_UNAVAILABLE = (
 )
 """Failure codes of the port (shared with the ports built on it)."""
 _REFUSED = re.compile(r"http_4(?!08)\d\d")
+
+
+def _live(doc: Mapping[str, Any] | None) -> bool:
+    return bool(doc) and not doc.get("deleted_at") and doc.get("enabled") is not False
+
+
+def source_rule_refusal(store: Any, run_id: str) -> str | None:
+    """Why the run ``run_id`` may no longer act (``rule_disabled`` ...), or ``None`` if it may.
+
+    The rule is read from the store *now*, not from the run's pinned copy, so disabling a
+    rule mid-run stops its pushes. A direct workflow run (``adhoc:`` rule) checks its workflow.
+    """
+    run = store.get(RUNS_COLLECTION, run_id) if run_id else None
+    if not run:
+        return "run_not_found"
+    rule_id = run.get("rule_id")
+    if isinstance(rule_id, str) and rule_id.startswith(ADHOC_RULE_PREFIX):
+        workflow_id = run.get("workflow_id")
+        doc = store.get(WORKFLOWS_COLLECTION, workflow_id) if workflow_id else None
+        return None if _live(doc) else "workflow_disabled"
+    doc = store.get(RULES_COLLECTION, rule_id) if isinstance(rule_id, str) else None
+    return None if _live(doc) else "rule_disabled"
 
 
 def _refused(code: str | None) -> bool:
