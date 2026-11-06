@@ -1,0 +1,24 @@
+{
+  "plan_slug": "no-flow-specific-code",
+  "schema_version": 2,
+  "created": "2026-11-06T20:24:48Z",
+  "updated": "2026-11-06T20:24:48Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t1 moves only the shared helpers (source_rule_refusal to node/actions/github.py; upstream, LineageError, step_state to engine/run_chain.py); removing ROLE_*, TRUSTED_WORKFLOWS/V2, workflow_role and the reviewer pins from actors/trusted.py moves to t3, which deletes their last users (review.py:1097-1157, github_pr.py:819-867). End state unchanged",
+      "task_ref": "t1",
+      "reason": "review.py and github_pr.py still call trusted.workflow_role and ROLE_* until t3 deletes them; removing them in t1 breaks the full suite that each task must pass before and after merge",
+      "affects": [
+        "t3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
