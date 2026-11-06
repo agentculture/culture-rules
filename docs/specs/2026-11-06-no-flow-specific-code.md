@@ -39,6 +39,10 @@
   - honesty: The R1 runbook pauses before the first upgrade and resumes after verify; rules/workflows list --include-deleted shows the fixer items deleted, not purged
 - R3 switches each live flow before it deletes that flow's built-in: the switched workflow runs live (newspaper 3 scheduled issues, recordings 3 days, repo docs 3 cycles) while the old built-ins are still registered, so a rollback is one workflows update back to the saved revision; the built-ins are removed in a later build only after those checks pass
   - honesty: For each switched flow, its saved previous revision applies by a dry-run workflows update while the old built-ins are registered, and the build that removes them ships only after the 3-run check is recorded
+- With github.push and github.`review_reply` removed (c24), the live github-app actor's params.actions drops them; the trust digest is unaffected (trusted.py:331-333 covers kind, machine, surface, `commit_author`, permissions and the connection, not actions), so the merge prompt keeps its pin. Narrowing the GitHub App's own Contents write permission and `commit_author` is a separate operator step that needs a new pinned digest
+  - honesty: After R1 the live github-app actor lists only github.comment in params.actions, its digest still matches the pin, and a green-PR prompt merges on a click
+- The core/extension boundary release (c19) also moves app-specific code that sits in core today into its app's side: GitHub's check settling (node/`checks_settle.py`) and webhook receivers (server/hooks/github.py, server/hooks/jira.py), the Discord gateway listener, and the web editor's hard-coded action catalogue (web/src/rules/ActionPicker.tsx:51-55, 'mirroring `action_kinds.py`'), which the API then serves from the registry so a new extension needs no editor change
+  - honesty: After the boundary release an import test finds no core module importing `culture_rules`.apps or an app's port, and the editor's action picker renders the kinds the API serves (a test adds a fake extension kind and sees it offered)
 
 ## Honesty conditions
 
@@ -87,6 +91,11 @@
   - seeds: `c23`
 - `s13` — `challenge pass / adjacent-systems lens: rules on fixer-only events (release CLI rules list)`: only fixer rules (pr-fix, queue-add, queue-stop) trigger on github.pr.conflicting, github.reaction.added or rules.queue.dispatch; removing their producers affects no other live rule
 - `s14` — `challenge pass / clean lenses`: observability: run failures stay visible as failed runs (no change by this spec), but silent non-arrival (the 11-01 freeze, Thor down, a missing STT model) is outside this spec; security: app-code boundary c9 keeps allowlists, roots and one-time codes; containment: the CI flow-name test (c11) bounds regressions. Residual: unknown unknowns in the 51 files that mention flows were surveyed by grep, not read line by line
+- `s15` — `challenge pass 2 / adjacent-systems lens: github-app actor (live) and trusted.py digest fields (:331-333)`: live github-app params.actions = github.comment, github.push, github.`review_reply`; the digest projection covers `commit_author` and permissions but not actions, so dropping the two actions keeps the pin valid. docs/actors/github.md:45 and :328 describe push and its trust; web ActionPicker, app-config.ts and fixtures name github.push
+  - seeds: `c25`
+- `s16` — `challenge pass 2 / overlooked-surfaces lens: core modules that are one app's integration (node/checks_settle.py, server/hooks/github.py, server/hooks/jira.py, Discord gateway in the node daemon) and web/src/rules/ActionPicker.tsx:51`: app-specific integration code lives in core packages and the editor hard-codes the action catalogue; no API route serves action kinds (api/openapi.json has none). A boundary that only covers `culture_rules`/apps would leave these behind
+  - seeds: `c26`
+- `s17` — `challenge pass 2 / lifecycle lens: deletion order for c2 and c20`: actors disable is refused with `actor_in_use` while an enabled workflow uses the actor (CLAUDE.md model actors); pr-fix and the queue workflows are still enabled live, so workflows and rules must be disabled or deleted before the fixer actors. A plan-side ordering, recorded for /spec-to-plan
 
 ## Decisions
 
