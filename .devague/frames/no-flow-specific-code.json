@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-06T19:36:25Z",
-  "updated": "2026-11-06T19:45:52Z",
+  "updated": "2026-11-06T19:49:33Z",
   "claims": [
     {
       "id": "c1",
@@ -338,6 +338,132 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "R1's live cleanup also covers the fixer's other live configuration: the agent actors claude-fixer, qwen-fixer, qwen-reviewer and codex-reviewer (disabled, then deleted) and the variables only fixer code reads (fixer_capacity_cooldown_s, fixer_comment_triggers, fixer_excluded_repos, fixer_levels, fixer_protected_paths, fixer_repos, fixer_stop_triggers, fixer_unavailable, trusted_authors); checks_settle_min_s, checks_settle_timeout_s and ignored_check_apps stay because node/checks_settle.py (the merge prompt's event) reads them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "After R1 the release CLI lists none of the four fixer actors and none of the nine fixer variables, while checks_settle_min_s, checks_settle_timeout_s and ignored_check_apps remain and a live green-PR prompt still settles",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "R1 deletes no stored data automatically: the fixer's MongoDB collections (queues, handoffs, fixer_cooldowns, story_stops, fixer_status_comments, fixer_status_writers, reviews) are left in place after R1 and dropped later by an explicit admin step after a backup, so rolling R1 back is reinstalling the previous wheel and restoring the deleted workflows, rules and actors",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "R1's code and runbook contain no drop of a collection; the collections are still listed in MongoDB after R1",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "R1 rolls out paused (rollout pause, upgrade all 4 nodes and the API, verify, resume) so no node with the fixer code and none without it run side by side on live events; the deleted workflows and rules are deleted (restorable), never purged, until R1 has run a week",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The R1 runbook pauses before the first upgrade and resumes after verify; rules/workflows list --include-deleted shows the fixer items deleted, not purged",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "R3 switches each live flow before it deletes that flow's built-in: the switched workflow runs live (newspaper 3 scheduled issues, recordings 3 days, repo docs 3 cycles) while the old built-ins are still registered, so a rollback is one workflows update back to the saved revision; the built-ins are removed in a later build only after those checks pass",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "For each switched flow, its saved previous revision applies by a dry-run workflows update while the old built-ins are registered, and the build that removes them ships only after the 3-run check is recorded",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "github.push and github.review_reply are removed with the PR fixer, since their only guard is the fixer's review record and chain lineage; they return behind a generic fence when a flow needs them (operator 2026-11-06, q5 a)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "With github.push and github.review_reply removed (c24), the live github-app actor's params.actions drops them; the trust digest is unaffected (trusted.py:331-333 covers kind, machine, surface, commit_author, permissions and the connection, not actions), so the merge prompt keeps its pin. Narrowing the GitHub App's own Contents write permission and commit_author is a separate operator step that needs a new pinned digest",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "After R1 the live github-app actor lists only github.comment in params.actions, its digest still matches the pin, and a green-PR prompt merges on a click",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "The core/extension boundary release (c19) also moves app-specific code that sits in core today into its app's side: GitHub's check settling (node/checks_settle.py) and webhook receivers (server/hooks/github.py, server/hooks/jira.py), the Discord gateway listener, and the web editor's hard-coded action catalogue (web/src/rules/ActionPicker.tsx:51-55, 'mirroring action_kinds.py'), which the API then serves from the registry so a new extension needs no editor change",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "After the boundary release an import test finds no core module importing culture_rules.apps or an app's port, and the editor's action picker renders the kinds the API serves (a test adds a fake extension kind and sees it offered)",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -353,6 +479,15 @@
     {
       "id": "v2",
       "text": "transcript.render's content-addressed book cache (same transcript gives the same bytes, so the library dedupes): a generic cache step, part of the ledger, or dropped",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Fixer leftovers on thor, orin and spark2 (bridges, FIXER_* grant secrets, units) were not examined; removing them is a machine step for the operator after R1",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -414,8 +549,225 @@
         "c10",
         "c11"
       ]
+    },
+    {
+      "id": "s7",
+      "surface": "challenge pass / adjacent-systems + security lens: node/actions/github_pr.py github.push governance",
+      "finding": "github.push refuses unless its rule is live, a review record approves the head and the chain lineage holds (github_pr.py:515-628); all three come from the fixer (review.py, lineage.py). Keeping the integration surface (q1) without a fence would let any configured workflow push to a PR branch. Routed to question q5",
+      "seeds": []
+    },
+    {
+      "id": "s8",
+      "surface": "challenge pass / lifecycle lens: live variables and actors (release CLI variables list, actors list)",
+      "finding": "18 live variables; 9 are read only by fixer code (fixer_* in fixer_levels, gate, conflict_watch, trusted; trusted_authors in reaction_watch and github_pr). checks_settle_min_s, checks_settle_timeout_s, ignored_check_apps are read by node/checks_settle.py (kept for the merge prompt; ignored_check_apps also by queue.py). Live agent actors claude-fixer, qwen-fixer, qwen-reviewer, codex-reviewer enabled. c2 named only workflows and rules",
+      "seeds": []
+    },
+    {
+      "id": "s9",
+      "surface": "challenge pass / data + reversibility lens: fixer MongoDB collections (daemon.py:153-155, review.py collections, status_board, story_stop, backup.py:112-116)",
+      "finding": "fixer state lives in its own collections; deleting the code leaves them unread. Dropping them is irreversible without a backup; leaving them costs only space. Not probed: their sizes",
+      "seeds": []
+    },
+    {
+      "id": "s10",
+      "surface": "challenge pass / operations lens: deploy/pr-fixer/install.sh and machine installs",
+      "finding": "install.sh installs bridges and FIXER_* grant secrets (FIXER_QWEN_BRIDGE_TOKEN, FIXER_GITHUB_TOKEN, FIXER_SONAR_TOKEN, FIXER_CORTEX_API_KEY) on hosts; no pr-fixer OS user or systemd unit on spark. NOT examined: thor, orin, spark2 (no shell access in this pass)",
+      "seeds": []
+    },
+    {
+      "id": "s11",
+      "surface": "challenge pass / concurrency + migration lens: rollout across 4 nodes and the API",
+      "finding": "a node on the old build would still run fixer stages (conflict/reaction watch, status board) against live repos while another runs the new build; the paused rollout (rollout pause/upgrade/verify/resume, docs/operations/rollout.md) prevents overlap. Event types only fixer watchers emit (github.pr.conflicting, github.reaction.added) lose their producers; no live rule outside the fixer triggers on them (24 fixer rules only)",
+      "seeds": []
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / reversibility lens: R3 live switch of daily-newspaper, transcript-to-reader, repodocs-sync",
+      "finding": "switching a live flow and deleting its built-in in the same build leaves no config-only rollback; the saved-revision pattern used for daily-newspaper revs 9-12 (rollout-0420/live/*.saved.json) works only while the old steps are registered",
+      "seeds": [
+        "c23"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / adjacent-systems lens: rules on fixer-only events (release CLI rules list)",
+      "finding": "only fixer rules (pr-fix, queue-add, queue-stop) trigger on github.pr.conflicting, github.reaction.added or rules.queue.dispatch; removing their producers affects no other live rule",
+      "seeds": []
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / clean lenses",
+      "finding": "observability: run failures stay visible as failed runs (no change by this spec), but silent non-arrival (the 11-01 freeze, Thor down, a missing STT model) is outside this spec; security: app-code boundary c9 keeps allowlists, roots and one-time codes; containment: the CI flow-name test (c11) bounds regressions. Residual: unknown unknowns in the 51 files that mention flows were surveyed by grep, not read line by line",
+      "seeds": []
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass 2 / adjacent-systems lens: github-app actor (live) and trusted.py digest fields (:331-333)",
+      "finding": "live github-app params.actions = github.comment, github.push, github.review_reply; the digest projection covers commit_author and permissions but not actions, so dropping the two actions keeps the pin valid. docs/actors/github.md:45 and :328 describe push and its trust; web ActionPicker, app-config.ts and fixtures name github.push",
+      "seeds": [
+        "c25"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass 2 / overlooked-surfaces lens: core modules that are one app's integration (node/checks_settle.py, server/hooks/github.py, server/hooks/jira.py, Discord gateway in the node daemon) and web/src/rules/ActionPicker.tsx:51",
+      "finding": "app-specific integration code lives in core packages and the editor hard-codes the action catalogue; no API route serves action kinds (api/openapi.json has none). A boundary that only covers culture_rules/apps would leave these behind",
+      "seeds": [
+        "c26"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass 2 / lifecycle lens: deletion order for c2 and c20",
+      "finding": "actors disable is refused with actor_in_use while an enabled workflow uses the actor (CLAUDE.md model actors); pr-fix and the queue workflows are still enabled live, so workflows and rules must be disabled or deleted before the fixer actors. A plan-side ordering, recorded for /spec-to-plan",
+      "seeds": []
     }
   ],
   "lapses": [],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "live store via the release CLI (workflows, rules)",
+      "behavior": "before the R1 upgrade, 0 stored workflows use a removed step and 0 rules start one; each was deleted with a dry run first and can be restored",
+      "source_text": "Removing the PR fixer includes its live configuration: the 9 stored workflows that use its steps (pr-fix, pr-fixer, publish-fix, queue-add, queue-add-capacity, queue-progress, queue-stop, report-secrets, review-commit) and the 24 rules that start them (all disabled) are deleted live, with the operator's go-ahead, before any node runs a build without those steps",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "node step registry (runner.py) and the transcript-to-reader workflow",
+      "behavior": "select stays registered and transcript-to-reader runs end to end after R1",
+      "source_text": "select stays a generic step: the live transcript-to-reader workflow uses it, so removing the fixer does not remove select (only its fixer-specific docs)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "repository tree",
+      "behavior": "no fixer module, test, fixture, bundle, deploy script, operations doc or harness-smoke link remains; full suite, lint, scan-secrets and teken doctor pass",
+      "source_text": "The fixer removal deletes its code (22 modules, about 13,300 of culture_rules' 71,600 lines, incl. apps/sonarcloud.py and apps/gitguardian.py unless a live flow needs them), its about 64 dedicated test files and fixtures (tests/rules/fixtures/pr-fixer-single), the docs/rules/pr-fixer bundle, deploy/pr-fixer/, docs/operations/pr-fixer.md, the web editor's fixer queue events (TriggerPicker QUEUE_EVENTS, @rules-queue) and fixer examples in describe.py; fixtures and snapshots that embed fixer workflows are rewritten",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c6",
+      "seam": "github.merge, run.read, check settling and concurrency limits",
+      "behavior": "the green-PR merge flow, run.read and the recordings chain pass their tests unchanged, and a live green-PR prompt settles and merges on a click",
+      "source_text": "Removing the fixer keeps every shared generic piece live flows use: the workflow/actor digest machinery in actors/trusted.py (github.merge refuses an unpinned actor via doc_refusal; the github-app pin stays, the reviewer pins and TRUSTED_WORKFLOWS go), github_pr.source_rule_refusal (moved before github_pr.py loses its fixer ports; github_merge.py:107), lineage.upstream/LineageError/step_state (run.read, run_read.py:26), select, the check-settle path (node/checks_settle.py, server/hooks/github.py, daemon _settle: github.pr.checks_settled feeds green-pr-prompt), github.pr/github.pr_head, concurrency_key on rules and concurrency_pool on actors (16 live rules and 12 actors use them)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c7",
+      "seam": "actors/agent.py, node/firing.py, node/daemon.py, node/actions/github.py",
+      "behavior": "none imports a fixer module; their tests pass with only the fixer cases removed",
+      "source_text": "Fixer couplings inside generic modules are cut, not moved: actors/agent.py drops LOCKED_INSTRUCTIONS/instruction_digest from review.py, the merge hint (merge_hint.with_merge_paragraph) and status notes (fixer_status); node/firing.py drops the queue dispatch claim (queue.claim_dispatch, firing.py:312); daemon.py drops the conflict-watch, reaction-watch and fixer-status stages and the queues/handoffs/fixer_cooldowns collections; github.comment drops the status-board hooks (github.py:257-305); deploy_data drops BUNDLE = pr-fixer; backup drops fixer_status_comments; describe.py drops fixer phrases",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c8",
+      "seam": "generic steps (json.parse, conditions, list.filter, value helpers, file read, document.render, lease + ledger)",
+      "behavior": "configured with the flow's rules, each gives the same output as the coded step it replaces on the same input, case by case for every behaviour in scope entry s5",
+      "source_text": "The generic building blocks cover what the flow-specific code does today, beyond R2/R3 as planned: a file read under a root (transcript.render reads under roots), a time-of-day format beside date.local, host-suffix matching and an http(s)-scheme check in list.filter, shape rules for unknown keys, defaults, regex and line counts, document.render with Markdown output, dir/lang and a Markdown-to-XHTML field option, a ledger with several recorded side effects per lease (the newspaper records email and library push in one document, releases the lease when unsettled, settles with no recipients)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c9",
+      "seam": "every module under culture_rules/apps and every app action port",
+      "behavior": "holds only API calls, error mapping, security boundaries and platform limits; each remaining constant is labelled security or platform",
+      "source_text": "App code keeps only the integration surface: the API call and its error mapping, security boundaries (allowlists, path roots, secret handling, one-time codes, same-repo and head-sha checks, sanitisation caps) and platform limits (Discord 2000/100 characters, 5 tags, API page sizes and maxima). Everything else a flow chooses is configuration",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c10",
+      "seam": "step and actor configuration of the listed steps",
+      "behavior": "each listed rule is a config field with no flow-specific default; two different values give two different results in a test",
+      "source_text": "Business rules found in app and step code move to step or actor configuration, with no default that encodes one flow: transcript.render's title format, Asia/Jerusalem time zone (transcript_render.py:118), right-to-left-unless-en rule, fallback word and texts, sections and CSS; llm.complete's cache name and label 'recording' (llm.py:171,174); repodocs' include folders (repodocs.py:197), spec-link and slug rules and culture.yaml project keys; library.push's filename rule, default format and author; attachment.fetch's accepted types (attachment_fetch.py:124); audio.transcribe's window plan; github.merge's merge method; decider's model and domain defaults; apps/github.py PR fact fields; the fixed Discord command reply text",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c11",
+      "seam": "CI (tests job)",
+      "behavior": "a test fails when a flow name (fixer, pr-fix, newspaper, transcript, recording, devague) appears in culture_rules; it is green on the release branch",
+      "source_text": "Generic modules name no flow: docstrings, examples and constants in library.py, email.py, llm.py, message.py, apps/github.py, apps/sonarcloud.py, apps/public_text.py, engine and node modules drop newspaper, transcript/recording, fixer and devague; a CI test fails when a flow name appears in culture_rules",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c16",
+      "seam": "the live workflows of every enabled flow",
+      "behavior": "after R3 each step of each live flow is a generic step or an app action (read from workflows show)",
+      "source_text": "After the three releases: no module in culture_rules exists for one flow; every live flow (daily newspaper, Discord posts, recordings to the reader, repo docs, green-PR merge prompt, saves and sweeps) runs on generic steps and app actions whose choices are step or actor configuration; app code is integration surface only; the fixer's code, tests, bundle and live workflows are gone",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c18",
+      "seam": "live runs and CI after R3",
+      "behavior": "3 scheduled newspapers and 3 days of recordings complete with 0 failed runs on generic steps; the flow-name test is green; a green-PR prompt merges on a click",
+      "source_text": "A CI test finds 0 flow names (fixer, pr-fix, newspaper, transcript, recording, devague) in culture_rules; 0 built-ins named after a flow are registered; the next 3 scheduled daily newspapers and every recording in the 3 days after R3 complete on generic steps with 0 failed runs; the green-PR merge prompt still merges on a click",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c20",
+      "seam": "live store via the release CLI (actors, variables)",
+      "behavior": "after R1 the 4 fixer actors and 9 fixer-only variables are gone; checks_settle_min_s, checks_settle_timeout_s and ignored_check_apps remain",
+      "source_text": "R1's live cleanup also covers the fixer's other live configuration: the agent actors claude-fixer, qwen-fixer, qwen-reviewer and codex-reviewer (disabled, then deleted) and the variables only fixer code reads (fixer_capacity_cooldown_s, fixer_comment_triggers, fixer_excluded_repos, fixer_levels, fixer_protected_paths, fixer_repos, fixer_stop_triggers, fixer_unavailable, trusted_authors); checks_settle_min_s, checks_settle_timeout_s and ignored_check_apps stay because node/checks_settle.py (the merge prompt's event) reads them",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c21",
+      "seam": "MongoDB collections",
+      "behavior": "R1 drops no collection; the fixer's collections are still present after R1",
+      "source_text": "R1 deletes no stored data automatically: the fixer's MongoDB collections (queues, handoffs, fixer_cooldowns, story_stops, fixer_status_comments, fixer_status_writers, reviews) are left in place after R1 and dropped later by an explicit admin step after a backup, so rolling R1 back is reinstalling the previous wheel and restoring the deleted workflows, rules and actors",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c22",
+      "seam": "rollout procedure (R1 runbook)",
+      "behavior": "the rollout pauses before the first upgrade and resumes after verify; fixer items are deleted, not purged, for at least a week",
+      "source_text": "R1 rolls out paused (rollout pause, upgrade all 4 nodes and the API, verify, resume) so no node with the fixer code and none without it run side by side on live events; the deleted workflows and rules are deleted (restorable), never purged, until R1 has run a week",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c23",
+      "seam": "live workflows of newspaper, recordings and repo docs (R3)",
+      "behavior": "each is switched while the old built-ins are still registered, its saved previous revision applies by dry run, and the built-ins are removed only in a later build after the 3-run check",
+      "source_text": "R3 switches each live flow before it deletes that flow's built-in: the switched workflow runs live (newspaper 3 scheduled issues, recordings 3 days, repo docs 3 cycles) while the old built-ins are still registered, so a rollback is one workflows update back to the saved revision; the built-ins are removed in a later build only after those checks pass",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c24",
+      "seam": "action kinds (model/action_kinds.py) and node registry",
+      "behavior": "github.push and github.review_reply are not registered after R1",
+      "source_text": "github.push and github.review_reply are removed with the PR fixer, since their only guard is the fixer's review record and chain lineage; they return behind a generic fence when a flow needs them (operator 2026-11-06, q5 a)",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
 }
