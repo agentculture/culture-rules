@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-06T19:36:25Z",
-  "updated": "2026-11-06T19:51:46Z",
+  "updated": "2026-11-06T19:55:52Z",
   "claims": [
     {
       "id": "c1",
@@ -776,7 +776,7 @@
       "behavior": "after R1 its params.actions lists only github.comment, its digest still matches the pin, and a green-PR prompt merges on a click",
       "source_text": "With github.push and github.review_reply removed (c24), the live github-app actor's params.actions drops them; the trust digest is unaffected (trusted.py:331-333 covers kind, machine, surface, commit_author, permissions and the connection, not actions), so the merge prompt keeps its pin. Narrowing the GitHub App's own Contents write permission and commit_author is a separate operator step that needs a new pinned digest",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o18",
@@ -785,7 +785,7 @@
       "behavior": "no core module imports an app module or port (import test); the API serves the action catalogue from the registry and the picker offers a test extension's kind with no editor change",
       "source_text": "The core/extension boundary release (c19) also moves app-specific code that sits in core today into its app's side: GitHub's check settling (node/checks_settle.py) and webhook receivers (server/hooks/github.py, server/hooks/jira.py), the Discord gateway listener, and the web editor's hard-coded action catalogue (web/src/rules/ActionPicker.tsx:51-55, 'mirroring action_kinds.py'), which the API then serves from the registry so a new extension needs no editor change",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }
