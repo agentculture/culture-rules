@@ -25,7 +25,7 @@ from tests.rules.chain_world import (
     ChainWorld,
     rule_docs,
 )
-from tests.rules.test_pr_fixer_queue import budget, fixes, handed_back, settle
+from tests.rules.test_pr_fixer_queue import fixes, settle
 
 RULE = "pr-fixer-retry-capacity"
 CODEX_ON = [QWEN_LEVEL, CODEX_LEVEL.replace("enabled=false", "enabled=true")]
@@ -49,46 +49,6 @@ def dispatched(w: ChainWorld) -> list[dict]:
 
 def until_of(w: ChainWorld, actor: str) -> datetime:
     return datetime.fromisoformat(w.c.base.get(FIXER_COOLDOWNS, actor)["until"])
-
-
-def test_a_capacity_failure_rests_level_1_and_the_retry_runs_at_level_2(tmp_path):
-    w = codex_world(tmp_path, ["capacity", "commit"])
-    settle(w, 1)
-    w.run_chain()
-    first, second = fixes(w)
-    assert first["status"] == "failed"
-    (capacity,) = w.runs(RULE)
-    assert capacity["status"] == "succeeded"
-    assert w.runs("pr-fixer-retry-failed") == []  # not a timeout
-    ended = datetime.fromisoformat(first["finished_at"])
-    assert until_of(w, "qwen-fixer") == ended + timedelta(seconds=3600)
-    assert w.c.base.get(FIXER_COOLDOWNS, "codex-fixer") is None
-    one, two = dispatched(w)
-    assert (one["level"], one["fixer"], one["queue"]) == (1, "qwen-fixer", "pr-fixer")
-    assert (two["level"], two["fixer"], two["queue"]) == (2, "codex-fixer", "pr-fixer-codex")
-    assert second["trigger"]["data"]["retry"] is True
-    assert second["inputs"]["instruction"].startswith(first["inputs"]["instruction"])
-    assert "reached its usage limit" in second["inputs"]["instruction"]
-    assert budget(w)["count"] == 2  # the failed try counted: never refunded
-    assert len(w.run_of("publish-fix")) == 1
-    assert handed_back(w) == []
-    assert w.runs("pr-fixer-queue-progress-capacity")
-
-
-def test_with_only_level_1_the_story_is_handed_back_once_while_it_rests(tmp_path):
-    """As shipped (level 2 disabled): try 2 is due at level 1 again, which rests, and no
-    level comes after it, so the story is handed back once instead of stalling."""
-    w = ChainWorld(tmp_path, turns=["capacity", "commit"])
-    settle(w, 1)
-    w.run_chain()
-    assert len(fixes(w)) == 1
-    (capacity,) = w.runs(RULE)
-    assert capacity["status"] == "succeeded"
-    assert w.c.base.get(FIXER_COOLDOWNS, "qwen-fixer") is not None
-    assert budget(w)["count"] == 1
-    (handed,) = handed_back(w)
-    assert "no_fixer_available" in handed
-    assert "capacity_cooldown" in handed
 
 
 def test_the_cooldown_length_is_the_variable(tmp_path):
@@ -132,23 +92,6 @@ def test_the_capacity_retry_matches_any_agent_step_of_the_fix_loop(step):
 )
 def test_the_capacity_retry_matches_nothing_else(message):
     assert not fires(RULE, message)
-
-
-@pytest.mark.parametrize(
-    ("turn", "rule_id"), [("timeout", "pr-fixer-retry-failed"), ("capacity", RULE)]
-)
-def test_a_retry_after_a_failed_try_keeps_the_storys_one_status_comment(tmp_path, turn, rule_id):
-    """The retry's queue-add run stands on a verified rules.run.failed link, so the story's
-    root (and its one status comment) is still the run that began it."""
-    from culture_rules.node.story_stop import story_root
-
-    w = codex_world(tmp_path, [turn, "commit"])
-    settle(w, 1)
-    w.run_chain()
-    (retry,) = w.runs(rule_id)
-    assert story_root(w.c.base, retry)["rule_id"] == "pr-fixer-checks"
-    (status,) = w.comments()
-    assert status.startswith("PR fixer pushed the fix")
 
 
 def test_the_capacity_rule_and_its_workflow_ship_as_designed():

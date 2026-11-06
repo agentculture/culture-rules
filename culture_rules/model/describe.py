@@ -264,7 +264,7 @@ def condition_text(node: Any, *, nested: bool = False) -> str:
     return str(op) if op else "?"
 
 
-#: How :func:`condition_words` says the empty string (d13): ``fixer is empty``, never ``""``.
+#: How :func:`condition_words` says the empty string (d13): ``agent is empty``, never ``""``.
 EMPTY_WORD = "empty"
 
 
@@ -324,12 +324,12 @@ def _words(node: Any, *, nested: bool = False) -> str:
 
 
 def condition_words(node: Any) -> str:
-    """One condition tree as a phrase, without a leading ``If``: ``fixer is claude-fixer``.
+    """One condition tree as a phrase, without a leading ``If``: ``agent is cortex-spark``.
 
     The sibling of :func:`condition_text` (which keeps its symbols): the same operands, the
     operators spelled out (``is``, ``is not``, ``is one of``, ``is set`` / ``is not set``,
-    ``matches``, ``and`` / ``or``); the empty string reads ``empty`` (d13: ``fixer is
-    empty``, and in a list it is said first, ``fixer is empty or qwen-fixer``, ``fixer is
+    ``matches``, ``and`` / ``or``); the empty string reads ``empty`` (d13: ``agent is
+    empty``, and in a list it is said first, ``agent is empty or cortex-spark``, ``agent is
     empty or one of a, b``). ``not`` is written out in full, for the reason given at
     :func:`_negated`. A rendering longer than ``CONDITION_WORDS_CAP`` is not shown: the
     function itself returns ``CONDITION_FALLBACK`` (``if its condition holds``, which already
@@ -473,7 +473,7 @@ def _discord_filter_words(params: Mapping[str, Any]) -> list[str]:
 
 
 def _key_text(template: str) -> str:
-    """``pr-fixer:{trigger.data.repository}#{…number}`` -> ``pr-fixer:{repository}#{number}``."""
+    """``pr:{trigger.data.repository}#{…number}`` -> ``pr:{repository}#{number}``."""
     return _PLACEHOLDER.sub(lambda m: "{" + m.group(1).rsplit(".", 1)[-1] + "}", template)
 
 
@@ -680,7 +680,7 @@ def describe_workflow(workflow: Any) -> list[dict[str, Any]]:
 
 
 def render(entries: list[dict[str, Any]]) -> list[str]:
-    """Entries as text lines: ``3.1 agent — qwen-fixer (agent)`` / ``When github.pr...``."""
+    """Entries as text lines: ``3.1 agent — cortex-spark (agent)`` / ``When github.pr...``."""
     lines = []
     for e in entries:
         indent = "  " * int(e.get("depth") or 0)

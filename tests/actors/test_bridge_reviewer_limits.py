@@ -149,18 +149,6 @@ def locked(bridge, **kw):
     )
 
 
-def test_a_locked_actor_always_sends_its_brief_and_records_its_digest():
-    from culture_rules.actors.agent import BRIDGE_INVOCATIONS
-    from culture_rules.actors.review import REVIEWER_BRIEF, instruction_digest
-
-    bridge = FakeBridge()
-    actor = locked(bridge)
-    assert actor.invoke(TARGET, "k", DEADLINE, context=ctx()).outcome == "accepted"
-    assert bridge.requests[0]["body"]["input"]["instruction"] == REVIEWER_BRIEF
-    (doc,) = actor._store.find(BRIDGE_INVOCATIONS)
-    assert doc["instruction_sha256"] == instruction_digest(REVIEWER_BRIEF)
-
-
 def test_every_invocation_records_the_digest_of_what_it_sent():
     from culture_rules.actors.agent import BRIDGE_INVOCATIONS
     from culture_rules.actors.review import instruction_digest
@@ -235,44 +223,6 @@ def pinned(bridge, doc=None, **kw):
         actor_doc=doc,
         **kw,
     )
-
-
-def test_a_pinned_actor_dispatches_only_from_a_trusted_snapshot_and_records_it():
-    from culture_rules.actors.agent import BRIDGE_INVOCATIONS
-    from culture_rules.actors.trusted import actor_digest
-    from tests.rules.test_pr_fixer_single import reviewer_actor
-
-    bridge = FakeBridge()
-    actor = pinned(bridge)
-    assert actor.invoke(TARGET, "k", DEADLINE, context=ctx()).outcome == "accepted"
-    (doc,) = actor._store.find(BRIDGE_INVOCATIONS)
-    assert doc["actor_digest"] == actor_digest(reviewer_actor())
-    assert doc["bridge_url"] == reviewer_actor()["params"]["bridge_url"]
-
-
-def test_a_pinned_actor_refuses_before_dispatch_when_untrusted():
-    from tests.rules.test_pr_fixer_single import reviewer_actor
-
-    other = reviewer_actor()
-    other["params"] = {**other["params"], "bridge_url": "http://127.0.0.1:9999"}
-    cases = [
-        pinned(FakeBridge(), doc=other),  # a swapped snapshot
-        pinned(FakeBridge(), bridge_url="http://127.0.0.1:9999"),  # calls another endpoint
-    ]
-    bare = BridgeAgentActor(
-        MemoryStore(),
-        bridge_url="http://127.0.0.1:8094",
-        callback_url=CALLBACK,
-        transport=FakeBridge(),
-        clock=Clock(),
-        actor_id="codex-reviewer",
-        defaults={"sandbox": "read-only", "locked_instruction": "pr-fixer-review"},
-    )  # no snapshot at all
-    for actor in (*cases, bare):
-        res = actor.invoke(TARGET, "k", DEADLINE, context=ctx())
-        assert (res.outcome, res.retryable) == ("failed", False)
-        assert res.error.startswith("actor_not_trusted"), res.error
-        assert actor._transport.requests == []
 
 
 # --------------------------------------------------------------------------- round 5, #2

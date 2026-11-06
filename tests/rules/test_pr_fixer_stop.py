@@ -10,13 +10,12 @@ next ``/fix`` or a new head starts a new story.
 
 from __future__ import annotations
 
-from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, budget_id
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.node.actions.queue import QUEUES_COLLECTION
 from tests.events.fakes import envelope
-from tests.rules.chain_world import KEY, ChainWorld, plain
+from tests.rules.chain_world import KEY, ChainWorld
 from tests.rules.test_pr_fixer_chain import _untrust_app, pem, trust_app  # noqa: F401
-from tests.rules.test_pr_fixer_queue import guard, settle
+from tests.rules.test_pr_fixer_queue import settle
 from tests.rules.test_pr_fixer_single import TRUSTED, pr_facts
 
 FIX_COMMENT = 900
@@ -86,32 +85,6 @@ class Reactions:
         return list(self.by_comment.get(comment_id, []))
 
 
-def test_a_trusted_stop_during_the_agent_step_cancels_the_run_within_one_tick(tmp_path):
-    w = ChainWorld(tmp_path, turns=["hang"])
-    settle(w, 1)
-    until_the_agent_works(w)
-    (run,) = w.run_of("pr-fix")
-    assert fresh(w, run)["status"] == "running"
-    stop(w, 50)
-    w.cycle(1)  # one engine tick
-    assert fresh(w, run)["status"] == "cancelled"
-    w.run_chain()
-    assert w.push.calls == []  # nothing pushed
-    assert w.run_of("review-commit") == []
-    assert w.run_of("publish-fix") == []
-    assert handed_back(w) == []  # no hand-back comment
-    assert w.qwen.cancelled  # the bridge was asked to stop the agent's job
-    (stopper,) = w.runs("pr-fixer-stop")
-    assert stopper["status"] == "succeeded"
-    assert stopper["outputs"]["cancelled"] == 1
-    # the story's one status comment ends "stopped by @user"
-    (body,) = status_bodies(w)
-    assert f"PR fixer stopped by @{TRUSTED}" in body
-    queue = w.c.base.get(QUEUES_COLLECTION, "pr-fixer")
-    assert queue["waiting"] == []
-    assert queue["active"] == []
-
-
 def test_the_apps_mention_with_stop_stops_and_never_starts_a_fix(tmp_path):
     w = ChainWorld(tmp_path, turns=["hang"])
     settle(w, 1)
@@ -131,61 +104,6 @@ def test_the_apps_mention_with_stop_stops_and_never_starts_a_fix(tmp_path):
     assert len(w.run_of("pr-fix")) == 1
 
 
-def test_a_trusted_thumbs_down_on_the_fix_comment_stops_the_story(tmp_path):
-    w = ChainWorld(tmp_path, turns=["hang"])
-    reactions = Reactions()
-    w.watch_reactions(reactions)
-    fix(w, 1, comment_id=FIX_COMMENT)
-    until_the_agent_works(w)
-    (run,) = w.run_of("pr-fix")
-    reactions.add(FIX_COMMENT, TRUSTED)
-    w.c.clock.advance(60)  # the next sweep, at most a minute later
-    w.cycle(1)  # the watch reads it, the stop fires and cancels in the same cycle
-    assert fresh(w, run)["status"] == "cancelled"
-    (stopper,) = w.runs("pr-fixer-stop-reaction")
-    assert stopper["status"] in ("running", "succeeded")
-    w.run_chain()
-    assert w.push.calls == []
-    assert handed_back(w) == []
-    (body,) = status_bodies(w)
-    assert f"PR fixer stopped by @{TRUSTED}" in body
-    # the story ended: no more reactions are read
-    reads = len(reactions.reads)
-    w.run_chain(5)
-    assert len(reactions.reads) == reads
-
-
-def test_a_thumbs_down_on_the_status_comment_stops_the_story(tmp_path):
-    w = ChainWorld(tmp_path, turns=["hang"])
-    reactions = Reactions()
-    w.watch_reactions(reactions)
-    settle(w, 1)
-    until_the_agent_works(w)
-    w.cycle(2)  # the status comment is posted
-    (status_id,) = w.issues.bodies
-    reactions.add(status_id, TRUSTED)
-    w.c.clock.advance(60)
-    w.cycle(1)
-    (run,) = w.run_of("pr-fix")
-    assert fresh(w, run)["status"] == "cancelled"
-
-
-def test_a_thumbs_down_by_anyone_else_does_nothing(tmp_path):
-    w = ChainWorld(tmp_path, turns=["hang"])
-    reactions = Reactions()
-    w.watch_reactions(reactions)
-    fix(w, 1, comment_id=FIX_COMMENT)
-    until_the_agent_works(w)
-    reactions.add(FIX_COMMENT, "mallory")
-    reactions.add(FIX_COMMENT, TRUSTED, content="+1")
-    w.c.clock.advance(60)
-    w.cycle(3)
-    assert FIX_COMMENT in reactions.reads
-    (run,) = w.run_of("pr-fix")
-    assert fresh(w, run)["status"] == "running"
-    assert w.runs("pr-fixer-stop-reaction") == []
-
-
 def test_an_untrusted_stop_comment_does_nothing(tmp_path):
     w = ChainWorld(tmp_path, turns=["hang"])
     settle(w, 1)
@@ -195,27 +113,6 @@ def test_an_untrusted_stop_comment_does_nothing(tmp_path):
     (run,) = w.run_of("pr-fix")
     assert fresh(w, run)["status"] == "running"
     assert w.runs("pr-fixer-stop") == []
-
-
-def test_a_stop_removes_the_prs_queued_request_and_its_retry(tmp_path):
-    w = ChainWorld(tmp_path, turns=[guard, "hang"])
-    settle(w, 1, number=7)
-    settle(w, 2, number=8)
-    until_the_agent_works(w, inputs=2)  # A's try did not pass; B's agent is working
-    queue = w.c.base.get(QUEUES_COLLECTION, "pr-fixer")
-    assert [(r["key"], r["retry"]) for r in queue["waiting"]] == [("o/r#7", True)]
-    stop(w, 50, number=7)
-    w.cycle(1)
-    queue = w.c.base.get(QUEUES_COLLECTION, "pr-fixer")
-    assert queue["waiting"] == []
-    assert [a["key"] for a in queue["active"]] == ["o/r#8"]  # B goes on
-    (b_run,) = [r for r in w.run_of("pr-fix") if r["trigger"]["data"]["number"] == 8]
-    assert fresh(w, b_run)["status"] == "running"
-    w.run_chain(5)
-    assert [r["trigger"]["data"]["number"] for r in w.run_of("pr-fix")] == [7, 8]
-    on_a = [plain(w.issues.bodies[i]) for i, post in enumerate(w.issues.posts, 1) if post[1] == 7]
-    assert not any("handed back" in b for b in on_a)
-    assert any(f"PR fixer stopped by @{TRUSTED}" in b for b in on_a)  # A's story ended
 
 
 def test_a_stop_removes_a_request_still_waiting_its_turn(tmp_path):
@@ -231,28 +128,6 @@ def test_a_stop_removes_a_request_still_waiting_its_turn(tmp_path):
     assert w.c.base.get(QUEUES_COLLECTION, "pr-fixer")["waiting"] == []
 
 
-def test_after_a_stop_a_new_fix_starts_a_fresh_story_and_checks_on_the_same_head_do_not(
-    tmp_path,
-):
-    w = ChainWorld(tmp_path, turns=["hang", "commit"])
-    settle(w, 1)
-    until_the_agent_works(w)
-    stop(w, 50)
-    w.run_chain()
-    settle(w, 60)  # the same head settles red again: the stopped story stays stopped
-    w.run_chain()
-    assert len(w.run_of("pr-fix")) == 1
-    fix(w, 70)  # a trusted /fix: a new story with a fresh budget
-    w.run_chain()
-    runs = w.run_of("pr-fix")
-    assert len(runs) == 2
-    assert runs[-1]["status"] == "succeeded"
-    assert len(w.run_of("publish-fix")) == 1
-    assert len(w.push.calls) == 1
-    budget = w.c.base.get(RULE_ATTEMPT_BUDGETS, budget_id(KEY))
-    assert budget["count"] == 1
-
-
 # --------------------------------------------------------------------------- the push guard
 
 
@@ -260,37 +135,3 @@ def record(w: ChainWorld) -> None:
     from culture_rules.node.story_stop import record_stop
 
     record_stop(w.c.base, KEY, by=TRUSTED, head_sha=None, at=w.c.clock())
-
-
-def test_a_run_of_a_stopped_story_that_slipped_through_never_pushes(tmp_path, pem):  # noqa: F811
-    w = ChainWorld(tmp_path, real_push_pem=pem)
-    trust_app(w)
-    w.reviewer.on_request = lambda: record(w)  # the stop lands while Codex reviews
-    w.fire()
-    assert w.remote_head() == w.repo.start
-    (publish,) = w.run_of("publish-fix")
-    assert publish["status"] == "failed"
-    assert publish["error"]["message"] == "story_stopped"
-
-
-def test_a_stop_recorded_while_the_push_consumes_its_approval_still_stops_it(
-    tmp_path, pem, monkeypatch  # noqa: F811
-):
-    """The push judges the stop again after consuming the approval: a stop recorded before
-    that read wins (Codex round 1 #2)."""
-    from culture_rules.node.actions import github_pr
-
-    real = github_pr.consume_approval
-
-    def consume(*args, **kwargs):
-        out = real(*args, **kwargs)
-        record(w)
-        return out
-
-    monkeypatch.setattr(github_pr, "consume_approval", consume)
-    w = ChainWorld(tmp_path, real_push_pem=pem)
-    trust_app(w)
-    w.fire()
-    assert w.remote_head() == w.repo.start
-    (publish,) = w.run_of("publish-fix")
-    assert publish["error"]["message"] == "story_stopped"

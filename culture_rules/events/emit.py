@@ -79,22 +79,22 @@ RUN_EVENT_TYPE_PREFIX = "rules.run."
 QUEUE_EVENT_TYPE_PREFIX = "rules.queue."
 QUEUE_EVENT_ID_PREFIX = "queue_"
 QUEUE_SOURCE = f"{INTERNAL_SOURCE_PREFIX}queue"
-"""The fixer queue's events (#35, d29: ``rules.queue.dispatch``, :mod:`culture_rules.node.
-actions.queue`): written only by the ``queue.progress`` built-in, straight into the store;
-their types and ids are reserved at external ingest like the run events'."""
+"""The queue namespace (#35, d29: ``rules.queue.*``, ids ``queue_*``): engine-written only,
+straight into the store; its types and ids stay reserved at external ingest like the run
+events'."""
 CHECKS_SETTLED_TYPE = "github.pr.checks_settled"
 CHECKS_LATE_TYPE = "github.pr.checks_failed_late"
 PR_CONFLICTING_TYPE = "github.pr.conflicting"
 SETTLE_TYPES = frozenset((CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE))
 SETTLE_TYPE_NAMES = (CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE)
-"""The checks settler's event types (:mod:`culture_rules.node.checks_settle`) and the
-conflict watch's (d31, :mod:`culture_rules.node.conflict_watch`): written only by the
-engine, from its internal sources; reserved at external ingest (d25)."""
+"""The checks settler's event types (:mod:`culture_rules.node.checks_settle`) and
+``github.pr.conflicting`` (d31): written only by the engine, from its internal sources;
+reserved at external ingest (d25)."""
 REACTION_ADDED_TYPE = "github.reaction.added"
 REACTION_ID_PREFIX = "reaction_"
-"""The reaction watch's events (d34, :mod:`culture_rules.node.reaction_watch`): GitHub sends no
-webhook for reactions, so the engine reads them and writes these itself; the type and the
-id prefix are reserved at external ingest, so no copy can stop a fixer story."""
+"""Reaction events (d34): GitHub sends no webhook for reactions, so only the engine may write
+these; the type and the id prefix are reserved at external ingest, so no copy can squat
+them."""
 SETTLED_ID_PREFIX = "settled_"
 LATE_ID_PREFIX = "late_"
 CONFLICT_ID_PREFIX = "conflict_"
@@ -153,10 +153,10 @@ def event_hops(envelope: Mapping[str, Any]) -> int | None:
 def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     """Why ``envelope`` may not enter the store from the bus or a webhook, or ``None``.
 
-    The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the fixer queue's
+    The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the queue's
     (ids ``queue_*``, types ``rules.queue.*``, #35), the checks settler's
-    namespace and the conflict watch's (types :data:`SETTLE_TYPES`, ids ``settled_*`` /
-    ``late_*`` / ``conflict_*``, d25, d31), the reaction watch's (type
+    namespace (types :data:`SETTLE_TYPES`, ids ``settled_*`` /
+    ``late_*`` / ``conflict_*``, d25, d31), the reaction namespace (type
     :data:`REACTION_ADDED_TYPE`, ids ``reaction_*``, d34), the
     schedule and probe namespace (kind or type ``schedule`` / ``probe``, sources
     :data:`TRIGGER_EVENT_SOURCES`, ids ``schedule/*`` / ``probe/*``) and the internal

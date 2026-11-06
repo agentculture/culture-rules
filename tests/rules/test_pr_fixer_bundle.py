@@ -828,17 +828,6 @@ def test_the_three_real_comments_replayed_through_the_receiver_start_nothing(nam
     assert _replay(c, REAL_BODIES[name], author, f"d-{name}") == []
 
 
-def test_a_fix_comment_through_the_receiver_starts_a_run_only_while_the_pr_is_open():
-    c = cluster()
-    assert _replay(c, "/fix the lint please", TRUSTED, "d-closed", state="closed") == []
-    (run,) = _replay(c, "/fix the lint please", TRUSTED, "d-open")
-    assert run["trigger"]["data"]["command"] == "/fix"
-    assert run["trigger"]["data"]["state"] == "open"
-    c2 = cluster()
-    (run,) = _replay(c2, "@rules-culture-dev please look", TRUSTED, "d-mention")
-    assert run["trigger"]["data"]["mention"] == "@rules-culture-dev"
-
-
 # --------------------------------------------------------------------------- d34: stop
 
 

@@ -87,7 +87,7 @@ PR_FACT_FIELDS = (
     "draft",
     "pr_author",
 )
-"""The PR facts every fixer-trigger event carries under the same names (d14). Each event also
+"""The PR facts every PR-scoped trigger event carries under the same names (d14). Each event also
 carries ``state`` (``open`` / ``closed``, d21) when the source reports a valid one; it is not
 part of the all-or-nothing set, so a missing state omits only itself and a rule requiring
 ``state == "open"`` fails closed."""
@@ -472,8 +472,8 @@ class GitHubApp:
 
     def update_issue_comment(self, repo: str, comment_id: int, body: str) -> dict[str, Any]:
         """Edit comment ``comment_id`` on ``repo`` (REST ``PATCH
-        /repos/{repo}/issues/comments/{id}``, d26: the PR fixer's status comment, which the
-        App posted); returns ``{comment_id, url}``. A deleted comment answers ``http_404``."""
+        /repos/{repo}/issues/comments/{id}``, a comment the App posted); returns
+        ``{comment_id, url}``. A deleted comment answers ``http_404``."""
         self._require_allowed(repo, "comment edit")
         if not isinstance(comment_id, int) or isinstance(comment_id, bool) or comment_id < 1:
             raise GitHubError("bad_input", "comment_id must be a positive integer")
@@ -594,8 +594,8 @@ class GitHubApp:
     ) -> list[dict[str, Any]]:
         """The ``content`` reactions on issue comment ``comment_id`` of ``repo`` (REST ``GET
         /repos/{repo}/issues/comments/{id}/reactions?content=``, 100 a page, at most
-        ``max_pages``), oldest first, as GitHub returns them; read-only (Issues: read). d34:
-        the reaction watch reads the 👎s (``-1``) on a fixer story's comments."""
+        ``max_pages``), oldest first, as GitHub returns them; read-only (Issues: read), e.g. the
+        👎s (``-1``) on a comment."""
         self._require_allowed(repo, "reaction listing")
         if not isinstance(comment_id, int) or isinstance(comment_id, bool) or comment_id < 1:
             raise GitHubError("bad_input", "comment_id must be a positive integer")

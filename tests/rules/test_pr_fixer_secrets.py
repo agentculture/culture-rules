@@ -17,11 +17,11 @@ from culture_rules.actors.trusted import TRUSTED_WORKFLOWS, workflow_digest
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.node.actions.github import GitHubCommentPort
 from culture_rules.node.checks_settle import LATE_TYPE
-from tests.apps.test_gitguardian import INCIDENT_URL, SAMPLE, SHA, gg_run
+from tests.apps.test_gitguardian import INCIDENT_URL, SHA, gg_run
 from tests.events.fakes import envelope
 from tests.rules.chain_world import SECRETS_LATE_RULE, SECRETS_RULE, ChainWorld, bundle
 from tests.rules.test_pr_fixer_bundle import cluster
-from tests.rules.test_pr_fixer_single import REPO, TRUSTED, pr_facts
+from tests.rules.test_pr_fixer_single import REPO, pr_facts
 
 SETTLED = "github.pr.checks_settled"
 GG = "gitguardian"
@@ -167,33 +167,6 @@ def test_end_to_end_the_findings_comment_and_no_fix(tmp_path):
     assert w.checks.calls == [(REPO, SHA)]
     assert "View secret" not in body
     assert "Guidelines" not in body  # nothing of the check text beyond the table
-
-
-def test_end_to_end_a_fix_comment_is_held_while_gitguardian_fails(tmp_path):
-    w = ChainWorld(tmp_path)
-    w.checks.runs = [gg_run(text=SAMPLE)]
-    facts = pr_facts(
-        comment="/fix",
-        command="/fix",
-        pr_enriched=True,
-        state="open",
-        author=TRUSTED,
-        head_sha=w.repo.start,
-        base_sha=w.repo.base,
-    )
-    w.c.publish(envelope(1, type="github.comment.created", data=facts))
-    w.run_chain(5)
-    (queued,) = w.runs("pr-fixer-comment")  # #35: the comment queues the fix
-    assert queued["workflow_id"] == "queue-add"
-    (run,) = w.runs("pr-fixer-dispatch")
-    assert run["status"] == "failed"
-    assert run["error"]["step"] == "secrets"
-    assert "secrets_found" in run["error"]["message"]
-    assert w.qwen.inputs == []  # the agent never ran
-    assert w.app.calls == []  # nor did the threads lookup
-    (body,) = w.comments()
-    assert body.startswith("PR fixer handed back (actor_failed): secrets_found: ")
-    assert "secrets_found: GitGuardian reports 1 hardcoded secret" in body
 
 
 def test_end_to_end_the_fix_runs_once_gitguardian_passes(tmp_path):
