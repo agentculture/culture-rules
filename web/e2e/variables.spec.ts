@@ -67,11 +67,11 @@ test.describe("Variables tab", () => {
 test.describe("Condition editor: variable picker", () => {
   test("an author check picks vars.trusted_authors and saves a var operand", async ({ page }) => {
     const api = createFakeApi();
-    // Train batch starts review-pr here, so it is that workflow's entry point (the fold's home for it).
-    api.rules.find((r) => r.id === "train-batch")!.workflow = { id: "review-pr", inputs: {} };
+    // Train batch starts summarize-document here, so it is that workflow's entry point (the fold's home for it).
+    api.rules.find((r) => r.id === "train-batch")!.workflow = { id: "summarize-document", inputs: {} };
     await withView(page); // entry points are edited in Detailed
     await mockRulesApi(page, api);
-    await page.goto("/workflows?id=review-pr&entry=train-batch");
+    await page.goto("/workflows?id=summarize-document&entry=train-batch");
     await untilReady(page);
     const card = page.getByRole("group", { name: "Entry point: Train batch" });
     await card.getByRole("button", { name: "Add condition" }).click();

@@ -13,7 +13,7 @@ const rule = (id: string, workflow: string | null): Rule =>
     enabled: true,
   }) as unknown as Rule;
 
-const RULES = [rule("pr-fixer-checks", "pr-fix"), rule("jira to discord", null), rule("blank", "")];
+const RULES = [rule("document-chain-checks", "prepare-document"), rule("jira to discord", null), rule("blank", "")];
 
 describe("ruleRedirect: old /rules links land on the folded Workflows tab", () => {
   it("/rules (no id) lands on /workflows", () => {
@@ -21,8 +21,8 @@ describe("ruleRedirect: old /rules links land on the folded Workflows tab", () =
   });
 
   it("a rule with a workflow opens that workflow at its entry point", () => {
-    expect(ruleRedirect("pr-fixer-checks", RULES)).toEqual({
-      to: "/workflows/pr-fix?entry=pr-fixer-checks",
+    expect(ruleRedirect("document-chain-checks", RULES)).toEqual({
+      to: "/workflows/prepare-document?entry=document-chain-checks",
     });
   });
 
@@ -44,7 +44,7 @@ describe("ruleRedirect: old /rules links land on the folded Workflows tab", () =
 
 describe("workflowPath: /workflows/:workflowId is the same page as /workflows?id=", () => {
   it("moves the path id into the query and keeps the other params", () => {
-    expect(workflowPath("pr-fix", "?entry=pr-fixer-checks")).toBe("/workflows?id=pr-fix&entry=pr-fixer-checks");
+    expect(workflowPath("prepare-document", "?entry=document-chain-checks")).toBe("/workflows?id=prepare-document&entry=document-chain-checks");
     expect(workflowPath("w/1", "")).toBe("/workflows?id=w%2F1");
   });
 

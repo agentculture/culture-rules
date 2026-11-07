@@ -42,11 +42,10 @@ describe("stepCount", () => {
     expect(stepCount([step("a"), step("b", { kind: "for_each", body: [step("c"), step("d", { kind: "retry_until", body: [step("e")] })] })])).toBe(5);
   });
 
-  it("gives the committed workflows their full counts (daily-newspaper 14, pr-fix 14)", () => {
-    const all = [...load<WorkflowDef>("newspaper/workflows"), ...load<WorkflowDef>("pr-fixer/workflows")];
+  it("gives the committed workflows their full counts (daily-newspaper 14)", () => {
+    const all = [...load<WorkflowDef>("newspaper/workflows")];
     const byId = Object.fromEntries(all.map((w) => [w.id, stepCount(w.steps)]));
     expect(byId["daily-newspaper"]).toBe(14);
-    expect(byId["pr-fix"]).toBe(14);
     expect(all.some((w) => (w.steps ?? []).length < stepCount(w.steps))).toBe(true);
   });
 });

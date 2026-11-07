@@ -31,8 +31,8 @@ describe("api client", () => {
 
   it("passes the workflow and host run filters", async () => {
     const { calls } = mockFetch({ "/api/runs": { body: { items: [] } } });
-    await listRuns({ workflow_id: "review-pr", host: "thor", limit: 50 });
-    expect(calls).toEqual(["/api/runs?workflow_id=review-pr&host=thor&limit=50"]);
+    await listRuns({ workflow_id: "summarize-document", host: "thor", limit: 50 });
+    expect(calls).toEqual(["/api/runs?workflow_id=summarize-document&host=thor&limit=50"]);
   });
 
   it("exports the shared request helpers the tab adapters build on", async () => {

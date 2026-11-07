@@ -7,7 +7,7 @@ import type { Rule } from "../../api/types";
 import { MACHINES } from "../../fixtures/rules-fixture";
 import { createFakeApi, fetchFor, handle } from "../../rules/fake-api";
 import { DOMMatrixStub, MeasuringResizeObserver, useMeasuredLayout } from "../../test/reactFlow";
-import { ACTORS, REVIEW_PR } from "../fixture";
+import { ACTORS, SUMMARIZE_DOCUMENT } from "../fixture";
 import { FOLD_RULES, FOLD_WORKFLOWS } from "../simple/fixture";
 import { VIEW_MODE_KEY } from "./mode";
 import WorkflowViews from "./WorkflowViews";
@@ -15,14 +15,14 @@ import WorkflowViews from "./WorkflowViews";
 useMeasuredLayout();
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
-const PR_FIX = { ...REVIEW_PR, id: "publish-fix", name: "Publish the fix", notes: "d21: quiet period" };
+const PREPARE_DOCUMENT = { ...SUMMARIZE_DOCUMENT, id: "publish-document", name: "Publish the document", notes: "d21: quiet period" };
 
-function renderDetailed(workflow = PR_FIX, twoEntries = true) {
+function renderDetailed(workflow = PREPARE_DOCUMENT, twoEntries = true) {
   const fake = createFakeApi(NOW);
   fake.rules = structuredClone(FOLD_RULES) as Rule[];
   // two entry points with one condition, so a shared condition is edited once for both
   if (twoEntries) {
-  const publish = fake.rules.find((r) => r.id === "pr-fixer-publish")!;
+  const publish = fake.rules.find((r) => r.id === "document-chain-publish")!;
   fake.rules.splice(fake.rules.findIndex((r) => r.id === "any-failure"), 1, { ...structuredClone(publish), id: "publish-2", name: "Publish again" });
   }
   fake.workflows = structuredClone(FOLD_WORKFLOWS);
@@ -106,7 +106,7 @@ describe("Detailed edits every field Simple edited", () => {
 
 describe("a condition on one entry point", () => {
   it("is added in the entry's own form when the entries' conditions differ", async () => {
-    renderDetailed({ ...PR_FIX, id: "pr-fix" }, false);
+    renderDetailed({ ...PREPARE_DOCUMENT, id: "prepare-document" }, false);
     const region = await screen.findByRole("region", { name: "Entry points and Then" });
     const entry = await within(region).findByRole("group", { name: "Entry point: Checks settled, not green" });
     expect(within(entry).getByRole("button", { name: "Add condition" })).toBeInTheDocument();
@@ -117,10 +117,10 @@ describe("notes in Detailed (t15 criterion 2)", () => {
   it("edits the workflow's notes in the inputs panel", async () => {
     const { default: IoEditor } = await import("../IoEditor");
     const onChange = vi.fn();
-    render(<IoEditor side="in" workflow={PR_FIX} onChange={onChange} onClose={vi.fn()} />);
+    render(<IoEditor side="in" workflow={PREPARE_DOCUMENT} onChange={onChange} onClose={vi.fn()} />);
     const notes = screen.getByLabelText("Workflow notes");
     expect(notes).toHaveValue("d21: quiet period");
     await userEvent.type(notes, "!");
-    expect(onChange).toHaveBeenLastCalledWith({ ...PR_FIX, notes: "d21: quiet period!" });
+    expect(onChange).toHaveBeenLastCalledWith({ ...PREPARE_DOCUMENT, notes: "d21: quiet period!" });
   });
 });

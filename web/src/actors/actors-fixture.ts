@@ -114,7 +114,7 @@ export const REFERENCES = {
   items: [
     { kind: "workflow", id: "newspaper", path: "summarise", via: "action", enabled: true },
     { kind: "workflow", id: "newspaper", path: "edition.body[write]", via: "action", enabled: true },
-    { kind: "workflow", id: "review-pr", path: "review", via: "action", enabled: true },
+    { kind: "workflow", id: "summarize-document", path: "review", via: "action", enabled: true },
     { kind: "rule", id: "nightly-news", path: "placement.actor", via: "placement", enabled: true },
   ],
 };
@@ -122,7 +122,7 @@ export const REFERENCES = {
 /** `GET /workflows/{id}`: just what the Move form reads (the revision). */
 export const REFERENCED_WORKFLOWS: Record<string, { id: string; name: string; revision: number; steps: unknown[] }> = {
   newspaper: { id: "newspaper", name: "Daily newspaper", revision: 4, steps: [] },
-  "review-pr": { id: "review-pr", name: "Review PR", revision: 9, steps: [] },
+  "summarize-document": { id: "summarize-document", name: "Summarize document", revision: 9, steps: [] },
 };
 
 /** `POST /actors/claude-code/disable` without force: 409 actor_in_use naming its referrers. */
@@ -130,10 +130,10 @@ export const ACTOR_IN_USE = {
   error: {
     code: "actor_in_use",
     message:
-      "actor_in_use: claude-code is used by workflows/newspaper, workflows/review-pr, rules/nightly-news; repoint or disable them, or pass force",
+      "actor_in_use: claude-code is used by workflows/newspaper, workflows/summarize-document, rules/nightly-news; repoint or disable them, or pass force",
     errors: [
       { path: "workflows/newspaper", code: "actor_in_use", message: "workflow newspaper uses claude-code (action at summarise)" },
-      { path: "workflows/review-pr", code: "actor_in_use", message: "workflow review-pr uses claude-code (action at review)" },
+      { path: "workflows/summarize-document", code: "actor_in_use", message: "workflow summarize-document uses claude-code (action at review)" },
       { path: "rules/nightly-news", code: "actor_in_use", message: "rule nightly-news uses claude-code (placement at placement.actor)" },
     ],
   },

@@ -29,7 +29,7 @@ export const ACTORS: Actor[] = [
     enabled: true,
     params: {
       surface: "github",
-      events: ["github.pr.opened", "github.push"],
+      events: ["github.pr.opened", "github.pr.closed"],
       actions: ["github.comment"],
       connection: {},
     },
@@ -62,15 +62,15 @@ export const ACTORS: Actor[] = [
 
 export const WORKFLOWS: Workflow[] = [
   { id: "build-image", name: "Build image", outputs: [{ name: "image" }, { name: "digest" }] },
-  { id: "review-pr", name: "Review PR" },
+  { id: "summarize-document", name: "Summarize document" },
 ];
 
 export const SELECTED_RULE_ID = "build-and-publish";
 
 export const RULES: Rule[] = [
   {
-    id: "review-on-approve",
-    name: "Review on approve",
+    id: "summarize-on-request",
+    name: "Summarize on request",
     trigger: { kind: "event", params: { label: "PR approved" } },
     action: { kind: "mesh.message", name: "Announce" },
     placement: { machine: "spark" },
@@ -100,7 +100,7 @@ export const RULES: Rule[] = [
     },
     action: { kind: "http.call", name: "Publish", params: { tag: "workflow.outputs.image" } },
     placement: { machine: "thor" },
-    must_after: ["review-on-approve"],
+    must_after: ["summarize-on-request"],
     enabled: true,
   },
   {
@@ -143,7 +143,7 @@ export const VARIABLE_VERSIONS: Variable[] = [
     version: 1,
     updated_by: "ori",
     updated_at: "2026-10-05T09:00:00Z",
-    description: "PR authors the fixer may act on",
+    description: "PR authors the processor may act on",
   },
   {
     id: "trusted_authors",
@@ -152,7 +152,7 @@ export const VARIABLE_VERSIONS: Variable[] = [
     version: 2,
     updated_by: "ori",
     updated_at: "2026-10-06T09:00:00Z",
-    description: "PR authors the fixer may act on",
+    description: "PR authors the processor may act on",
   },
 ];
 

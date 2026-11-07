@@ -18,14 +18,14 @@ describe("relationsOf", () => {
   it("lists the relationships a rule declares and the ones pointing at it", () => {
     const build = relationsOf(rules, "build-and-publish");
     expect(build.outgoing).toEqual([
-      { kind: "must_after", from: "build-and-publish", to: "review-on-approve" },
+      { kind: "must_after", from: "build-and-publish", to: "summarize-on-request" },
     ]);
     expect(build.incoming).toEqual([]);
 
-    const review = relationsOf(rules, "review-on-approve");
+    const review = relationsOf(rules, "summarize-on-request");
     expect(review.outgoing).toEqual([]);
     expect(review.incoming).toEqual([
-      { kind: "must_after", from: "build-and-publish", to: "review-on-approve" },
+      { kind: "must_after", from: "build-and-publish", to: "summarize-on-request" },
     ]);
   });
 
@@ -56,14 +56,14 @@ describe("canRelate", () => {
   it("refuses a rule related to itself, an unknown rule and a duplicate", () => {
     expect(canRelate(rules, "train-batch", "must_after", "train-batch")).toMatch(/itself/);
     expect(canRelate(rules, "train-batch", "must_after", "ghost")).toMatch(/unknown/);
-    expect(canRelate(rules, "build-and-publish", "must_after", "review-on-approve")).toMatch(
+    expect(canRelate(rules, "build-and-publish", "must_after", "summarize-on-request")).toMatch(
       /already/,
     );
     expect(canRelate(rules, "train-batch", "must_after", "triage-bugs")).toBeNull();
   });
 
   it("refuses a cycle in must_after and in supersedes", () => {
-    expect(canRelate(rules, "review-on-approve", "must_after", "build-and-publish")).toMatch(
+    expect(canRelate(rules, "summarize-on-request", "must_after", "build-and-publish")).toMatch(
       /cycle/,
     );
     const set = rules.map((r) => (r.id === "train-batch" ? { ...r, supersedes: ["triage-bugs"] } : r));
@@ -73,8 +73,8 @@ describe("canRelate", () => {
 
 describe("badges on both ends", () => {
   it("words each end of the relationship", () => {
-    const rel = { kind: "must_after", from: "build-and-publish", to: "review-on-approve" } as const;
-    expect(relationText(rel, "out", nameOf)).toBe("must run after Review on approve");
+    const rel = { kind: "must_after", from: "build-and-publish", to: "summarize-on-request" } as const;
+    expect(relationText(rel, "out", nameOf)).toBe("must run after Summarize on request");
     expect(relationText(rel, "in", nameOf)).toBe("Build and publish must run after this");
     const may = { kind: "may_after", from: "train-batch", to: "triage-bugs" } as const;
     expect(relationText(may, "out", nameOf)).toBe("may run after Triage bugs");
@@ -85,10 +85,10 @@ describe("badges on both ends", () => {
   });
 
   it("badges the other end of a focused rule's relationships in the list", () => {
-    expect(badgesFor(rules, "build-and-publish", "review-on-approve")).toEqual([
+    expect(badgesFor(rules, "build-and-publish", "summarize-on-request")).toEqual([
       { kind: "must_after", direction: "in", text: "must run first" },
     ]);
-    expect(badgesFor(rules, "review-on-approve", "build-and-publish")).toEqual([
+    expect(badgesFor(rules, "summarize-on-request", "build-and-publish")).toEqual([
       { kind: "must_after", direction: "out", text: "waits for this" },
     ]);
     expect(badgesFor(rules, "build-and-publish", "train-batch")).toEqual([]);

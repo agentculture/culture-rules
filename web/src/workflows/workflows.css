@@ -1403,18 +1403,6 @@
   cursor: not-allowed;
 }
 
-/* Before saving a trusted workflow (c32, d6): the question and its two answers. */
-.wf-trust-ask {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-}
-.wf-trust-ask p {
-  flex: 1 1 100%;
-  margin: 0;
-}
-
 /*
  * Simple opens the step and rule panels from text far down a long page: they stay in view
  * (fixed, right), and the paragraph leaves them room on a wide screen (d14).

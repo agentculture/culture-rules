@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MACHINES } from "../fixtures/rules-fixture";
-import { ACTORS, BUILD_IMAGE, REVIEW_PR, RUN_7, WORKFLOW_DOCS } from "./fixture";
+import { ACTORS, BUILD_IMAGE, SUMMARIZE_DOCUMENT, RUN_7, WORKFLOW_DOCS } from "./fixture";
 import {
   INPUTS_NODE,
   OUTPUTS_NODE,
@@ -38,7 +38,7 @@ describe("placement", () => {
 
   it("labels each placement mode in words", () => {
     expect(placementLabel({ machine: "thor" })).toBe("on thor");
-    expect(placementLabel({ actor: "claude-reviewer" })).toBe("via claude-reviewer");
+    expect(placementLabel({ actor: "claude-summarizer" })).toBe("via claude-summarizer");
     expect(placementLabel({ requirement: ["gpu", "cuda"] })).toBe("needs gpu, cuda");
     expect(placementLabel(null)).toBe("anywhere");
   });
@@ -46,7 +46,7 @@ describe("placement", () => {
   it("resolves a step's machine through a machine, an actor's home, or not at all", () => {
     const step = (placement: unknown) => ({ id: "s", kind: "code" as const, placement: placement as never });
     expect(stepMachine(step({ machine: "thor" }), ctx)).toEqual({ machine: "thor", mode: "machine" });
-    expect(stepMachine(step({ actor: "claude-reviewer" }), ctx)).toEqual({
+    expect(stepMachine(step({ actor: "claude-summarizer" }), ctx)).toEqual({
       machine: "thor",
       mode: "actor",
     });
@@ -60,15 +60,15 @@ describe("placement", () => {
   });
 
   it("setPlacement keeps exactly one of machine | actor | requirement", () => {
-    const wf = setPlacement(REVIEW_PR, "review", { actor: "claude-reviewer" });
+    const wf = setPlacement(SUMMARIZE_DOCUMENT, "review", { actor: "claude-summarizer" });
     const review = wf.steps!.find((s) => s.id === "review")!;
-    expect(review.placement).toEqual({ actor: "claude-reviewer" });
+    expect(review.placement).toEqual({ actor: "claude-summarizer" });
     const req = setPlacement(wf, "review", { requirement: ["gpu"] });
     expect(req.steps!.find((s) => s.id === "review")!.placement).toEqual({ requirement: ["gpu"] });
     const none = setPlacement(wf, "review", null);
     expect(none.steps!.find((s) => s.id === "review")!.placement).toBeNull();
     // Never mutates its input.
-    expect(REVIEW_PR.steps!.find((s) => s.id === "review")!.placement).toEqual({ machine: "thor" });
+    expect(SUMMARIZE_DOCUMENT.steps!.find((s) => s.id === "review")!.placement).toEqual({ machine: "thor" });
   });
 });
 
@@ -83,8 +83,8 @@ describe("typed ports", () => {
   });
 
   it("refuses a connection whose port types differ", () => {
-    const res = connect(REVIEW_PR, {
-      source: "run-tests",
+    const res = connect(SUMMARIZE_DOCUMENT, {
+      source: "check-text",
       sourcePort: "passed",
       target: "review",
       targetPort: "diff",
@@ -94,7 +94,7 @@ describe("typed ports", () => {
   });
 
   it("wires a compatible connection, replacing whatever fed that input", () => {
-    const res = connect(REVIEW_PR, {
+    const res = connect(SUMMARIZE_DOCUMENT, {
       source: INPUTS_NODE,
       sourcePort: "repo",
       target: "review",
@@ -109,8 +109,8 @@ describe("typed ports", () => {
   });
 
   it("wiring an output port to the outputs node sets that output's source", () => {
-    const res = connect(REVIEW_PR, {
-      source: "fetch-diff",
+    const res = connect(SUMMARIZE_DOCUMENT, {
+      source: "fetch-text",
       sourcePort: "diff",
       target: OUTPUTS_NODE,
       targetPort: "owner",
@@ -118,25 +118,25 @@ describe("typed ports", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.workflow.outputs!.find((o) => o.name === "owner")!.source).toBe(
-      "steps.fetch-diff.outputs.diff",
+      "steps.fetch-text.outputs.diff",
     );
   });
 
   it("offers only type-compatible upstream ports for an input", () => {
-    const options = compatibleSources(REVIEW_PR, "decide", "passed").map((o) => `${o.source}.${o.port}`);
-    expect(options).toContain("run-tests.passed");
-    expect(options).not.toContain("fetch-diff.diff");
+    const options = compatibleSources(SUMMARIZE_DOCUMENT, "decide", "passed").map((o) => `${o.source}.${o.port}`);
+    expect(options).toContain("check-text.passed");
+    expect(options).not.toContain("fetch-text.diff");
     expect(options).not.toContain("decide.verdict"); // never itself
   });
 });
 
 describe("graph edges and machine hops", () => {
   it("draws every wire plus the exported outputs", () => {
-    const edges = graphEdges(REVIEW_PR, ctx);
+    const edges = graphEdges(SUMMARIZE_DOCUMENT, ctx);
     expect(edges).toHaveLength(8);
     expect(edges.map(edgeKey)).toEqual(
       expect.arrayContaining([
-        "inputs.pr->fetch-diff.pr",
+        "inputs.pr->fetch-text.pr",
         "review.owner->outputs.owner",
         "decide.verdict->outputs.verdict",
       ]),
@@ -144,14 +144,14 @@ describe("graph edges and machine hops", () => {
   });
 
   it("marks cross-machine hops exactly as the board dashes them", () => {
-    const cross = Object.fromEntries(graphEdges(REVIEW_PR, ctx).map((e) => [edgeKey(e), e.cross]));
+    const cross = Object.fromEntries(graphEdges(SUMMARIZE_DOCUMENT, ctx).map((e) => [edgeKey(e), e.cross]));
     expect(cross).toEqual({
-      "inputs.pr->fetch-diff.pr": false,
-      "inputs.repo->fetch-diff.repo": false,
-      "inputs.repo->run-tests.repo": false,
-      "fetch-diff.diff->review.diff": true,
+      "inputs.pr->fetch-text.pr": false,
+      "inputs.repo->fetch-text.repo": false,
+      "inputs.repo->check-text.repo": false,
+      "fetch-text.diff->review.diff": true,
       "review.findings->decide.findings": true,
-      "run-tests.passed->decide.passed": true,
+      "check-text.passed->decide.passed": true,
       "decide.verdict->outputs.verdict": false,
       "review.owner->outputs.owner": true,
     });
@@ -164,7 +164,7 @@ describe("graph edges and machine hops", () => {
 
   it("with a run, the hosts that actually ran decide the dashes", () => {
     const overlay = runOverlay(RUN_7);
-    const moved = setPlacement(REVIEW_PR, "review", { requirement: ["gpu"] });
+    const moved = setPlacement(SUMMARIZE_DOCUMENT, "review", { requirement: ["gpu"] });
     const edges = graphEdges(moved, ctx, overlay);
     expect(edges.find((e) => e.target === "review")!.cross).toBe(true); // ran on thor, spark fed it
   });
@@ -172,31 +172,31 @@ describe("graph edges and machine hops", () => {
 
 describe("step edits", () => {
   it("toggles a step's enabled flag", () => {
-    const off = toggleStep(REVIEW_PR, "review");
+    const off = toggleStep(SUMMARIZE_DOCUMENT, "review");
     expect(off.steps!.find((s) => s.id === "review")!.enabled).toBe(false);
     expect(toggleStep(off, "review").steps!.find((s) => s.id === "review")!.enabled).toBe(true);
   });
 
   it("deleting a step drops its wires and unhooks outputs it fed", () => {
-    const wf = deleteStep(REVIEW_PR, "review");
-    expect(wf.steps!.map((s) => s.id)).toEqual(["fetch-diff", "run-tests", "decide"]);
+    const wf = deleteStep(SUMMARIZE_DOCUMENT, "review");
+    expect(wf.steps!.map((s) => s.id)).toEqual(["fetch-text", "check-text", "decide"]);
     expect(wf.edges!.some((e) => e.source === "review" || e.target === "review")).toBe(false);
     expect(wf.outputs!.find((o) => o.name === "owner")!.source).toBeNull();
   });
 
   it("adds a uniquely named step", () => {
-    const first = addStep(REVIEW_PR);
+    const first = addStep(SUMMARIZE_DOCUMENT);
     expect(first.id).toBe("step-1");
     expect(first.workflow.steps!.at(-1)).toMatchObject({ id: "step-1", kind: "logic", enabled: true });
     expect(addStep(first.workflow).id).toBe("step-2");
   });
 
   it("renaming or retyping a port drops wires that no longer fit", () => {
-    const renamed = updateStep(REVIEW_PR, "review", {
+    const renamed = updateStep(SUMMARIZE_DOCUMENT, "review", {
       inputs: [{ name: "patch", type: "string" }],
     });
     expect(renamed.edges!.some((e) => e.target === "review")).toBe(false);
-    const retyped = updateStep(REVIEW_PR, "decide", {
+    const retyped = updateStep(SUMMARIZE_DOCUMENT, "decide", {
       inputs: [
         { name: "findings", type: "array" },
         { name: "passed", type: "string" },
@@ -223,10 +223,10 @@ describe("run overlay", () => {
 
   it("lights the path the run took", () => {
     const overlay = runOverlay(RUN_7);
-    const edges = graphEdges(REVIEW_PR, ctx, overlay);
+    const edges = graphEdges(SUMMARIZE_DOCUMENT, ctx, overlay);
     const lit = litEdges(edges, overlay);
     const litKeys = edges.filter((e) => lit.has(e.id)).map(edgeKey);
-    expect(litKeys).toContain("inputs.pr->fetch-diff.pr");
+    expect(litKeys).toContain("inputs.pr->fetch-text.pr");
     expect(litKeys).toContain("review.findings->decide.findings");
     expect(litKeys).toContain("review.owner->outputs.owner");
     // Decide failed: its output never flowed.
@@ -245,13 +245,13 @@ describe("workflowMachine (the list row's dot)", () => {
     expect(workflowMachine(wf([{ id: "a", placement: { machine: "thor" } }]), ctx)).toBe("thor");
     // An actor's home machine and an unplaced step (the engine node) count as the canvas counts them.
     expect(
-      workflowMachine(wf([{ id: "a", placement: { actor: "claude-reviewer" } }, { id: "b", placement: { machine: "thor" } }]), ctx),
+      workflowMachine(wf([{ id: "a", placement: { actor: "claude-summarizer" } }, { id: "b", placement: { machine: "thor" } }]), ctx),
     ).toBe("thor");
     expect(workflowMachine(wf([{ id: "a" }]), ctx)).toBe("spark");
   });
 
   it("is neutral (null) when steps are mixed, unresolved, or there are none", () => {
-    expect(workflowMachine(REVIEW_PR, ctx)).toBeNull();
+    expect(workflowMachine(SUMMARIZE_DOCUMENT, ctx)).toBeNull();
     expect(workflowMachine(BUILD_IMAGE, ctx)).toBeNull();
     expect(workflowMachine(wf([]), ctx)).toBeNull();
     expect(workflowMachine({ id: "w", name: "W" }, ctx)).toBeNull();
@@ -327,8 +327,8 @@ describe("Detailed edge bundles", () => {
     expect(one.sourcePort).toBeNull();
     expect(one.targetPort).toBeNull();
   });
-  it("bundles every pair of the Review PR fixture, and expands only the selected step's wires", () => {
-    const graph = graphEdges(REVIEW_PR, ctx);
+  it("bundles every pair of the Review Prepare documentture, and expands only the selected step's wires", () => {
+    const graph = graphEdges(SUMMARIZE_DOCUMENT, ctx);
     const pairs = new Set(graph.map((e) => `${e.source}->${e.target}`));
     expect(bundleEdges(graph, new Set(), null)).toHaveLength(pairs.size);
     const expanded = bundleEdges(graph, new Set(), "review");
@@ -350,7 +350,7 @@ describe("bundle handles", () => {
 
 describe("toDefinition keeps the workflow's notes", () => {
   it("does not drop `notes` from a save body (t18)", () => {
-    const def = toDefinition({ ...REVIEW_PR, notes: "Why it is built this way." });
+    const def = toDefinition({ ...SUMMARIZE_DOCUMENT, notes: "Why it is built this way." });
     expect(def.notes).toBe("Why it is built this way.");
   });
 });

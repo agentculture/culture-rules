@@ -3,7 +3,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
 import { withView } from "./fixtures/view";
 import { mockWorkflowsApi } from "./fixtures/workflows";
-import { IMPORT_FILE_NAME, IMPORT_FILE_TEXT, REVIEW_PR_DESCRIBED } from "../src/workflows/fixture";
+import { IMPORT_FILE_NAME, IMPORT_FILE_TEXT, SUMMARIZE_DOCUMENT_DESCRIBED } from "../src/workflows/fixture";
 
 /** Where the Workflows screenshot lands, for review against the 'Chosen — Workflows' board. */
 const SCREENSHOT = process.env.WORKFLOWS_SCREENSHOT ?? "test-results/workflows.png";
@@ -12,7 +12,7 @@ async function agentState(page: Page) {
   return JSON.parse((await page.locator("#agent-state").textContent()) ?? "{}");
 }
 
-async function open(page: Page, path = "/workflows?id=review-pr") {
+async function open(page: Page, path = "/workflows?id=summarize-document") {
   // The canvas scenarios drive the Detailed (steps) view; a workflow opens in Simple by default.
   await withView(page);
   await mockApi(page);
@@ -49,7 +49,7 @@ test.describe("Workflows tab", () => {
   test("matches the 'Chosen — Workflows' board layout (screenshot)", async ({ page }) => {
     await open(page);
     // Head: Fraunces 40px title, version chip, Import / Export / repo picker / Run.
-    const h1 = page.getByRole("heading", { level: 1, name: "Review PR" });
+    const h1 = page.getByRole("heading", { level: 1, name: "Summarize document" });
     expect(await h1.evaluate((el) => getComputedStyle(el).fontSize)).toBe("40px");
     expect(await h1.evaluate((el) => getComputedStyle(el).fontFamily)).toContain("Fraunces");
     await expect(page.getByText("v3", { exact: true })).toBeVisible();
@@ -58,12 +58,12 @@ test.describe("Workflows tab", () => {
     }
     await expect(page.getByRole("button", { name: /agentculture\/workflows/ })).toBeVisible();
 
-    // Columns left to right: in | Fetch diff, Run tests | Review | Decide | out.
+    // Columns left to right: in | Fetch text, Check text | Review | Decide | out.
     const x = async (name: string) => (await step(page, name).boundingBox())!.x;
-    const order = ["Inputs", "Fetch diff", "Review", "Decide", "Outputs"];
+    const order = ["Inputs", "Fetch text", "Review", "Decide", "Outputs"];
     const xs = await Promise.all(order.map(x));
     expect([...xs].sort((a, b) => a - b)).toEqual(xs);
-    expect(Math.abs((await x("Run tests")) - (await x("Fetch diff")))).toBeLessThan(4);
+    expect(Math.abs((await x("Check text")) - (await x("Fetch text")))).toBeLessThan(4);
 
     // Stage shapes: 190px cards; Decide (logic) dashed; in/out dashed with no shadow.
     const box = (await step(page, "Review").boundingBox())!;
@@ -77,9 +77,9 @@ test.describe("Workflows tab", () => {
     // Machine colors on the card headers: spark teal, thor amber, spark2 blue.
     const head = (name: string) =>
       step(page, name).locator(".wf-card__machine").evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(await head("Fetch diff")).toBe("rgb(227, 241, 238)");
+    expect(await head("Fetch text")).toBe("rgb(227, 241, 238)");
     expect(await head("Review")).toBe("rgb(251, 234, 223)");
-    expect(await head("Run tests")).toBe("rgb(230, 233, 248)");
+    expect(await head("Check text")).toBe("rgb(230, 233, 248)");
 
     // Type scale: step names 17px bold.
     const name = step(page, "Review").locator(".wf-card__name");
@@ -91,10 +91,10 @@ test.describe("Workflows tab", () => {
     await expect(page.locator(".wf-canvas [data-port]")).toHaveCount(0);
     await expect(page.locator(".react-flow__edge")).toHaveCount(7);
     await expect(page.getByRole("img", { name: "2 connections", exact: true })).toHaveText("2");
-    expect(await dash(edge(page, "bundle:fetch-diff->review"))).toBe("7px, 6px");
+    expect(await dash(edge(page, "bundle:fetch-text->review"))).toBe("7px, 6px");
     expect(await dash(edge(page, "bundle:review->outputs"))).toBe("7px, 6px");
     expect(await dash(edge(page, "bundle:decide->outputs"))).toBe("none");
-    expect(await dash(edge(page, "bundle:inputs->run-tests"))).toBe("none");
+    expect(await dash(edge(page, "bundle:inputs->check-text"))).toBe("none");
     await expect(page.getByText("crosses machines")).toBeVisible();
     await expect(page.getByRole("button", { name: "Add step" })).toBeVisible();
 
@@ -106,10 +106,10 @@ test.describe("Workflows tab", () => {
     expect(await port.evaluate((el) => getComputedStyle(el).fontSize)).toBe("14px");
     await expect(step(page, "Review").locator("[data-port]")).toHaveCount(3);
     await expect(page.locator(".react-flow__edge")).toHaveCount(7);
-    expect(await dash(edge(page, "fetch-diff.diff->review.diff"))).toBe("7px, 6px");
+    expect(await dash(edge(page, "fetch-text.diff->review.diff"))).toBe("7px, 6px");
     expect(await dash(edge(page, "review.owner->outputs.owner"))).toBe("7px, 6px");
     expect(await dash(edge(page, "bundle:decide->outputs"))).toBe("none");
-    await expect(edge(page, "bundle:fetch-diff->review")).toHaveCount(0);
+    await expect(edge(page, "bundle:fetch-text->review")).toHaveCount(0);
     await page.mouse.move(0, 0);
     // The selection ring is a 3px ink outline once its transition settles.
     await expect
@@ -127,21 +127,21 @@ test.describe("Workflows tab", () => {
     await dialog.getByRole("combobox", { name: "Machine" }).selectOption("spark");
     await dialog.getByRole("button", { name: "Apply" }).click();
     await expect(step(page, "Review").getByRole("button", { name: "on spark" })).toBeVisible();
-    // Fetch diff (spark) -> Review (now spark) is no longer a hop.
-    await expect.poll(() => dash(edge(page, "fetch-diff.diff->review.diff"))).toBe("none");
+    // Fetch text (spark) -> Review (now spark) is no longer a hop.
+    await expect.poll(() => dash(edge(page, "fetch-text.diff->review.diff"))).toBe("none");
     await expect(step(page, "Review")).toHaveAttribute("data-machine-slot", "0");
 
-    const toggle = step(page, "Run tests").getByRole("switch", { name: "Run tests enabled" });
+    const toggle = step(page, "Check text").getByRole("switch", { name: "Check text enabled" });
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
 
     await page.getByRole("button", { name: "Save" }).click();
     await expect.poll(() => calls.filter((c) => c.method === "PUT").length).toBe(1);
     const put = calls.find((c) => c.method === "PUT")!;
-    expect(put.path).toBe("/api/workflows/review-pr");
+    expect(put.path).toBe("/api/workflows/summarize-document");
     const body = put.body as { steps: { id: string; placement: unknown; enabled: boolean }[] };
     expect(body.steps.find((s) => s.id === "review")!.placement).toEqual({ machine: "spark" });
-    expect(body.steps.find((s) => s.id === "run-tests")!.enabled).toBe(false);
+    expect(body.steps.find((s) => s.id === "check-text")!.enabled).toBe(false);
     await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
   });
 
@@ -154,30 +154,30 @@ test.describe("Workflows tab", () => {
     await step(page, "Review").locator(".wf-card__name").click();
     await expect(handle("Review", "in:diff")).toHaveAttribute("data-port-type", "string");
 
-    // boolean -> string: refused. Drag from the selected Run tests onto the compact Review.
-    await step(page, "Run tests").locator(".wf-card__name").click();
+    // boolean -> string: refused. Drag from the selected Check text onto the compact Review.
+    await step(page, "Check text").locator(".wf-card__name").click();
     await expect(handle("Review", "in:diff")).toHaveCount(0);
-    await dragWire(page, handle("Run tests", "out:passed"), step(page, "Review"), "in:diff");
+    await dragWire(page, handle("Check text", "out:passed"), step(page, "Review"), "in:diff");
     await expect(page.getByText(/Not wired: cannot wire passed/)).toBeVisible();
     // The drop target collapses again once the drag ends.
     await expect(handle("Review", "in:diff")).toHaveCount(0);
     await step(page, "Review").locator(".wf-card__name").click();
-    await expect(edge(page, "run-tests.passed->review.diff")).toHaveCount(0);
-    await expect(edge(page, "fetch-diff.diff->review.diff")).toHaveCount(1);
+    await expect(edge(page, "check-text.passed->review.diff")).toHaveCount(0);
+    await expect(edge(page, "fetch-text.diff->review.diff")).toHaveCount(1);
 
     // string -> string: wires, replacing what fed Review's diff. Dragged the other way,
     // from the selected Review's input onto the compact Inputs card.
     await dragWire(page, handle("Review", "in:diff"), step(page, "Inputs"), "out:repo");
     await expect(edge(page, "inputs.repo->review.diff")).toHaveCount(1);
-    await expect(edge(page, "fetch-diff.diff->review.diff")).toHaveCount(0);
+    await expect(edge(page, "fetch-text.diff->review.diff")).toHaveCount(0);
   });
 
   test("deletes a step and adds one", async ({ page }) => {
     await open(page);
-    await step(page, "Run tests").locator(".wf-card__name").click();
-    await page.getByRole("button", { name: "Delete Run tests" }).click();
-    await expect(step(page, "Run tests")).toHaveCount(0);
-    await expect(edge(page, "run-tests.passed->decide.passed")).toHaveCount(0);
+    await step(page, "Check text").locator(".wf-card__name").click();
+    await page.getByRole("button", { name: "Delete Check text" }).click();
+    await expect(step(page, "Check text")).toHaveCount(0);
+    await expect(edge(page, "check-text.passed->decide.passed")).toHaveCount(0);
     await page.getByRole("button", { name: "Add step" }).click();
     await expect(step(page, "New step")).toBeVisible();
     expect((await agentState(page)).workflows.dirty).toBe(true);
@@ -211,7 +211,7 @@ test.describe("Workflows tab", () => {
     await page.getByRole("button", { name: /agentculture\/rules-lab/ }).click();
     await page.getByRole("button", { name: "Export to repo" }).click();
     const exportPlan = page.getByRole("dialog", { name: "Export plan" });
-    await expect(exportPlan).toContainText("workflows/review-pr.json");
+    await expect(exportPlan).toContainText("workflows/summarize-document.json");
     await exportPlan.getByRole("button", { name: "Apply export" }).click();
     await expect(page.getByText(/Exported 1 change to agentculture\/rules-lab \(0123456\)/)).toBeVisible();
     const toRepo = calls.filter((c) => c.method === "POST" && c.path === "/api/export").map((c) => c.body);
@@ -233,13 +233,13 @@ test.describe("Workflows tab", () => {
   });
 
   test("a run lights its path with each step's host and outcome (persisted run state)", async ({ page }) => {
-    const calls = await open(page, "/workflows?id=review-pr&run=run-7");
+    const calls = await open(page, "/workflows?id=summarize-document&run=run-7");
     expect(calls.some((c) => c.path === "/api/runs/run-7")).toBe(true);
     await expect(step(page, "Decide")).toHaveAttribute("data-run-status", "failed");
     await expect(step(page, "Decide")).toContainText("failed on spark");
     await expect(step(page, "Review")).toContainText("succeeded on thor");
-    await expect(step(page, "Run tests")).toContainText("succeeded on spark2");
-    await expect(step(page, "Fetch diff")).toContainText("succeeded on spark");
+    await expect(step(page, "Check text")).toContainText("succeeded on spark2");
+    await expect(step(page, "Fetch text")).toContainText("succeeded on spark");
     // Bundles are lit when a wire in them is; selected, Review's own wires are lit port to port.
     await expect(edge(page, "bundle:review->decide")).toHaveClass(/is-lit/);
     await expect(edge(page, "bundle:decide->outputs")).not.toHaveClass(/is-lit/);
@@ -266,7 +266,7 @@ test.describe("Workflows tab", () => {
   });
 
   test("axe: no serious or critical violations, also with a run and an open editor", async ({ page }) => {
-    await open(page, "/workflows?id=review-pr&run=run-7");
+    await open(page, "/workflows?id=summarize-document&run=run-7");
     const check = async (label: string) => {
       const results = await new AxeBuilder({ page }).analyze();
       const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
@@ -390,13 +390,13 @@ test.describe("Workflows tab", () => {
   test("(i) on the head: mouse and keyboard, the API's lines, focus return (d19)", async ({ page }) => {
     await open(page);
     const head = page.locator(".wf-head");
-    const about = head.getByRole("button", { name: "About Review PR" });
+    const about = head.getByRole("button", { name: "About Summarize document" });
     const box = (await about.boundingBox())!;
     expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(36); // 44px hit area via d4
     await expect(about).toHaveAttribute("aria-expanded", "false");
     await about.click();
-    const panel = head.getByRole("dialog", { name: "About Review PR" });
-    await expect(panel.getByTestId("about-lines")).toHaveText(REVIEW_PR_DESCRIBED.lines.join("\n"));
+    const panel = head.getByRole("dialog", { name: "About Summarize document" });
+    await expect(panel.getByTestId("about-lines")).toHaveText(SUMMARIZE_DOCUMENT_DESCRIBED.lines.join("\n"));
     await expect(panel).toBeFocused();
     expect(await panel.getByTestId("about-lines").evaluate((el) => getComputedStyle(el).whiteSpace)).toBe("pre");
     const results = await new AxeBuilder({ page }).analyze();
@@ -415,18 +415,18 @@ test.describe("Workflows tab", () => {
   });
 
   test("(i) panels stay inside the window beside a long description (d19)", async ({ page }) => {
-    // The shipped pr-fixer workflow's lines: the longest description the bundle produces.
+    // A long nested document pipeline exercises panel placement and scrolling.
     const lines = [
-      "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
-      "2 threads — github.threads as github-app: unresolved threads by trusted authors",
-      "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:",
-      "  3.1 agent — qwen-fixer (agent)",
-      "  3.2 gate — test gate on spark2",
-      "  3.3 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false",
-      "  3.4 verdict — review verdict, recorded for github.push",
-      "4 push — github.push as github-app on spark2 (only on a passing gate and an approving review)",
-      "5 pick — github.threads_addressed",
-      "6 replies — for each item (≤200): github.review_reply as github-app and resolve",
+      "1 read — read the source document from the configured content root",
+      "2 extract — extract paragraphs and their source references",
+      "3 sections — for each section (up to 200), preserving source order:",
+      "  3.1 summarise — document-agent (agent)",
+      "  3.2 validate — check required fields on spark2",
+      "  3.3 format — render the summary and references as Markdown with a heading and source links",
+      "  3.4 collect — keep the rendered section for the complete document",
+      "4 render — assemble the sections and title into the final document",
+      "5 publish — library.push as library-app",
+      "6 notify — github.comment as github-app with the published item link",
     ];
     await open(page);
     // Registered last, so it wins over the fixture for every workflow's describe.
@@ -434,17 +434,17 @@ test.describe("Workflows tab", () => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ id: "review-pr", kind: "workflow", lines, entries: [] }),
+        body: JSON.stringify({ id: "summarize-document", kind: "workflow", lines, entries: [] }),
       }),
     );
     for (const width of [1280, 1000, 800]) {
       await page.setViewportSize({ width, height: 880 });
       // The head's (i) on the open workflow (the overview's chain section, with its row (i), is gone: d13).
-      for (const [path, scope] of [["/workflows?id=review-pr", page.locator(".wf-head")]] as const) {
+      for (const [path, scope] of [["/workflows?id=summarize-document", page.locator(".wf-head")]] as const) {
         await page.goto(path);
-        const about = scope.getByRole("button", { name: "About Review PR" });
+        const about = scope.getByRole("button", { name: "About Summarize document" });
         await about.click();
-        const panel = scope.getByRole("dialog", { name: "About Review PR" });
+        const panel = scope.getByRole("dialog", { name: "About Summarize document" });
         await expect(panel.getByTestId("about-lines")).toHaveText(lines.join("\n"));
         const box = (await panel.boundingBox())!;
         expect(box.x, `left at ${width}px`).toBeGreaterThanOrEqual(0);
@@ -473,8 +473,8 @@ test.describe("Workflows tab", () => {
   test("(i) docks to the bottom of the screen at phone width (d19)", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 800 });
     await open(page);
-    await page.locator(".wf-head").getByRole("button", { name: "About Review PR" }).click();
-    const panel = page.locator(".wf-head").getByRole("dialog", { name: "About Review PR" });
+    await page.locator(".wf-head").getByRole("button", { name: "About Summarize document" }).click();
+    const panel = page.locator(".wf-head").getByRole("dialog", { name: "About Summarize document" });
     await expect(panel.getByTestId("about-lines")).toBeVisible();
     const b = (await panel.boundingBox())!;
     expect(b.x).toBeGreaterThanOrEqual(0);

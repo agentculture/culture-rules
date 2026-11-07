@@ -5,28 +5,28 @@ import { AboutButton } from "./AboutButton";
 import { mockFetch } from "../test/mockApi";
 
 const LINES = [
-  "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
-  "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:",
-  "  3.1 agent — qwen-fixer (agent)",
+  "1 read — read the document from the configured content root",
+  "3 sections — for each section, preserving source order:",
+  "  3.1 agent — document-agent (agent)",
 ];
 
 function setup(status = 200, stale = false) {
   const api = mockFetch({
-    "/api/workflows/pr-fixer/describe": {
+    "/api/workflows/document-chain/describe": {
       status,
       body:
         status === 200
-          ? { id: "pr-fixer", kind: "workflow", lines: LINES, entries: [] }
-          : { error: { code: "not_found", message: "workflows/pr-fixer does not exist", errors: [] } },
+          ? { id: "document-chain", kind: "workflow", lines: LINES, entries: [] }
+          : { error: { code: "not_found", message: "workflows/document-chain does not exist", errors: [] } },
     },
   });
   render(
     <div>
-      <AboutButton noun="workflows" id="pr-fixer" name="PR fixer" stale={stale} />
+      <AboutButton noun="workflows" id="document-chain" name="Document chain" stale={stale} />
       <button type="button">elsewhere</button>
     </div>,
   );
-  return { ...api, button: screen.getByRole("button", { name: "About PR fixer" }) };
+  return { ...api, button: screen.getByRole("button", { name: "About Document chain" }) };
 }
 
 describe("AboutButton (d19)", () => {
@@ -47,13 +47,13 @@ describe("AboutButton (d19)", () => {
     const { button, calls } = setup();
     await userEvent.click(button);
     expect(button).toHaveAttribute("aria-expanded", "true");
-    const panel = screen.getByRole("dialog", { name: "About PR fixer" });
+    const panel = screen.getByRole("dialog", { name: "About Document chain" });
     expect(panel).toHaveAttribute("aria-modal", "false");
     expect(panel.id).toBe(button.getAttribute("aria-controls"));
     const pre = await within(panel).findByTestId("about-lines");
     expect(pre.tagName).toBe("PRE");
     expect(pre.textContent).toBe(LINES.join("\n"));
-    expect(calls).toEqual(["/api/workflows/pr-fixer/describe"]);
+    expect(calls).toEqual(["/api/workflows/document-chain/describe"]);
     expect(panel).toHaveFocus(); // focus moves into the panel
     await userEvent.click(button);
     expect(button).toHaveAttribute("aria-expanded", "false");
@@ -64,7 +64,7 @@ describe("AboutButton (d19)", () => {
     const { button } = setup();
     button.focus();
     await user.keyboard("{Enter}");
-    const panel = screen.getByRole("dialog", { name: "About PR fixer" });
+    const panel = screen.getByRole("dialog", { name: "About Document chain" });
     await within(panel).findByTestId("about-lines");
     expect(panel).toHaveFocus();
     await user.keyboard("{Escape}");
@@ -104,8 +104,8 @@ describe("AboutButton (d19)", () => {
 
   it("names a failed call, and notes the saved version for a dirty draft", async () => {
     setup(404);
-    await userEvent.click(screen.getByRole("button", { name: "About PR fixer" }));
-    expect(await screen.findByText("workflows/pr-fixer does not exist")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "About Document chain" }));
+    expect(await screen.findByText("workflows/document-chain does not exist")).toBeInTheDocument();
   });
 
   it("a stale description says it is the saved version", async () => {
@@ -124,7 +124,7 @@ describe("AboutButton (d19)", () => {
           new Promise<Response>((resolve) => {
             pending.push((lines) =>
               resolve(
-                new Response(JSON.stringify({ id: "pr-fixer", kind: "workflow", lines, entries: [] }), {
+                new Response(JSON.stringify({ id: "document-chain", kind: "workflow", lines, entries: [] }), {
                   status: 200,
                   headers: { "content-type": "application/json" },
                 }),
@@ -133,8 +133,8 @@ describe("AboutButton (d19)", () => {
           }),
       ),
     );
-    render(<AboutButton noun="workflows" id="pr-fixer" name="PR fixer" />);
-    const button = screen.getByRole("button", { name: "About PR fixer" });
+    render(<AboutButton noun="workflows" id="document-chain" name="Document chain" />);
+    const button = screen.getByRole("button", { name: "About Document chain" });
     await userEvent.click(button);
     expect(screen.getByText("Reading…")).toBeInTheDocument(); // nothing shown yet: say so
     await act(async () => pending[0](["1 old"]));

@@ -52,7 +52,7 @@ export function defFor(workflowId: string, def?: WorkflowDef): WorkflowDef {
 }
 
 export function renderEditors(props: RenderProps = {}) {
-  const workflow = defFor(props.workflowId ?? "pr-fix", props.def);
+  const workflow = defFor(props.workflowId ?? "prepare-document", props.def);
   return render(
     <MemoryRouter>
       <EntryEditors workflow={workflow} entry={props.entry} live={props.live} />

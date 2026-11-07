@@ -55,7 +55,7 @@ describe("buildLanes", () => {
       { label: "Mem", value: 61 },
     ]);
     expect(spark.running).toEqual([
-      { step: "Fetch diff", workflow: "Review PR" },
+      { step: "Fetch text", workflow: "Summarize document" },
       { step: "Decide", workflow: "Triage" },
     ]);
     expect(thor.queue).toBe(4);

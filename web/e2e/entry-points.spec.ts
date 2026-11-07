@@ -57,7 +57,7 @@ test.describe("Entry points (the Rules tab, folded into Workflows)", () => {
     await expect(card.locator(".fold-entry__trigger")).toContainText("Push to main");
     await expect(card.getByRole("list", { name: "Only if all of" })).toContainText("verdict");
     const rel = card.getByTestId("relationship");
-    await expect(rel).toContainText("must run after Review on approve");
+    await expect(rel).toContainText("must run after Summarize on request");
     expect(await rel.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe("dashed");
     const y = async (l: Locator) => (await l.boundingBox())!.y;
     expect(await y(card.locator(".fold-entry__trigger"))).toBeLessThan(await y(card.getByRole("list", { name: "Only if all of" })));
@@ -149,8 +149,8 @@ test.describe("Entry points (the Rules tab, folded into Workflows)", () => {
   });
 
   test("must-after shows on both entry points and is removable from the other end", async ({ page }) => {
-    const api = await openAt(page, "review-on-approve", "Review on approve", apiWith("review-on-approve"));
-    const card = entry(page, "Review on approve");
+    const api = await openAt(page, "summarize-on-request", "Summarize on request", apiWith("summarize-on-request"));
+    const card = entry(page, "Summarize on request");
     await expect(card.getByRole("button", { name: /^Run order \(1\)/ })).toBeVisible();
     await expect(card.getByTestId("relationship")).toContainText("Build and publish must run after this");
     await card.getByRole("button", { name: /^Remove/ }).click();
@@ -197,7 +197,7 @@ test.describe("Entry points (the Rules tab, folded into Workflows)", () => {
     await expect(form).toContainText("When does this happen?");
     await form.getByLabel("Name").fill("Disk is nearly full");
     await form.getByLabel("Surface").selectOption("github-app");
-    await form.getByLabel("Event", { exact: true }).selectOption("github.push");
+    await form.getByLabel("Event", { exact: true }).selectOption("github.pr.closed");
     await form.getByRole("button", { name: "Create rule" }).click();
     // D7 at once: a stepless workflow of its own, opened with the rule as its entry point.
     await expect(page).toHaveURL(/\/workflows\?id=disk-is-nearly-full/);

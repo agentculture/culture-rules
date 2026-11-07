@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkflowDef } from "../../api/workflows";
-import { REVIEW_PR } from "../fixture";
+import { SUMMARIZE_DOCUMENT } from "../fixture";
 import { allLinks, debugColumns, debugPorts, portLinks, portRef, unboundRequired } from "./ports";
 
 describe("the Debug view's port model", () => {
@@ -12,17 +12,17 @@ describe("the Debug view's port model", () => {
   });
 
   it("lists every input and output port with its type and what it reads", () => {
-    const ports = debugPorts(REVIEW_PR);
+    const ports = debugPorts(SUMMARIZE_DOCUMENT);
     const refs = ports.map((p) => p.ref);
     // 2 workflow inputs, 4 steps' 6 inputs and 5 outputs, 2 workflow outputs
     expect(refs).toHaveLength(2 + 6 + 5 + 2);
     expect(new Set(refs).size).toBe(refs.length);
     const byRef = new Map(ports.map((p) => [p.ref, p]));
     expect(byRef.get("inputs.pr")).toMatchObject({ type: "integer", reads: null, exported: false });
-    expect(byRef.get("steps.fetch-diff.inputs.pr")).toMatchObject({ type: "integer", reads: "inputs.pr" });
+    expect(byRef.get("steps.fetch-text.inputs.pr")).toMatchObject({ type: "integer", reads: "inputs.pr" });
     expect(byRef.get("steps.review.inputs.diff")).toMatchObject({
       type: "string",
-      reads: "steps.fetch-diff.outputs.diff",
+      reads: "steps.fetch-text.outputs.diff",
     });
     expect(byRef.get("steps.review.outputs.owner")).toMatchObject({ type: "string", exported: true });
     expect(byRef.get("outputs.verdict")).toMatchObject({ type: "string", reads: "steps.decide.outputs.verdict" });
@@ -42,21 +42,21 @@ describe("the Debug view's port model", () => {
   });
 
   it("puts each step in the column after everything it reads", () => {
-    const cols = debugColumns(REVIEW_PR).map((c) => c.map((g) => g.id));
-    expect(cols).toEqual([["inputs"], ["fetch-diff", "run-tests"], ["review"], ["decide"], ["outputs"]]);
+    const cols = debugColumns(SUMMARIZE_DOCUMENT).map((c) => c.map((g) => g.id));
+    expect(cols).toEqual([["inputs"], ["fetch-text", "check-text"], ["review"], ["decide"], ["outputs"]]);
   });
 
   it("links a step output upstream to its step's inputs and their sources", () => {
-    const links = portLinks(REVIEW_PR, "steps.review.outputs.findings");
+    const links = portLinks(SUMMARIZE_DOCUMENT, "steps.review.outputs.findings");
     expect([...links.upstream].sort()).toEqual(
-      ["steps.fetch-diff.outputs.diff", "steps.review.inputs.diff"].sort(),
+      ["steps.fetch-text.outputs.diff", "steps.review.inputs.diff"].sort(),
     );
     expect([...links.downstream]).toEqual(["steps.decide.inputs.findings"]);
   });
 
   it("links a step input upstream to its source and downstream to its step's outputs and their readers", () => {
-    const links = portLinks(REVIEW_PR, "steps.review.inputs.diff");
-    expect([...links.upstream]).toEqual(["steps.fetch-diff.outputs.diff"]);
+    const links = portLinks(SUMMARIZE_DOCUMENT, "steps.review.inputs.diff");
+    expect([...links.upstream]).toEqual(["steps.fetch-text.outputs.diff"]);
     expect([...links.downstream].sort()).toEqual(
       [
         "steps.review.outputs.findings",
@@ -68,15 +68,15 @@ describe("the Debug view's port model", () => {
   });
 
   it("links a workflow input to every port that reads it, and an output to its source", () => {
-    expect([...portLinks(REVIEW_PR, "inputs.repo").downstream].sort()).toEqual(
-      ["steps.fetch-diff.inputs.repo", "steps.run-tests.inputs.repo"].sort(),
+    expect([...portLinks(SUMMARIZE_DOCUMENT, "inputs.repo").downstream].sort()).toEqual(
+      ["steps.fetch-text.inputs.repo", "steps.check-text.inputs.repo"].sort(),
     );
-    expect([...portLinks(REVIEW_PR, "inputs.repo").upstream]).toEqual([]);
-    expect([...portLinks(REVIEW_PR, "outputs.verdict").upstream]).toEqual(["steps.decide.outputs.verdict"]);
+    expect([...portLinks(SUMMARIZE_DOCUMENT, "inputs.repo").upstream]).toEqual([]);
+    expect([...portLinks(SUMMARIZE_DOCUMENT, "outputs.verdict").upstream]).toEqual(["steps.decide.outputs.verdict"]);
   });
 
   it("follows everything downstream on request", () => {
-    const all = portLinks(REVIEW_PR, "steps.fetch-diff.outputs.diff", { everything: true }).downstream;
+    const all = portLinks(SUMMARIZE_DOCUMENT, "steps.fetch-text.outputs.diff", { everything: true }).downstream;
     expect([...all].sort()).toEqual(
       [
         "steps.review.inputs.diff",
@@ -91,11 +91,11 @@ describe("the Debug view's port model", () => {
   });
 
   it("counts required step inputs that read nothing", () => {
-    expect(unboundRequired(REVIEW_PR)).toEqual([]);
+    expect(unboundRequired(SUMMARIZE_DOCUMENT)).toEqual([]);
     const wf: WorkflowDef = {
-      ...REVIEW_PR,
+      ...SUMMARIZE_DOCUMENT,
       steps: [
-        ...(REVIEW_PR.steps ?? []),
+        ...(SUMMARIZE_DOCUMENT.steps ?? []),
         { id: "late", kind: "code", inputs: [{ name: "need", type: "string", required: true }], outputs: [] },
       ],
     };
@@ -147,9 +147,9 @@ describe("the Debug view's port model", () => {
   });
 
   describe("loops, as culture_rules/engine/runs.py runs them", () => {
-    const fixer: WorkflowDef = {
-      id: "pr-fix",
-      name: "pr-fix",
+    const processor: WorkflowDef = {
+      id: "prepare-document",
+      name: "prepare-document",
       inputs: [
         { name: "instruction", type: "string" },
         { name: "base_sha", type: "string" },
@@ -202,12 +202,12 @@ describe("the Debug view's port model", () => {
       ],
       outputs: [{ name: "verdict", type: "string", source: "steps.fix.outputs.verdict" }],
     };
-    const byRef = new Map(debugPorts(fixer).map((p) => [p.ref, p]));
+    const byRef = new Map(debugPorts(processor).map((p) => [p.ref, p]));
 
     it("an edge from the parent loop reads the loop's input, not an output", () => {
       expect(byRef.get("steps.gate.inputs.base")).toMatchObject({ reads: "steps.fix.inputs.base_sha", byName: false });
-      expect([...portLinks(fixer, "steps.fix.inputs.base_sha").downstream]).toContain("steps.gate.inputs.base");
-      expect([...portLinks(fixer, "steps.gate.inputs.base").upstream]).toContain("steps.fix.inputs.base_sha");
+      expect([...portLinks(processor, "steps.fix.inputs.base_sha").downstream]).toContain("steps.gate.inputs.base");
+      expect([...portLinks(processor, "steps.gate.inputs.base").upstream]).toContain("steps.fix.inputs.base_sha");
     });
 
     it("a carried input takes the previous try's result field", () => {
@@ -216,21 +216,21 @@ describe("the Debug view's port model", () => {
         byName: true,
         carried: [{ ref: "steps.gate.outputs.instruction", conditional: false, behindWire: false }],
       });
-      expect([...portLinks(fixer, "steps.gate.outputs.instruction").downstream]).toContain(
+      expect([...portLinks(processor, "steps.gate.outputs.instruction").downstream]).toContain(
         "steps.agent.inputs.instruction",
       );
-      expect([...portLinks(fixer, "steps.agent.inputs.instruction").upstream]).toContain(
+      expect([...portLinks(processor, "steps.agent.inputs.instruction").upstream]).toContain(
         "steps.gate.outputs.instruction",
       );
     });
 
     it("index and iteration are the engine's, over a loop input of the same name", () => {
       expect(byRef.get("steps.agent.inputs.index")).toMatchObject({ reads: "loop.index", byName: true });
-      expect([...portLinks(fixer, "steps.fix.inputs.index").downstream]).not.toContain("steps.agent.inputs.index");
+      expect([...portLinks(processor, "steps.fix.inputs.index").downstream]).not.toContain("steps.agent.inputs.index");
     });
 
     it("a retry loop's outputs come only from its final body step", () => {
-      const up = [...portLinks(fixer, "steps.fix.outputs.verdict").upstream];
+      const up = [...portLinks(processor, "steps.fix.outputs.verdict").upstream];
       expect(up).toContain("steps.gate.outputs.verdict");
       expect(up).not.toContain("steps.agent.outputs.verdict");
     });
@@ -399,7 +399,7 @@ describe("the Debug view's port model", () => {
     });
 
     it("an unwired, unfilled input has no fallback", () => {
-      expect(debugPorts(REVIEW_PR).every((p) => p.fallback === null)).toBe(true);
+      expect(debugPorts(SUMMARIZE_DOCUMENT).every((p) => p.fallback === null)).toBe(true);
     });
 
     it("a loop input wired to a body input of its own name is one link, the wire", () => {

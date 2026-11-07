@@ -17,9 +17,9 @@ import { VIEW_MODE_KEY } from "../workflows/views/mode";
 import {
   ACTORS,
   REPOS,
-  REVIEW_PR,
-  REVIEW_PR_ID,
-  REVIEW_RULE_ID,
+  SUMMARIZE_DOCUMENT,
+  SUMMARIZE_DOCUMENT_ID,
+  SUMMARY_RULE_ID,
   WORKFLOW_DOCS,
   WORKFLOW_RULES,
   workflowRunsFor,
@@ -33,7 +33,7 @@ import {
 const NOW = Date.parse("2026-10-03T12:00:00Z");
 
 const describeBody = (start: string) => ({
-  id: "review-pr",
+  id: "summarize-document",
   kind: "workflow",
   lines: [],
   entries: [],
@@ -46,8 +46,8 @@ function routes(overrides: ApiRoutes = {}): ApiRoutes {
     "/api/rules": { body: { items: WORKFLOW_RULES } },
     "/api/machines": { body: { items: MACHINES } },
     "/api/workflows": { body: { items: WORKFLOW_DOCS } },
-    "/api/workflows/review-pr": { body: REVIEW_PR },
-    "/api/workflows/review-pr/describe": { body: describeBody("It starts when github.pull_request_review arrives.") },
+    "/api/workflows/summarize-document": { body: SUMMARIZE_DOCUMENT },
+    "/api/workflows/summarize-document/describe": { body: describeBody("It starts when github.pull_request_review arrives.") },
     "/api/actors": { body: { items: ACTORS } },
     "/api/runs": { body: { items: workflowRunsFor(NOW) } },
     "/api/repos": { body: { items: REPOS } },
@@ -95,7 +95,7 @@ describe("Workflows, folded (t8)", () => {
   });
 
   it("a workflow opens in the Simple view, at the entry point asked for, with the switch to Detailed and Debug", async () => {
-    renderAt(`/workflows?id=${REVIEW_PR_ID}&entry=${REVIEW_RULE_ID}`);
+    renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}&entry=${SUMMARY_RULE_ID}`);
     const group = await screen.findByRole("group", { name: "Canvas view" });
     expect(within(group).getByRole("button", { name: "Simple" })).toHaveAttribute("aria-pressed", "true");
     // The Simple view (not its placeholder) is mounted, with this workflow's paragraph.
@@ -103,12 +103,12 @@ describe("Workflows, folded (t8)", () => {
     expect(await screen.findByText("It starts when github.pull_request_review arrives.")).toBeInTheDocument();
     await waitFor(() =>
       expect(getAgentState().workflows).toMatchObject({
-        selected: REVIEW_PR_ID,
-        entry: REVIEW_RULE_ID,
+        selected: SUMMARIZE_DOCUMENT_ID,
+        entry: SUMMARY_RULE_ID,
         view: "simple",
       }),
     );
-    expect(getAgentState().workflows?.entries).toContain(REVIEW_RULE_ID);
+    expect(getAgentState().workflows?.entries).toContain(SUMMARY_RULE_ID);
     await userEvent.click(within(group).getByRole("button", { name: "Debug" }));
     await waitFor(() => expect(getAgentState().workflows?.view).toBe("debug"));
   });
@@ -121,15 +121,15 @@ describe("Workflows, folded (t8)", () => {
   });
 
   it("New rule opens the rule form in place of the Rules tab's", async () => {
-    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
     const list = await screen.findByRole("complementary");
     await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
     expect(await screen.findByText(/When does this happen\?/)).toBeInTheDocument();
-    expect(where).toBe(`/workflows?id=${REVIEW_PR_ID}`);
+    expect(where).toBe(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
   });
 
   it("while New rule or the D7 place is shown, the head names it and offers no workflow's delete or run", async () => {
-    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
     const list = await screen.findByRole("complementary");
     await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
     expect(await screen.findByRole("heading", { level: 1, name: "New rule" })).toBeInTheDocument();
@@ -207,7 +207,7 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
   });
 
   it("the Simple view and the list share one live stream, and a rules change reaches both", async () => {
-    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
     await screen.findByText("It starts when github.pull_request_review arrives.");
     const open = FakeEventSource.instances.filter((s) => !s.closed);
     expect(open).toHaveLength(1);
@@ -216,8 +216,8 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
       "asks", "rule_decisions", "rules", "runs", "workflows",
     ]);
 
-    // A new entry point for review-pr arrives: the Simple view reads its paragraph again.
-    api["/api/workflows/review-pr/describe"] = { body: describeBody("It starts when two things arrive.") };
+    // A new entry point for summarize-document arrives: the Simple view reads its paragraph again.
+    api["/api/workflows/summarize-document/describe"] = { body: describeBody("It starts when two things arrive.") };
     api["/api/rules"] = {
       body: {
         items: [
@@ -226,7 +226,7 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
             id: "late-reviewer",
             name: "Late reviewer",
             trigger: { kind: "event", params: { type: "github.review.submitted" } },
-            workflow: { id: REVIEW_PR_ID, inputs: {} },
+            workflow: { id: SUMMARIZE_DOCUMENT_ID, inputs: {} },
             action: { kind: "noop" },
             enabled: true,
           },
@@ -242,7 +242,7 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
   });
 
   it("agent-state reports no view where no view switch is mounted (the D7 place, New rule), and the view again after", async () => {
-    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
     const group = await screen.findByRole("group", { name: "Canvas view" });
     await userEvent.click(within(group).getByRole("button", { name: "Debug" }));
     await waitFor(() => expect(getAgentState().workflows?.view).toBe("debug"));
@@ -344,7 +344,7 @@ describe("Workflows, folded: the Rules board's page scenarios (t9)", () => {
       selected: "build-image",
       entry: "build-and-publish",
       entries: ["build-and-publish"],
-      without_workflow: ["review-on-approve", "clean-caches", "train-batch", "triage-bugs"],
+      without_workflow: ["summarize-on-request", "clean-caches", "train-batch", "triage-bugs"],
     }));
     expect(getAgentState().rules).toMatchObject({
       count: 5,
@@ -410,7 +410,7 @@ describe("Workflows overview and pane toggle (t13)", () => {
 
   it("the pane toggle is a button with aria-expanded that works by keyboard; All workflows returns", async () => {
     const user = userEvent.setup();
-    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
     const toggle = await screen.findByRole("button", { name: "Hide workflows" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("navigation", { name: "Workflows" })).toBeInTheDocument();
@@ -429,13 +429,13 @@ describe("Workflows overview and pane toggle (t13)", () => {
   it("t21: the collapsed choice is remembered, and the open workflow remains with only the rail beside it", async () => {
     const user = userEvent.setup();
     localStorage.removeItem(PANE_KEY);
-    const first = renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    const first = renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
     await user.click(await screen.findByRole("button", { name: "Hide workflows" }));
     expect(localStorage.getItem(PANE_KEY)).toBe("collapsed");
     expect(screen.getByRole("complementary")).toHaveClass("wf-pane--rail");
-    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Summarize document" })).toBeInTheDocument();
     first.unmount();
-    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
     expect(await screen.findByRole("button", { name: "Show workflows" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("navigation", { name: "Workflows" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Show workflows" }));
@@ -445,18 +445,18 @@ describe("Workflows overview and pane toggle (t13)", () => {
   it("t21: the compact pane has no chain cards, counts or show-deleted; a linked workflow's head reaches its chain view (d13)", async () => {
     const user = userEvent.setup();
     localStorage.removeItem(PANE_KEY);
-    // A rule that starts Review PR when Build image completes: the two are one chain.
+    // A rule that starts Summarize document when Build image completes: the two are one chain.
     const base = WORKFLOW_RULES.find((r) => r.workflow?.id === "build-image")!;
     const continuation = {
       ...base,
       id: "after-build",
       name: "After build",
-      workflow: { id: REVIEW_PR_ID },
+      workflow: { id: SUMMARIZE_DOCUMENT_ID },
       trigger: { kind: "event", params: { type: "rules.run.succeeded" } },
       condition: { op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "build-image" } },
     };
     mockFetch(routes({ "/api/rules": { body: { items: [...WORKFLOW_RULES, continuation] } } }));
-    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    renderAt(`/workflows?id=${SUMMARIZE_DOCUMENT_ID}`);
     const pane = await screen.findByRole("complementary");
     expect(within(pane).queryByRole("button", { name: "Show deleted" })).toBeNull();
     expect(within(pane).queryByRole("button", { name: "See it as one chain" })).toBeNull();

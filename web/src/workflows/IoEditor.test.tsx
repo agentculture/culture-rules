@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkflowDef } from "../api/workflows";
-import { REVIEW_PR } from "./fixture";
+import { SUMMARIZE_DOCUMENT } from "./fixture";
 import { IoEditor } from "./IoEditor";
 
-function renderEditor(side: "in" | "out", start: WorkflowDef = REVIEW_PR) {
+function renderEditor(side: "in" | "out", start: WorkflowDef = SUMMARIZE_DOCUMENT) {
   const changes: WorkflowDef[] = [];
   const onClose = vi.fn();
   function Host() {
@@ -32,14 +32,14 @@ describe("IoEditor: the in node", () => {
   it("opens as the inputs editor with the workflow description", () => {
     renderEditor("in");
     const dialog = screen.getByRole("dialog", { name: "Edit inputs" });
-    expect(within(dialog).getByLabelText("Workflow description")).toHaveValue(REVIEW_PR.description);
+    expect(within(dialog).getByLabelText("Workflow description")).toHaveValue(SUMMARIZE_DOCUMENT.description);
     expect(within(dialog).getByRole("textbox", { name: "Name of input pr" })).toHaveValue("pr");
     expect(within(dialog).getByRole("combobox", { name: "Type of input pr" })).toHaveValue("integer");
     expect(within(dialog).queryByRole("group", { name: "Variables" })).toBeNull();
   });
 
   it("edits the workflow description", async () => {
-    const { last } = renderEditor("in", { ...REVIEW_PR, description: "" });
+    const { last } = renderEditor("in", { ...SUMMARIZE_DOCUMENT, description: "" });
     await userEvent.type(screen.getByLabelText("Workflow description"), "Hi");
     expect(last().description).toBe("Hi");
   });
@@ -113,10 +113,10 @@ describe("IoEditor: the out node", () => {
     await userEvent.click(screen.getByRole("button", { name: "Add output" }));
     const from = screen.getByRole("combobox", { name: "output1 comes from" });
     const labels = within(from).getAllByRole("option").map((o) => o.textContent);
-    expect(labels).toContain("Fetch diff · diff");
+    expect(labels).toContain("Fetch text · diff");
     expect(labels).toContain("Inputs · pr");
-    await userEvent.selectOptions(from, "steps.fetch-diff.outputs.diff");
-    expect(last().outputs!.at(-1)).toEqual({ name: "output1", type: "any", source: "steps.fetch-diff.outputs.diff" });
+    await userEvent.selectOptions(from, "steps.fetch-text.outputs.diff");
+    expect(last().outputs!.at(-1)).toEqual({ name: "output1", type: "any", source: "steps.fetch-text.outputs.diff" });
   });
 
   it("renames, retypes and removes outputs", async () => {

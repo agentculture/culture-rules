@@ -31,8 +31,8 @@ const TEXT = [
 ].join("\n");
 
 const WF: WorkflowDef = {
-  id: "pr-fix",
-  name: "PR fix",
+  id: "prepare-document",
+  name: "Prepare document",
   description: "Fixes a pull request.",
   steps: [
     { id: "fetch", kind: "logic", description: "Fetches the PR." },
@@ -53,7 +53,7 @@ function stubApi(paragraph: Paragraph = { segments: SEGMENTS, text: TEXT }, fail
       if (String(url).endsWith("/describe")) {
         describes += 1;
         if (fail) return body({ detail: "nope" }, 500);
-        const d: Description = { id: "pr-fix", kind: "workflow", description: "", paragraph, lines: [], entries: [] };
+        const d: Description = { id: "prepare-document", kind: "workflow", description: "", paragraph, lines: [], entries: [] };
         return body(d);
       }
       if (init?.method === "PUT") {
@@ -137,7 +137,7 @@ describe("Simple view: saves send the revision read (t16)", () => {
         const { expected_revision: _e, ...doc } = sent;
         return json({ ...doc, revision: stored });
       }
-      if (String(url).endsWith("/workflows/pr-fix")) return json({ ...WF, description: "Tab one wrote this.", revision: stored });
+      if (String(url).endsWith("/workflows/prepare-document")) return json({ ...WF, description: "Tab one wrote this.", revision: stored });
       return base(url, init);
     });
     const def = { ...WF, revision: 3 };

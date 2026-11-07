@@ -17,7 +17,7 @@ export const STAT_MACHINES: Machine[] = [
 ];
 
 export const STAT_WORKFLOWS: Workflow[] = [
-  { id: "review-pr", name: "Review PR" },
+  { id: "summarize-document", name: "Summarize document" },
   { id: "triage", name: "Triage" },
   { id: "train-batch", name: "Train batch" },
 ];
@@ -58,7 +58,7 @@ export function statRuns(now: number): RunSummary[] {
           id: `run-${machine}-${b}-${j}`,
           status: j === 0 && FAILED_HOURS[machine].includes(b) ? "failed" : "succeeded",
           rule_id: `rule-${machine}`,
-          workflow_id: "review-pr",
+          workflow_id: "summarize-document",
           started_by: "trigger",
           created_at: new Date(at - 60_000).toISOString(),
           finished_at: new Date(at).toISOString(),
@@ -77,7 +77,7 @@ export function statStatuses(now: number): MachineStatus[] {
       last_seen: new Date(now - 5_000).toISOString(),
       load: { cpu: 38, gpu: 22, mem: 61 },
       running: [
-        { step: "Fetch diff", workflow: "Review PR" },
+        { step: "Fetch text", workflow: "Summarize document" },
         { step: "Decide", workflow: "Triage" },
       ],
       queue_depth: 2,
@@ -88,7 +88,7 @@ export function statStatuses(now: number): MachineStatus[] {
       last_seen: new Date(now - 4_000).toISOString(),
       load: { cpu: 71, gpu: 92, mem: 78 },
       running: [
-        { step: "Review", workflow: "Review PR" },
+        { step: "Review", workflow: "Summarize document" },
         { step: "Train", workflow: "Train batch" },
       ],
       queue_depth: 4,

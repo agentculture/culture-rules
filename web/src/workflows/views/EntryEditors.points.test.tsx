@@ -91,7 +91,7 @@ describe("edit (was RulesEditor › edit)", () => {
     await user.clear(name);
     await user.type(name, "Ship it");
     await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
-    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.closed");
     await user.selectOptions(within(form).getByLabelText("Placement"), "spark2");
     await user.click(within(form).getByRole("button", { name: "Save" }));
 
@@ -101,11 +101,11 @@ describe("edit (was RulesEditor › edit)", () => {
     expect(put[0].body).toMatchObject({
       id: SELECTED_RULE_ID,
       name: "Ship it",
-      trigger: { kind: "event", params: { type: "github.push" } },
+      trigger: { kind: "event", params: { type: "github.pr.closed" } },
       placement: { machine: "spark2" },
       workflow: { id: "build-image" },
     });
-    expect(shipped).toHaveTextContent("github.push");
+    expect(shipped).toHaveTextContent("github.pr.closed");
     expect(screen.queryByRole("form", { name: "Edit rule" })).not.toBeInTheDocument();
   });
 
@@ -192,12 +192,12 @@ describe("relationships on both ends (was RulesEditor › relationships on both 
     const ghost = within(card).getByTestId("relationship");
     expect(ghost).toHaveAttribute("data-relation", "must_after");
     expect(ghost).toHaveAttribute("data-direction", "out");
-    expect(ghost).toHaveTextContent("must run after Review on approve");
+    expect(ghost).toHaveTextContent("must run after Summarize on request");
   });
 
   it("shows the inverse card on the other entry point, which counts it in its run order", async () => {
-    renderEntry("review-on-approve");
-    const card = await opened("Review on approve");
+    renderEntry("summarize-on-request");
+    const card = await opened("Summarize on request");
     const rel = within(card).getByTestId("relationship");
     expect(rel).toHaveAttribute("data-direction", "in");
     expect(rel).toHaveTextContent("Build and publish must run after this");
@@ -238,8 +238,8 @@ describe("relationships on both ends (was RulesEditor › relationships on both 
 
   it("removes a relationship with its x, from either end", async () => {
     const user = userEvent.setup();
-    renderEntry("review-on-approve");
-    const card = await opened("Review on approve");
+    renderEntry("summarize-on-request");
+    const card = await opened("Summarize on request");
     await user.click(within(within(card).getByTestId("relationship")).getByRole("button", { name: /^Remove/ }));
     await waitFor(() => expect(sent("PUT", "/rules/build-and-publish")).toHaveLength(1));
     expect(sent("PUT", "/rules/build-and-publish")[0].body).toMatchObject({ must_after: [] });
@@ -248,11 +248,11 @@ describe("relationships on both ends (was RulesEditor › relationships on both 
 
   it("refuses a cycle and says why", async () => {
     const user = userEvent.setup();
-    renderEntry("review-on-approve");
-    const card = await opened("Review on approve");
+    renderEntry("summarize-on-request");
+    const card = await opened("Summarize on request");
     await user.selectOptions(within(card).getByLabelText("Add must run after"), "build-and-publish");
     expect(await screen.findByRole("alert")).toHaveTextContent(/cycle/);
-    expect(sent("PUT", "/rules/review-on-approve")).toHaveLength(0);
+    expect(sent("PUT", "/rules/summarize-on-request")).toHaveLength(0);
   });
 });
 
@@ -297,11 +297,11 @@ describe("editing a typed trigger (was RulesEditor › editing a typed trigger)"
 describe("editing a typed action (was RulesEditor › editing a typed action)", () => {
   it("preselects the kind and saves a mapped param as its reference string", async () => {
     const user = userEvent.setup();
-    // Triage bugs alone starts review-pr here, so its action is the workflow's "ends here".
+    // Triage bugs alone starts summarize-document here, so its action is the workflow's "ends here".
     api = createFakeApi(NOW);
-    api.rules.find((r) => r.id === "triage-bugs")!.workflow = { id: "review-pr", inputs: {} };
+    api.rules.find((r) => r.id === "triage-bugs")!.workflow = { id: "summarize-document", inputs: {} };
     vi.stubGlobal("fetch", fetchFor(api));
-    renderEditors({ workflowId: "review-pr" });
+    renderEditors({ workflowId: "summarize-document" });
     const card = await opened("Triage bugs");
     await user.click(within(card).getByRole("button", { name: "Edit Triage bugs" }));
     const form = screen.getByRole("form", { name: "Edit rule" });
@@ -559,7 +559,7 @@ describe("the board's entry point (was routes/Rules.test › Rules board)", () =
     renderEntry();
     const card = await opened("Build and publish");
     const rel = within(card).getByTestId("relationship");
-    expect(rel).toHaveTextContent("must run after Review on approve");
+    expect(rel).toHaveTextContent("must run after Summarize on request");
     expect(rel.closest(".fold-entry__order")).not.toBeNull();
   });
 
@@ -638,8 +638,8 @@ describe("last runs show the entry point's history (was RulesLive › h78 / c97)
         rule_id: SELECTED_RULE_ID,
         event_id: "evt_7",
         reason: "superseded_by",
-        by: ["review-on-approve"],
-        message: "superseded by review-on-approve",
+        by: ["summarize-on-request"],
+        message: "superseded by summarize-on-request",
         at: new Date(api.now - 30 * 60_000).toISOString(),
         host: "spark",
       },
@@ -650,7 +650,7 @@ describe("last runs show the entry point's history (was RulesLive › h78 / c97)
     await user.click(within(card).getByRole("button", { name: "History of Build and publish" }));
     const runs = await within(card).findByRole("list", { name: "Last runs" });
     await waitFor(() => expect(within(runs).getAllByRole("listitem")).toHaveLength(5));
-    const skip = within(runs).getByText("superseded by Review on approve").closest("li")!;
+    const skip = within(runs).getByText("superseded by Summarize on request").closest("li")!;
     expect(skip).toHaveAttribute("data-decision", "superseded_by");
     expect(within(skip).getByText(/skipped/)).toBeInTheDocument();
     // newest first: the 4m run, then the 30m skip
@@ -671,13 +671,13 @@ describe("last runs show the entry point's history (was RulesLive › h78 / c97)
       rule_id: SELECTED_RULE_ID,
       event_id: "evt_8",
       reason: "superseded_by",
-      by: ["review-on-approve"],
-      message: "superseded by review-on-approve",
+      by: ["summarize-on-request"],
+      message: "superseded by summarize-on-request",
       at: new Date(api.now - 60_000).toISOString(),
       host: "thor",
     });
     await emit("rule_decisions", "d1");
-    expect(await within(card).findByText("superseded by Review on approve")).toBeInTheDocument();
+    expect(await within(card).findByText("superseded by Summarize on request")).toBeInTheDocument();
   });
 });
 
@@ -801,7 +801,7 @@ function holdStops(base: FakeApi) {
 describe("a stop in flight never clobbers a newer offer (was StopRuns)", { timeout: 2500 }, () => {
   it("disabling another entry point while a stop is pending keeps the new question", async () => {
     withActiveRuns(api, "train-batch", 2);
-    withActiveRuns(api, "review-on-approve", 1);
+    withActiveRuns(api, "summarize-on-request", 1);
     const hold = holdStops(api);
     vi.stubGlobal("fetch", hold.fetchFn);
     const user = userEvent.setup();
@@ -810,14 +810,14 @@ describe("a stop in flight never clobbers a newer offer (was StopRuns)", { timeo
     await user.click(await screen.findByRole("button", { name: /^Approve/ }));
     await waitFor(() => expect(hold.held).toHaveLength(1));
 
-    await user.click(switchOf("Review on approve"));
-    expect(await screen.findByText(/Review on approve is off\. Stop 1 current run\?/)).toBeInTheDocument();
+    await user.click(switchOf("Summarize on request"));
+    expect(await screen.findByText(/Summarize on request is off\. Stop 1 current run\?/)).toBeInTheDocument();
 
     hold.releaseAll();
     await waitFor(() => expect(api.activeRuns["train-batch"]).toEqual([]));
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.getByText(/Review on approve is off\. Stop 1 current run\?/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Approve: stop 1 current run of Review on approve/ })).toBeEnabled();
+    expect(screen.getByText(/Summarize on request is off\. Stop 1 current run\?/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Approve: stop 1 current run of Summarize on request/ })).toBeEnabled();
     expect(screen.queryByText(/Stopped 2 runs/)).not.toBeInTheDocument();
   });
 
@@ -1024,14 +1024,14 @@ describe("exclusive group and priority (issue #29 a, d8)", () => {
 
 describe("stop current runs on disable: nothing to ask", () => {
   it("asks nothing when the disabled entry point has no runs going", async () => {
-    withActiveRuns(api, "review-on-approve", 1);
+    withActiveRuns(api, "summarize-on-request", 1);
     const user = userEvent.setup();
     renderEntry("train-batch");
     await disableTrainBatch(user);
     await waitFor(() => expect(sent("POST", "/rules/train-batch/disable")).toHaveLength(1));
     expect(screen.queryByText(/current run/)).not.toBeInTheDocument();
     // the question does show here, for an entry point that has runs going
-    await user.click(switchOf("Review on approve"));
-    expect(await screen.findByText(/Review on approve is off\. Stop 1 current run\?/)).toBeInTheDocument();
+    await user.click(switchOf("Summarize on request"));
+    expect(await screen.findByText(/Summarize on request is off\. Stop 1 current run\?/)).toBeInTheDocument();
   });
 });

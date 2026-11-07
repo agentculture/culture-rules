@@ -9,7 +9,7 @@ import { WorkflowPane } from "./WorkflowPane";
 
 const wf = (id: string, name: string, extra: Partial<WorkflowDef> = {}): WorkflowDef =>
   ({ id, name, version: 1, steps: [{ id: "s1", kind: "logic" }], description: "Long prose that must not show", ...extra }) as WorkflowDef;
-const DOCS = [wf("review-pr", "Review PR"), wf("build-image", "Build image"), wf("nightly", "Nightly report", { enabled: false })];
+const DOCS = [wf("summarize-document", "Summarize document"), wf("build-image", "Build image"), wf("nightly", "Nightly report", { enabled: false })];
 
 function Harness({ initial = false }: Readonly<{ initial?: boolean }>) {
   const [collapsed, setCollapsed] = useState(initial);
@@ -37,9 +37,9 @@ describe("WorkflowPane: compact list and search (t21 criterion 1)", () => {
     render(<Harness />);
     const list = screen.getByRole("navigation", { name: "Workflows" });
     const rows = within(list).getAllByRole("link");
-    expect(rows.map((a) => a.textContent)).toEqual(["Review PR", "Build image", "Nightly report"]);
+    expect(rows.map((a) => a.textContent)).toEqual(["Summarize document", "Build image", "Nightly report"]);
     expect(rows.filter((a) => a.getAttribute("aria-current") === "page").map((a) => a.textContent)).toEqual(["Build image"]);
-    expect(rows[0]).toHaveAttribute("href", "/workflows?id=review-pr");
+    expect(rows[0]).toHaveAttribute("href", "/workflows?id=summarize-document");
     // names only: no chain cards, counts, steps, descriptions, switches or About buttons
     expect(list).not.toHaveTextContent(/step|entry point|Long prose|chain/i);
     expect(screen.queryByRole("switch")).toBeNull();
@@ -50,8 +50,8 @@ describe("WorkflowPane: compact list and search (t21 criterion 1)", () => {
     const user = userEvent.setup();
     render(<Harness />);
     const search = screen.getByRole("searchbox", { name: "Search workflows" });
-    await user.type(search, "REVIEW");
-    expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual(["Review PR"]);
+    await user.type(search, "SUMMARIZE");
+    expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual(["Summarize document"]);
     await user.clear(search);
     await user.type(search, "zzz");
     expect(screen.queryAllByRole("link")).toHaveLength(0);

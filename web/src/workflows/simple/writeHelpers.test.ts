@@ -29,7 +29,7 @@ describe("fold writes: create a rule, delete a workflow", () => {
 
 describe("run key templates, as validate.py checks them", () => {
   it.each([
-    ["pr-fixer:{trigger.data.repository}#{trigger.data.number}", null],
+    ["document-chain:{trigger.data.repository}#{trigger.data.number}", null],
     ["plain", null],
     ["{{literal}} {trigger.a}", null],
     ["", /empty/],
@@ -80,7 +80,7 @@ describe("deleteUnusedWorkflow re-reads the rules first", () => {
     expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
   });
   it("deletes when no rule uses it", async () => {
-    expect(await deleteUnusedWorkflow("review-pr")).toEqual({ status: "deleted", workflowId: "review-pr" });
+    expect(await deleteUnusedWorkflow("summarize-document")).toEqual({ status: "deleted", workflowId: "summarize-document" });
   });
 });
 

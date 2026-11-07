@@ -162,7 +162,7 @@ export async function elkLayout(wf: WorkflowDef): Promise<Positions> {
       "elk.layered.spacing.nodeNodeBetweenLayers": "60",
       "elk.spacing.nodeNode": "50",
       "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      // Each step as early as its inputs allow (the board's Run tests sits beside Fetch diff).
+      // Each step as early as its inputs allow (the board's Check text sits beside Fetch text).
       "elk.layered.layering.strategy": "LONGEST_PATH_SOURCE",
       "elk.layered.crossingMinimization.semiInteractive": "true",
       // One layering for every card: a step wired to nothing would otherwise be laid out as its

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, listMachines, listRules } from "../api/client";
 import { failureMessage, settleAll } from "../api/settle";
@@ -31,7 +31,6 @@ import type { ViewMode } from "../workflows/views/mode";
 import { foldModel, type FoldModel } from "../fold/model";
 import { useLiveFeed } from "../workflows/simple/liveFeed";
 import { ago, slugFor, stagesOf } from "./rules-view";
-import { isTrustedWorkflow } from "../workflows/trusted";
 import { NOTICE_RULE_NOT_FOUND, NOTICE_RULES_UNAVAILABLE } from "./legacy-redirects";
 import { AboutButton } from "../components/AboutButton";
 import IoControls from "../workflows/IoControls";
@@ -740,46 +739,6 @@ function useFocusAddStep(
   }, [wanted, openId]);
 }
 
-/**
- * Before a trusted workflow is saved (spec c32, d6): any change to its definition changes its
- * digest, so the engine stops trusting its runs to push until the new digest ships.
- */
-function TrustedSaveAsk({
-  name,
-  id,
-  onSave,
-  onCancel,
-}: Readonly<{ name: string; id: string; onSave: () => void; onCancel: () => void }>) {
-  const keep = useRef<HTMLButtonElement>(null);
-  useEffect(() => keep.current?.focus(), []);
-  // Escape answers "Keep editing". The two buttons are the question's only focusable parts, so
-  // listening on them covers every key press inside it (a <fieldset> takes no handlers).
-  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
-    if (e.key === "Escape") onCancel();
-  };
-  return (
-    <fieldset
-      className="wf-notice wf-trust-ask plain-group"
-      aria-label="Save a trusted workflow?"
-      aria-describedby="wf-trust-ask-text"
-    >
-      <p id="wf-trust-ask-text">
-        <strong>{name}</strong> (<code>{id}</code>) is one of the PR fixer&apos;s trusted workflows.
-        Saving a change gives it a new digest the engine does not trust: its runs will still start,
-        but the fixer chain will not review or push their work until this definition&apos;s digest is
-        added to culture_rules/actors/trusted.py and released to every node. Saving the original
-        definition back restores the trust.
-      </p>
-      <button ref={keep} type="button" className="wf-button" onClick={onCancel} onKeyDown={onKeyDown}>
-        Keep editing
-      </button>
-      <button type="button" className="wf-button wf-button--save" onClick={onSave} onKeyDown={onKeyDown}>
-        Save anyway
-      </button>
-    </fieldset>
-  );
-}
-
 /** Why Run is unavailable, or null when it is. */
 function runBlockReason(enabled: boolean | undefined, dirty: boolean | undefined): string | null {
   if (enabled === false) return "Enable this workflow to run it";
@@ -878,16 +837,6 @@ function asideOf(creating: boolean, creatingRule: boolean, target: OpenTarget): 
   return null;
 }
 
-/** The draft the trusted-save question (c32, d6) is about, or null when it is not asked. */
-function trustAskDraft<D extends { id: string; dirty: boolean }>(
-  asked: boolean,
-  draft: D | null | undefined,
-  aside: string | null,
-): D | null {
-  if (!asked || !draft?.dirty || aside !== null) return null;
-  return isTrustedWorkflow(draft.id) ? draft : null;
-}
-
 /** The notices a legacy redirect, or a missing workflow, puts atop the board. */
 function RedirectNotices({
   missingRule,
@@ -964,8 +913,6 @@ export function Workflows() {
   const [runFormOpen, setRunFormOpen] = useState(false);
   const runButton = useRef<HTMLButtonElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
-  // Saving a trusted workflow changes its digest: ask first (spec c32, deviation d6).
-  const [askTrust, setAskTrust] = useState(false);
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
 
@@ -1141,17 +1088,6 @@ export function Workflows() {
     } finally {
       setSaving(false);
     }
-  };
-
-  // The question is about one draft: another workflow, or none, closes it.
-  useEffect(() => setAskTrust(false), [draft?.id]);
-  const askOrSave = () => {
-    if (isTrustedWorkflow(draft?.id)) setAskTrust(true);
-    else void save();
-  };
-  const keepEditing = () => {
-    setAskTrust(false);
-    requestAnimationFrame(() => saveButton.current?.focus());
   };
 
   const runBlock = runBlockReason(current?.enabled, draft?.dirty);
@@ -1435,7 +1371,6 @@ export function Workflows() {
     );
   };
   const body = overviewing ? renderOverview() : renderBody();
-  const trustDraft = trustAskDraft(askTrust, draft, aside);
   // No workflow's head (rename, delete, run) while naming a new one, an aside, or nothing open.
   const headless = creating || aside !== null || current === null;
 
@@ -1509,23 +1444,11 @@ export function Workflows() {
             saving={saving}
             runBlock={runBlock}
             runRef={runButton}
-            onSave={askOrSave}
+            onSave={() => void save()}
             saveRef={saveButton}
             onRun={() => setRunFormOpen(true)}
           />
         </div>
-        {trustDraft ? (
-          <TrustedSaveAsk
-            name={trustDraft.def.name}
-            id={trustDraft.id}
-            onSave={() => {
-              setAskTrust(false);
-              // Save goes away once saved: focus Run, which stays.
-              void save().then(() => requestAnimationFrame(() => runButton.current?.focus()));
-            }}
-            onCancel={keepEditing}
-          />
-        ) : null}
         <output className="wf-status">{status}</output>
 
         {run?.doc?.status === "succeeded" && run.doc.outputs ? <RunOutputs outputs={run.doc.outputs} /> : null}

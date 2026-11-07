@@ -37,14 +37,14 @@ describe("event triggers", () => {
     const options = within(screen.getByLabelText("Event"))
       .getAllByRole("option")
       .map((o) => o.getAttribute("value"));
-    expect(options).toEqual(["", "github.pr.opened", "github.push"]);
+    expect(options).toEqual(["", "github.pr.opened", "github.pr.closed"]);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
   it("preselects an existing event and validates that one is picked", () => {
-    render(<Harness start={{ kind: "event", params: { type: "github.push" } }} />);
+    render(<Harness start={{ kind: "event", params: { type: "github.pr.closed" } }} />);
     expect(screen.getByLabelText("Surface")).toHaveValue("github-app");
-    expect(screen.getByLabelText("Event")).toHaveValue("github.push");
+    expect(screen.getByLabelText("Event")).toHaveValue("github.pr.closed");
     expect(triggerProblem(saved())).toBeNull();
     expect(triggerProblem({ kind: "event", params: { type: "" } })).toBe("trigger_type_required");
     expect(triggerProblem({ kind: "schedule", params: { cron: "" } })).toBe("invalid");
@@ -68,18 +68,6 @@ describe("run-finished triggers (d21)", () => {
     ]);
     await user.selectOptions(screen.getByLabelText("Event"), "rules.run.succeeded");
     expect(saved()).toEqual({ kind: "event", params: { type: "rules.run.succeeded" } });
-  });
-
-  it("offers the fixer queue's dispatch event as a built-in surface (#35)", async () => {
-    const user = userEvent.setup();
-    render(<Harness start={{ kind: "event", params: { type: "rules.queue.dispatch" } }} />);
-    expect(screen.getByLabelText("Surface")).toHaveValue("@rules-queue");
-    expect(screen.getByLabelText("Event")).toHaveValue("rules.queue.dispatch");
-    await user.selectOptions(screen.getByLabelText("Surface"), "@rules-queue");
-    const options = within(screen.getByLabelText("Event"))
-      .getAllByRole("option")
-      .map((o) => o.getAttribute("value"));
-    expect(options).toEqual(["", "rules.queue.dispatch"]);
   });
 
   it("preselects the engine surface for a stored run-event trigger", () => {

@@ -159,7 +159,7 @@ export function actionBody(action: Action | null | undefined): string | null {
   return typeof body === "string" ? body : null;
 }
 
-/** "on spark2", "via qwen-fixer", "by capability", "anywhere". */
+/** "on spark2", "via document-agent", "by capability", "anywhere". */
 export function placementWords(placement: Placement | null | undefined): string {
   if (placement?.machine) return `on ${placement.machine}`;
   if (placement?.actor) return `via ${placement.actor}`;
