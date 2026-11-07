@@ -355,10 +355,9 @@ READ_ONLY_SANDBOX = "read-only"
 """An actor whose ``sandbox`` default is this one cannot be widened by a step or an input
 (``sandbox_locked``): a read-only agent must never be able to write or commit."""
 READ_ONLY_MODE = "plan"
-"""#39: an actor whose ``mode`` default is this one (Qwen Code's plan mode, the qwen
-reviewer's) cannot be moved to another mode by a step or an input (``mode_locked``). The
-mode is an approval policy, not a sandbox: the reviewer's verdict step still checks that
-the checkout is unchanged."""
+"""#39: an actor whose ``mode`` default is this one (Qwen Code's plan mode) cannot be
+moved to another mode by a step or an input (``mode_locked``). The mode is an approval
+policy, not a sandbox: a flow that needs the checkout unchanged still checks it."""
 BRIDGE_CORE_INPUTS = frozenset({"instruction", "repo", "head_branch", "head_sha", "model", "async"})
 """Input keys a bridge reads itself; every other key is appended to the agent's prompt as
 JSON, which the bridge cuts at its ``max_bound_input_chars`` (60000 by default)."""
@@ -822,7 +821,7 @@ class BridgeAgentActor:
     def _trust(self) -> tuple[str | None, str | None]:
         """``(digest, problem)`` for the actor configuration this adapter was built from
         and is about to call (Codex round-4 review #1). An actor pinned in
-        :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS` (the reviewer) must
+        :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS` must
         match before anything is dispatched, and the endpoint called must be the one in that
         snapshot; the digest is recorded on the invocation either way."""
         from culture_rules.actors import trusted  # noqa: PLC0415 - small and standard-library

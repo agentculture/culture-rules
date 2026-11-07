@@ -112,7 +112,7 @@ Semantics
   iteration's final body outputs, ``var: iteration`` the 0-based iteration) holds, and
   fails with ``loop_max_exceeded`` after ``max_iterations`` iterations; its
   ``config["carry"]`` (``{input: result field}``) hands fields of one iteration's result to
-  the next iteration's body inputs (the fixer's gate instruction to its agent). Body steps run in
+  the next iteration's body inputs (e.g. the last attempt's findings). Body steps run in
   declared order; a body step's input port named ``item``/``index`` (for_each) or
   ``iteration`` (retry_until), or named like one of the loop's inputs, is filled
   implicitly when no edge feeds it. A ``for_each`` loop's outputs are, per declared port
@@ -2714,8 +2714,8 @@ def _fail_run(plan: _Plan, new: dict, failure: dict, now: datetime) -> Found:
     d37: the failed run also records the workflow outputs that come straight from its
     inputs or variables (validated when the run started; never a step's value, which may
     be what failed - Codex round 1 #3), so its ``rules.run.failed`` event carries them
-    (only the exported ones) and a rule can continue the work, e.g. retry a fixer try
-    whose agent timed out, with the try's own instruction."""
+    (only the exported ones) and a rule can continue the work, e.g. retry a step
+    whose agent timed out, with the run's own inputs."""
     if step_state(new, FAILURE_STEP) is not None:  # never a second handler (defensive)
         return None
     for s in new["steps"]:

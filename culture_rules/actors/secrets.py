@@ -16,7 +16,7 @@ Two ways to use a secret:
 * :func:`known_values` (d26) lists the secret values this process holds - every value
   :func:`resolve` returned, every ``CULTURE_RULES_SECRET_*`` variable injected into its
   environment, and every value passed to :func:`remember` - so text relayed in public
-  (the PR fixer's status comment) can be refused when it carries one. The values stay in
+  (e.g. a public comment) can be refused when it carries one. The values stay in
   memory and are never logged.
 * :func:`run_with_secrets` / :func:`grant_run_argv` run a step's subprocess as
   ``grant run --inject VAR=NAME -- cmd args``, so the value never enters this process

@@ -455,7 +455,7 @@ class Definitions:
             if not _is_live(before):
                 raise Conflict(f"{kind}/{id} is deleted; restore it first")
             if kind == "rules" and enabled and rule_variable_refs(before):
-                # Enabling is where a variable rule starts to fire (the fixer ships
+                # Enabling is where a variable rule starts to fire (bundles ship
                 # disabled): refuse it while an online node lacks variable support (d7).
                 # Disabling is never blocked.
                 errors = _old_node_errors(

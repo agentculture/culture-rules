@@ -39,8 +39,8 @@ green signal that resets a rule's attempt budget for the PR (:mod:`culture_rules
 
 It also carries ``failed_apps`` (d25): the app slugs, lower-cased and sorted, of the
 counted suites that completed with conclusion ``failure`` (``[]`` when none did), so a rule
-can single out one app's failure - the PR fixer's ``pr-fixer-secrets`` fires on
-``"gitguardian" in failed_apps`` and ``pr-fixer-checks`` stays off it.
+can single out one app's failure - e.g. a condition ``"gitguardian" in failed_apps``,
+or its negation for a rule that should stay off it.
 
 **Late failures** (d25): a counted app's suite that completes ``failure`` *after* its SHA
 settled (the settle timed out while it ran, or a re-run failed) is not in that event's
@@ -48,8 +48,8 @@ settled (the settle timed out while it ran, or a re-run failed) is not in that e
 :meth:`ChecksSettler.on_check` then emits one :data:`LATE_TYPE` event per (repo, SHA, app)
 (:func:`late_event_id`): the settled event's data (its PR facts as of the settle) with
 ``failed_apps`` grown by the app, ``late_app``, ``conclusion: "failure"`` and
-``settled_by: "late"``. ``pr-fixer-secrets-late`` reports a GitGuardian finding from it; no
-fixer rule fires on it. Clocks never decide it: the failure becomes a candidate
+``settled_by: "late"``, so a rule can react to a failure that arrived after the settle.
+Clocks never decide it: the failure becomes a candidate
 (:data:`LATE_COLLECTION`) that is emitted only once the App's *current* listing still shows
 the app's suite for the head concluded ``failure`` (so a failure re-run green is never
 late); a failed listing, or a node that cannot read the repo's checks, keeps the candidate
@@ -907,7 +907,7 @@ class ChecksSettler:
         return self._store.get(SETTLE_COLLECTION, rid) or doc
 
     def _enrich(self, repo: str, numbers: list[int]) -> dict[str, Any]:
-        """Best-effort PR facts the fixer rules' condition reads (:func:`complete_pr_facts`,
+        """Best-effort PR facts a rule's condition reads (:func:`complete_pr_facts`,
         d14); any failure, or an answer missing any valid fact, omits them all. ``head_sha``
         stays the settled SHA (the PR may have moved on)."""
         if self._pull is None or not numbers:

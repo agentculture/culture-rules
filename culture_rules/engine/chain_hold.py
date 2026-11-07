@@ -1,8 +1,8 @@
 """Chain holds: a chain of rules on one concurrency key is one unit per key (d21 phase 2).
 
 Rules chain through run events (:mod:`culture_rules.engine.run_completions`): a run ends,
-emits ``rules.run.<status>``, and a rule on that event continues the work - the PR fixer's
-fix, then its review, then its publish. Every stage shares the PR's concurrency key. Between
+emits ``rules.run.<status>``, and a rule on that event continues the work - e.g. a
+change, then its review, then its publish. Every stage shares one concurrency key. Between
 two stages the key used to be **free**: the finished run no longer held it and the next
 stage's run did not exist yet (its event is delivered by the outbox one node cycle later).
 A fresh external event arriving in that window (new checks on the PR) took the key, and the

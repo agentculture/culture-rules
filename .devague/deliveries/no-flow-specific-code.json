@@ -2,7 +2,7 @@
   "plan_slug": "no-flow-specific-code",
   "schema_version": 2,
   "created": "2026-11-06T20:24:48Z",
-  "updated": "2026-11-07T05:56:03Z",
+  "updated": "2026-11-07T06:15:18Z",
   "deviations": [
     {
       "id": "d1",
@@ -40,6 +40,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t4's acceptance grep is not empty by design: CHANGELOG keeps fixer history and tests keep sample actor names (qwen-fixer etc.); the leftover fixer comments in culture_rules (checks_settle, runs, claims, chain_hold, secrets, service, actors/agent.py) are swept in t6 before the R1 PR; backup.py keeps the fixer_status_comments collection name since no collection is dropped",
+      "task_ref": "t4",
+      "reason": "history and sample data are not flow code; comments naming removed code mislead",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
