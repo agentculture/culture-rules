@@ -206,4 +206,8 @@ def register(ext: Extension) -> None:
     ext.node_listener("discord.gateway", discord_gateway, long_lived=True)
     ext.node_collections(discord_collections)
     ext.health_section("gateways", discord_health, empty=list)
-    ext.api_routes("discord.targets", discord_targets)
+    ext.api_routes(
+        "discord.targets",
+        discord_targets,
+        roles=(("GET", "/actors/{actor_id}/discord/targets", "viewer"),),
+    )
