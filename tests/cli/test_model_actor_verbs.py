@@ -357,7 +357,7 @@ def test_repoint_dry_run_reads_the_revision_and_asks_for_a_plan(store, monkeypat
     assert out["applied"] is False
     assert out["result"]["changed"] == ["summarise.body[summary]"]
     assert tap.posts("/repoint-actor") == [
-        {"from": "old", "to": "new", "expected_revision": 1, "force": False, "dry_run": True}
+        {"from": "old", "to": "new", "expected_revision": 1, "dry_run": True}
     ]
     assert store.get("workflows", "news")["revision"] == 1
     rc, text, _ = run(capsys, *REPOINT)
@@ -385,11 +385,19 @@ def test_repoint_stale_revision_is_exit_1(store, monkeypatch, capsys):
     assert store.get("workflows", "news")["revision"] == 1
 
 
-def test_repoint_force_is_sent(store, monkeypatch, capsys):
+def test_repoint_rejects_force(store, monkeypatch, capsys):
     client = seeded(store)
     tap = wire_to(monkeypatch, Tap(client))
-    jok(capsys, *REPOINT, "--force")
-    assert tap.posts("/repoint-actor")[0]["force"] is True
+    with pytest.raises(SystemExit) as exc:
+        main([*REPOINT, "--force", "--json"])
+    assert exc.value.code == 1
+    assert "--force" in json.loads(capsys.readouterr().err)["message"]
+    assert tap.posts("/repoint-actor") == []
+
+
+def test_repoint_params_have_no_force():
+    names = {p.name for p in REGISTRY.get("workflows", "repoint-actor").params}
+    assert names == {"id", "from", "to", "expected_revision"}
 
 
 def test_repoint_unknown_workflow_is_a_user_error_not_too_old(store, monkeypatch, capsys):

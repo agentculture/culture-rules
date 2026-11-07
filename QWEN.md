@@ -59,8 +59,7 @@ On disk today:
   allowlist; the grant is resolved only after it passes), `actors references
   ID` lists what names an actor, `actors disable ID [--force]` is refused with
   `actor_in_use` while an enabled workflow or rule uses it, and `workflows
-  repoint-actor WF --from A --to B` moves a workflow (`--force` is for a pinned
-  one; none is pinned today). The model rule: one enabled endpoint actor (one with
+  repoint-actor WF --from A --to B` moves a workflow. The model rule: one enabled endpoint actor (one with
   `params.base_url`) per model (409 `model_taken`, and again at run time in
   `llm.complete`); mesh agents without `base_url` are outside it. The verbs
   are MCP tools, the Actors page has Add models, Used by with Move, and
@@ -114,7 +113,7 @@ On disk today:
   are migrated), `workflows describe` returning the description and a
   paragraph from one phrase table (`culture_rules/model/paragraph.py`, no
   AI), a server-owned workflow `revision` checked on save, v1 and v2 workflow
-  digests (no workflow is pinned today), and `rules migrate-orphans [--apply]`. The wheel ships `release.json`
+  digests (nothing pins a workflow), and `rules migrate-orphans [--apply]`. The wheel ships `release.json`
   (`culture_rules/deploy_data`) and no rule bundle: `rollout seed` and `rollout import`
   take `--bundle DIR` (exit 1 without it).
 - The API serves the action catalogue (guide `docs/operations/action-catalogue.md`):

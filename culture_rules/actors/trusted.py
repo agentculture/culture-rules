@@ -13,7 +13,6 @@ __all__ = [
     "actor_refusal",
     "doc_refusal",
     "is_pinned",
-    "pinned_digest",
     "workflow_digest",
     "workflow_digest_v2",
 ]
@@ -82,12 +81,6 @@ def workflow_digest_v2(definition: Any) -> str | None:
     _drop_prose(doc)
     text = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return _DIGEST_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def pinned_digest(_definition: Mapping[str, Any]) -> str | None:
-    """The pinned digest a workflow definition matches. No workflow is pinned today, so
-    always ``None``; ``workflows repoint-actor`` keeps asking through this seam."""
-    return None
 
 
 TRUSTED_ACTOR_DIGESTS: dict[str, frozenset[str]] = {

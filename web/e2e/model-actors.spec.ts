@@ -89,7 +89,6 @@ test.describe("Actors tab: model actors", () => {
       from: "claude-code",
       to: "codex",
       expected_revision: 4,
-      force: false,
       dry_run: false,
     });
 

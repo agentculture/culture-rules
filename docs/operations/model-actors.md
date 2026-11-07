@@ -80,7 +80,7 @@ workflow or rule names the actor, by action or by placement. Disabled and
 deleted referrers do not count. The dry run shows the enabled referrers as
 `in_use`. `--force` goes ahead anyway.
 
-**`workflows repoint-actor WF --from A --to B [--expected-revision N] [--force]
+**`workflows repoint-actor WF --from A --to B [--expected-revision N]
 [--apply]`** rewrites every action step in WF whose `params.actor` is `A` to
 `B`, and saves the workflow. `B` must exist, be enabled and be able to run the
 steps: the same kind as `A` (an `app` actor on the same surface), and an
@@ -89,10 +89,8 @@ endpoint actor when `A` is one or a repointed step is `llm.complete`; otherwise
 `--expected-revision` the CLI reads the workflow's revision first; a stale one
 is 409 `revision_conflict`. Descriptions and notes are not changed, and a step
 *placed* on `A` is listed as a warning and left where it is. A workflow with no
-step naming `A` is refused. **A trusted workflow is refused (409
-`workflow_trusted`) without `--force`**: the repoint changes its digest, so
-trust must be re-granted afterwards; the result names the digest it drops and
-the new one.
+step naming `A` is refused. Nothing pins a workflow, so there is no trust
+check; the result names the repointed definition's v1 and v2 digests.
 
 ## The model rule
 
@@ -161,8 +159,7 @@ wrapper. Read each dry run before its `--apply`, and stop at the first refusal.
    ```
 
 4. Repoint the workflow. The dry run lists the changed step path (the
-   `summary` step) and any warnings; if it says the workflow is trusted, stop
-   and decide about `--force` and the trust update.
+   `summary` step) and any warnings.
 
    ```bash
    cr workflows repoint-actor daily-newspaper --from newspaper-llm --to cortex-spark2

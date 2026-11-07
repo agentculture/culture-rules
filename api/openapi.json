@@ -1838,12 +1838,6 @@
             "description": "the workflow revision read; missing or stale is 409",
             "title": "Expected Revision"
           },
-          "force": {
-            "default": false,
-            "description": "repoint a trusted workflow anyway (drops trust)",
-            "title": "Force",
-            "type": "boolean"
-          },
           "from": {
             "description": "the actor steps name today",
             "minLength": 1,
@@ -1914,18 +1908,6 @@
           "to": {
             "title": "To",
             "type": "string"
-          },
-          "trusted_digest": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "the pinned digest a forced repoint drops, if any",
-            "title": "Trusted Digest"
           },
           "warnings": {
             "items": {
@@ -9918,7 +9900,7 @@
     },
     "/workflows/{id}/repoint-actor": {
       "post": {
-        "description": "Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies\nincluded; description, notes and placement untouched, reported as warnings). A\nmissing or stale ``expected_revision`` is 409 ``revision_conflict``; a trusted\nworkflow is 409 ``workflow_trusted`` unless ``force``; a ``to`` that cannot do the\nwork is 409 ``target_kind_mismatch``.",
+        "description": "Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies\nincluded; description, notes and placement untouched, reported as warnings). A\nmissing or stale ``expected_revision`` is 409 ``revision_conflict``; a ``to`` that\ncannot do the work is 409 ``target_kind_mismatch``.",
         "operationId": "repoint_workflow_actor",
         "parameters": [
           {

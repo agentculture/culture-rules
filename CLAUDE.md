@@ -105,7 +105,8 @@ plan. What exists today:
     needs `expected_revision` (409 `revision_conflict` otherwise), and
     `workflows update` sends it (`--expected-revision`);
   - the v1 and v2 workflow digests remain (`python -m culture_rules.actors.trusted`;
-    v2 ignores description and notes); no workflow is pinned today;
+    v2 ignores description and notes); nothing pins a workflow, and
+    `workflows repoint-actor` has no trust check;
   - `rules migrate-orphans [--apply]` gives each workflow-less rule its own
     stepless workflow; the rollout order runs both migrations
     (`docs/operations/rollout.md`);
@@ -121,7 +122,7 @@ plan. What exists today:
     it passes), `actors references ID` lists what names an actor,
     `actors disable ID [--force]` is refused with `actor_in_use` while an
     enabled workflow or rule uses it, and `workflows repoint-actor WF --from A
-    --to B` moves a workflow (`--force` is for a pinned one; none is pinned today);
+    --to B` moves a workflow;
   - the model rule: one enabled endpoint actor (one with `params.base_url`)
     per model (409 `model_taken`, and again at run time in `llm.complete`);
     mesh agents without `base_url` are outside it;

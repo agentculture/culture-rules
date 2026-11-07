@@ -100,7 +100,6 @@ def _repoint_actor(
     id: str,
     to: str,
     expected_revision: int | None = None,
-    force: bool = False,
     **named: Any,
 ) -> dict[str, Any]:
     """Point a workflow's action steps (and placement) at another actor, one workflow at a time.
@@ -119,7 +118,6 @@ def _repoint_actor(
         "from": from_actor,
         "to": to_actor,
         "expected_revision": expected_revision,
-        "force": bool(force),
         "dry_run": not ctx.apply,
     }
     result = new_route(
@@ -160,7 +158,6 @@ VERBS.append(
                 "integer",
                 "the workflow revision you read (default: read the current one, then send it)",
             ),
-            Param("force", "boolean", "repoint a trusted workflow anyway (drops its trust)"),
         ),
         True,
         "editor",

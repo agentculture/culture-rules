@@ -63,7 +63,6 @@ type MoveState =
   | { phase: "reading" }
   | { phase: "open"; revision: number | null }
   | { phase: "conflict"; revision: number | null }
-  | { phase: "trusted"; revision: number | null; message: string }
   | { phase: "error"; revision: number | null; message: string };
 
 /**
@@ -106,22 +105,19 @@ function MoveForm({
 
   const revision = state.phase === "reading" ? null : state.revision;
 
-  const move = async (force: boolean) => {
+  const move = async () => {
     setBusy(true);
     try {
       const answer = await repointWorkflowActor(workflowId, {
         from: actor.id,
         to,
         expected_revision: revision,
-        force,
       });
       const name = targets.find((t) => t.id === to)?.name ?? to;
       onMoved([`Moved ${workflowId} to ${name}.`, ...answer.warnings].join(" "));
     } catch (err) {
       if (isRevisionConflict(err)) setState({ phase: "conflict", revision });
-      else if (err instanceof ApiError && err.code === "workflow_trusted") {
-        setState({ phase: "trusted", revision, message: err.message });
-      } else setState({ phase: "error", revision, message: errorText(err) });
+      else setState({ phase: "error", revision, message: errorText(err) });
     } finally {
       setBusy(false);
     }
@@ -129,7 +125,7 @@ function MoveForm({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void move(false);
+    void move();
   };
 
   return (
@@ -161,14 +157,6 @@ function MoveForm({
           {REVISION_CONFLICT_MESSAGE}.{" "}
           <button type="button" className="btn" onClick={() => void read()}>
             Reload
-          </button>
-        </p>
-      ) : null}
-      {state.phase === "trusted" ? (
-        <p className="notice notice--error used-by__notice" role="alert">
-          {state.message}{" "}
-          <button type="button" className="btn btn--danger" disabled={busy} onClick={() => void move(true)}>
-            Move anyway
           </button>
         </p>
       ) : null}

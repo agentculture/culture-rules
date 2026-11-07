@@ -429,11 +429,10 @@ and whether each is enabled. Read-only.
 each workflow and rule) while an enabled workflow or rule uses the actor; `--force` goes
 ahead anyway. The dry-run shows the enabled referrers as `in_use`.
 
-`workflows repoint-actor ID --from A --to B [--expected-revision N] [--force]` points every
+`workflows repoint-actor ID --from A --to B [--expected-revision N]` points every
 action step that names `A` at `B` (a step placed on `A` is only warned about). Without
 `--expected-revision` the CLI reads the workflow's current revision first and sends it; a
-stale one is 409 `revision_conflict` (exit 1). A trusted workflow is refused
-(`workflow_trusted`) unless `--force`, which drops its trust. `B` must be able to run the
+stale one is 409 `revision_conflict` (exit 1). `B` must be able to run the
 steps: the same kind as `A` (an `app` on the same surface), and an endpoint actor when `A`
 is one or a step is an endpoint kind (`llm.complete`, `audio.transcribe`,
 `decider.assess`; `target_kind_mismatch` otherwise). The dry-run lists

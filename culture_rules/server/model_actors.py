@@ -193,7 +193,6 @@ class RepointRequest(BaseModel):
     expected_revision: int | None = Field(
         default=None, description="the workflow revision read; missing or stale is 409"
     )
-    force: bool = Field(False, description="repoint a trusted workflow anyway (drops trust)")
     dry_run: bool = Field(True, description="true = plan only, write nothing")
 
 
@@ -207,9 +206,6 @@ class RepointResult(BaseModel):
     revision: int = Field(description="dry run: the current revision; applied: the new one")
     digest: str | None = Field(description="the repointed definition's v1 trust digest")
     digest_v2: str | None = Field(description="the repointed definition's v2 trust digest")
-    trusted_digest: str | None = Field(
-        default=None, description="the pinned digest a forced repoint drops, if any"
-    )
 
 
 # --------------------------------------------------------------------------- helpers
@@ -426,27 +422,6 @@ def _apply_plan(
 # --------------------------------------------------------------------------- repoint
 
 
-def _refuse_if_trusted(
-    id: str, doc: Mapping[str, Any], force: bool, warnings: list[str]
-) -> tuple[str | None, list[str]]:
-    """The pinned digest ``doc`` matches (None when untrusted) and the warnings; a trusted
-    workflow is 409 ``workflow_trusted`` unless ``force``."""
-    pinned = trusted.pinned_digest(doc)
-    if pinned is None:
-        return None, warnings
-    if not force:
-        message = (
-            f"workflows/{id} is trusted (digest {pinned}); a repoint changes its digest "
-            "and drops that trust: pass force to repoint anyway, then pin the new digest"
-        )
-        raise Conflict(
-            message,
-            [{"path": "digest", "code": "workflow_trusted", "message": pinned}],
-            code="workflow_trusted",
-        )
-    return pinned, [*warnings, f"repoint drops trust: {pinned} no longer matches"]
-
-
 def _repoint(
     store: StoragePort, defs: Definitions, principal: Any, id: str, body: "RepointRequest"
 ) -> dict[str, Any]:
@@ -464,7 +439,6 @@ def _repoint(
         new_def, changed, warnings = repoint_workflow(definition, body.from_, body.to)
     except NoMatchingStep as exc:
         raise Invalid(str(exc), code="no_matching_step") from None
-    pinned, warnings = _refuse_if_trusted(id, doc, body.force, warnings)
     revision = rev.current_revision(doc)
     if not body.dry_run:
         guards.check_definition(principal, "workflows", new_def)
@@ -486,7 +460,6 @@ def _repoint(
         "revision": revision,
         "digest": trusted.workflow_digest(new_def),
         "digest_v2": trusted.workflow_digest_v2(new_def),
-        "trusted_digest": pinned,
     }
 
 
@@ -566,7 +539,6 @@ def register_model_actors(
     def repoint_actor(id: str, body: RepointRequest, principal: Caller) -> dict[str, Any]:
         """Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies
         included; description, notes and placement untouched, reported as warnings). A
-        missing or stale ``expected_revision`` is 409 ``revision_conflict``; a trusted
-        workflow is 409 ``workflow_trusted`` unless ``force``; a ``to`` that cannot do the
-        work is 409 ``target_kind_mismatch``."""
+        missing or stale ``expected_revision`` is 409 ``revision_conflict``; a ``to`` that
+        cannot do the work is 409 ``target_kind_mismatch``."""
         return _repoint(store, defs, principal, id, body)
