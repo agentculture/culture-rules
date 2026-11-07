@@ -196,16 +196,6 @@ _KINDS = (
     ),
     kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
     kind(
-        "http.call",
-        "Call an HTTP endpoint",
-        actor=REQ_STR,
-        method=REQ_STR,
-        url=REQ_STR,
-        headers=ParamSpec("dict"),
-        body=ParamSpec("any"),
-        save_to=STR,  # an absolute dir the actor's http.save_roots lists: stream the body there
-    ),
-    kind(
         "machine.command",
         "Run a command on a machine actor",
         actor=REQ_STR,

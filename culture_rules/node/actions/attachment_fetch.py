@@ -3,7 +3,7 @@
 A code-step built-in (``config.builtin: attachment.fetch``), like ``markdown.render``: it
 fetches public CDN URLs and needs no secret, so no actor is involved. Because anyone who can
 edit a workflow writes its steps, nothing a step supplies widens what the node touches. The
-connection policy reuses ``http.call``'s pieces from :mod:`culture_rules.node.actions.http`
+connection policy reuses ``http.call``'s pieces from :mod:`culture_rules.extensions.http.port`
 (not copied): the URL checks, DNS resolution with every address vetted against the refused
 (private, loopback, link-local, CGNAT, ...) ranges - with no allow-list exception, unlike
 ``http.call`` - a connection pinned to the vetted address, no proxies and no redirects.
@@ -85,7 +85,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.node.actions.http import (
+from culture_rules.extensions.http.port import (
     MAX_TIMEOUT,
     OpenerFactory,
     RedirectRefused,

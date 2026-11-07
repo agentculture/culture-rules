@@ -21,10 +21,10 @@ import threading
 import pytest
 
 from culture_rules.engine.runs import RUNS_COLLECTION
+from culture_rules.extensions.http.port import HttpCallPort
 from culture_rules.model.validate import validate
 from culture_rules.model.workflow import Workflow
 from culture_rules.node import runner
-from culture_rules.node.actions.http import HttpCallPort
 from culture_rules.node.actions.newspaper_render import render_issue
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node

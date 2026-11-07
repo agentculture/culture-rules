@@ -10,8 +10,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions import http as http_mod
-from culture_rules.node.actions.http import HttpCallPort, is_refused_address
+from culture_rules.extensions.http import port as http_mod
+from culture_rules.extensions.http.port import HttpCallPort, is_refused_address
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.memory import MemoryStore
 
