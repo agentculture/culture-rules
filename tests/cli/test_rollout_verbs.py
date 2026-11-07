@@ -878,3 +878,32 @@ def test_plan_places_migrate_notes_after_upgrade_before_import(
         "resume",
         "verify",
     ]
+
+
+@pytest.mark.parametrize("bad", ["9.1.0; rm -rf ~", "9.1.0 --apply", "-o9.1.0", "9.1", "v9.1.0"])
+def test_a_manifest_version_that_is_not_a_plain_release_is_refused(monkeypatch, bad):
+    """The version names the remote deploy directory, so only a plain version passes."""
+    monkeypatch.setattr(rollout, "_release", lambda: {**RELEASE, "version": bad})
+    with pytest.raises(rollout.CliError) as exc:
+        rollout.release_version()
+    assert exc.value.code == rollout.EXIT_ENV_ERROR
+
+
+@pytest.mark.parametrize("good", ["9.1.0", "0.43.0.dev3"])
+def test_a_plain_release_version_is_read(monkeypatch, good):
+    monkeypatch.setattr(rollout, "_release", lambda: {**RELEASE, "version": good})
+    assert rollout.release_version() == good
+
+
+def test_plan_says_to_skip_seed_and_import_when_nothing_is_new(
+    wire, store, capsys, tmp_path, monkeypatch  # noqa: F811
+):
+    monkeypatch.setattr(
+        rollout, "_release", lambda: {**RELEASE, "new_rules": [], "new_variables": []}
+    )
+    put_node(store, "spark", "9.0.0", install={"mode": "shared_venv"})
+    wheel = tmp_path / "culture_rules-9.1.0-py3-none-any.whl"
+    wheel.write_bytes(b"")
+    lines = jrun(capsys, "rollout", "plan", "--wheel", str(wheel))["lines"]
+    assert any("skip seed and import" in line for line in lines)
+    assert not any("rollout seed --apply" in line for line in lines)

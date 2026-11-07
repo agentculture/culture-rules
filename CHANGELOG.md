@@ -20,6 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The wheel ships no rule bundle: it carries deploy/release.json (the release manifest) and the node installer only; `rollout seed` and `rollout import` take `--bundle DIR` and exit 1 without one
 - Shared helpers moved to generic homes: engine/run_chain.py (upstream, LineageError) and node/actions/github.py (source_rule_refusal)
 - A bundle with no `variables.json` seeds nothing and records the seed step, so its import can follow
+- A release whose `release.json` lists no new rules or variables skips `rollout seed` and `rollout import`; `rollout plan` says so. The release manifest's version must be a plain version (`0.43.0`, `0.43.0.dev3`) before it reaches a remote command
 - A rule decision stored with the removed queue's `dispatch_revoked` still reads as a final skip
 - GitHub comment events keep `command`, `mention`, `mention_command` and `comment_id` as generic facts (documented in docs/actors/github.md); only the fixer's variables that matched them are gone
 - Kept, because other flows use them: the checks settle, the webhook settle path, run chains, chain holds, concurrency keys and pools, select, and the github-app pin (tests now cover the bridge agent's trust check for a pinned actor)

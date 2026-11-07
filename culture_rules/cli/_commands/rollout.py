@@ -97,8 +97,22 @@ def _release() -> dict[str, Any]:
     return deploy_data.release()
 
 
+_RELEASE_VERSION_RE = re.compile(r"\d{1,4}\.\d{1,4}\.\d{1,6}(?:\.dev\d{1,6})?")
+"""A release version as the manifest names it (``0.43.0``, ``0.43.0.dev3``): it reaches
+remote command lines (the deploy directory name), so nothing else is accepted."""
+
+
 def release_version() -> str:
-    return str(_release()["version"])
+    """The release manifest's version, refused unless it is a plain release version."""
+    raw = str(_release()["version"])
+    match = _RELEASE_VERSION_RE.fullmatch(raw)
+    if match is None:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"the release manifest names an invalid version {raw!r}",
+            "reinstall culture-rules; deploy/release.json must name a version like 0.43.0",
+        )
+    return match.group(0)
 
 
 def _bundle_dir(bundle: str | None) -> Path:
@@ -507,8 +521,14 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
         "       culture-rules workflows migrate-notes          (dry run: lists what moves)",
         "       culture-rules workflows migrate-notes --apply",
         "       culture-rules workflows migrate-notes          (dry run again: reports 0)",
-        "  5. culture-rules rollout seed --apply --bundle DIR",
-        "  6. culture-rules rollout import --apply --bundle DIR",
+        *(
+            [
+                "  5. culture-rules rollout seed --apply --bundle DIR",
+                "  6. culture-rules rollout import --apply --bundle DIR",
+            ]
+            if new_rules or new_vars
+            else ["  5-6. skip seed and import: this release adds no rules or variables"]
+        ),
         "  7. give each workflow-less rule its own stepless workflow, after import (import may"
         " add rules) and before enable; a rule pointing at a missing or deleted workflow is only"
         " listed as not adopted:",

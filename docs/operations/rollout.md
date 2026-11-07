@@ -20,7 +20,9 @@ operator's runbook.
   bundle directory (`workflows/`, `rules/`, optionally `variables.json` (none seeds
   nothing) and optionally a `release.json`, which must name this release) with `--bundle DIR`, for example one under `docs/rules/` in a
   checkout of this release. Without `--bundle` they exit 1 ("this wheel carries no
-  rule bundle").
+  rule bundle"). A release whose `release.json` lists no `new_rules` and no
+  `new_variables` (0.43.0 is one) skips both steps: `enable`, `resume` and `verify`
+  never require them, and `rollout plan` says so.
 - **`release.json` names everything new since the last live release.** Its
   `new_rules` and `new_variables` list every rule and variable added since the last
   release that was rolled out live, not only this release's own. So a release that
@@ -151,8 +153,8 @@ cr rollout upgrade --host orin --wheel "$WHEEL" --apply
 cr rollout upgrade --host spark2 --wheel "$WHEEL" --apply
 cr workflows migrate-notes                 # dry run: workflows whose description moves to notes
 cr workflows migrate-notes --apply         # admin; then re-run the dry run: it reports 0
-cr rollout seed --bundle DIR --apply       # new variables from the bundle's variables.json
-cr rollout import --bundle DIR --apply     # the bundle's workflows and rules
+cr rollout seed --bundle DIR --apply       # new variables (skip when release.json lists none)
+cr rollout import --bundle DIR --apply     # the bundle's workflows and rules (skip likewise)
 cr rules migrate-orphans                   # dry run: workflow-less rules and the workflow each gets
 cr rules migrate-orphans --apply           # admin; then re-run the dry run: it reports 0
 cr rollout enable --apply                  # the snapshot plus the release's new rules
