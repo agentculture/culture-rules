@@ -7,7 +7,7 @@ import logging
 
 import pytest
 
-from culture_rules.apps.resend import RESEND_EMAILS_URL, ResendClient, ResendError
+from culture_rules.extensions.email.resend import RESEND_EMAILS_URL, ResendClient, ResendError
 
 FAKE_KEY = "re" + "_" + "FAKEKEY0123456789abcdef"
 SENDER = "no-reply@culture.dev"

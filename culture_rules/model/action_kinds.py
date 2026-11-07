@@ -196,18 +196,6 @@ _KINDS = (
     ),
     kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
     kind(
-        "email.send",
-        "Send an email through an email app actor (Resend)",
-        actor=REQ_STR,
-        to=ParamSpec("list", True),  # each must be on the actor's recipient allowlist
-        subject=REQ_STR,
-        html=STR,  # at least one of html/text: the port checks it
-        text=STR,
-        idempotency_key=STR,  # replaces the engine's per-run key (a durable, per-date key)
-        sender=STR,  # replaces the actor's from address; must be at the actor's domain
-        not_after=STR,  # ISO-8601: at or past it the send fails email_window_passed, no request
-    ),
-    kind(
         "search.web",
         "Search the web through a search app actor (Brave)",
         actor=REQ_STR,

@@ -6,10 +6,10 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 
-from culture_rules.apps.resend import RESEND_EMAILS_URL
 from culture_rules.engine.actorport import InvocationContext
+from culture_rules.extensions.email.port import EmailSendPort
+from culture_rules.extensions.email.resend import RESEND_EMAILS_URL
 from culture_rules.model.app_actor import email_sender
-from culture_rules.node.actions.email import EmailSendPort
 from culture_rules.store.memory import MemoryStore
 
 FAKE_KEY = "re" + "_" + "FAKEKEY0123456789abcdef"
