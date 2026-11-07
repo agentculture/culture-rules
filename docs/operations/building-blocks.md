@@ -12,7 +12,9 @@ final (never retried) and reads `<code>: <detail>`; with
 All six are core's: they register in `register_core`
 (`culture_rules/extensions/builtin.py`) with their describe phrase and typed
 ports, and the editor's Built-in picker offers them from the builtin
-catalogue (below).
+catalogue (below). Since every input may sit in config instead, none is a
+required port: "Required" in the tables below says the value must be given
+somewhere (input or config), not that the port must be wired.
 
 ## `json.parse`
 
@@ -21,8 +23,11 @@ Parses JSON text and checks it against a shape
 
 | Input | Required | Meaning |
 |---|---|---|
-| `text` | yes | the JSON text, a string or UTF-8 bytes (at most 1 MiB); a list or an object is taken as already decoded and only checked |
-| `shape` | yes | the shape spec the value must fit (usually in config) |
+| `text` | yes | the JSON text, a string or UTF-8 bytes (at most 1 MiB); a list or an object is taken as already decoded and only checked (its port type is `any`) |
+
+| Config | Meaning |
+|---|---|
+| `shape` | the shape spec the value must fit (required, config only: an input named `shape` is ignored, so run data cannot replace the rules it is checked against) |
 
 Output: `value`, normalised by the shape (defaults filled, text stripped or
 lower-cased where the shape says so, ignored keys left out). Failures:
@@ -76,7 +81,8 @@ Adds an exact elapsed duration to an instant.
 | `instant` | yes | an ISO-8601 time with a UTC offset (`Z` is fine) |
 | `seconds`, `minutes`, `hours`, `days` | at least one | numbers, negative allowed, summed |
 
-Output: `instant`, in UTC (`+00:00`). A day is exactly 86400 s on the UTC
+Output: `instant`, in UTC (`+00:00`). A sum or result outside the supported
+range (a huge or infinite amount) is `bad_params`. A day is exactly 86400 s on the UTC
 timeline, so a day added across a daylight-saving change lands 24 hours later,
 not at the same wall-clock time.
 
@@ -111,7 +117,7 @@ Reads one local file, only under configured roots.
 
 | Config | Meaning |
 |---|---|
-| `roots` (or `root`) | absolute directories (required, config only, so a run cannot widen them); the file must resolve under any one, symlinks followed first |
+| `roots` (or `root`) | absolute directories (required, config only, so a run cannot widen them); the file must resolve under any one, symlinks followed first; a root missing on this node is skipped while another exists |
 | `mode` | `text` (the default, UTF-8) or `json` |
 | `fields` | json mode only: `{output name: dotted path}`, as `json.read` takes; a missing field is null |
 | `max_bytes` | the size cap, default 1 MiB, at most 8 MiB, checked before reading |
@@ -119,7 +125,15 @@ Reads one local file, only under configured roots.
 Input: `path`, absolute or relative to the first root. Outputs: `bytes` and,
 in text mode, `content`; in json mode, `value` (the whole document) or, with
 `fields`, `fields`. Failures: `bad_params`, `path_refused` (missing, outside
-every root, not a regular file), `too_large`, `not_text`, `not_json`.
+every root, not a regular file, a NUL byte in the path, swapped after the
+check), `too_large`, `not_text`, `not_json`.
+
+The read is bound to the checked file: the resolved path is opened with
+`O_NOFOLLOW` and `O_NONBLOCK`, and the open descriptor must still be a regular
+file under a root (its `/proc/self/fd` path on Linux, else its device and
+inode against the check) before a byte is read. A file or directory swapped
+for a symlink between the check and the read is refused. `json.read` reads
+the same way.
 
 ```json
 {
@@ -141,15 +155,32 @@ to each item:
 
 | Config | Meaning |
 |---|---|
-| `host_from`, `host_into` | a dotted path to a URL in the item (`"."`: the item itself); an item without an `http`/`https` URL with a host is dropped, never repaired, and the lower-cased host is written to the field `host_into` on the copy `where` sees |
+| `host_from`, `host_into` | a dotted path to a URL in the item (`"."`: the item itself); an item without an `http`/`https` URL with a host is dropped, never repaired, and the lower-cased host is written to the field `host_into` on the copy `where` sees (the host rule is below) |
 | `dedupe_by`, `dedupe_casefold` | a dotted path to a scalar; the first item holding a value stays, later ones with the same value are dropped (casefolded when asked) |
-| `where` | a condition (`culture_rules/model/condition.py`) per item: the item is the `{"item": path}` operand, every other input is a value it reads as `{"var": name}` |
+| `where` | a condition (`culture_rules/model/condition.py`) per item: the item is the `{"item": path}` operand, every other input is a value it reads as `{"var": name}`; validated once per run, and every item's evaluation draws on one shared budget (below) |
 | `limit` | at most this many items are kept, the first in order (also an input) |
 
-Input: `items` (at most 1000). Outputs: `items` (the kept originals, in
-order), `count`, and how many each rule dropped: `dropped_host`,
-`dropped_duplicate`, `dropped_where`, `dropped_limit`. Failures:
-`bad_params`, `bad_input`.
+Input: `items` (at most 1000; it may sit in config too). Outputs: `items`
+(the kept originals, in order), `count`, and how many each rule dropped:
+`dropped_host`, `dropped_duplicate`, `dropped_where`, `dropped_limit`.
+Failures: `bad_params`, `bad_input` (also when the run's `where` evaluations
+spend the whole budget).
+
+The host is taken only when the host Python's `urlsplit` reports is the host
+a browser would open, so a suffix rule cannot be passed by a URL a browser
+reads differently. Dropped, never repaired:
+
+- a backslash anywhere in the URL (a browser reads it as `/`);
+- userinfo, an `@` in the authority (`https://example.com@evil.com/`);
+- a `%` in the authority (a browser percent-decodes the host);
+- any non-ASCII character in the authority (a browser maps it through IDNA):
+  write an internationalised host in its `xn--` form;
+- a port that is not a number;
+- a host that is not ASCII letters, digits, `-`, `_` and `.` (or a bracketed
+  IPv6 address).
+
+An `@` or a non-ASCII character in the path or query is fine
+(`https://medium.com/@user`).
 
 ```json
 {
@@ -180,13 +211,19 @@ written as JSON (a step's config, the CLI or the API).
 
 | Op | Shape | Describe words |
 |---|---|---|
-| `contains` | `{"op": "contains", "value": v, "needle": n}`; case-insensitive substring of a text, or member of a list | `title contains release` |
-| `host_suffix` | `{"op": "host_suffix", "value": host, "suffix": domain}`; the host equals the domain or is under it (`badexample.com` is not under `example.com`) | `host is in the domain example.com` |
+| `contains` | `{"op": "contains", "value": v, "needle": n}`; the needle is a text: a case-insensitive substring of a text, or equal to a text member of a list (other members never match) | `title contains release` |
+| `host_suffix` | `{"op": "host_suffix", "value": host, "suffix": domain}`; the host equals the domain or is under it (`badexample.com` is not under `example.com`), ignoring ASCII case only: a host or domain with a non-ASCII character never matches (`straße.de` is not `strasse.de`; use the `xn--` form) | `host is in the domain example.com` |
 | `any`, `all` | `{"op": "any", "items": list, "where": node}`; `where` once per element, the element is `{"item": path}` (`"."`: itself) | `for at least one of links, its host is in the domain example.com` |
 
 In symbols (`condition_text`, the Detailed view's lines) they read
 `title contains release`, `host in domain example.com` and
 `any of links: item.host in domain example.com`.
+
+Every condition evaluation is bounded: it may take at most `MAX_EVAL_STEPS`
+(200 000) steps, one per node visited and one per list member an `in` or
+`contains` compares. Running out fails closed with `budget_exceeded`: a rule
+does not fire, a step's `when` fails `when_invalid`, a `retry_until` is
+false, and `list.filter` (one budget for all its items) fails `bad_input`.
 
 ## The builtin catalogue
 

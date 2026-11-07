@@ -128,7 +128,9 @@ On disk today:
   condition ops `contains`, `host_suffix` and `any`/`all` with the `{"item": path}` operand,
   read in words. The API serves the builtin catalogue (`GET /steps/builtins`, viewer; CLI
   `steps builtins`, MCP tool `steps_builtins`) from each builtin's registered label and typed
-  ports, and the step editor's Built-in picker is built from it, keeping no table.
+  ports, and the step editor's Built-in picker is built from it, keeping no table. `json.parse`'s
+  shape is config only, `host_suffix` compares ASCII hosts only, and every condition
+  evaluation has a step budget (`budget_exceeded` fails it closed).
 - `variables delete NAME [--apply]` (admin; `DELETE /variables/{name}`, MCP tool
   `variables_delete`) is a dry run unless applied, refused with 409 `variable_in_use` while
   a live, enabled rule references the variable (disabled and soft-deleted referrers are

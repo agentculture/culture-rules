@@ -187,7 +187,9 @@ Generic builtins in core take every format, root, shape and rule as step config:
 and `any`/`all` (with the `{"item": path}` operand) read in words in describe and in the
 editor. `ext.builtin(..., label=, inputs=, outputs=)` declares a builtin's label and typed
 ports; the API serves them (`GET /steps/builtins`, viewer; CLI `steps builtins`, MCP tool
-`steps_builtins`), and the step editor's Built-in picker is built from it, keeping no table.
+`steps_builtins`), and the step editor's Built-in picker is built from it, keeping no table. `json.parse`'s
+shape is config only, `host_suffix` compares ASCII hosts only, and every condition evaluation
+has a step budget (`budget_exceeded` fails it closed).
 
 **Deleting a variable.** `variables delete NAME [--apply]` (admin; `DELETE
 /variables/{name}`, MCP tool `variables_delete`) is a dry run unless applied and is refused

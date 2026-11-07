@@ -384,7 +384,10 @@ Settled constraints that shape the architecture:
     `extensions/github/events.py`);
   - `ext.api_routes(..., roles=)`: the role each route needs, read by
     `auth/policy.py` after core's admin patterns; a declared path must carry the
-    extension's own name as a segment, so it can never set a core route's role.
+    extension's own name as a segment, and a declared role applies only to a
+    request that matches no core route (`create_app` collects them as
+    `CoreRoutes` on `app.state`), so it can never set a core route's role, not
+    even for a record named after the extension (`DELETE /rules/discord`).
 - **Each app's integration code lives on the extension side**, one
   package per app under `culture_rules/extensions/<app>/` (`discord`,
   `github`, `jira`, `http`, `machine`, `email`, `search`, `llm`,
@@ -417,14 +420,20 @@ Settled constraints that shape the architecture:
 - **The building blocks and the builtin catalogue** (R2a of the no-flow-code
   plan, guide `docs/operations/building-blocks.md`):
   - generic builtins in core, every format, root, shape and rule step
-    config: `json.parse` (JSON text checked against a shape; shapes gained
-    `nullable`, `forbid` and `ignore`), `text.join`, `time.add` (exact
-    elapsed time, UTC), `date.local` (an instant in an IANA zone by a
-    `strftime` format), `file.read` (text or JSON under configured roots)
-    and `list.filter` (host, dedupe, `where` and limit, counts per rule);
-  - condition ops `contains`, `host_suffix` and `any`/`all` with the
-    `{"item": path}` operand (no CEL text form); describe says them in
-    words, and the editor shows them read-only in the same words;
+    config: `json.parse` (JSON text checked against a shape from config
+    only; shapes gained `nullable`, `forbid` and `ignore`), `text.join`,
+    `time.add` (exact elapsed time, UTC), `date.local` (an instant in an IANA
+    zone by a `strftime` format), `file.read` (text or JSON under configured
+    roots, read through a descriptor bound to the checked file) and
+    `list.filter` (host, dedupe, `where` and limit, counts per rule; a URL
+    whose host a browser could read differently is dropped); no input of
+    theirs is a required port;
+  - condition ops `contains`, `host_suffix` (ASCII hosts only) and
+    `any`/`all` with the `{"item": path}` operand (no CEL text form);
+    describe says them in words, and the editor shows them read-only in the
+    same words; every evaluation spends at most `MAX_EVAL_STEPS` steps
+    (`budget_exceeded` fails it closed), and `prepare(tree)` validates once
+    for many evaluations;
   - `ext.builtin(..., label=, inputs=, outputs=)` declares a builtin's
     picker label and typed ports; `GET /steps/builtins` (viewer) serves them,
     CLI `steps builtins`, MCP tool `steps_builtins`; the step editor's

@@ -27,6 +27,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The step editor's Built-in picker reads `GET /steps/builtins` (loaded once, with loading and failed states) instead of a hard-coded table; it pre-fills each builtin's declared ports as before and now offers every registered builtin, the six building blocks among them
 - The editor's condition types include `contains`, `host_suffix`, `any`/`all` and the item operand; the Simple and Detailed views, the workflow list's guard and the rules view show them read-only in the words describe says (they are written as JSON)
 
+### Security
+
+- Route roles: a request that matches a core route always gets core's role; a role an extension declares applies only to a request no core route matches (`create_app` collects the core routes as `CoreRoutes`; without an app a declaration can only raise core's role), so `DELETE /rules/discord`, `PUT /actors/discord` or `PUT /variables/discord` can no longer be opened to a lesser role (review #7, Qodo #5)
+- `list.filter` drops a URL whose host `urlsplit` and a browser could read differently: a backslash anywhere, userinfo, a `%` or a non-ASCII character in the authority, a non-numeric port, or a host that is not plain ASCII (or bracketed IPv6) (review #1)
+- `host_suffix` compares ASCII-lowercased hosts and never matches a non-ASCII host or domain (no `casefold`: `straße.de` is not `strasse.de`) (review #2)
+- `json.parse` reads `shape` from the step config only, so run data cannot replace the rules it is checked against (review #3)
+- Condition evaluation has a real work bound: a `Budget` of `MAX_EVAL_STEPS` steps per evaluation (one per node, one per list member `in`/`contains` compares), failing closed with `budget_exceeded`; `list.filter` validates `where` once (`prepare`) and shares one budget across its items (review #4, #8, Qodo #4)
+- `file.read` and `json.read` read through a descriptor bound to the checked file (`O_NOFOLLOW`, then the open descriptor verified under a root), so a file swapped for a symlink after the check is refused (Qodo #1)
+- `time.add` with an amount too large for a float, and a NUL byte in a `file.read`/`json.read` path, fail final (`bad_params` / `path_refused`) instead of escaping as a retryable unknown outcome (review #5, #6)
+
+### Fixed
+
+- `file.read` skips a configured root that does not exist while another exists (Qodo #3); `list.filter` takes `items` from config as documented (Qodo #2); the building blocks' inputs are optional ports and `json.parse.text` is `any` (Qodo #6); the step editor shows the saved builtin while the catalogue loads or fails (Qodo #7); `list.filter` uses the condition module's public `walk_path`/`MISSING`, and the `contains` docstring says list membership matches string members only (review #9, #10); SonarCloud's open issues on the PR
+
 ## [0.44.0] - 2026-11-07
 
 ### Added
