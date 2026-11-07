@@ -11,9 +11,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions import library as library_mod
+from culture_rules.extensions.library import port as library_mod
+from culture_rules.extensions.library.port import LibraryPushPort, encode_multipart
 from culture_rules.node.actions.attachment_fetch import AttachmentFetchPort
-from culture_rules.node.actions.library import LibraryPushPort, encode_multipart
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.memory import MemoryStore
 from tests.node.test_attachment_fetch import PDF, PUBLIC, FakeOpener, FakeResponse

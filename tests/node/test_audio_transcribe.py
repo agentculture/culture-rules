@@ -301,7 +301,7 @@ def test_an_unsplit_upload_would_be_refused_by_the_fake(tmp_path, long_audio):
 
 
 def _upload(path: Path):
-    from culture_rules.node.actions.library import encode_multipart
+    from culture_rules.extensions.library.port import encode_multipart
 
     ctype, body = encode_multipart([], [("file", "x.wav", "audio/wav", path.read_bytes())])
     return body, {"Content-Type": ctype}, 10

@@ -692,10 +692,11 @@ def test_the_add_stores_the_keys_of_the_iterations_that_ran(world):  # c10
 
 # --------------------------------------------------------------------------- (4) boundaries
 
-UNTOUCHED = [
-    "culture_rules/node/actions/newspaper.py",
-    "culture_rules/node/actions/newspaper_issue.py",
-]
+UNTOUCHED: list[str] = []
+# newspaper.py and newspaper_issue.py left this list with the Boundary release (no flow-specific
+# code, t8): it moves every app, the newspaper built-ins included, into
+# culture_rules/extensions/, so a branch diff cannot tell keyset work from the move. The keysets
+# still add no newspaper behaviour (the newspaper flow tests run them unchanged).
 # newspaper_render.py left this list for no-hardcoded-prompts: its notes now come from
 # step config; the keysets still add no rendering behavior.
 # trusted.py and validate.py left this list with the green PR merge prompt: github.merge needs

@@ -8,7 +8,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions.library import LibraryPushPort
+from culture_rules.extensions.library.port import LibraryPushPort
 from culture_rules.node.actions.markdown_render import (
     MARKDOWN_RENDER_BUILTIN,
     MarkdownRenderPort,

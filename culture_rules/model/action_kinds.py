@@ -207,22 +207,6 @@ _KINDS = (
         format=STR,  # epub (default) or md: summary, key facts, then the transcript
     ),
     kind(
-        "library.push",
-        "Upload a file to a library, or replace one by id (and queue it on a device queue)",
-        any_of=(("content_base64", "content_path"),),
-        actor=REQ_STR,
-        content_base64=STR,  # or content_path + content_root (d7): one of the two is required
-        content_path=STR,  # a file under content_root on the node; its bytes never enter run state
-        content_root=STR,
-        title=REQ_STR,
-        kind=REQ_STR,  # one of the actor's params.kinds
-        visibility=STR,  # one of the actor's params.visibilities
-        author=STR,
-        device_id=STR,  # used only when the actor has a queue_path
-        format=STR,  # one of the actor's params.formats; epub when unset
-        item_id=ParamSpec("int"),  # replace this item through the actor's replace_path
-    ),
-    kind(
         "repodocs.sync",
         "Push every repo's specs, plans, deliveries, designs and .devague files to the library",
         actor=REQ_STR,  # a service actor: base_url, api_key, repos_root, state_path, limits

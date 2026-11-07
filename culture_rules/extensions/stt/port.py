@@ -71,6 +71,7 @@ from typing import Any
 
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
+from culture_rules.extensions.library.port import encode_multipart
 from culture_rules.extensions.stt import audio_split
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions import transcript_file
@@ -84,7 +85,6 @@ from culture_rules.node.actions._endpoint import (
     time_left,
 )
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
-from culture_rules.node.actions.library import encode_multipart
 
 __all__ = [
     "MAX_RESPONSE_BYTES",

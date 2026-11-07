@@ -144,7 +144,7 @@ Outputs counts only, never file bytes or paths: ``{repos, pushed, skipped, tombs
 errors, duration_s, stopped}``. Failures of the step itself (a bad actor, an unresolvable
 grant, a missing ``repos_root``) are not retryable. ``supports_idempotency_key`` is True: a
 retry re-runs the sync, which the state file and the library make idempotent. git runs as an
-argv list with ``shell=False``; HTTP uses :func:`~culture_rules.node.actions.library.
+argv list with ``shell=False``; HTTP uses :func:`~culture_rules.extensions.library.port.
 urllib_transport` (no proxies, no redirects). Standard-library only.
 """
 
@@ -169,8 +169,8 @@ from urllib.parse import urlsplit
 
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.extensions.library.port import Transport, urllib_transport
 from culture_rules.node.actions._actor import load_bound_actor
-from culture_rules.node.actions.library import Transport, urllib_transport
 
 __all__ = [
     "DEFAULT_BASE_URL",
