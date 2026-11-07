@@ -25,10 +25,10 @@ from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
 from culture_rules.extensions.llm.port import LlmCompletePort
+from culture_rules.extensions.transcript.port import TranscriptRenderPort
 from culture_rules.io.exchange import read_bundle
 from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort
 from culture_rules.node.actions.transcript_file import result_path, write_atomic
-from culture_rules.node.actions.transcript_render import TranscriptRenderPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
 from culture_rules.node.runner import BuiltinCodePort, NoopAction

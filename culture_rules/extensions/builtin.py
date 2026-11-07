@@ -30,6 +30,7 @@ from culture_rules.extensions import (
     repodocs,
     search,
     stt,
+    transcript,
 )
 from culture_rules.extensions.registry import Extension, Lazy, NodeContext, Registry
 from culture_rules.model.action_kinds import BUILTIN_KINDS
@@ -253,20 +254,6 @@ def register_jira(ext: Extension) -> None:
     ext.webhook_route("/hooks/jira", Lazy("culture_rules.server.hooks.jira", "router", True))
 
 
-def _single(kind: str, module: str, attr: str) -> Callable[[Extension], None]:
-    """An extension of one kind served by ``node.actions.<module>.<attr>(store)``."""
-
-    def register(ext: Extension) -> None:
-        _kinds(ext, kind)
-        ext.action_port(kind, _store_port(module, attr))
-
-    register.__doc__ = f"``{kind}`` (``node.actions.{module}.{attr}``)."
-    return register
-
-
-register_transcript = _single("transcript.render", "transcript_render", "TranscriptRenderPort")
-
-
 def register_newspaper(ext: Extension) -> None:
     """The newspaper built-ins (#53)."""
     ext.builtin("newspaper.sections", _plain_port("newspaper", "NewspaperSectionsPort"))
@@ -287,7 +274,7 @@ BUILTIN_EXTENSIONS: tuple[tuple[str, Callable[[Extension], None]], ...] = (
     ("llm", llm.register),
     ("decider", decider.register),
     ("stt", stt.register),
-    ("transcript", register_transcript),
+    ("transcript", transcript.register),
     ("library", library.register),
     ("repodocs", repodocs.register),
     ("newspaper", register_newspaper),

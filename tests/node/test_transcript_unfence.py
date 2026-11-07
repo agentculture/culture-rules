@@ -2,7 +2,7 @@
 
 import pytest
 
-from culture_rules.node.actions.transcript_render import _unfenced
+from culture_rules.extensions.transcript.port import _unfenced
 
 _CASES = [
     ('```json\n{"summary": "a", "word": "b"}\n```', '{"summary": "a", "word": "b"}'),

@@ -195,17 +195,6 @@ _KINDS = (
         number=ParamSpec("int", True),
     ),
     kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
-    kind(
-        "transcript.render",
-        "Render one transcript and its summary as an EPUB or Markdown (right to left for Hebrew)",
-        actor=STR,  # optional: its transcripts_root/output_root is a second boundary
-        result_path=REQ_STR,
-        root=REQ_STR,  # the transcripts root: result_path must resolve under it
-        recorded_at=REQ_STR,  # ISO-8601 with a zone; dated in Asia/Jerusalem
-        language=STR,
-        summary=ParamSpec("any"),  # llm.complete's output: {text} or a string, or none
-        format=STR,  # epub (default) or md: summary, key facts, then the transcript
-    ),
 )
 
 BUILTIN_KINDS: dict[str, ActionKind] = {k.name: k for k in _KINDS}
