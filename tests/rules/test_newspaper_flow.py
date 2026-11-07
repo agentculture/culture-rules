@@ -18,12 +18,12 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 from culture_rules.actors.limits import USAGE_COLLECTION, pool_doc_id
-from culture_rules.apps.resend import RESEND_EMAILS_URL
 from culture_rules.engine.runs import RUNS_COLLECTION, step_key, step_state
-from culture_rules.node.actions.email import EmailSendPort
-from culture_rules.node.actions.library import LibraryPushPort
-from culture_rules.node.actions.llm import LlmCompletePort
-from culture_rules.node.actions.newspaper import (
+from culture_rules.extensions.email.port import EmailSendPort
+from culture_rules.extensions.email.resend import RESEND_EMAILS_URL
+from culture_rules.extensions.library.port import LibraryPushPort
+from culture_rules.extensions.llm.port import LlmCompletePort
+from culture_rules.extensions.newspaper.port import (
     FILTER_BUILTIN,
     ISSUE_BUILTIN,
     ISSUES_COLLECTION,
@@ -34,7 +34,7 @@ from culture_rules.node.actions.newspaper import (
     NewspaperRenderPort,
     NewspaperSectionsPort,
 )
-from culture_rules.node.actions.search import SearchWebPort
+from culture_rules.extensions.search.port import SearchWebPort
 from culture_rules.node.actions.text_validate import TEXT_VALIDATE_BUILTIN, TextValidatePort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node

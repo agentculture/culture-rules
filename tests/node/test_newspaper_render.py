@@ -18,9 +18,9 @@ from xml.etree import ElementTree
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions import newspaper_render
-from culture_rules.node.actions.newspaper import NewspaperRenderPort
-from culture_rules.node.actions.newspaper_render import (
+from culture_rules.extensions.newspaper import render as newspaper_render
+from culture_rules.extensions.newspaper.port import NewspaperRenderPort
+from culture_rules.extensions.newspaper.render import (
     summary_links,
     summary_to_xhtml,
 )

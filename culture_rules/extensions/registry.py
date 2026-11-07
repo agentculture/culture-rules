@@ -20,7 +20,10 @@ with an :class:`Extension` handle, through which it adds:
   ``tick(report)`` (run once per node cycle, after the probe stage) and optionally
   ``close()``; ``long_lived`` ones hold connections and are skipped by ``node run --once``;
 * **node collections** - a provider of the store collections its code uses, created up
-  front by every node.
+  front by every node;
+* **API routes** - ``name -> mount(app, ApiContext)``: routes an app adds to the API *inside*
+  the OpenAPI contract (``GET /actors/{id}/discord/targets``); the API mounts them in
+  registration order at one fixed point, so the contract's path order holds.
 
 Registration is idempotent (an equal entry again is a no-op) and refuses a conflicting
 duplicate name with :class:`ExtensionError`, naming the extension that holds it; a refused
@@ -49,6 +52,8 @@ __all__ = [
     "RESERVED_BUILTINS",
     "WEBHOOK_PREFIX",
     "ActionPortEntry",
+    "ApiContext",
+    "ApiRoutesEntry",
     "BuiltinEntry",
     "EventTypeEntry",
     "Extension",
@@ -107,6 +112,16 @@ class NodeContext:
 
 
 @dataclass(frozen=True)
+class ApiContext:
+    """What an API routes mount gets: the API's store and seams."""
+
+    store: Any
+    resolve_secret: Callable[[str], str] | None = None
+    #: per-mount overrides a caller passed to the API (tests inject fakes here)
+    options: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class KindEntry:
     kind: ActionKind
     extension: str
@@ -150,6 +165,13 @@ class NodeListenerEntry:
     factory: Factory
     extension: str
     long_lived: bool = False
+
+
+@dataclass(frozen=True)
+class ApiRoutesEntry:
+    name: str
+    mount: Callable[[Any, ApiContext], None]
+    extension: str
 
 
 @dataclass(frozen=True)
@@ -221,6 +243,12 @@ class Extension:
         entry = _CollectionsEntry(provider, self.name)
         self._registry._add("collections", key, entry, "node collections")
 
+    def api_routes(self, name: str, mount: Callable[[Any, ApiContext], None]) -> None:
+        """Add contract routes to the API: ``mount(app, ApiContext)`` (see the module
+        docstring)."""
+        entry = ApiRoutesEntry(_name(name, "api routes name"), mount, self.name)
+        self._registry._add("api", name, entry, "api routes")
+
 
 class Registry:
     """The registered extensions and their entries (see the module docstring)."""
@@ -238,6 +266,7 @@ class Registry:
                 "routes",
                 "listeners",
                 "collections",
+                "api",
             )
         }
         self._aliases: dict[str, str] = {}
@@ -342,6 +371,9 @@ class Registry:
 
     def node_listeners(self) -> tuple[NodeListenerEntry, ...]:
         return tuple(self._tables["listeners"].values())
+
+    def api_routes(self) -> tuple[ApiRoutesEntry, ...]:
+        return tuple(self._tables["api"].values())
 
     def node_collections(self) -> tuple[str, ...]:
         """Every extension's collections (each provider is called now), first seen first."""

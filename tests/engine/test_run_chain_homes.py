@@ -1,11 +1,11 @@
 """The shared helpers live in generic homes: ``engine/run_chain.py`` and
-``node/actions/github.py``."""
+``extensions/github/port.py``."""
 
 from __future__ import annotations
 
 from culture_rules.engine import run_chain
 from culture_rules.engine.run_chain import LineageError, upstream
-from culture_rules.node.actions.github import source_rule_refusal
+from culture_rules.extensions.github.port import source_rule_refusal
 from culture_rules.store.memory import MemoryStore
 
 

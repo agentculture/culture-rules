@@ -7,12 +7,12 @@ from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
+from culture_rules.extensions.discord.sweep import DiscordSweepAction
 from culture_rules.node.actions.cursor import (
     CURSOR_ADVANCE_BUILTIN,
     SWEEP_CURSORS_COLLECTION,
     CursorAdvancePort,
 )
-from culture_rules.node.actions.discord_sweep import DiscordSweepAction
 from culture_rules.store.memory import MemoryStore
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)

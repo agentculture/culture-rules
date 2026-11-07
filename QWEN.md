@@ -276,7 +276,7 @@ culture_rules/   library + agent-first CLI (CLI cited from teken's python-cli)
   events/ machines/ ops/  event ingest, machines, backup and logs
   store/ io/ auth/        MongoDB + memory stores, export/import, access
   server/ node/ mcp/      HTTP API, engine node daemon, MCP server
-  extensions/             the registry apps plug kinds, steps, hooks, listeners into
+  extensions/             the registry, and one package per app (its integration code)
   explain/                markdown catalog for `explain`
 web/                      the React Flow editor (built into culture_rules/web_dist)
 api/openapi.json          the pinned API contract

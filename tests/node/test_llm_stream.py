@@ -18,8 +18,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions import llm as llm_mod
-from culture_rules.node.actions.llm import (
+from culture_rules.extensions.llm import port as llm_mod
+from culture_rules.extensions.llm.port import (
     MAX_RESPONSE_BYTES,
     MAX_TOKENS_CAP,
     LlmCompletePort,

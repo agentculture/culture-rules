@@ -14,7 +14,7 @@ pytest.importorskip("cryptography")
 from cryptography.hazmat.primitives import hashes, serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa: E402
 
-from culture_rules.apps.github import GitHubApp, GitHubError  # noqa: E402
+from culture_rules.extensions.github.client import GitHubApp, GitHubError  # noqa: E402
 
 NOW = datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC)
 FAKE_BEARER = "ghs" + "_" + "FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
@@ -271,7 +271,7 @@ def test_list_check_suites_paginates_and_trims(pem):
 
 
 def test_pr_facts_shape():
-    from culture_rules.apps.github import PR_FACT_FIELDS, complete_pr_facts, pr_facts
+    from culture_rules.extensions.github.client import PR_FACT_FIELDS, complete_pr_facts, pr_facts
 
     pr = {
         "draft": True,
@@ -297,7 +297,7 @@ def test_pr_facts_shape():
 
 
 def test_pr_facts_omit_missing_and_malformed_fields_never_null():
-    from culture_rules.apps.github import complete_pr_facts, pr_facts
+    from culture_rules.extensions.github.client import complete_pr_facts, pr_facts
 
     assert pr_facts({}) == {}  # no null repos to compare equal, no default draft
     assert complete_pr_facts({}) is None
@@ -346,7 +346,7 @@ def test_a_trickling_response_is_cut_by_the_whole_call_deadline():
     import time
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    from culture_rules.apps.github import urllib_transport
+    from culture_rules.extensions.github.client import urllib_transport
 
     class Trickle(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -379,7 +379,7 @@ def test_a_trickling_response_is_cut_by_the_whole_call_deadline():
 def test_a_response_body_larger_than_the_cap_is_refused():
     import io
 
-    from culture_rules.apps.github import _read_within
+    from culture_rules.extensions.github.client import _read_within
 
     big, never = io.BytesIO(b"y" * 100), float("inf")
     with pytest.raises(ValueError):

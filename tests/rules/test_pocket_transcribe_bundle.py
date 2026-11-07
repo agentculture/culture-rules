@@ -20,11 +20,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from culture_rules.cli import main
+from culture_rules.extensions.stt.port import check_stt_actor
 from culture_rules.io.exchange import import_bundle, read_bundle
 from culture_rules.model.action_step import action_spec
 from culture_rules.model.variable import validate_variable_value
 from culture_rules.model.variable_refs import rule_variable_refs
-from culture_rules.node.actions.stt import check_stt_actor
 from culture_rules.store.memory import MemoryStore
 from tests.cli.test_nouns_api import store, wire  # noqa: F401
 

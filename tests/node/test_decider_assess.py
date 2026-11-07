@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions.decider import (
+from culture_rules.extensions.decider.port import (
     MAX_REQUEST_CHARS,
     DeciderAssessPort,
     urllib_transport,
@@ -571,7 +571,7 @@ def test_a_failed_key_is_not_replayed():
 
 
 def test_the_ledger_is_bounded(monkeypatch):
-    from culture_rules.node.actions import decider as mod
+    from culture_rules.extensions.decider import port as mod
 
     monkeypatch.setattr(mod, "LEDGER_SIZE", 2)
     port, _ = _port()

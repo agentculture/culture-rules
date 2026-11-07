@@ -7,11 +7,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from culture_rules.engine.cron import parse
+from culture_rules.extensions.repodocs.port import RepodocsSyncPort
 from culture_rules.io.exchange import import_bundle, read_bundle
 from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.model.action_step import action_spec
 from culture_rules.model.describe import ACTION_WORDS
-from culture_rules.node.actions.repodocs import RepodocsSyncPort
 from culture_rules.node.runner import default_ports
 from culture_rules.store.memory import MemoryStore
 

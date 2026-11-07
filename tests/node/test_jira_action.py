@@ -7,7 +7,7 @@ import logging
 from datetime import UTC, datetime
 
 from culture_rules.engine.actorport import InvocationContext
-from culture_rules.node.actions.jira import JiraCommentPort
+from culture_rules.extensions.jira.port import JiraCommentPort
 from culture_rules.store.memory import MemoryStore
 
 FAKE_TOKEN = "jira" + "-" + "FAKETOKEN0123456789abcdef"

@@ -21,13 +21,13 @@ from culture_rules.engine.reports import RunReporter
 from culture_rules.engine.runs import ACTION_STEP, RUNS_COLLECTION, Containment, step_state
 from culture_rules.events.emit import SETTLE_TYPES
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
+from culture_rules.extensions.github.checks_settle import SOURCE as SETTLE_SOURCE
 from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
 from culture_rules.machines.probe import ProbeResult
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.placement import Placement
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
-from culture_rules.node.checks_settle import SOURCE as SETTLE_SOURCE
 from culture_rules.node.daemon import CycleReport, HeartbeatOptions, Node
 from culture_rules.node.firing import RULE_FIRES, run_id_for
 from culture_rules.ops.logs import JsonFormatter

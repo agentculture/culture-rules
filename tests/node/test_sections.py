@@ -18,7 +18,8 @@ from datetime import UTC, datetime
 import pytest
 
 from culture_rules.engine.actorport import InvocationContext
-from culture_rules.node.actions import newspaper_render, sections
+from culture_rules.extensions.newspaper import render as newspaper_render
+from culture_rules.node.actions import sections
 from culture_rules.node.actions.sections import SECTIONS_BUILTIN, DocumentSectionsPort
 from tests.node import culture_library_rules as library
 

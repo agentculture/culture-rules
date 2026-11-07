@@ -17,15 +17,15 @@ from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
 
 from culture_rules.actors import trusted  # noqa: E402
-from culture_rules.apps import discord_buttons as db  # noqa: E402
 from culture_rules.engine.actorport import InvocationContext  # noqa: E402
-from culture_rules.model.discord_filters import BUTTON_CLICKED  # noqa: E402
-from culture_rules.node.actions.github_merge import (  # noqa: E402
+from culture_rules.extensions.discord import buttons as db  # noqa: E402
+from culture_rules.extensions.github.merge import (  # noqa: E402
     MAX_RESENDS,
     MERGE_ONCE_COLLECTION,
     STALE_CLAIM_S,
     GitHubMergePort,
 )
+from culture_rules.model.discord_filters import BUTTON_CLICKED  # noqa: E402
 from culture_rules.node.firing import run_id_for  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 
@@ -494,7 +494,7 @@ def test_an_unknown_run_is_refused(pem):
 
 
 def test_the_fence_codes_are_distinct():
-    from culture_rules.node.actions import github_merge
+    from culture_rules.extensions.github import merge as github_merge
 
     codes = {
         github_merge.NOT_CLICK,

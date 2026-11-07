@@ -14,7 +14,7 @@ import pytest
 from culture_rules.events.emit import INTERNAL_SOURCE_PREFIX, reserved_reason
 from culture_rules.events.hook_sink import sink
 from culture_rules.events.ingest import EVENTS_COLLECTION, QUARANTINE_COLLECTION, EventIngest
-from culture_rules.node.checks_settle import (
+from culture_rules.extensions.github.checks_settle import (
     LATE_TYPE,
     SETTLED_TYPE,
     SOURCE,

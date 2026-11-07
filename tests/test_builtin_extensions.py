@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 
 from culture_rules.extensions import registry
-from culture_rules.extensions.builtin import BUILTIN_EXTENSIONS
-from culture_rules.model.action_kinds import ACTION_KINDS, BUILTIN_KINDS
+from culture_rules.extensions.builtin import BUILTIN_EXTENSIONS, BUILTIN_KINDS
+from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.node import runner
 from culture_rules.store.memory import MemoryStore
 
@@ -66,15 +66,15 @@ def test_the_alias_shares_its_kinds_port():
 
 
 def _builtin_classes():
+    from culture_rules.extensions.discord import attachment_fetch
+    from culture_rules.extensions.newspaper import port as newspaper
     from culture_rules.node.actions import (
-        attachment_fetch,
         checklist,
         cursor,
         json_read,
         keyset,
         markdown_html,
         markdown_render,
-        newspaper,
         run_read,
         sections,
         select,
@@ -124,13 +124,13 @@ def test_the_node_listeners_are_the_discord_gateway_and_the_checks_settler():
 
 
 def test_the_node_collections_include_every_app_collection():
-    from culture_rules.apps.discord_gateway import GATEWAY_STATE_COLLECTION
-    from culture_rules.node.actions.github import ONCE_COLLECTION
-    from culture_rules.node.checks_settle import (
+    from culture_rules.extensions.discord.gateway import GATEWAY_STATE_COLLECTION
+    from culture_rules.extensions.github.checks_settle import (
         LATE_COLLECTION,
         RECOVERY_COLLECTION,
         SETTLE_COLLECTION,
     )
+    from culture_rules.extensions.github.port import ONCE_COLLECTION
     from culture_rules.node.daemon import NODE_COLLECTIONS
 
     app = {
@@ -144,10 +144,11 @@ def test_the_node_collections_include_every_app_collection():
 
 
 def _source_event_types():
-    from culture_rules.apps import discord_gateway as gw
     from culture_rules.events.emit import CHECKS_SETTLED_TYPE
+    from culture_rules.extensions.discord import gateway as gw
+    from culture_rules.extensions.github import hooks as github
+    from culture_rules.extensions.jira import hooks as jira
     from culture_rules.model.discord_filters import BUTTON_CLICKED
-    from culture_rules.server.hooks import github, jira
 
     return (
         set(github._TYPES.values())

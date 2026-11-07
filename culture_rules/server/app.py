@@ -45,7 +45,7 @@ from culture_rules.engine.runs import (
     is_paused,
 )
 from culture_rules.events.ingest import QUARANTINE_COLLECTION, ensure_quarantine_ttl
-from culture_rules.extensions import WebhookRouteEntry, registry
+from culture_rules.extensions import ApiContext, WebhookRouteEntry, registry
 from culture_rules.model import describe
 from culture_rules.model.paragraph import workflow_paragraph
 from culture_rules.ops.health import health_status
@@ -818,7 +818,9 @@ def create_app(
     _register_stream(app, store)
     _register_hooks(app, store, routes)
     _register_bridge_callbacks(app, store)
-    _register_discord_targets(app, store, resolve_secret, discord_transport)
+    _register_api_routes(
+        app, ApiContext(store, resolve_secret, {"discord_transport": discord_transport})
+    )
     _register_model_actors(app, store, defs, resolve_secret, models_transport)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
@@ -1001,71 +1003,12 @@ def _register_bridge_callbacks(app: FastAPI, store: StoragePort) -> None:
     app.openapi = openapi  # type: ignore[method-assign]
 
 
-class DiscordChannel(BaseModel):
-    id: str
-    name: str
-    visible: bool = Field(description="whether the bot can open the channel (private: added?)")
-
-
-class DiscordGuild(BaseModel):
-    id: str
-    name: str
-    channels: list[DiscordChannel]
-
-
-class DiscordTargets(BaseModel):
-    guilds: list[DiscordGuild]
-
-
-def _register_discord_targets(
-    app: FastAPI, store: StoragePort, resolve_secret: Any, transport: Any
-) -> None:
-    from culture_rules.actors import secrets  # noqa: PLC0415
-    from culture_rules.apps.discord_rest import (  # noqa: PLC0415
-        DiscordClient,
-        DiscordError,
-        guild_ids,
-    )
-
-    @app.get(
-        "/actors/{actor_id}/discord/targets",
-        tags=["actors"],
-        operation_id="discord_targets",
-        responses={
-            404: ERRORS[404],
-            409: ERRORS[409],
-            422: ERRORS[422],
-            502: {"model": ErrorEnvelope, "description": "Discord answered with an error"},
-        },
-    )
-    def discord_targets(actor_id: str) -> DiscordTargets:
-        """The servers and text channels a Discord app actor's bot can post to."""
-        conn = _discord_connection(store, actor_id)
-        if conn is None:
-            return _envelope(422, "not_discord_actor", f"actor {actor_id!r} is not a Discord app")
-        try:
-            token = (resolve_secret or secrets.resolve)(str(conn.get("bot_token") or ""))
-        except Exception:  # noqa: BLE001 - never echo why: the text may hold a value
-            return _envelope(409, "secret_unavailable", "the bot token cannot be read here")
-        kwargs = {"transport": transport} if transport is not None else {}
-        try:
-            guilds = DiscordClient(token, **kwargs).list_targets(guild_ids(conn.get("guild_id")))
-        except DiscordError as exc:
-            return _envelope(502, "discord_error", str(exc))
-        return DiscordTargets(guilds=guilds)
-
-
-def _discord_connection(store: StoragePort, actor_id: str) -> dict[str, Any] | None:
-    """The connection block of Discord app actor ``actor_id``; ``None`` when the actor is not a
-    Discord app. Raises :class:`NotFound` for a missing or deleted actor."""
-    doc = store.get("actors", actor_id)
-    if doc is None or doc.get("deleted_at"):
-        raise NotFound(f"actor {actor_id!r} does not exist")
-    params = doc.get("params") if isinstance(doc.get("params"), dict) else {}
-    if doc.get("kind") != "app" or params.get("surface") != "discord":
-        return None
-    conn = params.get("connection")
-    return conn if isinstance(conn, dict) else {}
+def _register_api_routes(app: FastAPI, ctx: ApiContext) -> None:
+    """The contract routes the registered extensions add (``GET /actors/{id}/discord/targets``
+    from the Discord app), mounted in registration order at this one point so the contract's
+    path order holds."""
+    for entry in registry().api_routes():
+        entry.mount(app, ctx)
 
 
 def _register_auth_routes(app: FastAPI, tokens: ServiceTokens) -> None:
