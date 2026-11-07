@@ -196,24 +196,6 @@ _KINDS = (
     ),
     kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
     kind(
-        "llm.complete",
-        "Complete an actor's brief with an OpenAI-compatible model on an agent actor (no tools)",
-        any_of=(("content", "content_path"),),
-        actor=REQ_STR,
-        content=ParamSpec("any"),  # or content_path (d2): one of the two is required
-        content_path=STR,  # a schema-1 transcript file; needs content_root (checked at run time)
-        content_root=STR,
-        content_max_chars=INT,
-        max_tokens=INT,
-        temperature=ParamSpec("any"),
-        not_after=STR,  # ISO-8601: past it the work fails llm_deadline instead of queueing
-        brief=STR,  # a name in the actor's params.briefs; required at run time, no default
-        answer=ParamSpec("dict"),  # {shape: <culture_rules.model.shape spec>}: a JSON answer
-        cache=ParamSpec("bool"),  # answer + content_path: keep the first valid answer
-        cache_name=STR,  # the cache file stem (answer.<name>.<sha16>.json), default "recording"
-        cache_label=STR,  # the cache document's brief label, default "recording"
-    ),
-    kind(
         "decider.assess",
         "Ask the mesh's decider for probabilities over the options a step defines (no text)",
         actor=REQ_STR,

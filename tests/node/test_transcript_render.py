@@ -13,9 +13,9 @@ from typing import Any
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, InvocationContext
+from culture_rules.extensions.llm.port import parse_answer
 from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.node.actions import transcript_render as tr
-from culture_rules.node.actions.llm import parse_answer
 from culture_rules.node.actions.transcript_file import build_result
 from culture_rules.node.actions.transcript_render import TranscriptRenderPort, parse_summary
 from tests.node.test_llm_answer import RECORDING

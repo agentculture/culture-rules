@@ -21,9 +21,9 @@ from culture_rules.actors.limits import USAGE_COLLECTION, pool_doc_id
 from culture_rules.engine.runs import RUNS_COLLECTION, step_key, step_state
 from culture_rules.extensions.email.port import EmailSendPort
 from culture_rules.extensions.email.resend import RESEND_EMAILS_URL
+from culture_rules.extensions.llm.port import LlmCompletePort
 from culture_rules.extensions.search.port import SearchWebPort
 from culture_rules.node.actions.library import LibraryPushPort
-from culture_rules.node.actions.llm import LlmCompletePort
 from culture_rules.node.actions.newspaper import (
     FILTER_BUILTIN,
     ISSUE_BUILTIN,

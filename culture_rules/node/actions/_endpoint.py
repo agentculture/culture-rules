@@ -1,6 +1,6 @@
 """What the endpoint-actor ports share (#87): one copy, imported by all three.
 
-``llm.complete`` (:mod:`~culture_rules.node.actions.llm`), ``audio.transcribe``
+``llm.complete`` (:mod:`~culture_rules.extensions.llm.port`), ``audio.transcribe``
 (:mod:`~culture_rules.node.actions.stt`) and ``decider.assess``
 (:mod:`~culture_rules.node.actions.decider`) each POST to an agent actor's ``base_url``. They
 share the transport (no environment proxies, no redirects followed), the ``base_url`` check,

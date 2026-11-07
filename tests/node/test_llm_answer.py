@@ -13,8 +13,8 @@ import json
 import pytest
 
 from culture_rules.engine.actorport import FAILED
+from culture_rules.extensions.llm.port import AnswerRefused, parse_answer
 from culture_rules.model.action_kinds import ACTION_KINDS
-from culture_rules.node.actions.llm import AnswerRefused, parse_answer
 from tests.node.test_llm_complete import (
     NOTES,
     FakeTransport,
