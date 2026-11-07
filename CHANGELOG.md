@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] - 2026-11-07
+
+### Added
+
+- An extension registry in core (`culture_rules/extensions/`, standard library only): an extension registers its action kinds, action ports, builtin steps, event types, webhook routes, API routes, node listeners and collections; the runner, the action catalogue, the server and the node daemon read it, so a new integration needs no core edit (no-flow-specific-code, Boundary release)
+- `GET /actions/kinds` serves the action catalogue from the registry (kinds, params and the editor's hints: label, widget, choices, advanced, args_for, declarable_by_apps, shown_as), with CLI `culture-rules actions kinds [KIND]` and the MCP tools `actions_kinds` / `actions_overview`
+- `DELETE /variables/{name}` (admin, dry run by default): writes a tombstone version, keeps the history, audits the delete, and is refused (`variable_in_use`) while an enabled rule references the variable; CLI `culture-rules variables delete NAME [--apply]`, MCP `variables_delete`
+
+### Changed
+
+- Every app's integration code moved into its own package under `culture_rules/extensions/<app>/` (github incl. the checks settle and its webhook, jira, discord incl. the gateway, email, search, llm, decider, stt, library, repodocs, transcript, newspaper, http, machine); `culture_rules/apps/` and `culture_rules/server/hooks/` are gone, and a test (`tests/test_extension_boundary.py`) fails if a core module imports an app package. Kinds, ports, routes, listeners, event types and catalogue order are unchanged
+- The editor's action picker and the Actors tab read the served catalogue instead of hard-coded tables; params the old form did not show (`once_key`, `idempotency_key`, `sender`, `not_after` on email.send) sit behind a "More settings" fold; the Actors tab offers only the kinds an app may declare (plus any it already lists)
+- The node runs its listeners (the Discord gateway, the GitHub checks settle) after releasing expired chain holds, still before the poll
+
+### Fixed
+
+- Removed the dead workflow-trust path: `trusted.pinned_digest`, `workflows repoint-actor`'s `workflow_trusted` 409 and `--force` (now refused by the CLI; a `force` field is a 422), and the editor's "Move anyway" phase. The workflow and actor digests and the github-app pin remain
+
 ## [0.43.0] - 2026-11-07
 
 ### Removed
