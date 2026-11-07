@@ -84,8 +84,9 @@ def workflow_digest_v2(definition: Any) -> str | None:
     return _DIGEST_PREFIX + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def pinned_digest(definition: Mapping[str, Any]) -> str | None:
-    """No workflow definitions are currently pinned; retain the repoint API seam."""
+def pinned_digest(_definition: Mapping[str, Any]) -> str | None:
+    """The pinned digest a workflow definition matches. No workflow is pinned today, so
+    always ``None``; ``workflows repoint-actor`` keeps asking through this seam."""
     return None
 
 

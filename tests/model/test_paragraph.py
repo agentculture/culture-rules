@@ -679,7 +679,7 @@ def test_standin_text_is_the_name_else_the_generic_line():
             action_text({"kind": "search.web", "params": {"actor": "brave", "query": "q"}}),
         ),
         # builtin code: describe.BUILTIN_WORDS
-        ({"kind": "code", "config": {"builtin": "select"}}, BUILTIN_WORDS["select"]),
+        ({"kind": "code", "config": {"builtin": "json.read"}}, BUILTIN_WORDS["json.read"]),
         ({"kind": "code", "config": {"builtin": "select"}}, BUILTIN_WORDS["select"]),
         ({"kind": "code", "config": {"builtin": "newspaper.issue"}}, "builtin newspaper.issue"),
         ({"kind": "code", "config": {"command": "make test"}}, "code `make test`"),
