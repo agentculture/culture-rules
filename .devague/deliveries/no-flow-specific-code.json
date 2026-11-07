@@ -2,7 +2,7 @@
   "plan_slug": "no-flow-specific-code",
   "schema_version": 2,
   "created": "2026-11-06T20:24:48Z",
-  "updated": "2026-11-07T09:11:28Z",
+  "updated": "2026-11-07T17:35:50Z",
   "deviations": [
     {
       "id": "d1",
@@ -145,6 +145,34 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "R2 ships as two releases: R2a = d9 registry hooks + t11 json.parse/shape, t12 conditions, t13 list.filter, t14 value helpers, t15 file.read, with its own registration/editor/docs/version/PR/rollout (t18's scope for these steps); R2b = t16 document.render + t17 lease/ledger with the rest of t18. Within R2a, d9 runs beside t11/t14/t15 and t12 (then t13) start after d9 merges; at most three agents at once",
+      "task_ref": "t18",
+      "reason": "Boundary came to ~210 files and two review rounds; operator chose two releases (decider 0.63), d9 beside non-matching tasks (0.55), batches of three (0.83)",
+      "affects": [
+        "t11",
+        "t16",
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 12
+    },
+    {
+      "id": "d13",
+      "what": "For t16 and t17, a separate agent first writes the golden-output (byte-identical to newspaper.render and transcript.render) and fault-injection (each newspaper.issue guarantee, each fence) tests from the coded steps; a different agent implements until they pass",
+      "task_ref": "t16",
+      "reason": "operator chose a separate test author for the two large tasks (decider 0.72)",
+      "affects": [
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 13
     }
   ],
   "evidence": [],
