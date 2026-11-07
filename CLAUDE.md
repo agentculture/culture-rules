@@ -29,7 +29,7 @@ plan. What exists today:
   contract is pinned in `api/openapi.json`. Auth is Cloudflare Access on a
   loopback listener, service tokens on a LAN listener, and roles.
 - **The CLI** over the API: the noun groups `rules`, `workflows`, `actors`,
-  `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
+  `actions`, `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
   identity verbs. Writes are dry-run by default, `--apply` commits. The model
   verbs are `actors enrol-models|references|disable` and `workflows
   repoint-actor` (below).
@@ -363,6 +363,15 @@ Settled constraints that shape the architecture:
   `culture_rules/extensions/builtin.py`, every factory imported lazily.
   The app modules themselves still live under `apps/`, `node/` and
   `server/hooks/`.
+- **The API serves the action catalogue and the editor reads it**
+  (guide `docs/operations/action-catalogue.md`): `GET /actions/kinds`
+  (viewer) lists the registry's kinds in order with their typed params, the
+  editor hints on `ParamSpec` (`label`, `widget`, `choices`, `options_from`,
+  `needs_actor_param`, `needed`) and the actor clauses; the CLI verb is
+  `actions kinds`, the MCP tool `actions_kinds`. `web/src/rules/ActionPicker.tsx`
+  builds from it (`web/src/api/actions.ts`) and keeps no table of kinds; the
+  web tests' snapshot is `web/src/fixtures/action-kinds.data.ts`
+  (`python3 scripts/export-action-kinds.py --write`).
 - **The `culture-rules` CLI is a thin layer** over the HTTP API (except
   `node run`, which is the engine and uses the store directly). Writes are
   **dry-run by default**, `--apply` commits them, and every verb takes

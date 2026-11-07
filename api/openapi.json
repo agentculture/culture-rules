@@ -1,6 +1,187 @@
 {
   "components": {
     "schemas": {
+      "ActionChoice": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "ActionChoice",
+        "type": "object"
+      },
+      "ActionKindItem": {
+        "properties": {
+          "actorless": {
+            "description": "offered even when no enabled actor can perform it",
+            "title": "Actorless",
+            "type": "boolean"
+          },
+          "actors": {
+            "description": "alternative clauses (OR) over an enabled actor, each an AND of: kinds, not_kinds, surface, declares_action, has, has_any",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Actors",
+            "type": "array"
+          },
+          "aliases": {
+            "description": "legacy names of the kind",
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "any_of": {
+            "description": "groups of which at least one param must be set",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Any Of",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "a short name for pickers (the summary when none)",
+            "title": "Label",
+            "type": "string"
+          },
+          "lenient": {
+            "description": "required params are not enforced (legacy-tolerant)",
+            "title": "Lenient",
+            "type": "boolean"
+          },
+          "params": {
+            "description": "in the order a picker shows them",
+            "items": {
+              "$ref": "#/components/schemas/ActionParam"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "summary",
+          "lenient",
+          "aliases",
+          "params",
+          "any_of",
+          "actors",
+          "actorless"
+        ],
+        "title": "ActionKindItem",
+        "type": "object"
+      },
+      "ActionKindList": {
+        "properties": {
+          "items": {
+            "description": "the registered kinds, in catalogue order",
+            "items": {
+              "$ref": "#/components/schemas/ActionKindItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ActionKindList",
+        "type": "object"
+      },
+      "ActionParam": {
+        "properties": {
+          "choices": {
+            "description": "a closed set of values, or empty",
+            "items": {
+              "$ref": "#/components/schemas/ActionChoice"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "choose": {
+            "description": "the prompt of the empty choice",
+            "title": "Choose",
+            "type": "string"
+          },
+          "label": {
+            "description": "how a picker names it; empty: the name",
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needed": {
+            "description": "not required of a stored step (the port refuses it at run time) but an editor asks for it",
+            "title": "Needed",
+            "type": "boolean"
+          },
+          "needs_actor_param": {
+            "description": "shown only when the chosen actor has it set",
+            "title": "Needs Actor Param",
+            "type": "string"
+          },
+          "options_from": {
+            "description": "the chosen actor's params key that lists (or, as a mapping, names) the values",
+            "title": "Options From",
+            "type": "string"
+          },
+          "required": {
+            "description": "must be non-empty",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "str | int | bool | dict | list | any",
+            "title": "Type",
+            "type": "string"
+          },
+          "widget": {
+            "description": "multiline | json | number | buttons | command | command_args | discord_guild | discord_channel | hidden; empty: by type",
+            "title": "Widget",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "required",
+          "label",
+          "widget",
+          "choices",
+          "options_from",
+          "choose",
+          "needs_actor_param",
+          "needed"
+        ],
+        "title": "ActionParam",
+        "type": "object"
+      },
       "ActiveRun": {
         "properties": {
           "id": {
@@ -2385,6 +2566,56 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/actions/kinds": {
+      "get": {
+        "description": "Every registered action kind, in catalogue order, with its typed params and the\nhints an editor needs to build its picker (the editor keeps no table of its own).",
+        "operationId": "list_action_kinds",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionKindList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Action Kinds",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
     "/actors": {
       "get": {
         "operationId": "list_actors",

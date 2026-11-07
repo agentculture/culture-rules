@@ -30,7 +30,7 @@ On disk today:
 - the engine node daemon, `culture-rules node run`;
 - the HTTP API (`culture_rules/server`, the `server` extra), whose contract
   is pinned in `api/openapi.json`;
-- the CLI noun groups `rules`, `workflows`, `actors`, `machines`, `runs` and
+- the CLI noun groups `rules`, `workflows`, `actors`, `actions`, `machines`, `runs` and
   `rollout`, plus `serve`, `node` and `mcp`;
 - the MCP server, `culture-rules mcp` (the `mcp` extra), with the same verbs
   as the CLI;
@@ -117,6 +117,10 @@ On disk today:
   digests (no workflow is pinned today), and `rules migrate-orphans [--apply]`. The wheel ships `release.json`
   (`culture_rules/deploy_data`) and no rule bundle: `rollout seed` and `rollout import`
   take `--bundle DIR` (exit 1 without it).
+- The API serves the action catalogue (guide `docs/operations/action-catalogue.md`):
+  `GET /actions/kinds` (viewer), CLI `actions kinds`, MCP tool `actions_kinds`; the editor's
+  action picker is built from it and keeps no table of kinds, so an extension's kind needs
+  no editor change.
 - State between runs (guide `docs/operations/keysets.md`): `keyset.filter` and
   `keyset.add` keep named key sets for a configured window (one document per key, TTL
   index, config-only rules); admin verbs `keysets list|show|clear`.

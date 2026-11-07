@@ -6,6 +6,7 @@ import { listVariables, type Variable } from "../api/variables";
 import GuidedNotice from "../components/GuidedNotice";
 import { useEscapeKey } from "../hooks/useEscapeKey";
 import { slugFor } from "../routes/rules-view";
+import { useActionCatalogue } from "../api/actions";
 import ActionPicker, { actionProblem } from "./ActionPicker";
 import TriggerPicker, { blankTrigger, triggerProblem } from "./TriggerPicker";
 
@@ -65,6 +66,7 @@ export function RuleEditForm({ rule, machines, workflows = [], actors, onSave, o
   const [trigger, setTrigger] = useState<Trigger>(rule.trigger);
   const [problem, setProblem] = useState<string | null>(null);
   const [action, setAction] = useState<Action>(rule.action);
+  const { catalogue } = useActionCatalogue();
   const [actionIssue, setActionIssue] = useState<string | null>(null);
   const placed = rule.placement?.machine ?? "";
   const foreign = !placed && (rule.placement?.actor || rule.placement?.requirement?.length);
@@ -80,7 +82,7 @@ export function RuleEditForm({ rule, machines, workflows = [], actors, onSave, o
     setProblem(found);
     // Likewise an untouched action is saved as it was; a changed one must be complete.
     const actionChanged = JSON.stringify(action) !== JSON.stringify(rule.action);
-    const actionFound = actionChanged ? actionProblem(action) : null;
+    const actionFound = actionChanged ? actionProblem(action, catalogue) : null;
     setActionIssue(actionFound);
     if (found || actionFound) return;
     const next: RuleDoc = {
@@ -155,6 +157,7 @@ export function NewRuleForm({ actors, takenIds, onCreate, onCancel }: Readonly<N
   const [name, setName] = useState("");
   const [trigger, setTrigger] = useState<Trigger>(blankTrigger("event"));
   const [action, setAction] = useState<Action>(PLACEHOLDER_ACTION);
+  const { catalogue } = useActionCatalogue();
   const [problem, setProblem] = useState<string | null>(null);
   const [actionIssue, setActionIssue] = useState<string | null>(null);
   const { form, first } = useFormKeyboard<HTMLInputElement>(onCancel);
@@ -164,7 +167,7 @@ export function NewRuleForm({ actors, takenIds, onCreate, onCancel }: Readonly<N
     if (!text) return;
     const found = triggerProblem(trigger);
     setProblem(found);
-    const actionFound = actionProblem(action);
+    const actionFound = actionProblem(action, catalogue);
     setActionIssue(actionFound);
     if (found || actionFound) return;
     await onCreate({

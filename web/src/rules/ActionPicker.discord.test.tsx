@@ -4,7 +4,8 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { Actor, DiscordTargets } from "../api/actors";
 import type { Action } from "../api/types";
-import ActionPicker, { ACTION_KINDS, actionProblem, blankAction } from "./ActionPicker";
+import { ACTION_CATALOGUE, kindSpec, paramsOf } from "../fixtures/action-catalogue";
+import ActionPicker, { actionProblem, blankAction } from "./ActionPicker";
 
 const BOT: Actor = {
   id: "discord-bot",
@@ -21,7 +22,7 @@ function Harness() {
   const [value, setValue] = useState<Action>(blankAction());
   return (
     <>
-      <ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
+      <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
         loadDiscordTargets={async () => TARGETS} />
       <output data-testid="saved">{JSON.stringify(value)}</output>
     </>
@@ -30,13 +31,13 @@ function Harness() {
 
 describe("discord.read", () => {
   it("is catalogued with actor, channel and message required and guild optional", () => {
-    const p = ACTION_KINDS["discord.read"].params;
+    const p = paramsOf("discord.read");
     expect(p.actor.required).toBe(true);
     expect(p.channel.required).toBe(true);
     expect(p.message.required).toBe(true);
     expect(p.guild.required).toBeFalsy();
-    expect(actionProblem({ kind: "discord.read", params: { actor: "a", channel: "1" } })).toBe("empty");
-    expect(actionProblem({ kind: "discord.read", params: { actor: "a", channel: "1", message: "2" } })).toBeNull();
+    expect(actionProblem({ kind: "discord.read", params: { actor: "a", channel: "1" } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "discord.read", params: { actor: "a", channel: "1", message: "2" } }, ACTION_CATALOGUE)).toBeNull();
   });
 
   it("is offered for a bot that declares it, with the server and channel pickers and a message field", async () => {
@@ -62,7 +63,7 @@ describe("discord.react", () => {
     const [value, setValue] = useState<Action>(blankAction());
     return (
       <>
-        <ActionPicker value={value} actors={[REACTOR]} triggerType="discord.reaction.added" onChange={setValue}
+        <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[REACTOR]} triggerType="discord.reaction.added" onChange={setValue}
           loadDiscordTargets={async () => TARGETS} />
         <output data-testid="saved">{JSON.stringify(value)}</output>
       </>
@@ -70,14 +71,14 @@ describe("discord.react", () => {
   }
 
   it("is catalogued with actor, channel and message required, and an emoji to add or remove", () => {
-    const p = ACTION_KINDS["discord.react"].params;
+    const p = paramsOf("discord.react");
     expect([p.actor, p.channel, p.message].every((s) => s.required)).toBe(true);
     expect(p.guild.required).toBeFalsy();
     expect(p.remove.type).toBe("list");
-    expect(ACTION_KINDS["discord.react"].anyOf).toEqual([["emoji", "remove"]]);
-    expect(actionProblem({ kind: "discord.react", params: { actor: "a", channel: "1", message: "2" } })).toBe("empty");
+    expect(kindSpec("discord.react").any_of).toEqual([["emoji", "remove"]]);
+    expect(actionProblem({ kind: "discord.react", params: { actor: "a", channel: "1", message: "2" } }, ACTION_CATALOGUE)).toBe("empty");
     expect(
-      actionProblem({ kind: "discord.react", params: { actor: "a", channel: "1", message: "2", remove: ["⏳"] } }),
+      actionProblem({ kind: "discord.react", params: { actor: "a", channel: "1", message: "2", remove: ["⏳"] } }, ACTION_CATALOGUE),
     ).toBeNull();
   });
 
@@ -98,17 +99,17 @@ describe("discord.react", () => {
 
 describe("Release 3 kinds", () => {
   it("catalogues discord.reply with actor, event_id and text required", () => {
-    const p = ACTION_KINDS["discord.reply"].params;
+    const p = paramsOf("discord.reply");
     expect([p.actor, p.event_id, p.text].every((s) => s.required)).toBe(true);
-    expect(actionProblem({ kind: "discord.reply", params: { actor: "a", event_id: "e" } })).toBe("empty");
-    expect(actionProblem({ kind: "discord.reply", params: { actor: "a", event_id: "e", text: "Saved" } })).toBeNull();
+    expect(actionProblem({ kind: "discord.reply", params: { actor: "a", event_id: "e" } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "discord.reply", params: { actor: "a", event_id: "e", text: "Saved" } }, ACTION_CATALOGUE)).toBeNull();
   });
 
   it("catalogues discord.sweep with the channel and a cursor key required, the rest optional", () => {
-    const p = ACTION_KINDS["discord.sweep"].params;
+    const p = paramsOf("discord.sweep");
     expect([p.actor, p.channel, p.cursor_key].every((s) => s.required)).toBe(true);
     expect([p.guild, p.limit, p.include_bots, p.backfill].some((s) => s.required)).toBe(false);
-    expect(actionProblem({ kind: "discord.sweep", params: { actor: "a", channel: "1", cursor_key: "k", limit: "x" } })).toBe("invalid_value");
+    expect(actionProblem({ kind: "discord.sweep", params: { actor: "a", channel: "1", cursor_key: "k", limit: "x" } }, ACTION_CATALOGUE)).toBe("invalid_value");
   });
 
   it("picks the sweep's channel from what the bot sees", async () => {
@@ -117,7 +118,7 @@ describe("Release 3 kinds", () => {
       const [value, setValue] = useState<Action>(blankAction());
       return (
         <>
-          <ActionPicker value={value} actors={[SWEEPER]} onChange={setValue} loadDiscordTargets={async () => TARGETS} />
+          <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[SWEEPER]} onChange={setValue} loadDiscordTargets={async () => TARGETS} />
           <output data-testid="saved">{JSON.stringify(value)}</output>
         </>
       );
@@ -211,7 +212,7 @@ describe("discord.message buttons", () => {
       kind: "discord.message",
       params: { actor: "discord-bot", channel: "1", text: "t", buttons: [{ label: "M", style: "success", custom_id: "m", code: true }] },
     };
-    expect(actionProblem(action)).toBe("invalid_value");
+    expect(actionProblem(action, ACTION_CATALOGUE)).toBe("invalid_value");
   });
 
   it("shows a stored value as JSON", () => {
@@ -219,7 +220,7 @@ describe("discord.message buttons", () => {
       kind: "discord.message",
       params: { actor: "discord-bot", buttons: [{ label: "Merge", style: "success", custom_id: "merge", value: { n: 1 } }] },
     };
-    render(<ActionPicker value={action} actors={[BOT]} triggerType="discord.message.created" onChange={() => {}}
+    render(<ActionPicker catalogue={ACTION_CATALOGUE} value={action} actors={[BOT]} triggerType="discord.message.created" onChange={() => {}}
       loadDiscordTargets={async () => TARGETS} />);
     expect(JSON.parse((screen.getByLabelText("Button 1 value") as HTMLTextAreaElement).value)).toEqual({ n: 1 });
   });
@@ -235,7 +236,7 @@ describe("discord.message buttons", () => {
     },
   };
   const picker = (value: Action) => (
-    <ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={() => {}}
+    <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[BOT]} triggerType="discord.message.created" onChange={() => {}}
       loadDiscordTargets={async () => TARGETS} />
   );
   const valueOf = (n: number) => JSON.parse((screen.getByLabelText(`Button ${n} value`) as HTMLTextAreaElement).value);
@@ -243,7 +244,7 @@ describe("discord.message buttons", () => {
   it("shows the next button's value after the first is removed", async () => {
     function Keep() {
       const [value, setValue] = useState<Action>(two);
-      return <>{<ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
+      return <>{<ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
         loadDiscordTargets={async () => TARGETS} />}<output data-testid="saved">{JSON.stringify(value)}</output></>;
     }
     const user = userEvent.setup();
@@ -266,8 +267,8 @@ describe("discord.message buttons", () => {
       kind: "discord.message",
       params: { actor: "discord-bot", channel: "101", text: "hi", buttons: [{ label: "A", style: "primary", custom_id: long, ...(value ? { value } : {}) }] },
     });
-    expect(actionProblem(withLong())).toBeNull();
-    expect(actionProblem(withLong({ n: 1 }))).toBe("invalid_value");
+    expect(actionProblem(withLong(), ACTION_CATALOGUE)).toBeNull();
+    expect(actionProblem(withLong({ n: 1 }), ACTION_CATALOGUE)).toBe("invalid_value");
     const first = render(picker(withLong({ n: 1 })));
     expect(screen.getByRole("alert")).toHaveTextContent("at most 77");
     const user = userEvent.setup();
@@ -276,7 +277,7 @@ describe("discord.message buttons", () => {
         kind: "discord.message",
         params: { actor: "discord-bot", buttons: [{ label: "A", style: "primary", custom_id: "", value: { n: 1 } }] },
       });
-      return <ActionPicker value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
+      return <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
         loadDiscordTargets={async () => TARGETS} />;
     }
     first.unmount();
@@ -289,7 +290,7 @@ describe("discord.message buttons", () => {
 
 describe("discord.message forum posts", () => {
   it("catalogues thread_name as optional text and tags as an optional list", () => {
-    const p = ACTION_KINDS["discord.message"].params;
+    const p = paramsOf("discord.message");
     expect(p.thread_name.type).toBe("str");
     expect(p.thread_name.required).toBeFalsy();
     expect(p.tags.type).toBe("list");

@@ -47,6 +47,7 @@ from culture_rules.engine.runs import (
 from culture_rules.events.ingest import QUARANTINE_COLLECTION, ensure_quarantine_ttl
 from culture_rules.extensions import WebhookRouteEntry, registry
 from culture_rules.model import describe
+from culture_rules.model.action_kinds import describe_kinds
 from culture_rules.model.paragraph import workflow_paragraph
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
@@ -413,6 +414,51 @@ class VariableWrite(BaseModel):
 
 class VariableItem(BaseModel):
     item: Any = Field(description="a JSON scalar of the list's item type")
+
+
+class ActionChoice(BaseModel):
+    value: str
+    label: str
+
+
+class ActionParam(BaseModel):
+    name: str
+    type: str = Field(description="str | int | bool | dict | list | any")
+    required: bool = Field(description="must be non-empty")
+    label: str = Field(description="how a picker names it; empty: the name")
+    widget: str = Field(
+        description="multiline | json | number | buttons | command | command_args | "
+        "discord_guild | discord_channel | hidden; empty: by type"
+    )
+    choices: list[ActionChoice] = Field(description="a closed set of values, or empty")
+    options_from: str = Field(
+        description="the chosen actor's params key that lists (or, as a mapping, names) the values"
+    )
+    choose: str = Field(description="the prompt of the empty choice")
+    needs_actor_param: str = Field(description="shown only when the chosen actor has it set")
+    needed: bool = Field(
+        description="not required of a stored step (the port refuses it at run time) "
+        "but an editor asks for it"
+    )
+
+
+class ActionKindItem(BaseModel):
+    kind: str
+    label: str = Field(description="a short name for pickers (the summary when none)")
+    summary: str
+    lenient: bool = Field(description="required params are not enforced (legacy-tolerant)")
+    aliases: list[str] = Field(description="legacy names of the kind")
+    params: list[ActionParam] = Field(description="in the order a picker shows them")
+    any_of: list[list[str]] = Field(description="groups of which at least one param must be set")
+    actors: list[dict[str, Any]] = Field(
+        description="alternative clauses (OR) over an enabled actor, each an AND of: kinds, "
+        "not_kinds, surface, declares_action, has, has_any"
+    )
+    actorless: bool = Field(description="offered even when no enabled actor can perform it")
+
+
+class ActionKindList(BaseModel):
+    items: list[ActionKindItem] = Field(description="the registered kinds, in catalogue order")
 
 
 class KeysetSummary(BaseModel):
@@ -807,6 +853,7 @@ def create_app(
     _register_ops(app, store, node)
     _register_migrations(app, store, defs)
     _register_variables(app, Variables(store))
+    _register_actions(app)
     _register_keysets(app, Keysets(store, audit=audit))
     _register_rollouts(app, Rollouts(store, audit))
     for kind in DEFINITION_KINDS:
@@ -1251,6 +1298,21 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
     def variable_refs(name: str):
         """Live rules whose condition or workflow inputs reference the variable."""
         return {"items": variables.refs(name)}
+
+
+def _register_actions(app: FastAPI) -> None:
+    """The action catalogue, read from the extension registry (viewer, like other reads)."""
+
+    @app.get(
+        "/actions/kinds",
+        response_model=ActionKindList,
+        tags=["actions"],
+        operation_id="list_action_kinds",
+    )
+    def list_action_kinds():
+        """Every registered action kind, in catalogue order, with its typed params and the
+        hints an editor needs to build its picker (the editor keeps no table of its own)."""
+        return {"items": describe_kinds()}
 
 
 def _register_keysets(app: FastAPI, sets: Keysets) -> None:

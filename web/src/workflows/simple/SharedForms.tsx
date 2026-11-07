@@ -4,6 +4,7 @@ import type { ApiError } from "../../api/client";
 import type { Action, Machine, Placement, Rule, Workflow } from "../../api/types";
 import GuidedNotice from "../../components/GuidedNotice";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
+import { useActionCatalogue } from "../../api/actions";
 import ActionPicker, { actionProblem, blankAction } from "../../rules/ActionPicker";
 import { groupRanking, parsePriority, priorityOf, runsProblem, type GroupMember, type RunsEdit } from "./text";
 
@@ -86,6 +87,7 @@ export function SharedActionForm({
   mixed?: boolean;
 }>) {
   const [action, setAction] = useState<Action>((!mixed && value) || blankAction("noop"));
+  const { catalogue } = useActionCatalogue();
   const [touched, setTouched] = useState(false);
   const [issue, setIssue] = useState<string | null>(null);
   const submit = () => {
@@ -93,7 +95,7 @@ export function SharedActionForm({
     if ((mixed || !value) && !touched) return onCancel();
     // Like the Rules tab: an untouched action is saved as it was; a changed one must be complete.
     const changed = JSON.stringify(action) !== JSON.stringify(value);
-    const found = changed ? actionProblem(action) : null;
+    const found = changed ? actionProblem(action, catalogue) : null;
     setIssue(found);
     if (found) return;
     onSave(changed ? withoutEmptyName(action) : (value as Action));
