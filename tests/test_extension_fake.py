@@ -6,6 +6,11 @@ afterwards, so every other test sees only the built-in apps. Then the runner run
 built-in and the kind's port, the API serves the route without a principal, the catalogue
 lists the kind and validation enforces its params, the event type is known and the node
 ticks the listener.
+
+d9 adds the seams for what apps used to leave in core: the fake kind's params validator, a
+``fake.*`` trigger filter (matching, validation, describe words), the kind's phrases and the
+built-in's gloss, a health section, an event reservation and an API route's role - each
+reaches core with no core edit.
 """
 
 from __future__ import annotations
@@ -80,14 +85,66 @@ def fake_collections():
     return (COLLECTION,)
 
 
+def fake_params(params, path):
+    if params.get("text") == "forbidden":
+        return [(f"{path}.text", "fake_text_forbidden", "the fake kind refuses that text")]
+    return []
+
+
+def fake_admits(params, data, own):
+    del own
+    return params.get("room") in (None, data.get("room"))
+
+
+def fake_filter_problems(params, path):
+    if "room" in params and not str(params.get("type", "")).startswith("fake."):
+        return [(f"{path}.room", "trigger_param_invalid", "only a fake.* trigger takes room")]
+    return []
+
+
+def fake_filter_words(params):
+    return [f"(in room {params['room']})"] if params.get("room") else []
+
+
+def fake_guard(params):
+    del params
+    return ["(fake guard)"]
+
+
+def fake_health(store, now):
+    del now
+    return {"rooms": len(store.find(COLLECTION))}
+
+
+def fake_reserved(envelope):
+    return "fake.secret is the engine's" if envelope.get("type") == "fake.secret" else None
+
+
+def _no_routes(app, ctx):
+    del app, ctx
+
+
 def register(ext):
     ext.action_kind(KIND)
     ext.action_port(KIND.name, FakeDo)
-    ext.builtin(BUILTIN, lambda store: FakeCount())
+    ext.builtin(BUILTIN, _fake_count, phrase="fake.count: count the fake things")
     ext.event_type(EVENT, summary="the fake thing happened")
     ext.webhook_route(ROUTE, fake_router)
     ext.node_listener("fake.poller", FakeListener)
     ext.node_collections(fake_collections)
+    ext.params_validator(KIND.name, fake_params)
+    ext.trigger_filter(
+        "fake", match=fake_admits, validate=fake_filter_problems, describe=fake_filter_words
+    )
+    ext.action_phrases(KIND.name, words=(("text", '"{}"'),), after=fake_guard)
+    ext.health_section("fake_rooms", fake_health, empty=dict)
+    ext.event_reservation("fake.secret", fake_reserved)
+    ext.api_routes("fake.routes", _no_routes, roles=(("POST", "/fake/{id}/poke", "editor"),))
+
+
+def _fake_count(store):
+    del store
+    return FakeCount()
 
 
 @pytest.fixture
@@ -196,3 +253,69 @@ def test_a_failing_listener_is_reported_by_its_name(failing):
     report = node.run_once()
     node.close()
     assert "failing.poller: RuntimeError: boom" in report.errors
+
+
+# --------------------------------------------------------------------------- d9 seams
+
+
+def test_validation_runs_the_fake_kinds_params_validator(fake):
+    errors = validate(_rule({"text": "forbidden"}))
+    assert [(e.path, e.code) for e in errors] == [("action.params.text", "fake_text_forbidden")]
+
+
+def _event_rule(params):
+    return Rule(
+        id="r",
+        name="r",
+        trigger=Trigger(kind="event", params=params),
+        action=Action(kind=KIND.name, params={"text": "hi"}),
+    )
+
+
+def test_validation_runs_the_fake_trigger_filters_check_on_every_event_trigger(fake):
+    errors = validate(_event_rule({"type": "other.thing", "room": "r1"}))
+    assert [(e.path, e.code) for e in errors] == [("trigger.params.room", "trigger_param_invalid")]
+
+
+def test_matching_applies_the_fake_trigger_filter(fake):
+    from culture_rules.engine.matching import trigger_matches
+
+    trigger = Trigger(kind="event", params={"type": EVENT, "room": "r1"})
+    admitted = trigger_matches(trigger, {"type": EVENT, "data": {"room": "r1"}})
+    refused = trigger_matches(trigger, {"type": EVENT, "data": {"room": "r2"}})
+    assert (admitted, refused) == (True, False)
+
+
+def test_describe_uses_the_fake_phrases_and_filter_words(fake):
+    from culture_rules.model.describe import action_text, step_text, trigger_text
+
+    action = action_text({"kind": KIND.name, "params": {"text": "hi"}}, "on spark")
+    trigger = trigger_text({"kind": "event", "params": {"type": EVENT, "room": "r1"}})
+    builtin = step_text({"id": "s", "kind": "code", "config": {"builtin": BUILTIN}})
+    assert [action, trigger, builtin] == [
+        'fake.do "hi" on spark (fake guard)',
+        f"{EVENT} (in room r1)",
+        "fake.count: count the fake things",
+    ]
+
+
+def test_health_reports_the_fake_section(fake):
+    from datetime import UTC, datetime
+
+    from culture_rules.ops.health import health_status
+
+    store = MemoryStore()
+    store.insert(COLLECTION, {"id": "a"})
+    assert health_status(store, datetime.now(UTC), "spark")["fake_rooms"] == {"rooms": 1}
+
+
+def test_ingest_refuses_what_the_fake_extension_reserves(fake):
+    from culture_rules.events.emit import reserved_reason
+
+    assert reserved_reason({"id": "e1", "type": "fake.secret"}) == "fake.secret is the engine's"
+
+
+def test_the_policy_gives_the_fake_route_its_declared_role(fake):
+    from culture_rules.auth.policy import required_role
+
+    assert required_role("POST", "/fake/f1/poke") == "editor"
