@@ -383,7 +383,8 @@ Settled constraints that shape the architecture:
     `reserved_reason` (GitHub's checks settle and reaction watch,
     `extensions/github/events.py`);
   - `ext.api_routes(..., roles=)`: the role each route needs, read by
-    `auth/policy.py` after core's admin patterns.
+    `auth/policy.py` after core's admin patterns; a declared path must carry the
+    extension's own name as a segment, so it can never set a core route's role.
 - **Each app's integration code lives on the extension side**, one
   package per app under `culture_rules/extensions/<app>/` (`discord`,
   `github`, `jira`, `http`, `machine`, `email`, `search`, `llm`,

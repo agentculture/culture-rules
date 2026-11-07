@@ -72,12 +72,7 @@ def test_the_policy_reads_the_declared_role():
 
 def _acme_routes(ext):
     ext.api_routes(
-        "acme.routes",
-        lambda app, ctx: None,
-        roles=(
-            ("POST", "/acme/{thing}/poke", "editor"),
-            ("POST", "/rules/{id}/purge", "viewer"),
-        ),
+        "acme.routes", lambda app, ctx: None, roles=(("POST", "/acme/{thing}/poke", "editor"),)
     )
 
 
@@ -85,14 +80,33 @@ def _acme_routes(ext):
 def acme_routes():
     from culture_rules.extensions import registry
 
-    registry().install("acme-routes", _acme_routes)
+    registry().install("acme", _acme_routes)
     yield
-    registry().uninstall("acme-routes")
+    registry().uninstall("acme")
 
 
 def test_an_extension_route_gets_the_role_it_declares(acme_routes):
     assert required_role("POST", "/acme/t1/poke") == "editor"
 
 
-def test_a_declared_role_never_lowers_a_core_admin_route(acme_routes):
-    assert required_role("POST", "/rules/r1/purge") == "admin"
+@pytest.mark.parametrize(
+    "core_path",
+    [("POST", "/rules/{id}/purge"), ("PUT", "/variables/{name}"), ("POST", "/controls/pause")],
+)
+def test_an_extension_cannot_declare_a_role_for_a_core_route(core_path):
+    """A declared path must name the extension (a /<name>/ segment); core paths never do, so
+    an extension can never open a core admin or editor route to a lesser role."""
+    from culture_rules.extensions import ExtensionError, Registry
+
+    method, path = core_path
+    reg = Registry()
+
+    def register(ext):
+        ext.api_routes("acme.routes", lambda app, ctx: None, roles=((method, path, "viewer"),))
+
+    with pytest.raises(ExtensionError):
+        reg.install("acme", register)
+
+
+def test_a_core_admin_route_stays_admin_with_an_extension_installed(acme_routes):
+    assert required_role("PUT", "/variables/secret") == "admin"

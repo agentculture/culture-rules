@@ -140,3 +140,24 @@ def test_roots_come_from_config_not_input(tmp_path):
     (tmp_path / "out.txt").write_text("secret", encoding="utf-8")
     res = invoke({"path": str(tmp_path / "out.txt"), "root": str(tmp_path)}, {"root": str(root)})
     failed(res, "path_refused")
+
+
+def test_a_file_whose_stated_size_understates_its_content_is_refused(tmp_path, monkeypatch):
+    """The cap holds on the read itself, not only on stat: a file that grew after the check,
+    or one reporting size 0 like /proc files, is refused once more than the cap comes back."""
+    import os
+    from pathlib import Path
+
+    target = tmp_path / "grows.txt"
+    target.write_text("x" * 10, encoding="utf-8")
+    real_stat = Path.stat
+
+    def stat_says_zero(self, *args, **kwargs):
+        result = real_stat(self, *args, **kwargs)
+        if self == target:
+            return os.stat_result((result.st_mode, *result[1:6], 0, *result[7:]))
+        return result
+
+    monkeypatch.setattr(Path, "stat", stat_says_zero)
+    res = invoke({"path": str(target)}, {"root": str(tmp_path), "max_bytes": 4})
+    assert res.error.startswith("too_large")

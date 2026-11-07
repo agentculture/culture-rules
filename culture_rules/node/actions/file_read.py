@@ -63,12 +63,20 @@ def _cap(config: Mapping[str, Any]) -> int:
 
 
 def _read(path: Path, cap: int) -> bytes:
+    """The file's bytes, at most ``cap``: refused by its stated size before reading, and
+    again if the read finds more (a file that grew after the check, or one whose stated
+    size is not its content, such as ``/proc`` files reporting 0)."""
+    too_large = _Refused("too_large", f"the file is over {cap} bytes")
     try:
         if path.stat().st_size > cap:
-            raise _Refused("too_large", f"the file is over {cap} bytes")
-        return path.read_bytes()
+            raise too_large
+        with path.open("rb") as handle:
+            data = handle.read(cap + 1)
     except OSError as exc:
         raise _Refused("path_refused", "the file cannot be read") from exc
+    if len(data) > cap:
+        raise too_large
+    return data
 
 
 def file_read(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:

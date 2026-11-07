@@ -46,6 +46,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.model.action_step import ENGINE_CONFIG_KEYS
 from culture_rules.model.condition import _MISSING, ConditionError, _walk, evaluate_item, validate
 
 __all__ = ["LIST_FILTER_BUILTIN", "ListFilterPort", "MAX_LIST_ITEMS", "list_filter"]
@@ -112,7 +113,7 @@ class _Rules:
     """The validated config of one run."""
 
     def __init__(self, input: Mapping[str, Any], config: Mapping[str, Any]) -> None:
-        unknown = sorted(str(key) for key in config if key not in _CONFIG_KEYS + ("builtin",))
+        unknown = sorted(str(k) for k in config if k not in _CONFIG_KEYS + ENGINE_CONFIG_KEYS)
         if unknown:
             raise _Refused("bad_params", f"unknown config key {unknown[0][:40]!r}")
         self.where = config.get("where")

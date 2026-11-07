@@ -342,3 +342,20 @@ def test_a_list_over_the_cap_is_refused():
 
 def test_a_list_at_the_cap_is_taken():
     assert kept({"items": [0] * MAX_LIST_ITEMS}, {})["count"] == MAX_LIST_ITEMS
+
+
+@pytest.mark.parametrize(
+    "engine_key",
+    [
+        ("on_error", "skip"),
+        ("with", {"items": "inputs.item.results"}),
+        ("when", {"op": "exists", "arg": {"field": "inputs.items"}}),
+        ("idempotent", True),
+    ],
+)
+def test_the_engines_own_step_config_keys_are_accepted(engine_key):
+    """The engine passes the whole step config to the builtin; its own keys (with, when,
+    on_error, idempotent) are not list.filter config and must not be refused."""
+    key, value = engine_key
+    res = run({"items": [{"url": "https://a.example/x"}]}, {key: value})
+    assert res.outcome == "completed", res.error

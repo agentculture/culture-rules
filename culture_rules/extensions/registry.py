@@ -346,7 +346,11 @@ def _ports(ports: Iterable[Any], what: str) -> tuple[BuiltinPortSpec, ...]:
     return tuple(out)
 
 
-def _roles(roles: Iterable[Any]) -> tuple[tuple[str, str, str], ...]:
+def _roles(roles: Iterable[Any], extension: str) -> tuple[tuple[str, str, str], ...]:
+    """Validate an extension's declared route roles. A declared path must carry the
+    extension's own name as one literal segment (``/actors/{actor_id}/discord/targets`` for
+    ``discord``): core paths never name an app, so an extension can only set the role of its
+    own routes and can never open a core route to a lesser role."""
     out = []
     for role in roles:
         method, template, name = tuple(role) if isinstance(role, (list, tuple)) else (role, 0, 0)
@@ -354,6 +358,11 @@ def _roles(roles: Iterable[Any]) -> tuple[tuple[str, str, str], ...]:
             raise ExtensionError(f"route method {method!r} is not one of {sorted(_METHODS)}")
         if not isinstance(template, str) or not _TEMPLATE_RE.match(template):
             raise ExtensionError(f"route path {template!r} must be an absolute path template")
+        if extension not in template.split("/"):
+            raise ExtensionError(
+                f"route path {template!r} must contain the segment /{extension}/: an extension "
+                "declares roles only for its own routes"
+            )
         if name not in ROLES:
             raise ExtensionError(f"route role {name!r} is not one of {', '.join(ROLES)}")
         out.append((method, template, name))
@@ -459,7 +468,9 @@ class Extension:
         """Add contract routes to the API: ``mount(app, ApiContext)``; ``roles`` declares the
         role each route needs, ``(method, path template, role)`` (see the module
         docstring)."""
-        entry = ApiRoutesEntry(_name(name, "api routes name"), mount, self.name, _roles(roles))
+        entry = ApiRoutesEntry(
+            _name(name, "api routes name"), mount, self.name, _roles(roles, self.name)
+        )
         self._registry._add("api", name, entry, "api routes")
 
     def params_validator(

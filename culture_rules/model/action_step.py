@@ -48,6 +48,7 @@ from culture_rules.model.refs import (
 __all__ = [
     "ACTION_BUILTIN",
     "BUILTIN_WITH",
+    "ENGINE_CONFIG_KEYS",
     "ACTION_SPEC_FIELDS",
     "action_spec",
     "actor_problem",
@@ -64,6 +65,10 @@ ACTION_BUILTIN = "action"
 BUILTIN_WITH = "with"
 """``config.with`` of a builtin code step (d8): references onto its inputs, resolved like an
 action step's params against its input ports (:func:`with_ref_problems`)."""
+
+ENGINE_CONFIG_KEYS: tuple[str, ...] = ("builtin", BUILTIN_WITH, "when", "on_error", "idempotent")
+"""Config keys the engine itself reads on a dispatched code step and passes on with the
+rest: a builtin that refuses unknown config keys must accept these."""
 
 ACTOR_PARAM = "actor"
 """The param an action is dispatched through, by id (:func:`actor_problem`)."""
