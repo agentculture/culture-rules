@@ -332,7 +332,7 @@ def _eval_in(node: dict, ctx: dict, budget: Budget) -> bool:
     return any(_eq(value, i) for i in items)
 
 
-def _eval_matches(node: dict, ctx: dict, _budget: Budget) -> bool:
+def _eval_matches(node: dict, ctx: dict) -> bool:
     value = _resolve(node["value"], ctx)
     if not isinstance(value, str) or len(value) > MAX_INPUT_LEN:
         return False
@@ -380,7 +380,7 @@ def host_matches_suffix(host: Any, suffix: Any) -> bool:
     return host_norm == suffix_norm or host_norm.endswith("." + suffix_norm)
 
 
-def _eval_host_suffix(node: dict, ctx: dict, _budget: Budget) -> bool:
+def _eval_host_suffix(node: dict, ctx: dict) -> bool:
     return host_matches_suffix(_resolve(node["value"], ctx), _resolve(node["suffix"], ctx))
 
 
@@ -405,14 +405,17 @@ def _eval(node: dict, ctx: dict, budget: Budget) -> bool:
         return not _eval(node["arg"], ctx, budget)
     if op == "exists":
         return _resolve(node["arg"], ctx) is not MISSING
-    return _LEAF_OPS[op](node, ctx, budget)
+    if op in _FLAT_OPS:
+        return _FLAT_OPS[op](node, ctx)
+    return _BUDGETED_OPS[op](node, ctx, budget)
 
 
-_LEAF_OPS = {
+#: Leaf ops whose work is one step (the node's own).
+_FLAT_OPS = {"matches": _eval_matches, "host_suffix": _eval_host_suffix}
+#: Ops that spend more of the budget (list members, per-item evaluations).
+_BUDGETED_OPS = {
     "in": _eval_in,
-    "matches": _eval_matches,
     "contains": _eval_contains,
-    "host_suffix": _eval_host_suffix,
     "any": _eval_per_item,
     "all": _eval_per_item,
 }

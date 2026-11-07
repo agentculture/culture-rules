@@ -53,7 +53,7 @@ import re
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.model.action_step import ENGINE_CONFIG_KEYS
@@ -124,6 +124,14 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _numeric_port(parts: SplitResult) -> bool:
+    """No port, or a port that is a number (``.port`` raises on anything else)."""
+    try:
+        return parts.port is None or parts.port >= 0
+    except ValueError:
+        return False
+
+
 def _http_host(url: Any) -> str | None:
     """The lower-cased host of an ``http``/``https`` URL, else None (module doc, rule 1):
     only when ``urlsplit``'s host is the host a browser would open."""
@@ -134,10 +142,11 @@ def _http_host(url: Any) -> str | None:
     try:
         parts = urlsplit(url)
         host = parts.hostname
-        parts.port  # noqa: B018 - a port that is not a number raises: refused
     except ValueError:
         return None
-    if parts.scheme not in _SCHEMES or not host or not parts.netloc.isascii():
+    if parts.scheme not in _SCHEMES or not host or not _numeric_port(parts):
+        return None
+    if not parts.netloc.isascii():
         return None
     if any(mark in parts.netloc for mark in _AMBIGUOUS_AUTHORITY):
         return None
