@@ -12,19 +12,27 @@ Config, applied in this fixed order to each item in input order:
    item is dropped unless the value is an ``http`` or ``https`` URL with a host: a value that is
    not a string, is empty, holds whitespace or a control character, does not parse, uses another
    scheme (``ftp:``, ``mailto:``, ``javascript:``, ...) or has no host is dropped, never
-   repaired. The host (lower-cased, as ``urllib.parse`` reports it) is written to the field named
-   by ``host_into`` on the copy of the item that ``where`` sees, so ``host_suffix`` can test it;
-   the kept items are the originals, unchanged. ``host_into`` needs ``host_from``.
+   repaired. So is every URL whose host ``urllib.parse`` might read differently from a
+   browser: one holding a backslash anywhere (a browser reads it as ``/``), userinfo (an ``@``
+   in the authority), a ``%`` in the authority (a browser decodes it), any non-ASCII character in
+   the authority (a browser maps it through IDNA), a port that is not a number, or a host that is
+   not plain ASCII letters, digits, ``-``, ``_`` and ``.`` (or a bracketed IPv6 address). An
+   internationalised host is kept only in its ``xn--`` form. The host (lower-cased) is written to
+   the field named by ``host_into`` on the copy of the item that ``where`` sees, so
+   ``host_suffix`` can test it; the kept items are the originals, unchanged. ``host_into`` needs
+   ``host_from``.
 2. ``dedupe_by`` - a dotted path to a scalar (string, int or float) in the item. The first item
    holding a value stays, later ones with the same value are dropped. The value is compared
    exactly (a string also casefolded when ``dedupe_casefold`` is true); nothing else is
    normalised. An item without such a value cannot be compared and is kept. A value is
    *remembered when first seen*, before ``where`` runs, so a first item that ``where`` rejects
    still shadows its later duplicates.
-3. ``where`` - a condition node (:mod:`culture_rules.model.condition`) evaluated per item with
-   :func:`~culture_rules.model.condition.evaluate_item`: the item (plus its derived host field)
-   is the ``{"item": path}`` operand; it is also ``trigger``, so ``{"field": path}`` reaches the
-   outer item inside an ``any``/``all`` (whose own items shadow ``item``); the context values
+3. ``where`` - a condition node (:mod:`culture_rules.model.condition`), validated once per run
+   (:func:`~culture_rules.model.condition.prepare`) and evaluated per item under ONE
+   evaluation budget shared by every item of the run (running out fails the step
+   ``bad_input``, never hangs): the item (plus its derived host field) is the
+   ``{"item": path}`` operand; it is also ``trigger``, so ``{"field": path}`` reaches the outer
+   item inside an ``any``/``all`` (whose own items shadow ``item``); the context values
    are ``variables``. An item the condition does not hold for is dropped; no ``where`` keeps all.
 4. ``limit`` - an integer of 0 or more, from the input ``limit`` (a reference) or the config:
    at most that many items are kept, the first in order.
@@ -34,7 +42,9 @@ dropped by each rule - ``dropped_host``, ``dropped_duplicate``, ``dropped_where`
 ``dropped_limit`` - never the items. Once ``limit`` items are kept the rest are not examined
 (the work stops short) and all count as ``dropped_limit``. Final (non-retryable) failures:
 ``bad_params`` (a bad config value, an invalid ``where`` tree) and ``bad_input`` (``items`` not a
-list or too long, ``limit`` not an integer of 0 or more). Standard library only.
+list or too long, ``limit`` not an integer of 0 or more, the ``where`` evaluations over the run's
+items taking more than :data:`~culture_rules.model.condition.MAX_EVAL_STEPS` steps). Standard
+library only.
 """
 
 from __future__ import annotations
@@ -47,7 +57,15 @@ from urllib.parse import urlsplit
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.model.action_step import ENGINE_CONFIG_KEYS
-from culture_rules.model.condition import _MISSING, ConditionError, _walk, evaluate_item, validate
+from culture_rules.model.condition import (
+    MISSING,
+    Budget,
+    ConditionError,
+    EvaluationBudgetError,
+    PreparedCondition,
+    prepare,
+    walk_path,
+)
 
 __all__ = ["LIST_FILTER_BUILTIN", "ListFilterPort", "MAX_LIST_ITEMS", "list_filter"]
 
@@ -55,9 +73,18 @@ LIST_FILTER_BUILTIN = "list.filter"
 #: The longest list the step takes (bounds the work of one run).
 MAX_LIST_ITEMS = 1_000
 _SCHEMES = ("http", "https")
-_UNSAFE_URL = re.compile(r"[\s\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff\ufffe\uffff]")
+#: Control characters, lone surrogates and non-characters (whitespace is ``_SPACE``'s).
+_CONTROL = re.compile(r"[\x00-\x1f\x7f\ud800-\udfff\ufffe\uffff]")
+_SPACE = re.compile(r"\s")
+#: A host a browser opens as written: ASCII letters, digits, ``-``, ``_``, ``.`` only.
+_PLAIN_HOST = re.compile(r"[a-z0-9_.-]+", re.ASCII)
+#: An IPv6 address as ``urlsplit`` reports it (brackets removed).
+_IPV6_HOST = re.compile(r"[0-9a-f:.]*:[0-9a-f:.]*", re.ASCII)
+#: Authority characters on which ``urlsplit`` and a browser may disagree about the host.
+_AMBIGUOUS_AUTHORITY = ("@", "%")
 _SCALARS = (str, int, float)
 _CONFIG_KEYS = (
+    "items",
     "where",
     "dedupe_by",
     "dedupe_casefold",
@@ -98,15 +125,25 @@ def _is_int(value: Any) -> bool:
 
 
 def _http_host(url: Any) -> str | None:
-    """The lower-cased host of an ``http``/``https`` URL, else None (module doc, rule 1)."""
-    if not isinstance(url, str) or not url or _UNSAFE_URL.search(url):
+    """The lower-cased host of an ``http``/``https`` URL, else None (module doc, rule 1):
+    only when ``urlsplit``'s host is the host a browser would open."""
+    if not isinstance(url, str) or not url or "\\" in url:
+        return None
+    if _CONTROL.search(url) or _SPACE.search(url):
         return None
     try:
         parts = urlsplit(url)
         host = parts.hostname
+        parts.port  # noqa: B018 - a port that is not a number raises: refused
     except ValueError:
         return None
-    return host if parts.scheme in _SCHEMES and host else None
+    if parts.scheme not in _SCHEMES or not host or not parts.netloc.isascii():
+        return None
+    if any(mark in parts.netloc for mark in _AMBIGUOUS_AUTHORITY):
+        return None
+    if _PLAIN_HOST.fullmatch(host) or _IPV6_HOST.fullmatch(host):
+        return host
+    return None
 
 
 class _Rules:
@@ -116,12 +153,13 @@ class _Rules:
         unknown = sorted(str(k) for k in config if k not in _CONFIG_KEYS + ENGINE_CONFIG_KEYS)
         if unknown:
             raise _Refused("bad_params", f"unknown config key {unknown[0][:40]!r}")
-        self.where = config.get("where")
-        if self.where is not None:
+        self.where: PreparedCondition | None = None
+        if config.get("where") is not None:
             try:
-                validate(self.where)
+                self.where = prepare(config["where"])
             except ConditionError as exc:
                 raise _Refused("bad_params", f"where: {exc.path}: {exc.message}") from None
+        self.budget = Budget()  # one for every item of the run
         self.dedupe_by = _path(config, "dedupe_by")
         self.casefold = config.get("dedupe_casefold", False)
         if not isinstance(self.casefold, bool):
@@ -144,13 +182,13 @@ class _Rules:
         return limit
 
     def host(self, item: Any) -> str | None:
-        return _http_host(_walk(item, self.host_from) if self.host_from else None)
+        return _http_host(walk_path(item, self.host_from) if self.host_from else None)
 
     def seen_key(self, item: Any) -> Any:
-        """The value ``dedupe_by`` compares, or ``_MISSING`` when the item has none."""
-        value = _walk(item, self.dedupe_by)
+        """The value ``dedupe_by`` compares, or ``MISSING`` when the item has none."""
+        value = walk_path(item, self.dedupe_by)
         if not isinstance(value, _SCALARS) or isinstance(value, bool):
-            return _MISSING
+            return MISSING
         return value.casefold() if self.casefold and isinstance(value, str) else value
 
     def holds(self, item: Any, host: str | None) -> bool:
@@ -163,42 +201,66 @@ class _Rules:
             "trigger": seen if isinstance(seen, Mapping) else {},
             "variables": self.variables,
         }
-        return evaluate_item(self.where, seen, context)
+        try:
+            return self.where.evaluate_item(seen, context, self.budget)
+        except EvaluationBudgetError as exc:
+            raise _Refused("bad_input", f"where: {exc.message}") from None
 
 
-def list_filter(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
-    """The kept items and the drop counts (module doc), else :class:`_Refused`."""
-    rules = _Rules(input, config)
+def _items(input: Mapping[str, Any], config: Mapping[str, Any]) -> list[Any]:
     items = _param(input, config, "items")
     if not isinstance(items, list):
         raise _Refused("bad_input", "items must be a list")
     if len(items) > MAX_LIST_ITEMS:
         raise _Refused("bad_input", f"items: at most {MAX_LIST_ITEMS} members")
-    kept: list[Any] = []
-    dropped = {"host": 0, "duplicate": 0, "where": 0, "limit": 0}
-    seen: set[Any] = set()
-    for item in items:
-        if rules.limit is not None and len(kept) >= rules.limit:
-            dropped["limit"] += 1
-            continue
+    return items
+
+
+class _Pass:
+    """One pass over the items: what is kept, what each rule dropped, the dedupe keys."""
+
+    def __init__(self, rules: _Rules) -> None:
+        self.rules = rules
+        self.kept: list[Any] = []
+        self.dropped = {"host": 0, "duplicate": 0, "where": 0, "limit": 0}
+        self.seen: set[Any] = set()
+
+    def drop_reason(self, item: Any) -> str | None:
+        """The rule that drops ``item`` (module doc order), or None to keep it."""
+        rules = self.rules
+        if rules.limit is not None and len(self.kept) >= rules.limit:
+            return "limit"
         host = rules.host(item)
         if rules.host_from and host is None:
-            dropped["host"] += 1
-            continue
-        if rules.dedupe_by:
-            key = rules.seen_key(item)
-            if key is not _MISSING and key in seen:
-                dropped["duplicate"] += 1
-                continue
-            if key is not _MISSING:
-                seen.add(key)
-        if not rules.holds(item, host):
-            dropped["where"] += 1
-            continue
-        kept.append(item)
-    out: dict[str, Any] = {"items": kept, "count": len(kept)}
-    out.update({f"dropped_{rule}": number for rule, number in dropped.items()})
-    return out
+            return "host"
+        if rules.dedupe_by and self._duplicate(rules.seen_key(item)):
+            return "duplicate"
+        return None if rules.holds(item, host) else "where"
+
+    def _duplicate(self, key: Any) -> bool:
+        if key is MISSING:
+            return False
+        if key in self.seen:
+            return True
+        self.seen.add(key)  # remembered when first seen, before where runs
+        return False
+
+    def run(self, items: list[Any]) -> dict[str, Any]:
+        for item in items:
+            reason = self.drop_reason(item)
+            if reason is None:
+                self.kept.append(item)
+            else:
+                self.dropped[reason] += 1
+        out: dict[str, Any] = {"items": self.kept, "count": len(self.kept)}
+        out.update({f"dropped_{rule}": number for rule, number in self.dropped.items()})
+        return out
+
+
+def list_filter(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
+    """The kept items and the drop counts (module doc), else :class:`_Refused`."""
+    rules = _Rules(input, config)
+    return _Pass(rules).run(_items(input, config))
 
 
 class ListFilterPort:

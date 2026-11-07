@@ -359,3 +359,90 @@ def test_the_engines_own_step_config_keys_are_accepted(engine_key):
     key, value = engine_key
     res = run({"items": [{"url": "https://a.example/x"}]}, {key: value})
     assert res.outcome == "completed", res.error
+
+
+# -- review fixes (PR #142): hosts a browser reads differently, items in config, the budget --
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://evil.com\\@example.com/x",  # a browser reads the backslash as a slash
+        "https://example.com\\evil.com/",
+        "https://user@example.com/x",
+        "https://example.com@evil.com/",
+        "https://evil%2ecom/",
+        "https://ｅxample.com/",
+        "https://straße.de/",
+        "https://example.com:evil/",
+        "https://exa!mple.com/",
+    ],
+)
+def test_a_url_whose_host_a_browser_reads_differently_is_dropped(url):
+    out = kept({"items": [result(url, "t")]}, {"host_from": "url"})
+    assert out["dropped_host"] == 1
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://xn--strae-oqa.de/x",
+        "https://[::1]/x",
+        "https://example.com:8443/x",
+        "https://example.com/שלום",
+        "https://medium.com/@user/post",
+        "https://a_b.example.com/",
+        "https://example.com/a?q=%20b",
+    ],
+)
+def test_a_plain_host_is_kept(url):
+    out = kept({"items": [result(url, "t")]}, {"host_from": "url"})
+    assert out["dropped_host"] == 0
+
+
+def test_a_backslash_url_does_not_pass_a_suffix_allowlist():
+    inputs = {
+        "items": [result("http://evil.com\\@example.com/x", "Rust")],
+        "must": [],
+        "must_not": [],
+        "site_include": ["example.com"],
+        "site_exclude": [],
+    }
+    assert kept(inputs, NEWSPAPER_CONFIG)["count"] == 0
+
+
+def test_items_may_sit_in_config():
+    assert kept({}, {"items": [1, 2, 3]})["count"] == 3
+
+
+def test_items_input_wins_over_config():
+    assert kept({"items": [1]}, {"items": [1, 2, 3]})["count"] == 1
+
+
+def test_where_is_validated_once_per_run(monkeypatch):
+    from culture_rules.model import condition
+
+    calls = []
+    real = condition.validate
+    monkeypatch.setattr(condition, "validate", lambda tree: calls.append(1) or real(tree))
+    where = {"op": "exists", "arg": {"item": "a"}}
+    kept({"items": [{"a": n} for n in range(5)]}, {"where": where})
+    assert len(calls) == 1
+
+
+def _over_budget():
+    """1000 items whose where compares each with a list long enough that the run, not any one
+    item, takes more than the budget."""
+    from culture_rules.model.condition import MAX_EVAL_STEPS
+
+    members = list(range(MAX_EVAL_STEPS // MAX_LIST_ITEMS + 1))
+    where = {"op": "in", "value": {"item": "."}, "items": {"var": "members"}}
+    return run({"items": [-1] * MAX_LIST_ITEMS, "members": members}, {"where": where})
+
+
+def test_the_items_of_a_run_share_one_evaluation_budget():
+    assert _over_budget().error.startswith("bad_input: where:")
+
+
+def test_a_run_over_budget_is_final():
+    assert _over_budget().retryable is False

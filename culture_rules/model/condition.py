@@ -17,14 +17,18 @@ Tree shape (every node is a dict with an ``op`` key)::
     {"op": "host_suffix", "value": operand, "suffix": operand}
     {"op": "any" | "all", "items": operand, "where": node}      # per-item sub-condition
 
-``contains`` is case-insensitive (``casefold``). With a string ``value`` and string ``needle``
-it is a substring test; with a list ``value`` it is membership (strings compare casefolded,
-anything else by ``==``). An empty needle, a missing operand or any other type is false.
+``contains`` takes a string ``needle`` and is case-insensitive (``casefold``). With a string
+``value`` it is a substring test; with a list ``value`` it is membership of a string member
+equal to the needle once both are casefolded (members that are not strings never match). A
+needle that is not a string or is empty, a missing operand or any other ``value`` type is false.
 
 ``host_suffix`` takes a bare host (not a URL) as ``value`` and a domain as ``suffix``: true when
-the host equals the suffix or ends with ``"." + suffix``, case-insensitively and ignoring one
-trailing dot on either side and a leading dot on the suffix. It is not a plain ``endswith``:
-``evilexample.com`` does not match ``example.com``. Non-strings and an empty suffix are false.
+the host equals the suffix or ends with ``"." + suffix``, ignoring ASCII case, one trailing dot
+on either side and a leading dot on the suffix. It is not a plain ``endswith``:
+``evilexample.com`` does not match ``example.com``. Only ASCII hosts compare: a host or suffix
+holding any non-ASCII character is false (write an internationalised name in its ``xn--``
+form), so no Unicode folding can make two different names equal (``straße.de`` is not
+``strasse.de``). Non-strings and an empty suffix are false.
 
 ``any`` / ``all`` run ``where`` once per element of the list ``items`` resolves to. Inside
 ``where`` the current element is the operand ``{"item": "<path>"}`` (a dotted path into the
@@ -33,6 +37,13 @@ element, or ``"."`` for the element itself); an inner ``any``/``all`` shadows th
 both false, as does a list longer than ``MAX_ITEMS``. Item operands outside ``any``/``all``
 resolve to missing, unless the caller supplies an item with :func:`evaluate_item`. ``any`` and
 ``all`` nest at most ``MAX_ITEM_NESTING`` deep. These ops have no text form.
+
+Work is bounded by a :class:`Budget` of :data:`MAX_EVAL_STEPS` steps per evaluation: every node
+visited costs one step and every list member an ``in`` or ``contains`` compares costs one more.
+An evaluation that runs out raises :class:`EvaluationBudgetError` (a :class:`ConditionError`)
+instead of running on, so the engine fails it closed (a rule does not fire, a ``when`` fails
+``when_invalid``). A caller that evaluates one tree many times (``list.filter``, once per item)
+validates it once with :func:`prepare` and passes one shared budget to every evaluation.
 
 A ``matches`` pattern must also pass :func:`culture_rules.model.regex_safety.unsafe_reason`
 (no nested quantifiers, ambiguous alternations, backreferences, or more than one pair of
@@ -74,8 +85,10 @@ MAX_INPUT_LEN = 2_000
 MAX_DEPTH = 64
 #: Longest list an ``any`` / ``all`` walks; a longer list makes the op false (bounds work).
 MAX_ITEMS = 1_000
-#: Deepest nesting of ``any`` / ``all`` (work is at most ``MAX_ITEMS ** MAX_ITEM_NESTING``).
+#: Deepest nesting of ``any`` / ``all``.
 MAX_ITEM_NESTING = 2
+#: Steps one evaluation may take (module doc); running out raises EvaluationBudgetError.
+MAX_EVAL_STEPS = 200_000
 
 CMP_OPS = ("==", "!=", "<=", ">=", "<", ">")
 _IDENT = re.compile(r"[A-Za-z_]\w*\Z", re.ASCII)
@@ -114,13 +127,45 @@ class UnsafePatternError(ConditionError):
     code = "unsafe_pattern"
 
 
+class EvaluationBudgetError(ConditionError):
+    """An evaluation that took more steps than its :class:`Budget` allows."""
+
+    code = "budget_exceeded"
+
+
+class Budget:
+    """The steps evaluations may still take (module doc); one per evaluation by default,
+    or one shared by many (``list.filter`` shares one across its items)."""
+
+    __slots__ = ("left", "limit")
+
+    def __init__(self, limit: int = MAX_EVAL_STEPS) -> None:
+        self.limit = limit
+        self.left = limit
+
+    def spend(self, steps: int = 1) -> None:
+        self.left -= steps
+        if self.left < 0:
+            raise EvaluationBudgetError(
+                f"the condition took more than {self.limit} evaluation steps"
+            )
+
+
 @dataclass(frozen=True)
 class ParseResult:
     tree: dict | None
     error: ConditionParseError | None
 
 
-_MISSING = object()
+class _Missing:
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "MISSING"
+
+
+#: What :func:`walk_path` (and an operand) gives for a path that does not resolve.
+MISSING: Any = _Missing()
 
 
 # --------------------------------------------------------------------------- validation
@@ -231,15 +276,16 @@ def _validate_matches(node: dict, path: str) -> None:
 # --------------------------------------------------------------------------- evaluation
 
 
-def _walk(cur: Any, path: str) -> Any:
-    """Follow the dotted ``path`` through nested dicts; ``"."`` is ``cur`` itself."""
+def walk_path(cur: Any, path: str) -> Any:
+    """Follow the dotted ``path`` through nested dicts; ``"."`` is ``cur`` itself. A path
+    that does not resolve gives :data:`MISSING`."""
     if path == ".":
         return cur
     for part in path.split("."):
         if isinstance(cur, dict) and part in cur:
             cur = cur[part]
         else:
-            return _MISSING
+            return MISSING
     return cur
 
 
@@ -248,10 +294,10 @@ def _resolve(o: dict, ctx: dict) -> Any:
         return o["literal"]
     if "var" in o:
         cur = ctx.get("variables") or {}
-        return cur.get(o["var"], _MISSING) if isinstance(cur, dict) else _MISSING
+        return cur.get(o["var"], MISSING) if isinstance(cur, dict) else MISSING
     if "item" in o:
-        return _walk(ctx["item"], o["item"]) if "item" in ctx else _MISSING
-    return _walk(ctx.get("trigger") or {}, o["field"])
+        return walk_path(ctx["item"], o["item"]) if "item" in ctx else MISSING
+    return walk_path(ctx.get("trigger") or {}, o["field"])
 
 
 def _is_num(x: Any) -> bool:
@@ -259,7 +305,7 @@ def _is_num(x: Any) -> bool:
 
 
 def _eq(a: Any, b: Any) -> bool:
-    if a is _MISSING or b is _MISSING:
+    if a is MISSING or b is MISSING:
         return False
     if isinstance(a, bool) != isinstance(b, bool):
         return False
@@ -267,7 +313,7 @@ def _eq(a: Any, b: Any) -> bool:
 
 
 def _compare(op: str, a: Any, b: Any) -> bool:
-    if a is _MISSING or b is _MISSING:
+    if a is MISSING or b is MISSING:
         return False  # every comparison, `!=` included; `!(a == b)` stays true
     if op == "==":
         return _eq(a, b)
@@ -278,21 +324,22 @@ def _compare(op: str, a: Any, b: Any) -> bool:
     return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
 
 
-def _eval_in(node: dict, ctx: dict) -> bool:
+def _eval_in(node: dict, ctx: dict, budget: Budget) -> bool:
     value, items = _resolve(node["value"], ctx), _resolve(node["items"], ctx)
-    if value is _MISSING or not isinstance(items, list):
+    if value is MISSING or not isinstance(items, list):
         return False
+    budget.spend(len(items))
     return any(_eq(value, i) for i in items)
 
 
-def _eval_matches(node: dict, ctx: dict) -> bool:
+def _eval_matches(node: dict, ctx: dict, _budget: Budget) -> bool:
     value = _resolve(node["value"], ctx)
     if not isinstance(value, str) or len(value) > MAX_INPUT_LEN:
         return False
     return re.fullmatch(node["pattern"], value) is not None
 
 
-def _eval_contains(node: dict, ctx: dict) -> bool:
+def _eval_contains(node: dict, ctx: dict, budget: Budget) -> bool:
     value, needle = _resolve(node["value"], ctx), _resolve(node["needle"], ctx)
     if not isinstance(needle, str) or not needle:
         return False
@@ -300,54 +347,65 @@ def _eval_contains(node: dict, ctx: dict) -> bool:
     if isinstance(value, str):
         return folded in value.casefold()
     if isinstance(value, list):
+        budget.spend(len(value))
         return any(isinstance(item, str) and item.casefold() == folded for item in value)
     return False
 
 
-def _norm_host(text: str) -> str:
-    text = text.strip().casefold()
+def _norm_host(text: str) -> str | None:
+    """``text`` stripped, ASCII-lowercased, one trailing dot dropped; None if not ASCII."""
+    text = text.strip()
+    if not text.isascii():
+        return None
+    text = text.lower()  # ASCII only here, so lower() is exactly ASCII case folding
     return text[:-1] if text.endswith(".") else text
 
 
 def host_matches_suffix(host: Any, suffix: Any) -> bool:
-    """True when ``host`` equals ``suffix`` or ends with ``"." + suffix`` (case-insensitive).
+    """True when ``host`` equals ``suffix`` or ends with ``"." + suffix``, ignoring ASCII case.
 
-    One trailing dot is ignored on both, a leading dot on the suffix too; non-strings and an
-    empty suffix are false. ``evilexample.com`` does not match ``example.com``.
+    One trailing dot is ignored on both, a leading dot on the suffix too; non-strings, an
+    empty suffix and any non-ASCII host or suffix are false (an internationalised name is
+    written in its ``xn--`` form), so no Unicode folding makes two names equal.
+    ``evilexample.com`` does not match ``example.com``.
     """
     if not isinstance(host, str) or not isinstance(suffix, str):
         return False
-    host, suffix = _norm_host(host), _norm_host(suffix).lstrip(".")
-    if not host or not suffix:
+    host_norm, suffix_norm = _norm_host(host), _norm_host(suffix)
+    if not host_norm or not suffix_norm:
         return False
-    return host == suffix or host.endswith("." + suffix)
+    suffix_norm = suffix_norm.lstrip(".")
+    if not suffix_norm:
+        return False
+    return host_norm == suffix_norm or host_norm.endswith("." + suffix_norm)
 
 
-def _eval_host_suffix(node: dict, ctx: dict) -> bool:
+def _eval_host_suffix(node: dict, ctx: dict, _budget: Budget) -> bool:
     return host_matches_suffix(_resolve(node["value"], ctx), _resolve(node["suffix"], ctx))
 
 
-def _eval_per_item(node: dict, ctx: dict) -> bool:
+def _eval_per_item(node: dict, ctx: dict, budget: Budget) -> bool:
     items = _resolve(node["items"], ctx)
     if not isinstance(items, list) or len(items) > MAX_ITEMS:
         return False
-    holds = (_eval(node["where"], {**ctx, "item": item}) for item in items)
+    holds = (_eval(node["where"], {**ctx, "item": item}, budget) for item in items)
     return any(holds) if node["op"] == "any" else all(holds)
 
 
-def _eval(node: dict, ctx: dict) -> bool:
+def _eval(node: dict, ctx: dict, budget: Budget) -> bool:
+    budget.spend()
     op = node["op"]
     if op == "compare":
         return _compare(node["cmp"], _resolve(node["left"], ctx), _resolve(node["right"], ctx))
     if op == "and":
-        return all(_eval(a, ctx) for a in node["args"])
+        return all(_eval(a, ctx, budget) for a in node["args"])
     if op == "or":
-        return any(_eval(a, ctx) for a in node["args"])
+        return any(_eval(a, ctx, budget) for a in node["args"])
     if op == "not":
-        return not _eval(node["arg"], ctx)
+        return not _eval(node["arg"], ctx, budget)
     if op == "exists":
-        return _resolve(node["arg"], ctx) is not _MISSING
-    return _LEAF_OPS[op](node, ctx)
+        return _resolve(node["arg"], ctx) is not MISSING
+    return _LEAF_OPS[op](node, ctx, budget)
 
 
 _LEAF_OPS = {
@@ -360,28 +418,59 @@ _LEAF_OPS = {
 }
 
 
-def evaluate(tree: dict, context: dict) -> bool:
+class PreparedCondition:
+    """A tree :func:`prepare` has validated: evaluate it any number of times without
+    validating again (``list.filter`` evaluates one per item). Build it with :func:`prepare`."""
+
+    __slots__ = ("tree",)
+
+    def __init__(self, tree: dict, _token: object = None) -> None:
+        if _token is not _PREPARE_TOKEN:
+            raise TypeError("build a PreparedCondition with prepare(tree)")
+        self.tree = tree
+
+    def evaluate(self, context: Any, budget: Budget | None = None) -> bool:
+        """Like :func:`evaluate`, without validating; ``budget`` defaults to a fresh one."""
+        ctx = context if isinstance(context, dict) else {}
+        return _eval(self.tree, ctx, budget if budget is not None else Budget())
+
+    def evaluate_item(self, item: Any, context: Any = None, budget: Budget | None = None) -> bool:
+        """Like :func:`evaluate_item`, without validating; ``budget`` defaults to a fresh one."""
+        base = context if isinstance(context, dict) else {}
+        return self.evaluate({**base, "item": item}, budget)
+
+
+_PREPARE_TOKEN = object()
+
+
+def prepare(tree: Any) -> PreparedCondition:
+    """``tree`` validated once (ConditionError / UnsafePatternError as :func:`validate`)."""
+    validate(tree)
+    return PreparedCondition(tree, _PREPARE_TOKEN)
+
+
+def evaluate(tree: dict, context: dict, budget: Budget | None = None) -> bool:
     """Evaluate ``tree`` against ``context`` ({"trigger": {...}, "variables": {...}}).
 
     Pure and deterministic: the context is never mutated.  Missing fields make comparisons
-    (``!=`` included) false rather than raising; a malformed tree raises ConditionError, and
-    a ``matches`` pattern that fails the backtracking screen raises UnsafePatternError
-    without running.
+    (``!=`` included) false rather than raising; a malformed tree raises ConditionError, a
+    ``matches`` pattern that fails the backtracking screen raises UnsafePatternError
+    without running, and an evaluation that takes more than its budget's steps (default
+    :data:`MAX_EVAL_STEPS`) raises EvaluationBudgetError.
     """
-    validate(tree)
-    return _eval(tree, context if isinstance(context, dict) else {})
+    return prepare(tree).evaluate(context, budget)
 
 
-def evaluate_item(tree: dict, item: Any, context: dict | None = None) -> bool:
+def evaluate_item(
+    tree: dict, item: Any, context: dict | None = None, budget: Budget | None = None
+) -> bool:
     """Evaluate ``tree`` for one ``item``, addressable as ``{"item": "<path>"}`` operands.
 
-    The reusable per-item entry point (``list.filter`` evaluates a configured condition per
-    element with it). ``context`` is the usual trigger/variables context, optional. Validates
-    like :func:`evaluate`; the inputs are never mutated.
+    ``context`` is the usual trigger/variables context, optional. Validates like
+    :func:`evaluate` and is budgeted like it; the inputs are never mutated. To evaluate one
+    tree for many items, :func:`prepare` it once instead.
     """
-    validate(tree)
-    base = context if isinstance(context, dict) else {}
-    return _eval(tree, {**base, "item": item})
+    return prepare(tree).evaluate_item(item, context, budget)
 
 
 # --------------------------------------------------------------------------- text: render

@@ -65,6 +65,7 @@ def test_contains_true(tree):
         contains(F("missing"), L("x")),
         contains(F("title"), F("missing")),
         contains(L(12), L("1")),
+        contains(F("labels"), L(3)),
     ],
 )
 def test_contains_false(tree):
@@ -267,5 +268,6 @@ def test_new_ops_have_no_text_form(tree):
 
 
 def test_item_operand_has_no_text_form():
+    tree = {"op": "exists", "arg": IT("a")}
     with pytest.raises(c.ConditionError, match="no text form"):
-        c.to_text({"op": "exists", "arg": IT("a")})
+        c.to_text(tree)
