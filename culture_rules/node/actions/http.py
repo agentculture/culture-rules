@@ -106,7 +106,7 @@ from culture_rules.actors.secrets import (
     split_word_ref,
 )
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
-from culture_rules.node.actions.machine import load_bound_actor
+from culture_rules.node.actions._actor import load_bound_actor
 
 __all__ = [
     "DEFAULT_SAVE_MAX_BYTES",

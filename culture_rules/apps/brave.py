@@ -34,7 +34,7 @@ import urllib.parse
 from collections.abc import Mapping
 from typing import Any
 
-from culture_rules.apps.github import Transport, urllib_transport
+from culture_rules.transport import Transport, urllib_transport
 
 __all__ = [
     "BRAVE_HOST",

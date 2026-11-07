@@ -129,6 +129,7 @@ from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
 from culture_rules.model.shape import ShapeError, ShapeSpecError, validate
+from culture_rules.node.actions._actor import load_bound_actor
 from culture_rules.node.actions._endpoint import (
     INVALID,
     Refused,
@@ -140,7 +141,6 @@ from culture_rules.node.actions._endpoint import (
     time_left,
 )
 from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
-from culture_rules.node.actions.machine import load_bound_actor
 from culture_rules.node.actions.transcript_file import (
     ExcerptRefused,
     _under,

@@ -66,7 +66,17 @@ from typing import Any
 from culture_rules.extensions import registry
 from culture_rules.model.refs import REF_KEY, is_reference, structured_form
 
-__all__ = ["ACTION_KINDS", "BUILTIN_KINDS", "ActionKind", "ParamSpec", "param_type_ok"]
+__all__ = [
+    "ACTION_KINDS",
+    "BUILTIN_KINDS",
+    "INT",
+    "REQ_STR",
+    "STR",
+    "ActionKind",
+    "ParamSpec",
+    "kind",
+    "param_type_ok",
+]
 
 
 @dataclass(frozen=True)
@@ -88,210 +98,211 @@ class ActionKind:
     any_of: tuple[tuple[str, ...], ...] = ()
 
 
-def _k(
+def kind(
     name: str, summary: str, /, *, any_of: tuple[tuple[str, ...], ...] = (), **params: ParamSpec
 ) -> ActionKind:
+    """An :class:`ActionKind` from keyword params (what the apps' ``KINDS`` are built with)."""
     return ActionKind(name, params, summary, any_of)
 
 
-_S = ParamSpec("str")
-_RS = ParamSpec("str", True)
-_I = ParamSpec("int")
+STR = ParamSpec("str")
+REQ_STR = ParamSpec("str", True)
+INT = ParamSpec("int")
 
 _KINDS = (
-    _k("noop", "Do nothing (placeholder, tests)"),
-    _k(
+    kind("noop", "Do nothing (placeholder, tests)"),
+    kind(
         "message",
         "Send a message on the Culture mesh",
-        actor=_S,  # legacy: a Discord app actor here still posts to Discord
-        channel=_RS,
-        text=_RS,
+        actor=STR,  # legacy: a Discord app actor here still posts to Discord
+        channel=REQ_STR,
+        text=REQ_STR,
     ),
-    _k(
+    kind(
         "discord.message",
         "Post a message on Discord through a Discord app actor",
-        actor=_RS,
-        guild=_S,
-        channel=_RS,
-        text=_RS,
+        actor=REQ_STR,
+        guild=STR,
+        channel=REQ_STR,
+        text=REQ_STR,
         buttons=ParamSpec("list"),
-        thread_name=_S,  # set: channel is a forum and the text starts a post titled so
+        thread_name=STR,  # set: channel is a forum and the text starts a post titled so
         tags=ParamSpec("list"),  # forum tag names, with thread_name only
     ),
-    _k(
+    kind(
         "discord.read",
         "Read one Discord message in full (text and attachments) through a Discord app actor",
-        actor=_RS,
-        guild=_S,  # fills the message url when given
-        channel=_RS,
-        message=_RS,
+        actor=REQ_STR,
+        guild=STR,  # fills the message url when given
+        channel=REQ_STR,
+        message=REQ_STR,
     ),
-    _k(
+    kind(
         "discord.react",
         "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
         " app actor, and take back the bot's own earlier reactions (remove)",
         any_of=(("emoji", "remove"),),
-        actor=_RS,
-        guild=_S,
-        channel=_RS,
-        message=_RS,
-        emoji=_S,
+        actor=REQ_STR,
+        guild=STR,
+        channel=REQ_STR,
+        message=REQ_STR,
+        emoji=STR,
         remove=ParamSpec("list"),
     ),
-    _k(
+    kind(
         "discord.reply",
         "Answer a Discord slash or message command privately through a Discord app actor",
-        actor=_RS,
-        event_id=_RS,
-        text=_RS,
+        actor=REQ_STR,
+        event_id=REQ_STR,
+        text=REQ_STR,
     ),
-    _k(
+    kind(
         "discord.sweep",
         "Read a Discord channel's messages newer than a stored cursor through a Discord app"
         " actor",
-        actor=_RS,
-        guild=_S,
-        channel=_RS,
-        cursor_key=_RS,
-        limit=_I,
+        actor=REQ_STR,
+        guild=STR,
+        channel=REQ_STR,
+        cursor_key=REQ_STR,
+        limit=INT,
         include_bots=ParamSpec("bool"),
         backfill=ParamSpec("bool"),
     ),
-    _k(
+    kind(
         "github.comment",
         "Comment on a GitHub issue or PR",
-        actor=_RS,
-        repo=_RS,
+        actor=REQ_STR,
+        repo=REQ_STR,
         number=ParamSpec("int", True),
-        body=_RS,
-        once_key=_S,  # d25: post at most once per (repo, PR, key), durably
+        body=REQ_STR,
+        once_key=STR,  # d25: post at most once per (repo, PR, key), durably
     ),
-    _k(
+    kind(
         "github.merge",
         "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
-        actor=_RS,
-        repo=_RS,
+        actor=REQ_STR,
+        repo=REQ_STR,
         number=ParamSpec("int", True),
-        sha=_RS,
+        sha=REQ_STR,
         delete_branch=ParamSpec("bool"),
     ),
-    _k(
+    kind(
         "github.pr",
         "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
         " as the GitHub App",
-        actor=_RS,
-        repo=_RS,
+        actor=REQ_STR,
+        repo=REQ_STR,
         number=ParamSpec("int", True),
     ),
-    _k("jira.comment", "Comment on a Jira issue", actor=_RS, issue=_RS, body=_RS),
-    _k(
+    kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
+    kind(
         "http.call",
         "Call an HTTP endpoint",
-        actor=_RS,
-        method=_RS,
-        url=_RS,
+        actor=REQ_STR,
+        method=REQ_STR,
+        url=REQ_STR,
         headers=ParamSpec("dict"),
         body=ParamSpec("any"),
-        save_to=_S,  # an absolute dir the actor's http.save_roots lists: stream the body there
+        save_to=STR,  # an absolute dir the actor's http.save_roots lists: stream the body there
     ),
-    _k(
+    kind(
         "machine.command",
         "Run a command on a machine actor",
-        actor=_RS,
-        command=_RS,
+        actor=REQ_STR,
+        command=REQ_STR,
         args=ParamSpec("dict"),
     ),
-    _k(
+    kind(
         "email.send",
         "Send an email through an email app actor (Resend)",
-        actor=_RS,
+        actor=REQ_STR,
         to=ParamSpec("list", True),  # each must be on the actor's recipient allowlist
-        subject=_RS,
-        html=_S,  # at least one of html/text: the port checks it
-        text=_S,
-        idempotency_key=_S,  # replaces the engine's per-run key (a durable, per-date key)
-        sender=_S,  # replaces the actor's from address; must be at the actor's domain
-        not_after=_S,  # ISO-8601: at or past it the send fails email_window_passed, no request
+        subject=REQ_STR,
+        html=STR,  # at least one of html/text: the port checks it
+        text=STR,
+        idempotency_key=STR,  # replaces the engine's per-run key (a durable, per-date key)
+        sender=STR,  # replaces the actor's from address; must be at the actor's domain
+        not_after=STR,  # ISO-8601: at or past it the send fails email_window_passed, no request
     ),
-    _k(
+    kind(
         "search.web",
         "Search the web through a search app actor (Brave)",
-        actor=_RS,
-        query=_RS,
-        count=_I,
-        freshness=_S,
-        country=_S,
-        lang=_S,
+        actor=REQ_STR,
+        query=REQ_STR,
+        count=INT,
+        freshness=STR,
+        country=STR,
+        lang=STR,
     ),
-    _k(
+    kind(
         "llm.complete",
         "Complete an actor's brief with an OpenAI-compatible model on an agent actor (no tools)",
         any_of=(("content", "content_path"),),
-        actor=_RS,
+        actor=REQ_STR,
         content=ParamSpec("any"),  # or content_path (d2): one of the two is required
-        content_path=_S,  # a schema-1 transcript file; needs content_root (checked at run time)
-        content_root=_S,
-        content_max_chars=_I,
-        max_tokens=_I,
+        content_path=STR,  # a schema-1 transcript file; needs content_root (checked at run time)
+        content_root=STR,
+        content_max_chars=INT,
+        max_tokens=INT,
         temperature=ParamSpec("any"),
-        not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
-        brief=_S,  # a name in the actor's params.briefs; required at run time, no default
+        not_after=STR,  # ISO-8601: past it the work fails llm_deadline instead of queueing
+        brief=STR,  # a name in the actor's params.briefs; required at run time, no default
         answer=ParamSpec("dict"),  # {shape: <culture_rules.model.shape spec>}: a JSON answer
         cache=ParamSpec("bool"),  # answer + content_path: keep the first valid answer
-        cache_name=_S,  # the cache file stem (answer.<name>.<sha16>.json), default "recording"
-        cache_label=_S,  # the cache document's brief label, default "recording"
+        cache_name=STR,  # the cache file stem (answer.<name>.<sha16>.json), default "recording"
+        cache_label=STR,  # the cache document's brief label, default "recording"
     ),
-    _k(
+    kind(
         "decider.assess",
         "Ask the mesh's decider for probabilities over the options a step defines (no text)",
-        actor=_RS,
-        state=_RS,
+        actor=REQ_STR,
+        state=REQ_STR,
         questions=ParamSpec(
             "dict", True
         ),  # {key: {type: choice|noul|score, instructions, criteria}}
-        not_after=_S,  # ISO-8601: past it the work fails decider_deadline instead of queueing
+        not_after=STR,  # ISO-8601: past it the work fails decider_deadline instead of queueing
     ),
-    _k(
+    kind(
         "audio.transcribe",
         "Transcribe an audio file with a speech-to-text endpoint on an agent actor",
-        actor=_RS,
-        audio_path=_RS,
-        audio_sha256=_S,  # optional: without it the port hashes the file itself
-        output_dir=_RS,
-        language=_S,
-        model=_S,
+        actor=REQ_STR,
+        audio_path=REQ_STR,
+        audio_sha256=STR,  # optional: without it the port hashes the file itself
+        output_dir=REQ_STR,
+        language=STR,
+        model=STR,
     ),
-    _k(
+    kind(
         "transcript.render",
         "Render one transcript and its summary as an EPUB or Markdown (right to left for Hebrew)",
-        actor=_S,  # optional: its transcripts_root/output_root is a second boundary
-        result_path=_RS,
-        root=_RS,  # the transcripts root: result_path must resolve under it
-        recorded_at=_RS,  # ISO-8601 with a zone; dated in Asia/Jerusalem
-        language=_S,
+        actor=STR,  # optional: its transcripts_root/output_root is a second boundary
+        result_path=REQ_STR,
+        root=REQ_STR,  # the transcripts root: result_path must resolve under it
+        recorded_at=REQ_STR,  # ISO-8601 with a zone; dated in Asia/Jerusalem
+        language=STR,
         summary=ParamSpec("any"),  # llm.complete's output: {text} or a string, or none
-        format=_S,  # epub (default) or md: summary, key facts, then the transcript
+        format=STR,  # epub (default) or md: summary, key facts, then the transcript
     ),
-    _k(
+    kind(
         "library.push",
         "Upload a file to a library, or replace one by id (and queue it on a device queue)",
         any_of=(("content_base64", "content_path"),),
-        actor=_RS,
-        content_base64=_S,  # or content_path + content_root (d7): one of the two is required
-        content_path=_S,  # a file under content_root on the node; its bytes never enter run state
-        content_root=_S,
-        title=_RS,
-        kind=_RS,  # one of the actor's params.kinds
-        visibility=_S,  # one of the actor's params.visibilities
-        author=_S,
-        device_id=_S,  # used only when the actor has a queue_path
-        format=_S,  # one of the actor's params.formats; epub when unset
+        actor=REQ_STR,
+        content_base64=STR,  # or content_path + content_root (d7): one of the two is required
+        content_path=STR,  # a file under content_root on the node; its bytes never enter run state
+        content_root=STR,
+        title=REQ_STR,
+        kind=REQ_STR,  # one of the actor's params.kinds
+        visibility=STR,  # one of the actor's params.visibilities
+        author=STR,
+        device_id=STR,  # used only when the actor has a queue_path
+        format=STR,  # one of the actor's params.formats; epub when unset
         item_id=ParamSpec("int"),  # replace this item through the actor's replace_path
     ),
-    _k(
+    kind(
         "repodocs.sync",
         "Push every repo's specs, plans, deliveries, designs and .devague files to the library",
-        actor=_RS,  # a service actor: base_url, api_key, repos_root, state_path, limits
+        actor=REQ_STR,  # a service actor: base_url, api_key, repos_root, state_path, limits
     ),
 )
 

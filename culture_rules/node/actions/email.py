@@ -42,11 +42,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
-from culture_rules.apps.github import Transport
 from culture_rules.apps.resend import ResendClient, ResendError
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.model.app_actor import email_sender
 from culture_rules.node.actors import ACTORS_COLLECTION
+from culture_rules.transport import Transport
 
 __all__ = ["EmailSendPort"]
 

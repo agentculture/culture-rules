@@ -466,7 +466,7 @@ class TranscriptRenderPort:
         actor_id = input.get("actor") or getattr(context, "actor", None)
         if not isinstance(actor_id, str) or not actor_id or self._store is None:
             return None
-        from culture_rules.node.actions.machine import load_bound_actor  # noqa: PLC0415
+        from culture_rules.node.actions._actor import load_bound_actor  # noqa: PLC0415
 
         actor, _doc, failure = load_bound_actor(self._store, input, context)
         if failure is not None or actor is None:

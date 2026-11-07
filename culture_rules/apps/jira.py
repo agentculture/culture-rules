@@ -22,7 +22,7 @@ import re
 import urllib.parse
 from typing import Any
 
-from culture_rules.apps.github import Transport, urllib_transport
+from culture_rules.transport import Transport, urllib_transport
 
 __all__ = ["ISSUE_KEY_RE", "JiraClient", "JiraError"]
 
