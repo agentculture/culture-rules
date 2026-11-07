@@ -320,5 +320,5 @@ def test_the_policy_gives_the_fake_route_its_declared_role(fake):
     from culture_rules.auth.policy import required_role
     from culture_rules.server.app import create_app
 
-    core = create_app(MemoryStore()).state.core_routes
+    core = create_app(MemoryStore()).core_routes
     assert required_role("POST", "/fake/f1/poke", core) == "editor"

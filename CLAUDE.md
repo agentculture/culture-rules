@@ -386,7 +386,7 @@ Settled constraints that shape the architecture:
     `auth/policy.py` after core's admin patterns; a declared path must carry the
     extension's own name as a segment, and a declared role applies only to a
     request that matches no core route (`create_app` collects them as
-    `CoreRoutes` on `app.state`), so it can never set a core route's role, not
+    `CoreRoutes`, `app.core_routes`), so it can never set a core route's role, not
     even for a record named after the extension (`DELETE /rules/discord`).
 - **Each app's integration code lives on the extension side**, one
   package per app under `culture_rules/extensions/<app>/` (`discord`,

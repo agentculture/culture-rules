@@ -28,10 +28,10 @@ A route an extension adds declares its own role
 only to a request that matches NO core route: a request that matches a core route always gets
 core's role, so an extension can never set the role of a core route (not even for a record
 whose id is the extension's name, such as ``DELETE /rules/discord``). The API knows its core
-routes (:class:`CoreRoutes`, collected by ``create_app`` from every route it mounts that no
-extension mounted) and passes them in; without them (a caller with no app) a declared role can
-only raise core's role, never lower it. The admin patterns above win over any declaration.
-Any mutation not listed here needs admin: the matrix fails closed.
+routes (:class:`CoreRoutes`, which ``create_app`` keeps as ``app.core_routes``: every route
+it mounts that no extension mounted) and passes them in; without them (a caller with no app)
+a declared role can only raise core's role, never lower it. The admin patterns above win over
+any declaration. Any mutation not listed here needs admin: the matrix fails closed.
 """
 
 from __future__ import annotations

@@ -940,7 +940,8 @@ def create_app(
     # every route mounted so far that no extension mounted: a declared extension role never
     # applies to a request one of them matches (auth.policy). The SPA fallback below is not
     # an API route (it serves browser GETs only) and is left out.
-    app.state.core_routes = core_routes_of(app.router.routes, extension_routes)
+    # configuration fixed at build (like the routes), not request state: kept off app.state
+    app.core_routes = core_routes_of(app.router.routes, extension_routes)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
     app.add_middleware(NoStoreByDefault)
@@ -975,7 +976,7 @@ def _install_auth(
             return await call_next(request)
         try:
             principal = resolver.resolve(request.headers)
-            core = getattr(app.state, "core_routes", None)
+            core = getattr(app, "core_routes", None)
             need = required_role(request.method, request.url.path, core)
             if not principal.has_role(need):
                 raise Forbidden("forbidden_role", f"{need} role required")

@@ -41,25 +41,29 @@ def _register(ext):
 
 
 @pytest.fixture
-def app():
+def world():
     registry().install("acme", _register)
     try:
         store = MemoryStore()
         built = create_app(store, auth=AuthSettings(listener=LAN))
-        built.state.test_store = store
-        yield built
+        yield built, store
     finally:
         registry().uninstall("acme")
 
 
-def _bearer(app, role):
-    token = ServiceTokens(app.state.test_store).issue("root", name=role, roles=[role]).token
-    return {"Authorization": f"Bearer {token}"}
+@pytest.fixture
+def app(world):
+    return world[0]
+
+
+def _bearer(store, role):
+    issued = ServiceTokens(store).issue("root", name=role, roles=[role])
+    return {"Authorization": f"Bearer {issued.token}"}
 
 
 @pytest.mark.parametrize("method, path, role", LOWERED, ids=[f"{m} {p}" for m, p, _ in LOWERED])
 def test_a_core_route_keeps_cores_role(app, method, path, role):
-    assert required_role(method, path, app.state.core_routes) == role
+    assert required_role(method, path, app.core_routes) == role
 
 
 @pytest.mark.parametrize("method, path, role", LOWERED, ids=[f"{m} {p}" for m, p, _ in LOWERED])
@@ -68,27 +72,29 @@ def test_without_an_app_a_declaration_cannot_lower_a_core_role(app, method, path
 
 
 def test_the_extensions_own_route_gets_its_declared_role(app):
-    assert required_role("POST", "/acme/t1/poke", app.state.core_routes) == "editor"
+    assert required_role("POST", "/acme/t1/poke", app.core_routes) == "editor"
 
 
 def test_the_discord_targets_route_stays_viewer(app):
     path = "/actors/a1/discord/targets"
-    assert required_role("GET", path, app.state.core_routes) == "viewer"
+    assert required_role("GET", path, app.core_routes) == "viewer"
 
 
 def test_the_extensions_routes_are_not_core(app):
-    assert not app.state.core_routes.matches("POST", "/acme/t1/poke")
+    assert not app.core_routes.matches("POST", "/acme/t1/poke")
 
 
 def test_core_routes_are_collected(app):
-    assert app.state.core_routes.matches("DELETE", "/rules/r1")
+    assert app.core_routes.matches("DELETE", "/rules/r1")
 
 
-def test_a_viewer_cannot_delete_the_rule_named_after_the_extension(app):
-    r = TestClient(app).delete("/rules/acme", headers=_bearer(app, "viewer"))
+def test_a_viewer_cannot_delete_the_rule_named_after_the_extension(world):
+    app, store = world
+    r = TestClient(app).delete("/rules/acme", headers=_bearer(store, "viewer"))
     assert r.status_code == 403
 
 
-def test_an_editor_reaches_the_extension_route(app):
-    r = TestClient(app).post("/acme/t1/poke", headers=_bearer(app, "editor"))
+def test_an_editor_reaches_the_extension_route(world):
+    app, store = world
+    r = TestClient(app).post("/acme/t1/poke", headers=_bearer(store, "editor"))
     assert r.status_code == 200
