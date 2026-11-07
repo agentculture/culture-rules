@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import GuidedNotice from "../components/GuidedNotice";
+import { builtinOf, useBuiltinCatalogue, type BuiltinCatalogue, type BuiltinSpec } from "../api/builtins";
 import {
   PORT_TYPES,
   STEP_KINDS,
@@ -312,87 +313,54 @@ function ConfigEditor({
   return <ConfigPairs config={config} onConfig={onConfig} onError={onError} />;
 }
 
-const PORT = (name: string, required: boolean): Port => ({ name, type: "string", required });
-/** Built-ins a code step can run, with the typed ports they take and give (builtin: config key).
- * The ports mirror culture_rules/node/actions (e.g. markdown_render.py) and the words
- * describe.py BUILTIN_WORDS: change all three together. */
-export const BUILTINS: Record<string, { label: string; inputs: Port[]; outputs: Port[] }> = {
-  "markdown.render": {
-    label: "markdown.render: fields as one Markdown page",
-    inputs: [PORT("title", true), PORT("text", true), PORT("author", false), PORT("source", false), PORT("url", false), PORT("id", false)],
-    outputs: [PORT("markdown", true), PORT("content_base64", true)],
-  },
-  "markdown.from_html": {
-    label: "markdown.from_html: HTML as Markdown, whole and in chunks",
-    inputs: [PORT("html", true), PORT("split_at", false)],
-    outputs: [
-      PORT("markdown", true),
-      { name: "chunks", type: "array", required: true },
-      { name: "count", type: "integer", required: true },
-      { name: "parts", type: "array", required: false },
-    ],
-  },
-  "document.sections": {
-    label: "document.sections: a document split at a heading, as headings, links and excerpts",
-    inputs: [PORT("content_base64", false), PORT("html", false), PORT("markdown", false), PORT("content_path", false), PORT("content_root", false), PORT("format", false)],
-    outputs: [{ name: "sections", type: "array", required: true }, { name: "count", type: "integer", required: true }, { name: "found", type: "integer", required: true }],
-  },
-  "run.read": {
-    label: "run.read: a step's outputs from the run that started this one",
-    inputs: [PORT("run_id", false)],
-    outputs: [PORT("run_id", true)],
-  },
-  "attachment.fetch": {
-    label: "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node",
-    inputs: [
-      { name: "attachments", type: "array", required: true },
-      PORT("output_root", false),
-      { name: "retention_days", type: "integer", required: false },
-    ],
-    outputs: [
-      { name: "items", type: "array", required: true },
-      { name: "fetched", type: "integer", required: true },
-      { name: "skipped", type: "integer", required: true },
-    ],
-  },
-  "cursor.advance": {
-    label: "cursor.advance: move a stored cursor on, only from the value read",
-    inputs: [PORT("key", true), PORT("expected", false), PORT("value", true)],
-    outputs: [PORT("key", true), PORT("value", true), PORT("previous", false), { name: "advanced", type: "boolean", required: true }],
-  },
-  "keyset.filter": {
-    label: "keyset.filter: drop the items whose key a named set already holds",
-    inputs: [{ name: "items", type: "array", required: true }],
-    outputs: [{ name: "items", type: "array", required: true }, { name: "kept", type: "integer", required: true }, { name: "dropped", type: "integer", required: true }, { name: "keyless", type: "integer", required: true }],
-  },
-  "keyset.add": {
-    label: "keyset.add: remember the items' keys in a named set for a window",
-    inputs: [{ name: "items", type: "array", required: true }],
-    outputs: [{ name: "added", type: "integer", required: true }, { name: "already_present", type: "integer", required: true }, { name: "keyless", type: "integer", required: true }],
-  },
-  "text.number": {
-    label: "text.number: number items into text using a template and separator",
-    inputs: [{ name: "items", type: "array", required: true }, PORT("template", false), PORT("separator", false)],
-    outputs: [PORT("text", true), { name: "count", type: "integer", required: true }],
-  },
-  "text.replace_refs": {
-    label: "text.replace_refs: swap each reference in a text for its item's text",
-    inputs: [PORT("text", true), { name: "items", type: "array", required: true }, PORT("pattern", false), PORT("template", false)],
-    outputs: [PORT("text", true), { name: "replaced", type: "integer", required: true }, { name: "missing_refs", type: "array", required: true }],
-  },
-  "text.validate": {
-    label: "text.validate: check text against configured rules, returning a verdict and reasons",
-    inputs: [
-      PORT("text", true),
-      { name: "allowed", type: "array", required: false },
-      PORT("allowed_field", false),
-      { name: "require_links", type: "boolean", required: false },
-      PORT("line_shape", false),
-      { name: "link_schemes", type: "array", required: false },
-    ],
-    outputs: [{ name: "ok", type: "boolean", required: true }, { name: "reasons", type: "array", required: true }, PORT("text", true), { name: "links", type: "array", required: true }],
-  },
-};
+/** The Built-in select over a loaded catalogue; a stored builtin the catalogue lacks stays shown. */
+function BuiltinSelect({
+  catalogue,
+  value,
+  onPick,
+}: Readonly<{
+  catalogue: BuiltinCatalogue;
+  value: string;
+  onPick: (name: string, spec: BuiltinSpec | undefined) => void;
+}>) {
+  return (
+    <label className="wf-field">
+      <span>Built-in</span>
+      <select value={value} onChange={(e) => onPick(e.target.value, builtinOf(catalogue, e.target.value))}>
+        <option value="">None</option>
+        {value && !builtinOf(catalogue, value) ? <option value={value}>{value}</option> : null}
+        {catalogue.items.map((b) => (
+          <option key={b.name} value={b.name}>
+            {b.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** The Built-in select over the API's catalogue (`GET /steps/builtins`), loading or failed until it is there. */
+function FetchedBuiltinSelect(props: Readonly<{ value: string; onPick: (name: string, spec: BuiltinSpec | undefined) => void }>) {
+  const { catalogue, failed, retry } = useBuiltinCatalogue();
+  if (catalogue) return <BuiltinSelect catalogue={catalogue} {...props} />;
+  return (
+    <div className="wf-field">
+      <span>Built-in</span>
+      {failed ? (
+        <>
+          <output className="wf-field__hint">Could not load the built-ins the server offers.</output>
+          <button type="button" className="wf-button wf-button--small" onClick={retry}>
+            Try again
+          </button>
+        </>
+      ) : (
+        <output className="wf-field__hint" aria-live="polite">
+          Loading the built-ins…
+        </output>
+      )}
+    </div>
+  );
+}
 
 /**
  * Edit one step: name, kind, typed ports, and — the keyboard path to wiring
@@ -403,6 +371,7 @@ export function StepEditor({
   workflow,
   stepId,
   actors = [],
+  builtins,
   returnFocus,
   onChange,
   onClose,
@@ -411,6 +380,8 @@ export function StepEditor({
   stepId: string;
   /** Known actors; a runner placement offers that runner's commands. */
   actors?: readonly Actor[];
+  /** The builtin catalogue to offer (default: the API's, `GET /steps/builtins`, loaded once). */
+  builtins?: BuiltinCatalogue;
   returnFocus?: HTMLElement | null;
   onChange: (wf: WorkflowDef) => void;
   onClose: () => void;
@@ -441,6 +412,18 @@ export function StepEditor({
     let n = ports.length + 1;
     while (taken.has(`${side === "inputs" ? "in" : "out"}${n}`)) n += 1;
     setPorts(side, [...ports, { name: `${side === "inputs" ? "in" : "out"}${n}`, type: "any" }]);
+  };
+  const builtinName = typeof config.builtin === "string" ? config.builtin : "";
+  /** Pick a builtin: its name in config, and its declared ports where the step has none yet. */
+  const pickBuiltin = (name: string, b: BuiltinSpec | undefined) => {
+    const { builtin: _drop, ...rest } = config;
+    onChange(
+      updateStep(workflow, stepId, {
+        config: name ? { ...rest, builtin: name } : rest,
+        ...(b && inputs.length === 0 ? { inputs: b.inputs } : {}),
+        ...(b && outputs.length === 0 ? { outputs: b.outputs } : {}),
+      }),
+    );
   };
   const wiredFrom = (port: string) => {
     const e = (workflow.edges ?? []).find((x) => x.target === stepId && x.target_port === port);
@@ -558,33 +541,11 @@ export function StepEditor({
           </label>
         </div>
         {step.kind === "code" ? (
-          <label className="wf-field">
-            <span>Built-in</span>
-            <select
-              value={typeof config.builtin === "string" ? config.builtin : ""}
-              onChange={(e) => {
-                const { builtin: _drop, ...rest } = config;
-                const b = BUILTINS[e.target.value];
-                onChange(
-                  updateStep(workflow, stepId, {
-                    config: e.target.value ? { ...rest, builtin: e.target.value } : rest,
-                    ...(b && inputs.length === 0 ? { inputs: b.inputs } : {}),
-                    ...(b && outputs.length === 0 ? { outputs: b.outputs } : {}),
-                  }),
-                );
-              }}
-            >
-              <option value="">None</option>
-              {typeof config.builtin === "string" && !(config.builtin in BUILTINS) ? (
-                <option value={config.builtin}>{config.builtin}</option>
-              ) : null}
-              {Object.entries(BUILTINS).map(([k, b]) => (
-                <option key={k} value={k}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          builtins ? (
+            <BuiltinSelect catalogue={builtins} value={builtinName} onPick={pickBuiltin} />
+          ) : (
+            <FetchedBuiltinSelect value={builtinName} onPick={pickBuiltin} />
+          )
         ) : null}
         <label className="wf-field">
           <span>One-line description</span>
