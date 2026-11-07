@@ -491,6 +491,85 @@
         "title": "BridgeEventAck",
         "type": "object"
       },
+      "BuiltinItem": {
+        "properties": {
+          "inputs": {
+            "description": "the typed ports it takes, in order; empty: none declared",
+            "items": {
+              "$ref": "#/components/schemas/BuiltinPort"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "label": {
+            "description": "how a picker names it (its describe phrase when none)",
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "what a code step's config.builtin names",
+            "title": "Name",
+            "type": "string"
+          },
+          "outputs": {
+            "description": "the typed ports it gives, in order; empty: none declared",
+            "items": {
+              "$ref": "#/components/schemas/BuiltinPort"
+            },
+            "title": "Outputs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "inputs",
+          "outputs"
+        ],
+        "title": "BuiltinItem",
+        "type": "object"
+      },
+      "BuiltinList": {
+        "properties": {
+          "items": {
+            "description": "the registered builtins, in registration order",
+            "items": {
+              "$ref": "#/components/schemas/BuiltinItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "BuiltinList",
+        "type": "object"
+      },
+      "BuiltinPort": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "a workflow port type: string | number | integer | boolean | object | array | any",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "required"
+        ],
+        "title": "BuiltinPort",
+        "type": "object"
+      },
       "Controls": {
         "properties": {
           "drained": {
@@ -8507,6 +8586,56 @@
         "summary": "Revoke Token",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/steps/builtins": {
+      "get": {
+        "description": "Every registered built-in code step, in registration order, with the label and\ntyped ports an editor pre-fills (the editor keeps no table of its own).",
+        "operationId": "list_builtins",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuiltinList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Builtins",
+        "tags": [
+          "steps"
         ]
       }
     },

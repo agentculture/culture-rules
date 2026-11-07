@@ -24,7 +24,7 @@ def _noop(ctx, **params):
 
 
 def test_registry_covers_the_nouns_with_overview():
-    assert {v.noun for v in REGISTRY.verbs()} == NOUNS | {"variables", "keysets", "actions"}
+    assert {v.noun for v in REGISTRY.verbs()} == NOUNS | {"variables", "keysets", "actions", "steps"}
     for noun in NOUNS:
         assert REGISTRY.get(noun, "overview") is not None
         assert REGISTRY.get(noun, "list") is not None
