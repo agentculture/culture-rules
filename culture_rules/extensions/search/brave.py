@@ -1,9 +1,10 @@
 """Brave Search web client: one read, ``GET /res/v1/web/search``, normalised and capped.
 
-An app client like :mod:`culture_rules.apps.jira`, outside the core model and engine. It talks
-only to :data:`BRAVE_HOST`: the URL is a constant, there is no base-URL override, and every
-request is checked against the host before it is sent. Standard library only; the transport is
-the GitHub client's (redirects never followed, the body read up to a byte cap) and injectable:
+An app client like :mod:`culture_rules.extensions.jira.client`, outside the core model and
+engine. It talks only to :data:`BRAVE_HOST`: the URL is a constant, there is no base-URL
+override, and every request is checked against the host before it is sent. Standard library
+only; the transport is core's :mod:`culture_rules.transport` (redirects never followed, the
+body read up to a byte cap) and injectable:
 ``transport(method, url, headers, body, timeout) -> (status, body_bytes)``.
 
 The API key rides only in the ``X-Subscription-Token`` header; it is never logged, repr'd or

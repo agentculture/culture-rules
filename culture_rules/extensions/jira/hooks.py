@@ -42,7 +42,6 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
-from culture_rules.apps.jira import ISSUE_KEY_RE, JiraClient, JiraError
 from culture_rules.events.hook_sink import (
     BAD_REQUEST,
     DUPLICATE,
@@ -51,6 +50,7 @@ from culture_rules.events.hook_sink import (
     record_outcome,
     sink,
 )
+from culture_rules.extensions.jira.client import ISSUE_KEY_RE, JiraClient, JiraError
 from culture_rules.store.port import StoragePort
 
 __all__ = ["MAX_BODY", "SURFACE", "handle", "router"]

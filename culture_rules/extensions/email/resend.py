@@ -1,6 +1,6 @@
 """Resend email client: send one email (``POST /emails``) with an Idempotency-Key.
 
-Standard library only (:mod:`urllib` through the GitHub client's transport), redirects are
+Standard library only (:mod:`urllib` through :mod:`culture_rules.transport`), redirects are
 never followed, and the API key is held in memory and never logged, repr'd or put in an error
 message. A response body is never echoed into an error either: a failure names an HTTP status
 code, nothing else.
@@ -9,7 +9,7 @@ Auth is ``Authorization: Bearer <key>``. When the caller passes an idempotency k
 as ``Idempotency-Key``, so Resend sends a retried request with the same key at most once.
 
 The transport is injectable: ``transport(method, url, headers, body, timeout) ->
-(status, body_bytes)``; the default is the GitHub client's urllib transport.
+(status, body_bytes)``; the default is :func:`culture_rules.transport.urllib_transport`.
 """
 
 from __future__ import annotations

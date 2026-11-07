@@ -10,7 +10,7 @@ Auth: with an ``email`` the client sends ``Basic base64(email:token)``; without 
 ``api_base`` when given, else ``https://<site>``.
 
 The transport is injectable: ``transport(method, url, headers, body, timeout) ->
-(status, body_bytes)``; the default is the GitHub client's urllib transport.
+(status, body_bytes)``; the default is :func:`culture_rules.transport.urllib_transport`.
 """
 
 from __future__ import annotations

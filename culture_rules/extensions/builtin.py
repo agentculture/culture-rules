@@ -24,6 +24,7 @@ from culture_rules.extensions import (
     decider,
     email,
     http,
+    jira,
     library,
     llm,
     machine,
@@ -243,23 +244,11 @@ def register_github(ext: Extension) -> None:
     ext.node_collections(github_collections)
 
 
-# --------------------------------------------------------------------------- the others
-
-
-def register_jira(ext: Extension) -> None:
-    """Jira: ``jira.comment``, ``POST /hooks/jira`` and its event types."""
-    _kinds(ext, "jira.comment")
-    ext.action_port("jira.comment", _store_port("jira", "JiraCommentPort"))
-    for event in ("jira.issue.created", "jira.issue.updated", "jira.comment.created"):
-        ext.event_type(event)
-    ext.webhook_route("/hooks/jira", Lazy("culture_rules.server.hooks.jira", "router", True))
-
-
 BUILTIN_EXTENSIONS: tuple[tuple[str, Callable[[Extension], None]], ...] = (
     ("core", register_core),
     ("discord", register_discord),
     ("github", register_github),
-    ("jira", register_jira),
+    ("jira", jira.register),
     ("http", http.register),
     ("machine", machine.register),
     ("email", email.register),

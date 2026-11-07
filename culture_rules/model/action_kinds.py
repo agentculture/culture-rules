@@ -194,7 +194,6 @@ _KINDS = (
         repo=REQ_STR,
         number=ParamSpec("int", True),
     ),
-    kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
 )
 
 BUILTIN_KINDS: dict[str, ActionKind] = {k.name: k for k in _KINDS}

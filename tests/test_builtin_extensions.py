@@ -146,8 +146,9 @@ def test_the_node_collections_include_every_app_collection():
 def _source_event_types():
     from culture_rules.apps import discord_gateway as gw
     from culture_rules.events.emit import CHECKS_SETTLED_TYPE
+    from culture_rules.extensions.jira import hooks as jira
     from culture_rules.model.discord_filters import BUTTON_CLICKED
-    from culture_rules.server.hooks import github, jira
+    from culture_rules.server.hooks import github
 
     return (
         set(github._TYPES.values())
