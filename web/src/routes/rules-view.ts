@@ -84,7 +84,7 @@ export function conditionText(c: Condition): ConditionText {
   if (c.op === "and" || c.op === "or") {
     return { subject: null, rest: `${c.args.length} conditions, ${c.op === "and" ? "all" : "any"} must hold` };
   }
-  if (isItemCondition(c)) return { subject: null, rest: itemConditionWords(c, operandText, (w) => conditionLine(w)) };
+  if (isItemCondition(c)) return { subject: null, rest: itemConditionWords(c, operandText, conditionLine) };
   return { subject: null, rest: "not …" };
 }
 
