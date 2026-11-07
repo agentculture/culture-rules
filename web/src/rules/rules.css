@@ -438,3 +438,16 @@
   min-height: 24px;
   height: 24px;
 }
+
+/* The rarely-set params of an action, folded away until opened or already set. */
+.rule-form .action-picker__more > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.rule-form .action-picker__more[open] > summary {
+  margin-bottom: 12px;
+}

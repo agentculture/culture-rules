@@ -21,6 +21,7 @@ const param = (name: string, extra: Partial<ActionKindSpec["params"][number]> = 
   choose: "",
   needs_actor_param: "",
   needed: false,
+  advanced: false,
   ...extra,
 });
 
@@ -33,6 +34,7 @@ const ACME: ActionKindSpec = {
   params: [
     param("actor", { required: true }),
     param("words", { required: true, label: "Words to send", widget: "multiline" }),
+    param("trace_id", { advanced: true, label: "Trace id" }),
     param("speed", { choices: [{ value: "fast", label: "Fast lane" }, { value: "slow", label: "Slow lane" }], choose: "Any speed" }),
   ],
   any_of: [],
@@ -179,5 +181,47 @@ describe("the catalogue from the API", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }));
     await screen.findByLabelText("What happens");
     expect(offeredKinds()).toContain("acme.ping");
+  });
+});
+
+describe("advanced params", () => {
+  const start = (params: Record<string, unknown>): Action => ({ kind: "acme.ping", params });
+
+  it("sit behind a collapsed More settings by default", () => {
+    render(<Harness catalogue={WITH_ACME} start={start({})} />);
+    expect(screen.getByText("More settings").closest("details")?.open).toBe(false);
+  });
+
+  it("are inside the fold, not among the always-shown fields", () => {
+    render(<Harness catalogue={WITH_ACME} start={start({})} />);
+    expect(screen.getByLabelText("Trace id", { selector: "input" }).closest("details")).not.toBeNull();
+  });
+
+  it("open the fold on a click", async () => {
+    const user = userEvent.setup();
+    render(<Harness catalogue={WITH_ACME} start={start({})} />);
+    await user.click(screen.getByText("More settings"));
+    expect(screen.getByText("More settings").closest("details")?.open).toBe(true);
+  });
+
+  it("show expanded when the stored action already sets one", () => {
+    render(<Harness catalogue={WITH_ACME} start={start({ trace_id: "t-1" })} />);
+    expect(screen.getByText("More settings").closest("details")?.open).toBe(true);
+  });
+
+  it("keep the field's value when shown", () => {
+    render(<Harness catalogue={WITH_ACME} start={start({ trace_id: "t-1" })} />);
+    expect(screen.getByLabelText("Trace id", { selector: "input" })).toHaveValue("t-1");
+  });
+
+  it("are absent for a kind that has none", () => {
+    render(<Harness catalogue={ACTION_CATALOGUE} start={{ kind: "github.pr", params: {} }} />);
+    expect(screen.queryByText("More settings")).toBeNull();
+  });
+
+  it("fold the built-in once_key of github.comment, as the old editor hid it", () => {
+    const actors: Actor[] = [{ id: "g", name: "G", kind: "app", enabled: true, params: { surface: "github", actions: ["github.comment"] } }];
+    render(<ActionPicker value={{ kind: "github.comment", params: {} }} actors={actors} catalogue={ACTION_CATALOGUE} onChange={() => {}} />);
+    expect(screen.getByLabelText("Once key", { selector: "input" }).closest("details")?.open).toBe(false);
   });
 });

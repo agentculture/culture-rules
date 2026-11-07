@@ -31,6 +31,8 @@ export interface ActionParam {
   needs_actor_param: string;
   /** Not required of a stored step, but the editor asks for it. */
   needed: boolean;
+  /** Rarely set: kept behind a "More settings" fold, open when the step already sets it. */
+  advanced: boolean;
 }
 
 /** One alternative of "which actors can do it": every condition holds for an enabled actor. */

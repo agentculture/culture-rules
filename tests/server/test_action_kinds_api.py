@@ -117,3 +117,13 @@ def test_the_web_tests_copy_of_the_catalogue_is_current():
     script = Path(__file__).resolve().parents[2] / "scripts" / "export-action-kinds.py"
     done = subprocess.run([sys.executable, str(script), "--check"], capture_output=True, text=True)
     assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_only_the_params_the_old_editor_hid_are_advanced(world):
+    advanced = {(i["kind"], p["name"]) for i in _items(world) for p in i["params"] if p["advanced"]}
+    assert advanced == {
+        ("github.comment", "once_key"),
+        ("email.send", "idempotency_key"),
+        ("email.send", "sender"),
+        ("email.send", "not_after"),
+    }

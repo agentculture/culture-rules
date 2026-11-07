@@ -436,6 +436,7 @@ class ActionParam(BaseModel):
     )
     choose: str = Field(description="the prompt of the empty choice")
     needs_actor_param: str = Field(description="shown only when the chosen actor has it set")
+    advanced: bool = Field(description="rarely set: an editor keeps it behind a fold")
     needed: bool = Field(
         description="not required of a stored step (the port refuses it at run time) "
         "but an editor asks for it"

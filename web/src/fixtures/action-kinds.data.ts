@@ -36,7 +36,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "channel",
@@ -48,7 +49,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "text",
@@ -60,7 +62,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -88,7 +91,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "guild",
@@ -100,7 +104,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "channel",
@@ -112,7 +117,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "text",
@@ -124,7 +130,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "buttons",
@@ -136,7 +143,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "thread_name",
@@ -148,7 +156,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "tags",
@@ -160,7 +169,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -188,7 +198,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "guild",
@@ -200,7 +211,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "channel",
@@ -212,7 +224,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "message",
@@ -224,7 +237,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -252,7 +266,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "guild",
@@ -264,7 +279,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "channel",
@@ -276,7 +292,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "message",
@@ -288,7 +305,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "emoji",
@@ -300,7 +318,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "remove",
@@ -312,7 +331,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [
@@ -345,7 +365,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "event_id",
@@ -357,7 +378,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "text",
@@ -369,7 +391,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -397,7 +420,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "guild",
@@ -409,7 +433,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "channel",
@@ -421,7 +446,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "cursor_key",
@@ -433,7 +459,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "limit",
@@ -445,7 +472,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "include_bots",
@@ -457,7 +485,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "backfill",
@@ -469,7 +498,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -497,7 +527,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "repo",
@@ -509,7 +540,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "number",
@@ -521,7 +553,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "body",
@@ -533,7 +566,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "once_key",
@@ -545,7 +579,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": true
         }
       ],
       "any_of": [],
@@ -573,7 +608,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "repo",
@@ -585,7 +621,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "number",
@@ -597,7 +634,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "sha",
@@ -609,7 +647,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "delete_branch",
@@ -621,7 +660,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -649,7 +689,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "repo",
@@ -661,7 +702,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "number",
@@ -673,7 +715,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -701,7 +744,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "issue",
@@ -713,7 +757,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "body",
@@ -725,7 +770,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -753,7 +799,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "method",
@@ -786,7 +833,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "Choose a method…",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "url",
@@ -798,7 +846,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "headers",
@@ -810,7 +859,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "body",
@@ -822,7 +872,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "save_to",
@@ -834,7 +885,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -867,7 +919,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "command",
@@ -879,7 +932,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "args",
@@ -891,7 +945,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -921,7 +976,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "to",
@@ -933,7 +989,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "subject",
@@ -945,7 +1002,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "html",
@@ -957,7 +1015,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "text",
@@ -969,7 +1028,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "idempotency_key",
@@ -981,7 +1041,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": true
         },
         {
           "name": "sender",
@@ -993,7 +1054,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": true
         },
         {
           "name": "not_after",
@@ -1005,7 +1067,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": true
         }
       ],
       "any_of": [],
@@ -1036,7 +1099,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "query",
@@ -1048,7 +1112,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "count",
@@ -1060,7 +1125,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "freshness",
@@ -1089,7 +1155,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "Any time",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "country",
@@ -1101,7 +1168,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "lang",
@@ -1113,7 +1181,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -1144,7 +1213,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "brief",
@@ -1156,7 +1226,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "briefs",
           "choose": "Choose one of the actor's briefs…",
           "needs_actor_param": "",
-          "needed": true
+          "needed": true,
+          "advanced": false
         },
         {
           "name": "answer",
@@ -1168,7 +1239,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "content",
@@ -1180,7 +1252,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "content_path",
@@ -1192,7 +1265,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "content_root",
@@ -1204,7 +1278,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "content_max_chars",
@@ -1216,7 +1291,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "max_tokens",
@@ -1228,7 +1304,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "temperature",
@@ -1240,7 +1317,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "not_after",
@@ -1252,7 +1330,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "cache",
@@ -1264,7 +1343,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "cache_name",
@@ -1276,7 +1356,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "cache_label",
@@ -1288,7 +1369,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [
@@ -1326,7 +1408,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "state",
@@ -1338,7 +1421,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "questions",
@@ -1350,7 +1434,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "not_after",
@@ -1362,7 +1447,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -1395,7 +1481,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "audio_path",
@@ -1407,7 +1494,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "audio_sha256",
@@ -1419,7 +1507,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "output_dir",
@@ -1431,7 +1520,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "language",
@@ -1443,7 +1533,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "model",
@@ -1455,7 +1546,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -1488,7 +1580,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "result_path",
@@ -1500,7 +1593,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "root",
@@ -1512,7 +1606,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "recorded_at",
@@ -1524,7 +1619,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "language",
@@ -1536,7 +1632,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "summary",
@@ -1548,7 +1645,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "format",
@@ -1569,7 +1667,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "EPUB book (default)",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],
@@ -1600,7 +1699,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "content_base64",
@@ -1612,7 +1712,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "content_path",
@@ -1624,7 +1725,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "content_root",
@@ -1636,7 +1738,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "content_roots",
           "choose": "Choose one of the library's content roots…",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "title",
@@ -1648,7 +1751,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "kind",
@@ -1660,7 +1764,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "kinds",
           "choose": "Choose a kind…",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "visibility",
@@ -1672,7 +1777,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "visibilities",
           "choose": "The library's default",
           "needs_actor_param": "visibilities",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "format",
@@ -1684,7 +1790,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "formats",
           "choose": "EPUB (default)",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "item_id",
@@ -1696,7 +1803,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "author",
@@ -1708,7 +1816,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         },
         {
           "name": "device_id",
@@ -1720,7 +1829,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "queue_path",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [
@@ -1759,7 +1869,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "options_from": "",
           "choose": "",
           "needs_actor_param": "",
-          "needed": false
+          "needed": false,
+          "advanced": false
         }
       ],
       "any_of": [],

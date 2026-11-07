@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
+import { ACTION_CATALOGUE } from "../fixtures/action-catalogue";
 import { AppConfigForm } from "./AppConfigForm";
 import { appDraftFrom, appParamsFrom, emptyAppDraft, httpDraftFrom, httpParamsFrom, validateApp, validateHttp, type AppDraft, type FormErrors } from "./app-config";
 
@@ -10,7 +11,7 @@ let latest: AppDraft = emptyAppDraft();
 function Harness({ initial = emptyAppDraft(), errors }: Readonly<{ initial?: AppDraft; errors?: FormErrors }>) {
   const [draft, setDraft] = useState(initial);
   latest = draft;
-  return <AppConfigForm value={draft} onChange={setDraft} errors={errors} />;
+  return <AppConfigForm value={draft} onChange={setDraft} errors={errors} catalogue={ACTION_CATALOGUE} />;
 }
 
 const NO_SAVE = { allow: "", headers: [], saveRoots: "", saveMaxBytes: "" };
@@ -284,5 +285,38 @@ describe("app-config model", () => {
 
   it("leaves the policy undefined when nothing is set", () => {
     expect(httpParamsFrom(NO_SAVE)).toBeUndefined();
+  });
+});
+
+describe("the actions an app can declare come from the catalogue", () => {
+  const extension = {
+    ...ACTION_CATALOGUE.items[0],
+    kind: "acme.ping",
+    label: "Ping",
+    summary: "Ping Acme through its service",
+    aliases: [],
+  };
+  const WITH_ACME = { items: [...ACTION_CATALOGUE.items, extension] };
+
+  it("lists a kind the editor has never heard of as a checkbox", () => {
+    render(
+      <AppConfigForm
+        value={{ ...emptyAppDraft(), surface: "github" }}
+        onChange={() => {}}
+        catalogue={WITH_ACME}
+      />,
+    );
+    expect(screen.getByRole("checkbox", { name: /^acme\.ping/ })).toBeInTheDocument();
+  });
+
+  it("does not list it while the catalogue lacks it", () => {
+    render(
+      <AppConfigForm
+        value={{ ...emptyAppDraft(), surface: "github" }}
+        onChange={() => {}}
+        catalogue={ACTION_CATALOGUE}
+      />,
+    );
+    expect(screen.queryByRole("checkbox", { name: /^acme\.ping/ })).toBeNull();
   });
 });

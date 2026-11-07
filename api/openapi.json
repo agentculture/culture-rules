@@ -114,6 +114,11 @@
       },
       "ActionParam": {
         "properties": {
+          "advanced": {
+            "description": "rarely set: an editor keeps it behind a fold",
+            "title": "Advanced",
+            "type": "boolean"
+          },
           "choices": {
             "description": "a closed set of values, or empty",
             "items": {
@@ -177,6 +182,7 @@
           "options_from",
           "choose",
           "needs_actor_param",
+          "advanced",
           "needed"
         ],
         "title": "ActionParam",

@@ -35,6 +35,7 @@ describes its own form:
 | `options_from` | the chosen actor's params key that lists (or, as a mapping, names) the values |
 | `choose` | the prompt of the empty choice |
 | `needs_actor_param` | shown only when the chosen actor has that param set |
+| `advanced` | rarely set: the editor keeps it behind a "More settings" fold, open when the step already sets it |
 | `needed` | not required of a stored step (the port refuses it at run time) but the editor asks for it |
 
 ## The surfaces

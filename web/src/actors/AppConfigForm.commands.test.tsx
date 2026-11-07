@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { DiscordCommand } from "../api/actors";
+import { ACTION_CATALOGUE } from "../fixtures/action-catalogue";
 import { AppConfigForm } from "./AppConfigForm";
 import {
   appDraftFrom,
@@ -228,7 +229,7 @@ let latest: AppDraft = emptyAppDraft();
 function Harness({ initial, errors }: Readonly<{ initial: AppDraft; errors?: FormErrors }>) {
   const [draft, setDraft] = useState(initial);
   latest = draft;
-  return <AppConfigForm value={draft} onChange={setDraft} errors={errors} />;
+  return <AppConfigForm value={draft} onChange={setDraft} errors={errors} catalogue={ACTION_CATALOGUE} />;
 }
 
 describe("Discord commands: the form", () => {

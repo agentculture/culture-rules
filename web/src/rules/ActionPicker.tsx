@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { getDiscordTargets } from "../api/actors";
 import { useDiscordTargets, type LoadTargets } from "./useDiscordTargets";
 import type { Actor, RunnerActorParams } from "../api/actors";
@@ -621,10 +621,29 @@ interface ParamFieldsProps {
   setParams: (next: Record<string, unknown>) => void;
 }
 
+/**
+ * The rarely-set params behind a disclosure, collapsed unless one already has a value (so nothing
+ * stored is hidden silently); a native `details`, so the keyboard opens it.
+ */
+function MoreSettings({ open, children }: Readonly<{ open: boolean; children: ReactNode }>) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <details className="action-picker__more" open={open || opened} onToggle={(e) => setOpened(e.currentTarget.open)}>
+      <summary>More settings</summary>
+      {children}
+    </details>
+  );
+}
+
 /** One typed field per param of the chosen action kind (the actor select is rendered separately). */
 function ParamFields(props: Readonly<ParamFieldsProps>) {
   const discord = hasTargetPicker(props.spec);
   const actorId = typeof props.params.actor === "string" ? props.params.actor : "";
+  const shown = props.spec.params
+    .filter((p) => p.name !== "actor" && p.widget !== "hidden")
+    .filter((p) => !(discord && (p.widget === "discord_guild" || p.widget === "discord_channel")))
+    .filter((p) => !hiddenForActor(p, props.actor));
+  const advanced = shown.filter((p) => p.advanced);
   return (
     <>
       {discord ? (
@@ -637,13 +656,16 @@ function ParamFields(props: Readonly<ParamFieldsProps>) {
           setParams={props.setParams}
         />
       ) : null}
-      {props.spec.params
-        .filter((p) => p.name !== "actor" && p.widget !== "hidden")
-        .filter((p) => !(discord && (p.widget === "discord_guild" || p.widget === "discord_channel")))
-        .filter((p) => !hiddenForActor(p, props.actor))
-        .map((p) => (
-          <ParamField key={p.name} p={p} {...props} />
-        ))}
+      {shown.filter((p) => !p.advanced).map((p) => (
+        <ParamField key={p.name} p={p} {...props} />
+      ))}
+      {advanced.length > 0 ? (
+        <MoreSettings open={advanced.some((p) => !isEmpty(props.params[p.name]))}>
+          {advanced.map((p) => (
+            <ParamField key={p.name} p={p} {...props} />
+          ))}
+        </MoreSettings>
+      ) : null}
     </>
   );
 }

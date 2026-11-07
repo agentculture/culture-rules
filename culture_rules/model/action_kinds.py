@@ -88,7 +88,8 @@ class ParamSpec:
     lists the values, or maps them as keys), ``choose`` (the prompt of an empty choice) and
     ``needs_actor_param`` (shown only when the chosen actor has that param set) and ``needed``
     (not required of a stored step, which the port refuses at run time, but an editor asks
-    for it).
+    for it) and ``advanced`` (rarely set: an editor keeps it behind a "More settings" fold, open
+    when the step already sets it).
     """
 
     type: str
@@ -100,6 +101,7 @@ class ParamSpec:
     choose: str = ""
     needs_actor_param: str = ""
     needed: bool = False
+    advanced: bool = False
 
 
 @dataclass(frozen=True)
@@ -139,6 +141,7 @@ def _k(
 _S = ParamSpec("str")
 _RS = ParamSpec("str", True)
 _I = ParamSpec("int")
+_ADV = ParamSpec("str", advanced=True)
 _RI = ParamSpec("int", True)
 _TEXT = ParamSpec("str", widget="multiline")
 _RTEXT = ParamSpec("str", True, widget="multiline")
@@ -220,7 +223,7 @@ _KINDS = (
         repo=_RS,
         number=_RI,
         body=_RTEXT,
-        once_key=_S,  # d25: post at most once per (repo, PR, key), durably
+        once_key=_ADV,  # d25: post at most once per (repo, PR, key), durably
     ),
     _k(
         "github.merge",
@@ -285,9 +288,9 @@ _KINDS = (
         subject=_RS,
         html=_TEXT,  # at least one of html/text: the port checks it
         text=_TEXT,
-        idempotency_key=_S,  # replaces the engine's per-run key (a durable, per-date key)
-        sender=_S,  # replaces the actor's from address; must be at the actor's domain
-        not_after=_S,  # ISO-8601: at or past it the send fails email_window_passed, no request
+        idempotency_key=_ADV,  # replaces the engine's per-run key (a durable, per-date key)
+        sender=_ADV,  # replaces the actor's from address; must be at the actor's domain
+        not_after=_ADV,  # ISO-8601: at or past it the send fails email_window_passed, no request
     ),
     _k(
         "search.web",
@@ -490,6 +493,7 @@ def _describe_param(name: str, spec: ParamSpec) -> dict[str, Any]:
         "choose": spec.choose,
         "needs_actor_param": spec.needs_actor_param,
         "needed": spec.needed,
+        "advanced": spec.advanced,
     }
 
 
