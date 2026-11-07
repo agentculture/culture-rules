@@ -123,9 +123,11 @@ def _bundle_dir(bundle: str | None) -> Path:
 
 
 def _seed_list(bundle: str | None) -> list[dict[str, Any]]:
+    """The bundle's ``variables.json``; a bundle without one seeds nothing (the step is still
+    recorded, so its import can follow)."""
     path = _bundle_dir(bundle) / "variables.json"
     if not path.is_file():
-        raise CliError(EXIT_USER_ERROR, f"no variables.json in {bundle}", NO_BUNDLE_HINT)
+        return []
     return json.loads(path.read_text(encoding="utf-8"))
 
 

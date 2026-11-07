@@ -4,18 +4,13 @@
 from __future__ import annotations
 
 from culture_rules.engine import run_chain
-from culture_rules.engine.run_chain import LineageError, step_state, upstream
+from culture_rules.engine.run_chain import LineageError, upstream
 from culture_rules.node.actions.github import source_rule_refusal
 from culture_rules.store.memory import MemoryStore
 
 
-def test_step_state_finds_a_step_by_key() -> None:
-    run = {"steps": [{"key": "a", "status": "succeeded"}]}
-    assert step_state(run, "a") == {"key": "a", "status": "succeeded"}
-
-
-def test_step_state_is_none_when_absent() -> None:
-    assert step_state({"steps": []}, "a") is None
+def test_run_chain_does_not_duplicate_the_runs_step_state() -> None:
+    assert not hasattr(run_chain, "step_state")
 
 
 def test_upstream_refuses_a_run_not_started_by_a_run_event() -> None:

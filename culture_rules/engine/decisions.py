@@ -68,6 +68,7 @@ from culture_rules.store.port import StoreOps
 
 __all__ = [
     "FINAL_SKIP_REASONS",
+    "LEGACY_FINAL_REASONS",
     "RATE_CAPPED",
     "RECORDED_REASONS",
     "RULE_DECISIONS",
@@ -101,10 +102,13 @@ RECORDED_REASONS: tuple[str, ...] = (
     HOP_LIMIT,
     RUN_EVENT_UNVERIFIED,
 )
-FINAL_SKIP_REASONS: tuple[str, ...] = tuple(
-    r for r in RECORDED_REASONS if r != BLOCKED_BY_PREDECESSOR
+LEGACY_FINAL_REASONS: tuple[str, ...] = ("dispatch_revoked",)
+"""Final skips no code records any more, still read as final: a decision stored before 0.43.0
+(the removed PR queue's ``dispatch_revoked``) stays settled when a consumer reaches it."""
+FINAL_SKIP_REASONS: tuple[str, ...] = (
+    tuple(r for r in RECORDED_REASONS if r != BLOCKED_BY_PREDECESSOR) + LEGACY_FINAL_REASONS
 )
-"""Recorded skips that are final when written: never superseded, the rule will not fire."""
+"""Skips that are final when written: never superseded, the rule will not fire."""
 
 
 def decision_key(rule_id: str, event_id: str) -> str:

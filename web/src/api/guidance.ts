@@ -105,6 +105,7 @@ const TABLE: Record<string, Guidance> = {
   action_kind_unknown: g("That kind of action is not one the editor knows.", EDIT),
   action_param_required: g("The action is missing a required setting.", EDIT, { kind: "pick-actor" }),
   action_param_type: g("One of the action's settings has the wrong type.", EDIT),
+  action_param_removed: g("One of the action's settings is no longer supported. Remove it.", EDIT),
   action_actor_not_literal: g(
     "An action names its actor directly. Pick one instead of connecting a value to it.",
     { kind: "pick-actor" },

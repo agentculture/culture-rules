@@ -136,3 +136,10 @@ def test_decision_rolls_back_with_the_trigger_transaction(monkeypatch):
     assert doc["reason"] == "superseded_by"
     assert doc["by"] == ["z"]
     assert c.run("z", "evt_1") is not None
+
+
+def test_a_stored_dispatch_revoked_decision_still_reads_as_a_final_skip():
+    """A decision recorded before 0.43.0 by the removed PR queue stays settled."""
+    from culture_rules.node.firing import _settled_skip
+
+    assert _settled_skip({"id": "d1", "reason": "dispatch_revoked"}) == "d1"

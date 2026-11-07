@@ -555,6 +555,22 @@ def test_import_refuses_before_seed_then_imports_workflows_and_rules(
     assert doc(store)["steps"]["import"]["outcome"] == {"add": 2}
 
 
+def test_a_bundle_without_variables_seeds_nothing_and_records_the_step(
+    wire, store, capsys, bundle  # noqa: F811
+):
+    (bundle / "variables.json").unlink()
+    out = jrun(capsys, "rollout", "seed", "--bundle", str(bundle), "--apply")
+    assert out["set"] == []
+    assert doc(store)["steps"]["seed"]["outcome"] == {"set": [], "skipped": []}
+
+
+def test_a_bundle_without_variables_can_then_be_imported(wire, store, capsys, bundle):  # noqa: F811
+    (bundle / "variables.json").unlink()
+    jrun(capsys, "rollout", "seed", "--bundle", str(bundle), "--apply")
+    out = jrun(capsys, "rollout", "import", "--bundle", str(bundle), "--apply")
+    assert out["applied"] is True
+
+
 # --------------------------------------------------------------------------- enable
 
 

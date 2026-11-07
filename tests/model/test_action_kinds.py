@@ -362,3 +362,17 @@ def test_library_push_takes_format_and_an_int_item_id() -> None:
     assert ("action.params.item_id", "action_param_type") in _errs(
         LIBRARY_PUSH, {**base, "item_id": "7"}
     )
+
+
+_COMMENT = {"actor": "gh", "repo": "o/r", "number": 3, "body": "hi"}
+
+
+@pytest.mark.parametrize("status", [True, "yes", 1])
+def test_github_comment_status_is_refused_when_saved(status) -> None:
+    errs = _errs("github.comment", {**_COMMENT, "status": status})
+    assert ("action.params.status", "action_param_removed") in errs
+
+
+@pytest.mark.parametrize("status", [False, None])
+def test_github_comment_status_false_or_absent_is_accepted(status) -> None:
+    assert _errs("github.comment", {**_COMMENT, "status": status}) == set()

@@ -362,8 +362,9 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    name, is refused before any argv is built. The API URL and token never cross ssh.
    Upgrade the shared-venv host first, then the install.sh hosts.
 4. `rollout seed --apply --bundle DIR` sets the seed variables in the bundle's
-   `variables.json` that do not exist yet; `--force` replaces them. The wheel
-   carries no bundle: without `--bundle` it exits 1.
+   `variables.json` that do not exist yet; `--force` replaces them. A bundle with no
+   `variables.json` seeds nothing and still records the step. The wheel carries no
+   bundle: without `--bundle` it exits 1.
 5. `rollout import --apply --bundle DIR` imports the bundle's workflows and rules
    in one `POST /import`. Refused until this release's seed step is recorded, and
    without `--bundle`.

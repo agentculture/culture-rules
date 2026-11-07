@@ -17,8 +17,8 @@ operator's runbook.
   name that wheel (`culture_rules-<version>-...whl`); the CLI never picks one up from a
   host.
 - **The wheel carries no rule bundle.** `rollout seed` and `rollout import` take a
-  bundle directory (`workflows/`, `rules/`, `variables.json`, and optionally a
-  `release.json`, which must name this release) with `--bundle DIR`, for example one under `docs/rules/` in a
+  bundle directory (`workflows/`, `rules/`, optionally `variables.json` (none seeds
+  nothing) and optionally a `release.json`, which must name this release) with `--bundle DIR`, for example one under `docs/rules/` in a
   checkout of this release. Without `--bundle` they exit 1 ("this wheel carries no
   rule bundle").
 - **`release.json` names everything new since the last live release.** Its

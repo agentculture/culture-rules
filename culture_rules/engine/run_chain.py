@@ -13,7 +13,6 @@ trust a wired input or an event field for which run that is; :func:`upstream` wa
 * that upstream run exists and ``succeeded`` (or ``failed``, when asked for).
 
 Anything else raises :class:`LineageError` with the code :data:`CHAIN_UNVERIFIED`.
-:func:`step_state` reads one step's state from a run document.
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ __all__ = [
     "LineageError",
     "RUN_FAILED",
     "RUN_SUCCEEDED",
-    "step_state",
     "upstream",
 ]
 
@@ -43,11 +41,6 @@ class LineageError(Exception):
         super().__init__(f"{code}: {detail}" if detail else code)
         self.code = code
         self.detail = detail
-
-
-def step_state(run: Mapping[str, Any], key: str) -> dict[str, Any] | None:
-    """The state of step ``key`` in ``run`` (``None`` when absent)."""
-    return next((s for s in run.get("steps", ()) if s.get("key") == key), None)
 
 
 def upstream(store: Any, run: Mapping[str, Any], *, failed: bool = False) -> Mapping[str, Any]:

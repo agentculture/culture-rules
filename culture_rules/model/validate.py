@@ -437,6 +437,20 @@ def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
             )
     if not lenient:
         _check_any_of(obj, spec.any_of, pp, errors)
+    _check_comment_status(obj, pp, errors)
+
+
+def _check_comment_status(obj: Action, pp: str, errors: Errors) -> None:
+    """``github.comment`` keeps no status board since 0.43.0: a ``status`` other than absent
+    or false is refused when saved, as the port refuses it (``bad_input``) when it runs."""
+    if obj.kind != "github.comment" or obj.params.get("status") in (None, False):
+        return
+    _err(
+        errors,
+        _join(pp, "status"),
+        "action_param_removed",
+        "github.comment has no status comment any more; drop params.status",
+    )
 
 
 def _check_any_of(
