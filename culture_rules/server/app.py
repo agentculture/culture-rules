@@ -26,7 +26,7 @@ from culture_rules.actors import agent, human
 from culture_rules.actors.code import InlineScriptDenied
 from culture_rules.actors.secrets import SecretError
 from culture_rules.auth import guards
-from culture_rules.auth.policy import required_role
+from culture_rules.auth.policy import CoreRoutes, required_role
 from culture_rules.auth.principal import AuthError, Forbidden, Principal
 from culture_rules.auth.resolve import ACCESS_HEADER, DEV_IDENTITY_HEADER, AuthSettings, Resolver
 from culture_rules.auth.tokens import SERVICE_TOKENS, ServiceTokens, TokenError
@@ -927,16 +927,36 @@ def create_app(
     _register_exchange(app, store, defs, targets)
     _register_asks(app, store, answer_ask)
     _register_stream(app, store)
+    added = len(app.router.routes)
     _register_hooks(app, store, routes)
+    extension_routes = app.router.routes[added:]
     _register_bridge_callbacks(app, store)
+    added = len(app.router.routes)
     _register_api_routes(
         app, ApiContext(store, resolve_secret, {"discord_transport": discord_transport})
     )
+    extension_routes += app.router.routes[added:]
     _register_model_actors(app, store, defs, resolve_secret, models_transport)
+    # every route mounted so far that no extension mounted: a declared extension role never
+    # applies to a request one of them matches (auth.policy). The SPA fallback below is not
+    # an API route (it serves browser GETs only) and is left out.
+    app.state.core_routes = core_routes_of(app.router.routes, extension_routes)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
     app.add_middleware(NoStoreByDefault)
     return app
+
+
+def core_routes_of(routes: Sequence[Any], extension_routes: Sequence[Any] = ()) -> CoreRoutes:
+    """The method-bearing ``routes`` not in ``extension_routes``, as :class:`CoreRoutes`."""
+    skip = {id(route) for route in extension_routes}
+    return CoreRoutes(
+        (route.methods, route.path_regex)
+        for route in routes
+        if id(route) not in skip
+        and getattr(route, "methods", None)
+        and hasattr(route, "path_regex")
+    )
 
 
 def _install_auth(
@@ -955,7 +975,8 @@ def _install_auth(
             return await call_next(request)
         try:
             principal = resolver.resolve(request.headers)
-            need = required_role(request.method, request.url.path)
+            core = getattr(app.state, "core_routes", None)
+            need = required_role(request.method, request.url.path, core)
             if not principal.has_role(need):
                 raise Forbidden("forbidden_role", f"{need} role required")
         except AuthError as exc:

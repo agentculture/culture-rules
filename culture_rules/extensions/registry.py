@@ -116,7 +116,8 @@ ROLES = ("viewer", "editor", "admin")
 _METHODS = frozenset({"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"})
 #: A workflow port's types (``model.workflow.PORT_TYPES``; a test pins the two together).
 PORT_TYPES = ("string", "number", "integer", "boolean", "object", "array", "any")
-_TEMPLATE_RE = re.compile(r"^(/([A-Za-z0-9._~-]+|\{[A-Za-z_][A-Za-z0-9_]*\}))+$")
+#: ``re.ASCII``: ``\w`` is exactly ``[A-Za-z0-9_]`` (never a Unicode letter).
+_TEMPLATE_RE = re.compile(r"^(/([\w.~-]+|\{[A-Za-z_]\w*\}))+$", re.ASCII)
 
 Factory = Callable[[Any], Any]
 #: A problem a params or trigger-filter validator reports: ``(path, code, message)``.
@@ -372,7 +373,7 @@ def _roles(roles: Iterable[Any], extension: str) -> tuple[tuple[str, str, str], 
 @functools.lru_cache(maxsize=256)
 def _template_regex(template: str) -> re.Pattern[str]:
     """``/actors/{actor_id}/x`` as a whole-path pattern, one segment per placeholder."""
-    parts = re.split(r"\{[A-Za-z_][A-Za-z0-9_]*\}", template)
+    parts = re.split(r"\{[A-Za-z_]\w*\}", template, flags=re.ASCII)
     return re.compile("^" + "[^/]+".join(re.escape(p) for p in parts) + "$")
 
 

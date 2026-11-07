@@ -24,18 +24,44 @@ changing a runner actor's command registry (``params.commands``), but those depe
 is adding, changing or removing a machine's ``install`` section (``install_requires_admin``)
 and an actor's ``params.briefs``, on any actor kind (``briefs_admin_only``).
 A route an extension adds declares its own role
-(:meth:`~culture_rules.extensions.Extension.api_routes`, ``roles``): it applies after the
-admin patterns above, so an extension cannot lower one of them.
+(:meth:`~culture_rules.extensions.Extension.api_routes`, ``roles``). A declared role applies
+only to a request that matches NO core route: a request that matches a core route always gets
+core's role, so an extension can never set the role of a core route (not even for a record
+whose id is the extension's name, such as ``DELETE /rules/discord``). The API knows its core
+routes (:class:`CoreRoutes`, collected by ``create_app`` from every route it mounts that no
+extension mounted) and passes them in; without them (a caller with no app) a declared role can
+only raise core's role, never lower it. The admin patterns above win over any declaration.
 Any mutation not listed here needs admin: the matrix fails closed.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from culture_rules.extensions import registry
+from culture_rules.extensions.registry import ROLES
 
-__all__ = ["required_role"]
+__all__ = ["CoreRoutes", "required_role"]
+
+
+class CoreRoutes:
+    """The API's own routes, ``(methods, whole-path pattern)`` each: what a declared
+    extension role may never apply to (module doc)."""
+
+    __slots__ = ("_routes",)
+
+    def __init__(self, routes: Iterable[tuple[Iterable[str], re.Pattern[str]]]) -> None:
+        self._routes = tuple((frozenset(m.upper() for m in ms), rx) for ms, rx in routes)
+
+    def __len__(self) -> int:
+        return len(self._routes)
+
+    def matches(self, method: str, path: str) -> bool:
+        """Whether ``method path`` (a concrete path) is one of the core routes."""
+        method = method.upper()
+        return any(method in ms and rx.match(path) for ms, rx in self._routes)
+
 
 _KINDS = "rules|workflows|actors|machines"
 _ADMIN_PATTERNS = (
@@ -69,15 +95,24 @@ _EDITOR_PATTERNS = {
 }
 
 
-def required_role(method: str, path: str) -> str:
-    """The lowest role allowed to call ``method path``."""
+def required_role(method: str, path: str, core_routes: CoreRoutes | None = None) -> str:
+    """The lowest role allowed to call ``method path``; ``core_routes`` are the API's own
+    routes (module doc), None when there is no app (declared roles then only raise)."""
     method = method.upper()
     path = path.rstrip("/") or "/"
     if any(p.match(path) for p in _ADMIN_PATTERNS):
         return "admin"
+    core = _core_role(method, path)
     declared = registry().route_role(method, path)
-    if declared is not None:
-        return declared
+    if declared is None:
+        return core
+    if core_routes is None:
+        return max(declared, core, key=ROLES.index)
+    return core if core_routes.matches(method, path) else declared
+
+
+def _core_role(method: str, path: str) -> str:
+    """Core's role for ``method path`` (the matrix, no declarations, no admin patterns)."""
     if method in ("GET", "HEAD", "OPTIONS"):
         return "viewer"
     if method == "POST" and any(p.match(path) for p in _VIEWER_POSTS):

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from culture_rules.auth.policy import required_role
+from culture_rules.auth.policy import CoreRoutes, required_role
+
+#: An app none of whose core routes matches the paths these tests use.
+NO_CORE = CoreRoutes(())
 
 
 @pytest.mark.parametrize(
@@ -86,7 +89,19 @@ def acme_routes():
 
 
 def test_an_extension_route_gets_the_role_it_declares(acme_routes):
-    assert required_role("POST", "/acme/t1/poke") == "editor"
+    assert required_role("POST", "/acme/t1/poke", NO_CORE) == "editor"
+
+
+def test_without_core_routes_a_declared_role_can_only_raise(acme_routes):
+    """No app context (no core table): a declaration never lowers core's role."""
+    assert required_role("POST", "/acme/t1/poke") == "admin"
+
+
+def test_a_declared_role_never_applies_to_a_core_route(acme_routes):
+    import re
+
+    core = CoreRoutes([({"POST"}, re.compile(r"^/acme/[^/]+/poke$"))])
+    assert required_role("POST", "/acme/t1/poke", core) == "admin"
 
 
 @pytest.mark.parametrize(

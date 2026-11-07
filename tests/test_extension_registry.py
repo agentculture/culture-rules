@@ -560,3 +560,14 @@ def test_a_non_string_builtin_label_is_refused():
     reg = Registry()
     with pytest.raises(ExtensionError):
         reg.install("bad", lambda ext: ext.builtin("bad.x", router_factory, label=3))
+
+
+@pytest.mark.parametrize("template", ["/actors/{é}/acme", "/actors/ünï/acme"])
+def test_a_route_template_is_ascii_only(template):
+    reg = Registry()
+
+    def register(ext):
+        ext.api_routes("acme.routes", lambda app, ctx: None, roles=(("GET", template, "viewer"),))
+
+    with pytest.raises(ExtensionError):
+        reg.install("acme", register)

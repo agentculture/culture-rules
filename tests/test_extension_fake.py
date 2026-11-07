@@ -316,6 +316,9 @@ def test_ingest_refuses_what_the_fake_extension_reserves(fake):
 
 
 def test_the_policy_gives_the_fake_route_its_declared_role(fake):
+    pytest.importorskip("fastapi")
     from culture_rules.auth.policy import required_role
+    from culture_rules.server.app import create_app
 
-    assert required_role("POST", "/fake/f1/poke") == "editor"
+    core = create_app(MemoryStore()).state.core_routes
+    assert required_role("POST", "/fake/f1/poke", core) == "editor"
