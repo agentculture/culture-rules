@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] - 2026-11-07
+
+### Removed
+
+- The PR fixer is gone from code (no-flow-specific-code R1). It had been switched off live since 2026-10-19. Removed: its builtins (gate, review, handoff, fixer cooldown and levels, sonar and GitGuardian steps, the PR queue), the action kinds github.push and github.review_reply, its node stages (conflict, reaction and status-board watchers, story stop), the lineage and merge-hint helpers, the reviewer and workflow pins in actors/trusted.py, the docs/rules/pr-fixer bundle, deploy/pr-fixer and docs/operations/pr-fixer.md, and the editor's fixer fixtures
+- github.comment no longer keeps a status board: `status` other than absent or false is refused `bad_input`
+- An agent actor with a locked instruction is refused (it was the fixer's); the GitHub webhook no longer records comment intents
+
+### Changed
+
+- The wheel ships no rule bundle: it carries deploy/release.json (the release manifest) and the node installer only; `rollout seed` and `rollout import` take `--bundle DIR` and exit 1 without one
+- Shared helpers moved to generic homes: engine/run_chain.py (upstream, LineageError, step_state) and node/actions/github.py (source_rule_refusal)
+- Kept, because other flows use them: the checks settle, the webhook settle path, run chains, chain holds, concurrency keys and pools, select, and the github-app pin (tests now cover the bridge agent's trust check for a pinned actor)
+
 ## [0.42.1] - 2026-11-03
 
 ### Fixed
