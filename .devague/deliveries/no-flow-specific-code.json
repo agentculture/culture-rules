@@ -2,7 +2,7 @@
   "plan_slug": "no-flow-specific-code",
   "schema_version": 2,
   "created": "2026-11-06T20:24:48Z",
-  "updated": "2026-11-07T05:38:20Z",
+  "updated": "2026-11-07T05:56:03Z",
   "deviations": [
     {
       "id": "d1",
@@ -29,6 +29,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t5 also owns web/e2e: the Playwright fixtures and specs that read the deleted docs/rules/pr-fixer (web/e2e/fixtures/pr-fixer.ts, fold.spec.ts, workflows-described.spec.ts expecting 14 workflows) are fixed or removed in t5, not only web/src",
+      "task_ref": "t5",
+      "reason": "t3's bundle deletion (d2) broke these e2e files; t5's acceptance (Playwright passes) needs them fixed but its instruction said web/src only",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
     }
   ],
   "evidence": [],
