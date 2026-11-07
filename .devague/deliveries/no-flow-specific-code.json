@@ -2,7 +2,7 @@
   "plan_slug": "no-flow-specific-code",
   "schema_version": 2,
   "created": "2026-11-06T20:24:48Z",
-  "updated": "2026-11-07T06:58:06Z",
+  "updated": "2026-11-07T07:41:52Z",
   "deviations": [
     {
       "id": "d1",
@@ -92,6 +92,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "The 9 fixer variables stay live after R1: the API has no variable delete. The Boundary release adds a generic admin-only variables delete (API, CLI, MCP; refused while an enabled rule or workflow references the variable), then deletes fixer_capacity_cooldown_s, fixer_comment_triggers, fixer_excluded_repos, fixer_levels, fixer_protected_paths, fixer_repos, fixer_stop_triggers, fixer_unavailable and trusted_authors",
+      "task_ref": "t6",
+      "reason": "found at the R1 live cleanup: no DELETE /variables/{name}; operator chose to add the verb in the Boundary release",
+      "affects": [
+        "t7",
+        "t10"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
     }
   ],
   "evidence": [],
