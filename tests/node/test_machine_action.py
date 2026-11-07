@@ -9,7 +9,7 @@ import pytest
 
 from culture_rules.actors import code as code_mod
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions.machine import MachineCommandPort
+from culture_rules.extensions.machine.port import MachineCommandPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.memory import MemoryStore
 

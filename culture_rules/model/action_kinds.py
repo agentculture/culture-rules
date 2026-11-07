@@ -196,13 +196,6 @@ _KINDS = (
     ),
     kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
     kind(
-        "machine.command",
-        "Run a command on a machine actor",
-        actor=REQ_STR,
-        command=REQ_STR,
-        args=ParamSpec("dict"),
-    ),
-    kind(
         "email.send",
         "Send an email through an email app actor (Resend)",
         actor=REQ_STR,

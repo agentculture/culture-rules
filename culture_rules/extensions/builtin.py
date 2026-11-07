@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from culture_rules.extensions import http
+from culture_rules.extensions import http, machine
 from culture_rules.extensions.registry import Extension, Lazy, NodeContext, Registry
 from culture_rules.model.action_kinds import BUILTIN_KINDS
 
@@ -254,7 +254,6 @@ def _single(kind: str, module: str, attr: str) -> Callable[[Extension], None]:
     return register
 
 
-register_machine = _single("machine.command", "machine", "MachineCommandPort")
 register_email = _single("email.send", "email", "EmailSendPort")
 register_search = _single("search.web", "search", "SearchWebPort")
 register_llm = _single("llm.complete", "llm", "LlmCompletePort")
@@ -279,7 +278,7 @@ BUILTIN_EXTENSIONS: tuple[tuple[str, Callable[[Extension], None]], ...] = (
     ("github", register_github),
     ("jira", register_jira),
     ("http", http.register),
-    ("machine", register_machine),
+    ("machine", machine.register),
     ("email", register_email),
     ("search", register_search),
     ("llm", register_llm),
