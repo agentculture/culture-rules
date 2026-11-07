@@ -78,8 +78,9 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f\ud800-\udfff\ufffe\uffff]")
 _SPACE = re.compile(r"\s")
 #: A host a browser opens as written: ASCII letters, digits, ``-``, ``_``, ``.`` only.
 _PLAIN_HOST = re.compile(r"[a-z0-9_.-]+", re.ASCII)
-#: An IPv6 address as ``urlsplit`` reports it (brackets removed).
-_IPV6_HOST = re.compile(r"[0-9a-f:.]*:[0-9a-f:.]*", re.ASCII)
+#: The characters of an IPv6 address as ``urlsplit`` reports it (brackets removed); one
+#: character class, so the match is linear (it must also hold a colon, checked apart).
+_IPV6_CHARS = re.compile(r"[0-9a-f:.]+", re.ASCII)
 #: Authority characters on which ``urlsplit`` and a browser may disagree about the host.
 _AMBIGUOUS_AUTHORITY = ("@", "%")
 _SCALARS = (str, int, float)
@@ -150,7 +151,7 @@ def _http_host(url: Any) -> str | None:
         return None
     if any(mark in parts.netloc for mark in _AMBIGUOUS_AUTHORITY):
         return None
-    if _PLAIN_HOST.fullmatch(host) or _IPV6_HOST.fullmatch(host):
+    if _PLAIN_HOST.fullmatch(host) or (":" in host and _IPV6_CHARS.fullmatch(host)):
         return host
     return None
 

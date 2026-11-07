@@ -18,8 +18,9 @@ NEVER = {"op": "compare", "cmp": "==", "left": {"item": "."}, "right": {"literal
 
 def test_an_evaluation_over_its_budget_fails():
     tree = {"op": "and", "args": [{"op": "exists", "arg": {"literal": 1}}] * 10}
+    budget = c.Budget(5)
     with pytest.raises(c.EvaluationBudgetError):
-        c.evaluate(tree, {}, c.Budget(5))
+        c.evaluate(tree, {}, budget)
 
 
 def test_an_evaluation_within_its_budget_holds():
