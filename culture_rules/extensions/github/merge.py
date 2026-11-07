@@ -94,6 +94,7 @@ from culture_rules.actors import trusted
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import ADHOC_RULE_PREFIX, RUNS_COLLECTION
 from culture_rules.extensions.discord import buttons as buttons_mod
+from culture_rules.extensions.discord.filters import BUTTON_CLICKED
 from culture_rules.extensions.github.client import GitHubApp, GitHubError
 from culture_rules.extensions.github.port import (
     ACTOR_NOT_FOUND,
@@ -104,7 +105,6 @@ from culture_rules.extensions.github.port import (
     repo_refusal,
     source_rule_refusal,
 )
-from culture_rules.extensions.discord.filters import BUTTON_CLICKED
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError, StoreError
 

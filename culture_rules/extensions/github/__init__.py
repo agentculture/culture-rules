@@ -17,9 +17,8 @@ are ``extra_missing``.
 
 from __future__ import annotations
 
-from typing import Any
-
 from collections.abc import Mapping
+from typing import Any
 
 from culture_rules.extensions.registry import Extension, Lazy, NodeContext, Problem
 from culture_rules.model.action_kinds import ADV, REQ_INT, REQ_STR, REQ_TEXT, ParamSpec, kind
@@ -157,12 +156,26 @@ def comment_params(params: Mapping[str, Any], path: str) -> list[Problem]:
     ]
 
 
+def comment_guard(params: Mapping[str, Any]) -> list[str]:
+    """``github.comment``'s guard words: once per key."""
+    return ["(once per once_key)"] if params.get("once_key") else []
+
+
+def merge_guard(params: Mapping[str, Any]) -> list[str]:
+    """``github.merge``'s fence: the port runs it only from a click with the button's code."""
+    del params
+    return ["(only on a button click, with the button's one-time code)"]
+
+
 def register(ext: Extension) -> None:
     """GitHub (as a GitHub App, the ``github`` extra): comment, merge and PR facts, the head
     lookup, ``POST /hooks/github``, the checks settler and their event types."""
     for k in KINDS:
         ext.action_kind(k)
     ext.params_validator("github.comment", comment_params)
+    ext.action_phrases("github.comment", after=comment_guard)
+    ext.action_phrases("github.merge", after=merge_guard)
+    ext.action_phrases("github.pr")
     ext.action_port("github.pr_head", _port("port", "GitHubPrHeadPort"), **_EXTRA)
     ext.action_port("github.comment", _port("port", "GitHubCommentPort"), **_EXTRA)
     ext.action_port("github.pr", _port("port", "GitHubPrPort"), **_EXTRA)

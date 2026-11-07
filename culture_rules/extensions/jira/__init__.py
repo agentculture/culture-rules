@@ -33,6 +33,7 @@ def register(ext: Extension) -> None:
     and the event types the receiver emits."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("jira.comment", words=(("issue", "on {}"),))
     ext.action_port("jira.comment", Lazy(__name__ + ".port", "JiraCommentPort", store=True))
     for event in EVENT_TYPES:
         ext.event_type(event)

@@ -38,4 +38,5 @@ def register(ext: Extension) -> None:
     """``http.call`` (``port.HttpCallPort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("http.call", words=(("method", "{}"), ("url", "{}")))
     ext.action_port("http.call", Lazy(__name__ + ".port", "HttpCallPort", store=True))

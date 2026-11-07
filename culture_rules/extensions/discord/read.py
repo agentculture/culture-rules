@@ -19,9 +19,9 @@ from typing import Any
 
 from culture_rules.actors import secrets
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.extensions.discord.filters import filter_values
 from culture_rules.extensions.discord.message import ACTORS_COLLECTION
 from culture_rules.extensions.discord.rest import DiscordClient, DiscordError, Transport, guild_ids
-from culture_rules.extensions.discord.filters import filter_values
 
 __all__ = ["DiscordReadAction"]
 

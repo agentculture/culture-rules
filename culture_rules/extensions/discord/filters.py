@@ -188,7 +188,11 @@ def _check_discord_filters(params: Mapping[str, Any], pp: str, out: list[Problem
         value = params.get(name)
         if not _filter_value_ok(value):
             out.append(
-                (join(pp, name), _INVALID, f"params.{name} must be an id or name, or a list of them")
+                (
+                    join(pp, name),
+                    _INVALID,
+                    f"params.{name} must be an id or name, or a list of them",
+                )
             )
             continue
         if name == "channels" and value is not None and not _channel_ids_ok(value):

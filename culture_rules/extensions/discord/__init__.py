@@ -102,6 +102,26 @@ EVENT_TYPES = (
 )
 
 
+_IN_CHANNEL = ("channel", "in {}")
+
+#: What describe says for each Discord kind after its name and actor.
+PHRASES = {
+    "discord.message": (("channel", "to {}"),),
+    "discord.read": (_IN_CHANNEL, ("message", "message {}")),
+    "discord.react": (
+        ("emoji", "with {}"),
+        ("remove", "removing {}"),
+        _IN_CHANNEL,
+        ("message", "on message {}"),
+    ),
+    "discord.reply": (("text", '"{}"'),),
+    "discord.sweep": (_IN_CHANNEL, ("limit", "up to {} messages")),
+}
+ATTACHMENT_FETCH_PHRASE = (
+    "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node"
+)
+
+
 def _port(module: str, attr: str) -> Lazy:
     return Lazy(f"{__name__}.{module}", attr, store=True)
 
@@ -158,12 +178,17 @@ def register(ext: Extension) -> None:
     listener and its four event types, and the targets route."""
     for k in KINDS:
         ext.action_kind(k)
+        ext.action_phrases(k.name, words=PHRASES[k.name])
     ext.action_port("discord.message", _port("message", "DiscordMessageAction"))
     ext.action_port("discord.read", _port("read", "DiscordReadAction"))
     ext.action_port("discord.react", _port("react", "DiscordReactAction"))
     ext.action_port("discord.reply", _port("reply", "DiscordReplyAction"))
     ext.action_port("discord.sweep", _port("sweep", "DiscordSweepAction"))
-    ext.builtin("attachment.fetch", Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"))
+    ext.builtin(
+        "attachment.fetch",
+        Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"),
+        phrase=ATTACHMENT_FETCH_PHRASE,
+    )
     for event in EVENT_TYPES:
         ext.event_type(event)
     ext.trigger_filter(

@@ -114,9 +114,9 @@ from culture_rules.events.hook_sink import (
 )
 from culture_rules.extensions.discord import buttons as buttons_mod
 from culture_rules.extensions.discord import commands as commands_mod
+from culture_rules.extensions.discord.filters import BUTTON_CLICKED, discord_channels, filter_values
 from culture_rules.extensions.discord.rest import guild_ids
 from culture_rules.model.discord_command_config import command_problems, definitions, not_here
-from culture_rules.extensions.discord.filters import BUTTON_CLICKED, discord_channels, filter_values
 from culture_rules.model.rule import Rule, Trigger
 
 __all__ = [

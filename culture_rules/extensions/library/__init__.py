@@ -52,4 +52,14 @@ def register(ext: Extension) -> None:
     """``library.push`` (``port.LibraryPushPort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases(
+        "library.push",
+        words=(
+            ("kind", "kind {}"),
+            ("visibility", "({})"),
+            ("format", "as .{}"),
+            ("item_id", "replacing item {}"),
+            ("device_id", "to device {}"),
+        ),
+    )
     ext.action_port("library.push", Lazy(__name__ + ".port", "LibraryPushPort", store=True))

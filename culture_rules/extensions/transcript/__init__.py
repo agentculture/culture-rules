@@ -39,5 +39,6 @@ def register(ext: Extension) -> None:
     """``transcript.render`` (``port.TranscriptRenderPort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("transcript.render", words=(("result_path", "of {}"),))
     port = Lazy(__name__ + ".port", "TranscriptRenderPort", store=True)
     ext.action_port("transcript.render", port)
