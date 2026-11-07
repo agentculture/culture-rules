@@ -437,7 +437,6 @@ def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
             )
     if not lenient:
         _check_any_of(obj, spec.any_of, pp, errors)
-    _check_comment_status(obj, pp, errors)
 
 
 def _check_any_of(
@@ -459,20 +458,6 @@ def _unset(value: Any) -> bool:
     if isinstance(value, (list, tuple, dict)):
         return not value  # an empty list sets nothing (the editor reads it the same way)
     return value is None or (isinstance(value, str) and not value.strip())
-
-
-def _check_comment_status(obj: Action, pp: str, errors: Errors) -> None:
-    """d26: ``github.comment`` writes either its chain's status comment (``status: true``)
-    or a once-only comment (``once_key``), never both."""
-    if obj.kind != "github.comment" or obj.params.get("status") is not True:
-        return
-    if obj.params.get("once_key") not in (None, ""):
-        _err(
-            errors,
-            _join(pp, "status"),
-            "action_param_conflict",
-            "params.status and params.once_key do not combine",
-        )
 
 
 def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:

@@ -1,4 +1,4 @@
-"""#45 t2: the wheel carries install.sh, the pr-fixer bundle and its two manifests.
+"""#45 t2: the wheel carries install.sh and the release manifest; d2: and no rule bundle.
 
 ``hatch_build.py`` force-includes them as ``culture_rules/deploy_data`` (the wheel itself is
 built in tests/packaging/test_wheel.py); ``culture_rules.deploy_data`` finds them in the
@@ -15,10 +15,9 @@ from pathlib import Path
 import pytest
 
 from culture_rules import deploy_data
-from culture_rules.io.exchange import read_bundle
 
 ROOT = Path(__file__).resolve().parents[2]
-BUNDLE = ROOT / "docs" / "rules" / "pr-fixer"
+RELEASE = ROOT / "deploy" / "release.json"
 TARGET = "culture_rules/deploy_data"
 
 
@@ -38,15 +37,11 @@ def pyproject_version() -> str:
 # --------------------------------------------------------------------------- the build hook
 
 
-def test_the_hook_force_includes_install_sh_the_bundle_and_both_manifests():
+def test_the_hook_force_includes_install_sh_and_the_release_manifest_only():
     got = hook().deploy_force_include(ROOT)
     assert got == {
         str(ROOT / "deploy" / "node" / "install.sh"): f"{TARGET}/install.sh",
-        str(BUNDLE / "workflows"): f"{TARGET}/pr-fixer/workflows",
-        str(BUNDLE / "rules"): f"{TARGET}/pr-fixer/rules",
-        str(BUNDLE / "actors"): f"{TARGET}/pr-fixer/actors",
-        str(BUNDLE / "variables.json"): f"{TARGET}/pr-fixer/variables.json",
-        str(BUNDLE / "release.json"): f"{TARGET}/pr-fixer/release.json",
+        str(RELEASE): f"{TARGET}/release.json",
     }
     assert all(Path(src).exists() for src in got)
 
@@ -70,23 +65,22 @@ def test_the_hook_refuses_a_tree_without_the_sources(tmp_path):
 # --------------------------------------------------------------------------- the helpers
 
 
-def test_from_a_checkout_the_helpers_find_the_source_tree():
+def test_from_a_checkout_the_installer_is_the_source_one():
     assert deploy_data.install_script() == ROOT / "deploy" / "node" / "install.sh"
-    assert deploy_data.bundle_dir() == BUNDLE
-    assert deploy_data.variables() == json.loads((BUNDLE / "variables.json").read_text())
-    assert deploy_data.release() == json.loads((BUNDLE / "release.json").read_text())
+
+
+def test_from_a_checkout_the_release_is_deploy_release_json():
+    assert deploy_data.release_manifest() == RELEASE
+    assert deploy_data.release() == json.loads(RELEASE.read_text(encoding="utf-8"))
 
 
 def test_the_helpers_prefer_the_packaged_copy(tmp_path, monkeypatch):
     packaged = tmp_path / "deploy_data"
-    (packaged / "pr-fixer" / "rules").mkdir(parents=True)
+    packaged.mkdir()
     (packaged / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
-    (packaged / "pr-fixer" / "variables.json").write_text('[{"name": "v"}]', encoding="utf-8")
-    (packaged / "pr-fixer" / "release.json").write_text('{"version": "9"}', encoding="utf-8")
+    (packaged / "release.json").write_text('{"version": "9"}', encoding="utf-8")
     monkeypatch.setattr(deploy_data, "_packaged", lambda: packaged)
     assert deploy_data.install_script() == packaged / "install.sh"
-    assert deploy_data.bundle_dir() == packaged / "pr-fixer"
-    assert deploy_data.variables() == [{"name": "v"}]
     assert deploy_data.release() == {"version": "9"}
 
 
@@ -96,42 +90,33 @@ def test_neither_packaged_nor_in_a_checkout_is_an_error(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError):
         deploy_data.install_script()
     with pytest.raises(FileNotFoundError):
-        deploy_data.bundle_dir()
+        deploy_data.release()
+
+
+def test_the_package_offers_no_bundle():
+    """d2: the wheel carries no rule bundle, so there is nothing to default to."""
+    assert not hasattr(deploy_data, "bundle_dir")
+    assert not hasattr(deploy_data, "variables")
 
 
 # --------------------------------------------------------------------------- release.json
 
 
-def test_release_json_matches_pyproject_and_names_only_what_ships():
-    release = json.loads((BUNDLE / "release.json").read_text(encoding="utf-8"))
-    assert set(release) == {"version", "new_rules", "new_variables"}
-    assert release["version"] == pyproject_version()  # later releases bump both together
-    read = read_bundle(BUNDLE)
-    assert read.errors == []
-    rules = {r.id for r in read.bundle.rules}
-    names = {v["name"] for v in json.loads((BUNDLE / "variables.json").read_text())}
-    assert isinstance(release["new_rules"], list)
-    assert isinstance(release["new_variables"], list)
-    assert set(release["new_rules"]) <= rules, set(release["new_rules"]) - rules
-    assert set(release["new_variables"]) <= names, set(release["new_variables"]) - names
-
-
-# 0.18.13 is live (2026-10-11): its rules and variables are no longer new, so this release
-# must not list them. rollout enable treats new_rules as off before the release; listing a
-# live rule again would make the snapshot check misreport it. 0.19.1 adds none (#57).
-LIVE_RULES = ("pr-fixer-retry-capacity", "pr-fixer-queue-progress-capacity")
-LIVE_VARIABLES = ("fixer_levels", "fixer_unavailable", "fixer_capacity_cooldown_s")
-
-
 def release_manifest() -> dict:
-    return json.loads((BUNDLE / "release.json").read_text(encoding="utf-8"))
+    return json.loads(RELEASE.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("rule", LIVE_RULES)
-def test_release_json_no_longer_lists_the_live_rules(rule):
-    assert rule not in release_manifest()["new_rules"]
+def test_release_json_has_the_three_fields():
+    assert set(release_manifest()) == {"version", "new_rules", "new_variables"}
 
 
-@pytest.mark.parametrize("name", LIVE_VARIABLES)
-def test_release_json_no_longer_lists_the_live_variables(name):
-    assert name not in release_manifest()["new_variables"]
+def test_release_json_matches_pyproject():
+    assert release_manifest()["version"] == pyproject_version()  # bumped together
+
+
+def test_release_json_new_rules_is_a_list():
+    assert isinstance(release_manifest()["new_rules"], list)
+
+
+def test_release_json_new_variables_is_a_list():
+    assert isinstance(release_manifest()["new_variables"], list)

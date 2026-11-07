@@ -7,9 +7,9 @@ too (``uv build`` builds the wheel from the sdist), so the build survives the ro
 shipping a wheel without the UI. Without it, a plain ``uv sync`` / editable install works with no
 Node installed.
 
-#45 t2: the node installer and the pr-fixer bundle with its two manifests ship the same way, as
-``culture_rules/deploy_data`` (read through :mod:`culture_rules.deploy_data`). They are always
-in the tree, so a missing source fails the build.
+#45 t2: the node installer and the release manifest (``deploy/release.json``) ship the same way,
+as ``culture_rules/deploy_data`` (read through :mod:`culture_rules.deploy_data`). They are always
+in the tree, so a missing source fails the build. The wheel carries no rule bundle (d2).
 """
 
 from __future__ import annotations
@@ -27,11 +27,7 @@ DEPLOY_TARGET = "culture_rules/deploy_data"
 # source (relative to the project root) -> target in the wheel
 DEPLOY_SOURCES = {
     "deploy/node/install.sh": f"{DEPLOY_TARGET}/install.sh",
-    "docs/rules/pr-fixer/workflows": f"{DEPLOY_TARGET}/pr-fixer/workflows",
-    "docs/rules/pr-fixer/rules": f"{DEPLOY_TARGET}/pr-fixer/rules",
-    "docs/rules/pr-fixer/actors": f"{DEPLOY_TARGET}/pr-fixer/actors",
-    "docs/rules/pr-fixer/variables.json": f"{DEPLOY_TARGET}/pr-fixer/variables.json",
-    "docs/rules/pr-fixer/release.json": f"{DEPLOY_TARGET}/pr-fixer/release.json",
+    "deploy/release.json": f"{DEPLOY_TARGET}/release.json",
 }
 
 

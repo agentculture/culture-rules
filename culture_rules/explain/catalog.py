@@ -361,10 +361,12 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    with a control character or whitespace, or an `address` that is not a plain host
    name, is refused before any argv is built. The API URL and token never cross ssh.
    Upgrade the shared-venv host first, then the install.sh hosts.
-4. `rollout seed --apply` sets the release's seed variables (`variables.json` in
-   the wheel, or `--bundle DIR`) that do not exist yet; `--force` replaces them.
-5. `rollout import --apply` imports the bundle's workflows and rules in one
-   `POST /import`. Refused until this release's seed step is recorded.
+4. `rollout seed --apply --bundle DIR` sets the seed variables in the bundle's
+   `variables.json` that do not exist yet; `--force` replaces them. The wheel
+   carries no bundle: without `--bundle` it exits 1.
+5. `rollout import --apply --bundle DIR` imports the bundle's workflows and rules
+   in one `POST /import`. Refused until this release's seed step is recorded, and
+   without `--bundle`.
 6. `rollout enable --apply` re-enables exactly the snapshot plus `release.json`'s
    new rules and lists every rule left disabled. Refused before pause recorded a
    snapshot, while an online node's `engine_version` is older than the release

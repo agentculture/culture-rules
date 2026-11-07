@@ -33,18 +33,16 @@ def codes(wf: Workflow, *, stored: bool = False) -> set[tuple[str, str]]:
 
 ITEM = port("item", "object")
 
-REPLY = {
+COMMENT = {
     "actor": "gh-app",
     "repo": "acme/widgets",
-    "number": 3,
-    "comment_id": "inputs.item.comment_id",
+    "number": "inputs.item.number",
     "body": "{{ inputs.item.body }}",
-    "resolve": True,
 }
 
 
 def test_valid_action_step_in_a_loop_body_passes():
-    wf = action_wf("github.review_reply", REPLY, inputs=(port("item", "object"),), in_loop=True)
+    wf = action_wf("github.comment", COMMENT, inputs=(port("item", "object"),), in_loop=True)
     assert validate(wf) == []
 
 
@@ -56,20 +54,23 @@ def test_unknown_action_kind_is_refused():
 @pytest.mark.parametrize(
     "params, path, code",
     [
-        ({**REPLY, "comment_id": None}, "params.comment_id", "action_param_required"),
-        ({**REPLY, "number": "three"}, "params.number", "action_param_type"),
-        ({**REPLY, "resolve": "yes"}, "params.resolve", "action_param_type"),
-        ({k: v for k, v in REPLY.items() if k != "actor"}, "params.actor", "action_param_required"),
+        ({**COMMENT, "number": None}, "params.number", "action_param_required"),
+        ({**COMMENT, "number": "three"}, "params.number", "action_param_type"),
+        (
+            {k: v for k, v in COMMENT.items() if k != "actor"},
+            "params.actor",
+            "action_param_required",
+        ),
     ],
 )
 def test_bad_params_get_the_rule_action_kind_param_checks(params, path, code):
-    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    found = codes(action_wf("github.comment", params, inputs=(port("item", "object"),)))
     assert (f"steps[0].config.action.{path}", code) in found
 
 
 def test_input_reference_to_an_undeclared_port_is_refused():
-    found = codes(action_wf("github.review_reply", REPLY))  # no "item" input port
-    assert ("steps[0].config.action.params.comment_id", "action_step_ref") in found
+    found = codes(action_wf("github.comment", COMMENT))  # no "item" input port
+    assert ("steps[0].config.action.params.number", "action_step_ref") in found
     assert ("steps[0].config.action.params.body", "action_step_ref") in found
 
 
@@ -77,20 +78,20 @@ def test_input_reference_to_an_undeclared_port_is_refused():
     "value", ["trigger.data.number", "{{ trigger.data.body }}", {"$ref": "workflow.outputs.x"}]
 )
 def test_references_outside_the_step_inputs_are_refused(value):
-    params = {**REPLY, "body": value}
-    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    params = {**COMMENT, "body": value}
+    found = codes(action_wf("github.comment", params, inputs=(port("item", "object"),)))
     assert ("steps[0].config.action.params.body", "action_step_ref") in found
 
 
 @pytest.mark.parametrize("body", ["see rules.yaml and trigger.sh", "inputs"])
 def test_literal_strings_are_not_references(body):
-    params = {**REPLY, "body": body}
-    wf = action_wf("github.review_reply", params, inputs=(port("item", "object"),))
+    params = {**COMMENT, "body": body}
+    wf = action_wf("github.comment", params, inputs=(port("item", "object"),))
     assert codes(wf) == set()
 
 
 @pytest.mark.parametrize(
-    "action", [None, "github.push", {"kind": ""}, {"kind": "noop", "params": []}]
+    "action", [None, "github.comment", {"kind": ""}, {"kind": "noop", "params": []}]
 )
 def test_malformed_action_config_is_refused(action):
     s = step("act", "code", config={"builtin": "action", "action": action})
@@ -104,7 +105,7 @@ def test_stored_mode_drops_only_the_catalog_codes():
 
 
 def test_other_code_steps_are_untouched():
-    assert validate(workflow((step("g", "code", config={"builtin": "gate"}),))) == []
+    assert validate(workflow((step("g", "code", config={"builtin": "select"}),))) == []
 
 
 def test_save_path_refuses_through_validate_data():
@@ -116,7 +117,7 @@ def test_save_path_refuses_through_validate_data():
 
 def spec_wf(**extra: Any) -> Workflow:
     """A valid reply step whose ``config.action`` also carries ``extra``."""
-    wf = action_wf("github.review_reply", REPLY, inputs=(port("item", "object"),))
+    wf = action_wf("github.comment", COMMENT, inputs=(port("item", "object"),))
     wf.steps[0].config["action"].update(extra)
     return wf
 
@@ -163,7 +164,7 @@ def test_spec_type_checks_hold_in_stored_mode_too():
 
 @pytest.mark.parametrize("bad", [None, "item", 5, {"name": "item"}])
 def test_malformed_input_ports_are_reported_not_raised(bad: Any):
-    body = action_wf("github.review_reply", REPLY, inputs=(port("item", "object"),)).to_dict()
+    body = action_wf("github.comment", COMMENT, inputs=(port("item", "object"),)).to_dict()
     body["steps"][0]["inputs"] = bad
     _obj, errors = validate_data(Workflow, body)
     assert errors
@@ -171,8 +172,8 @@ def test_malformed_input_ports_are_reported_not_raised(bad: Any):
 
 @pytest.mark.parametrize("value", ["run.id", "{{ run.id }}", {"$ref": "run.id"}])
 def test_run_id_is_not_readable_from_an_action_step(value):
-    params = {**REPLY, "body": value}
-    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    params = {**COMMENT, "body": value}
+    found = codes(action_wf("github.comment", params, inputs=(port("item", "object"),)))
     assert ("steps[0].config.action.params.body", "action_step_ref") in found
 
 
@@ -189,27 +190,27 @@ def test_run_id_is_not_readable_from_an_action_step(value):
 def test_an_action_steps_actor_must_be_a_literal_id(actor):
     """The node dispatches through ``params.actor`` as given, so a reference there never
     resolves: it is refused on save, not left to fail ``actor_unavailable`` at run time."""
-    params = {**REPLY, "actor": actor}
-    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    params = {**COMMENT, "actor": actor}
+    found = codes(action_wf("github.comment", params, inputs=(port("item", "object"),)))
     assert ("steps[0].config.action.params.actor", "action_actor_not_literal") in found
 
 
 def test_a_literal_actor_id_passes():
-    params = {**REPLY, "actor": "discord-bot"}
-    wf = action_wf("github.review_reply", params, inputs=(port("item", "object"),))
+    params = {**COMMENT, "actor": "discord-bot"}
+    wf = action_wf("github.comment", params, inputs=(port("item", "object"),))
     assert codes(wf) == set()
 
 
 @pytest.mark.parametrize("actor", [123, ["gh-app"], "", "  "])
 def test_an_action_steps_actor_must_be_a_non_empty_id(actor):
-    params = {**REPLY, "actor": actor}
-    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    params = {**COMMENT, "actor": actor}
+    found = codes(action_wf("github.comment", params, inputs=(port("item", "object"),)))
     assert ("steps[0].config.action.params.actor", "action_actor_not_literal") in found
 
 
 def test_a_dotted_actor_id_is_a_literal():
-    params = {**REPLY, "actor": "lab.spark2"}
-    wf = action_wf("github.review_reply", params, inputs=(port("item", "object"),))
+    params = {**COMMENT, "actor": "lab.spark2"}
+    wf = action_wf("github.comment", params, inputs=(port("item", "object"),))
     assert codes(wf) == set()
 
 
@@ -217,14 +218,14 @@ def test_an_input_reference_actor_is_reported_once():
     """Not also as ``action_step_ref`` ("declare the port"), which would not fix it."""
     found = [
         (e.path, e.code)
-        for e in validate(action_wf("github.review_reply", {**REPLY, "actor": "inputs.actor"}))
+        for e in validate(action_wf("github.comment", {**COMMENT, "actor": "inputs.actor"}))
         if e.path.endswith("params.actor")
     ]
     assert found == [("steps[0].config.action.params.actor", "action_actor_not_literal")]
 
 
 def test_a_stored_step_with_a_reference_actor_stays_loadable():
-    wf = action_wf("github.review_reply", {**REPLY, "actor": "inputs.item"}, inputs=(ITEM,))
+    wf = action_wf("github.comment", {**COMMENT, "actor": "inputs.item"}, inputs=(ITEM,))
     assert ("steps[0].config.action.params.actor", "action_actor_not_literal") not in codes(
         wf, stored=True
     )

@@ -66,8 +66,6 @@ from culture_rules.model import condition as cond
 from culture_rules.model.describe import (
     CONDITION_FALLBACK,
 )
-from culture_rules.model.describe import _actor_of as actor_words
-from culture_rules.model.describe import _comment_words as comment_words
 from culture_rules.model.describe import _key_text as key_text
 from culture_rules.model.describe import _kind_text as kind_text
 from culture_rules.model.describe import _placement as placement_text
@@ -169,23 +167,13 @@ PHRASES: dict[str, str] = {
     "continues_none": "Nothing continues from here.",
     "ends": "When it is done, it runs {action}.",
     "ends_chain": "Where the chain ends here, it runs {action}.",
-    "ends_status": "When it is done, it updates the chain's status comment on GitHub{by}.",
-    "ends_status_chain": (
-        "Where the chain ends here, it updates the chain's status comment on GitHub{by}."
-    ),
     "ends_noop": "When it is done, nothing else happens.",
     "ends_differs": "When it is done, it runs {actions}, depending on the rule that started it.",
     "on_failure": "If it fails, it runs {action}.",
-    "on_failure_status": (
-        "If it fails, it updates the chain's status comment on GitHub with the failure{by}."
-    ),
-    "on_failure_status_same": "If it fails, it updates that comment with the failure.",
     "on_failure_differs": "If it fails, it runs {actions}, depending on the rule that started it.",
     "runs_key": "It runs one at a time per {key}.",
     "runs_attempts": "with at most {n} attempts.",
     "runs_differs": "How it runs differs per rule that starts it.",
-    # how a status-comment sentence names who writes it (its ``{by}``, after a space)
-    "by": "({words})",
     # the CLI's mark on a disabled rule or step (d13), never part of ``text``
     "disabled_mark": "(disabled)",
 }
@@ -219,7 +207,7 @@ STANDIN_KEYS: frozenset[str] = frozenset({"standin_wait", "standin_loop"})
 MARK_KEYS: frozenset[str] = frozenset({"disabled_mark"})
 #: Lead-ins: a step that starts a sentence opens with one or more of these.
 LEAD_KEYS: frozenset[str] = frozenset(
-    set(PHRASES) - SENTENCE_KEYS - JOIN_KEYS - TAIL_KEYS - STANDIN_KEYS - MARK_KEYS - {"by"}
+    set(PHRASES) - SENTENCE_KEYS - JOIN_KEYS - TAIL_KEYS - STANDIN_KEYS - MARK_KEYS
 )
 #: A lead-in that is only one of these is followed by the text directly (``First quiet
 #: period``); any other is followed by a comma (``Then, if x is 1, quiet period``).
@@ -1151,17 +1139,6 @@ def _unstacked(text: str) -> str:
     return text
 
 
-def _status(action: Any) -> bool:
-    """A ``github.comment`` that writes its chain's status comment (d26)."""
-    a = _plain(action)
-    params = a.get("params")
-    return (
-        a.get("kind") == "github.comment"
-        and isinstance(params, Mapping)
-        and (params.get("status") is True)
-    )
-
-
 def _chain_end(action: Any) -> bool:
     return _plain(action).get("only_at_chain_end") is True
 
@@ -1173,15 +1150,6 @@ def _action_words(action: Any) -> str:
     return _unstacked(action_text(a))
 
 
-def _by(action: Any) -> str:
-    """`` (as github-app)``: who writes a status comment, and its other guard words."""
-    params = _plain(_plain(action).get("params"))
-    words = [actor_words(params)]
-    words += [w.strip("()") for w in comment_words({**params, "status": False})]
-    words = [w for w in words if w]
-    return " " + PHRASES["by"].format(words=", ".join(words)) if words else ""
-
-
 def _ends(rules: list[dict[str, Any]]) -> list[Part]:
     actions = [r.get("action") for r in rules]
     if all(_action_kind(a) == "noop" for a in actions):
@@ -1191,23 +1159,16 @@ def _ends(rules: list[dict[str, Any]]) -> list[Part]:
         return [("ends_differs", {"actions": _either(texts)})]
     action = actions[0]
     chain = _chain_end(action)
-    if _status(action):
-        return [("ends_status_chain" if chain else "ends_status", {"by": _by(action)})]
     return [("ends_chain" if chain else "ends", {"action": _action_words(action)})]
 
 
-def _on_failure(rules: list[dict[str, Any]], said_status: bool) -> list[Part]:
+def _on_failure(rules: list[dict[str, Any]]) -> list[Part]:
     actions = [r.get("on_failure") for r in rules]
     texts = _distinct([_unstacked(action_text(a)) for a in actions if a])
     if not texts:
         return []
     if len(texts) > 1 or not all(actions):
         return [("on_failure_differs", {"actions": _either(texts)})]
-    action = actions[0]
-    if _status(action):
-        if said_status:
-            return [("on_failure_status_same", {})]
-        return [("on_failure_status", {"by": _by(action)})]
     return [("on_failure", {"action": texts[0]})]
 
 
@@ -1229,10 +1190,7 @@ def _runs(rules: list[dict[str, Any]]) -> list[Part]:
 def then_sentence(rules: Any, onward: Any = ()) -> list[dict[str, Any]]:
     """The Then side of a workflow, as built sentences: where it continues (``onward``: the
     continuations of other workflows that start after it, from :func:`onward_of`), what
-    happens when it is done (the rules' ``action``; a status comment, d26, reads as updating
-    the chain's status comment, and ``only_at_chain_end`` as ``Where the chain ends here``),
-    what happens on failure (a status comment after one reads ``it updates that comment
-    with the failure``), and how it runs (run key and attempt budget). ``rules`` are the
+    happens when it is done, what happens on failure, and how it runs. ``rules`` are the
     rules that start the workflow; a value they all hold reads once, values that differ read
     as alternatives. An action's trailing bracket groups read as one. Each sentence is
     ``{"part": "then", "keys", "text", "rules"}``."""
@@ -1250,8 +1208,7 @@ def then_sentence(rules: Any, onward: Any = ()) -> list[dict[str, Any]]:
         out.append(_sentence("then", [("continues_none", {})], rules=[]))
     if plain:
         ends = _ends(plain)
-        said_status = ends[0][0] in ("ends_status", "ends_status_chain")
-        for parts in (ends, _on_failure(plain, said_status), _runs(plain)):
+        for parts in (ends, _on_failure(plain), _runs(plain)):
             if parts:
                 out.append(_sentence("then", parts, rules=ids))
     return out

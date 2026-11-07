@@ -520,11 +520,19 @@ def test_seed_refuses_a_bundle_of_another_release(wire, capsys, bundle):  # noqa
     assert "release 8.0.0" in fail(capsys, "rollout", "seed", "--bundle", str(bundle))["message"]
 
 
-def test_seed_reads_the_wheel_bundle_by_default(wire, capsys, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(rollout, "_release", lambda: {**RELEASE, "version": __version__})
-    out = jrun(capsys, "rollout", "seed")
-    assert out["dry_run"] is True
-    assert len(out["set"]) == len(rollout.deploy_data.variables())
+def test_seed_without_a_bundle_says_the_wheel_carries_none(wire, capsys):  # noqa: F811
+    """d2: the wheel carries no rule bundle, so seed needs --bundle (exit 1, nothing sent)."""
+    err = fail(capsys, "rollout", "seed")
+    assert err["message"] == "this wheel carries no rule bundle"
+    assert "--bundle DIR" in err["remediation"]
+    assert wire.mutating() == []
+
+
+def test_import_without_a_bundle_says_the_wheel_carries_none(wire, capsys):  # noqa: F811
+    err = fail(capsys, "rollout", "import", "--apply")
+    assert err["message"] == "this wheel carries no rule bundle"
+    assert "--bundle DIR" in err["remediation"]
+    assert wire.mutating() == []
 
 
 def test_import_refuses_before_seed_then_imports_workflows_and_rules(

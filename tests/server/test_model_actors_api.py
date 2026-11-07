@@ -603,15 +603,37 @@ def test_repoint_of_a_missing_workflow_is_404(store):
     assert repoint(client, id="nope").status_code == 404
 
 
-def _publish_fix():
-    path = ROOT / "docs" / "rules" / "pr-fixer" / "workflows" / "publish-fix.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+def _pinned_workflow():
+    return {
+        "id": "pinned",
+        "name": "Pinned workflow",
+        "steps": [
+            {
+                "id": "read",
+                "kind": "code",
+                "config": {
+                    "builtin": "action",
+                    "action": {
+                        "kind": "github.pr",
+                        "params": {
+                            "actor": "github-app",
+                            "repo": "o/r",
+                            "number": 1,
+                        },
+                    },
+                },
+            }
+        ],
+    }
 
 
-def test_repoint_of_a_v2_trusted_workflow_is_refused_without_force(store):
+def test_repoint_of_a_v2_trusted_workflow_is_refused_without_force(store, monkeypatch):
     client, _ = make_client(store)
-    wf = _publish_fix()
+    wf = _pinned_workflow()
     old_v2 = workflow_digest_v2(wf)
+    monkeypatch.setattr(
+        trusted, "pinned_digest", lambda doc: old_v2 if workflow_digest_v2(doc) == old_v2 else None
+    )
     store.put("workflows", {**wf, "revision": 1})
     client.post("/actors", json=target_actor("new"), headers=ALICE)
     for dry in (True, False):
@@ -632,7 +654,9 @@ def test_repoint_of_a_v2_trusted_workflow_is_refused_without_force(store):
 def test_repoint_of_a_v1_trusted_workflow_is_refused_without_force(store, monkeypatch):
     client = seeded(store)
     v1 = workflow_digest(store.get("workflows", "news"))
-    monkeypatch.setitem(trusted.TRUSTED_WORKFLOWS, "pr-fix", frozenset({v1}))
+    monkeypatch.setattr(
+        trusted, "pinned_digest", lambda doc: v1 if workflow_digest(doc) == v1 else None
+    )
     r = repoint(client)
     assert r.status_code == 409
     assert v1 in r.json()["error"]["message"]

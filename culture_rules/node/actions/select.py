@@ -1,14 +1,11 @@
 """Built-in ``select``: one step's outputs from whichever of a workflow's paths ran (#39 t4).
 
-pr-fix runs one agent path per try: ``agent_qwen``; ``agent_claude`` and the Claude hand-off
-(#56); or ``agent_codex`` and the Codex hand-off, each guarded by ``when`` (sources ``qwen``,
-``claude`` and ``codex``, each labelled with its fixer actor). The gate must read its
-``worktree``, ``start_sha`` and ``commit_sha`` from **one** source step: two edges into one
-port would leave the value to edge order (the last edge with a value wins), which is
-fragile. ``select`` is that source.
+Select combines mutually exclusive workflow paths into one source for a later step,
+including the transcript-to-reader workflow. Each path is guarded by ``when``; exactly
+one path supplies the selected values.
 
 Config: ``sources`` - ``{prefix: label}``, one entry per path (a prefix is a short
-identifier; the label names the path, for pr-fix the fixer actor); ``ports`` - the names
+identifier; the label names the path); ``ports`` - the names
 every path must supply; ``optional`` (default none) - names passed through when the
 selected path has them. Inputs are ``<prefix>_<name>``, each wired from its own path's step.
 
@@ -16,7 +13,7 @@ A path **ran** when any of its ``ports`` inputs has a value (a skipped step has 
 outputs, so its edges carry nothing). Exactly one path must have run, and it must supply
 every one of ``ports``. Outputs: each of ``ports`` and ``optional`` (``None`` when absent)
 plus ``source`` (the selected path's label). Otherwise the step fails non-retryably:
-``select_none`` (no path ran: for pr-fix, a ``fixer`` no agent step takes), ``select_ambiguous``
+``select_none`` (no path ran), ``select_ambiguous``
 (more than one ran), ``select_incomplete`` (the path that ran left a port out) or
 ``bad_config``. No I/O; standard-library only.
 """

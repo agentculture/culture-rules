@@ -15,17 +15,15 @@ from culture_rules.auth.resolve import LAN, AuthSettings  # noqa: E402
 from culture_rules.auth.tokens import ServiceTokens  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
-from tests.model.test_describe import PR_FIX_WORKFLOW, PR_FIXER_CHECKS  # noqa: E402
+from tests.model.test_describe import NEWSPAPER_RULE, NEWSPAPER_WORKFLOW  # noqa: E402
 
-BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "pr-fixer"
+BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "newspaper"
 
 
 def _seed(store: MemoryStore) -> None:
-    wf = json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text())
-    rule = json.loads((BUNDLE / "rules" / "pr-fixer-checks.json").read_text())
+    wf = json.loads((BUNDLE / "workflows" / "daily-newspaper.json").read_text())
+    rule = json.loads((BUNDLE / "rules" / "daily-newspaper.json").read_text())
     store.put("workflows", wf)
-    # #35: pr-fixer-checks now runs queue-add (pr-fixer-dispatch runs pr-fix)
-    store.put("workflows", json.loads((BUNDLE / "workflows" / "queue-add.json").read_text()))
     store.put("rules", rule)
 
 
@@ -41,34 +39,30 @@ def viewer():
 
 def test_workflow_describe_is_viewer_readable_and_matches_the_library(viewer):
     _, client = viewer
-    r = client.get("/workflows/pr-fix/describe")
+    r = client.get("/workflows/daily-newspaper/describe")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["id"] == "pr-fix"
+    assert body["id"] == "daily-newspaper"
     assert body["kind"] == "workflow"
-    assert body["lines"] == PR_FIX_WORKFLOW
-    assert body["entries"][5] == {
-        "label": "5.1",
-        "text": 'qwen-fixer (agent, must commit), when fixer missing or fixer ∈ {"", qwen-fixer}',
-        "depth": 1,
-        "step": "agent_qwen",
-    }
+    assert body["lines"] == NEWSPAPER_WORKFLOW
+    assert body["entries"][0]["step"] == "sections"
+    assert body["entries"][0]["depth"] == 0
 
 
 def test_rule_describe_reads_its_workflow(viewer):
     _, client = viewer
-    body = client.get("/rules/pr-fixer-checks/describe").json()
+    body = client.get("/rules/daily-newspaper/describe").json()
     assert body["kind"] == "rule"
-    assert body["lines"] == PR_FIXER_CHECKS
+    assert body["lines"] == NEWSPAPER_RULE
     assert all("step" not in e for e in body["entries"])  # exclude_none keeps rule entries lean
 
 
 def test_rule_describe_with_a_deleted_workflow_says_not_found(viewer):
     store, client = viewer
-    gone = {**store.get("workflows", "queue-add"), "deleted_at": "2026-10-07"}
+    gone = {**store.get("workflows", "daily-newspaper"), "deleted_at": "2026-10-07"}
     store.put("workflows", gone)
-    lines = client.get("/rules/pr-fixer-checks/describe").json()["lines"]
-    assert "Run workflow queue-add (not found)" in lines
+    lines = client.get("/rules/daily-newspaper/describe").json()["lines"]
+    assert "Run workflow daily-newspaper (not found)" in lines
 
 
 @pytest.mark.parametrize("path", ["/rules/nope/describe", "/workflows/nope/describe"])
@@ -81,10 +75,10 @@ def test_unknown_id_is_404(viewer, path):
 
 def test_rule_pinned_to_another_workflow_version_says_unavailable(viewer):
     store, client = viewer
-    rule = store.get("rules", "pr-fixer-checks")
+    rule = store.get("rules", "daily-newspaper")
     store.put("rules", {**rule, "workflow": {**rule["workflow"], "version": 7}})
-    lines = client.get("/rules/pr-fixer-checks/describe").json()["lines"]
-    assert "Run workflow queue-add v7 (version unavailable)" in lines
+    lines = client.get("/rules/daily-newspaper/describe").json()["lines"]
+    assert "Run workflow daily-newspaper v7 (version unavailable)" in lines
 
 
 # ---------------------------------------------------------------- characterization
@@ -103,24 +97,24 @@ def test_rule_describe_without_a_workflow_reads_none(viewer, monkeypatch):
         return real(rule, workflow)
 
     monkeypatch.setattr(describe, "describe_rule", spy)
-    rule = store.get("rules", "pr-fixer-checks")
-    for ref in (None, {"id": ""}, "pr-fix"):
+    rule = store.get("rules", "daily-newspaper")
+    for ref in (None, {"id": ""}, "daily-newspaper"):
         store.put("rules", {**rule, "workflow": ref})
-        assert client.get("/rules/pr-fixer-checks/describe").status_code == 200
+        assert client.get("/rules/daily-newspaper/describe").status_code == 200
     store.put("rules", {**rule, "workflow": {"id": "missing"}})
-    client.get("/rules/pr-fixer-checks/describe")
+    client.get("/rules/daily-newspaper/describe")
     store.put("rules", rule)
-    client.get("/rules/pr-fixer-checks/describe")
+    client.get("/rules/daily-newspaper/describe")
     assert seen[:4] == [None, None, None, {}]
-    assert seen[4]["id"] == "queue-add"
+    assert seen[4]["id"] == "daily-newspaper"
 
 
 def test_workflow_describe_has_description_and_paragraph(viewer):
     from culture_rules.model.paragraph import workflow_paragraph
 
     store, client = viewer
-    body = client.get("/workflows/pr-fix/describe").json()
-    wf = store.get("workflows", "pr-fix")
+    body = client.get("/workflows/daily-newspaper/describe").json()
+    wf = store.get("workflows", "daily-newspaper")
     assert body["description"] == (wf.get("description") or "")
     want = workflow_paragraph(wf, store.find("rules", {}))
     assert body["paragraph"]["text"] == want["text"]  # None-valued keys are omitted on the wire
@@ -129,15 +123,15 @@ def test_workflow_describe_has_description_and_paragraph(viewer):
     ]
     assert body["paragraph"]["segments"]
     assert body["paragraph"]["text"]
-    assert "paragraph" not in client.get("/rules/pr-fixer-checks/describe").json()
+    assert "paragraph" not in client.get("/rules/daily-newspaper/describe").json()
 
 
 def test_workflow_describe_paragraph_ignores_deleted_rules(viewer):
     store, client = viewer
-    rule = dict(store.get("rules", "pr-fixer-checks"))
-    with_rule = client.get("/workflows/queue-add/describe").json()["paragraph"]["text"]
+    rule = dict(store.get("rules", "daily-newspaper"))
+    with_rule = client.get("/workflows/daily-newspaper/describe").json()["paragraph"]["text"]
     store.put("rules", {**rule, "deleted_at": "2026-01-01T00:00:00Z"})
-    without = client.get("/workflows/queue-add/describe").json()["paragraph"]["text"]
+    without = client.get("/workflows/daily-newspaper/describe").json()["paragraph"]["text"]
     assert with_rule != without
 
 
@@ -152,14 +146,19 @@ def test_empty_workflow_describes(viewer):
 
 def test_disabled_survives_on_the_wire_only_when_true(viewer):
     store, client = viewer
-    wf = store.get("workflows", "pr-fix")
+    wf = store.get("workflows", "daily-newspaper")
+    rule = store.get("rules", "daily-newspaper")
+    store.put("rules", {**rule, "enabled": True})
     first = wf["steps"][0]["id"]
     store.put(
         "workflows", {**wf, "steps": [{**wf["steps"][0], "enabled": False}, *wf["steps"][1:]]}
     )
-    segs = client.get("/workflows/pr-fix/describe").json()["paragraph"]["segments"]
+    segs = client.get("/workflows/daily-newspaper/describe").json()["paragraph"]["segments"]
     off = [s for s in segs if s.get("disabled")]
     assert [s["step"] for s in off] == [first]
     assert off[0]["part"] == "step"
     assert all(s.get("disabled") is None for s in segs if s not in off)
-    assert "isabled" not in client.get("/workflows/pr-fix/describe").json()["paragraph"]["text"]
+    assert (
+        "isabled"
+        not in client.get("/workflows/daily-newspaper/describe").json()["paragraph"]["text"]
+    )

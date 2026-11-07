@@ -6,7 +6,7 @@ this module says which params exist, their types and which are required.
 
 Actor policy: ``discord.message``, ``discord.read``, ``discord.react``, ``discord.reply``,
 ``discord.sweep``, ``github.comment``,
-``github.push``, ``github.review_reply``, ``github.merge``, ``github.pr``, ``jira.comment``,
+``github.merge``, ``github.pr``, ``jira.comment``,
 ``http.call``, ``machine.command``,
 ``email.send``, ``search.web``, ``llm.complete``, ``audio.transcribe``, ``decider.assess``,
 ``library.push`` and ``repodocs.sync`` always need ``params.actor`` (the credentialed or
@@ -30,9 +30,7 @@ stored cursor, which the ``cursor.advance`` step moves once the run's saves succ
 Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`` object or a
 ``{{ }}`` template, accepted wherever a typed value is expected. Extra params are tolerated.
 
-``github.push`` fast-forwards a same-repo PR's head branch to a local commit, as the App and
-never with force (and, with ``gate_verdict`` wired in, only after a test gate ``pass``);
-``github.review_reply`` replies in a PR review thread and optionally resolves it. There is
+There is
 exactly **one merge kind**, ``github.merge`` (``sha`` pins the head commit, ``delete_branch``
 removes the branch after): merging stays a human gate, fenced by the click and the clicked
 button's one-time code. The port runs it only in a run started by a ``discord.button.clicked``
@@ -162,30 +160,6 @@ _KINDS = (
         number=ParamSpec("int", True),
         body=_RS,
         once_key=_S,  # d25: post at most once per (repo, PR, key), durably
-        status=ParamSpec("bool"),  # d26: write as the chain's status comment's final section
-    ),
-    _k(
-        "github.push",
-        "Fast-forward a same-repo PR's head branch as the GitHub App (never force)",
-        actor=_RS,
-        repo=_RS,
-        number=ParamSpec("int", True),
-        head_branch=_RS,
-        expected_head_sha=_RS,
-        commit_sha=_RS,
-        source=_RS,
-        gate_verdict=_S,
-    ),
-    _k(
-        "github.review_reply",
-        "Reply in a PR review thread as the GitHub App, optionally resolving it",
-        actor=_RS,
-        repo=_RS,
-        number=ParamSpec("int", True),
-        comment_id=ParamSpec("int", True),
-        body=_RS,
-        thread_id=_S,
-        resolve=ParamSpec("bool"),
     ),
     _k(
         "github.merge",
