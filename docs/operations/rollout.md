@@ -10,10 +10,17 @@ operator's runbook.
 
 - **Run the new release's CLI.** Build the wheel (`npm ci && npm run build` in
   `web/`, then `CULTURE_RULES_REQUIRE_WEB=1 uv build --wheel`) and install it into a
-  venv of its own. The release is that wheel's own `release.json` version, and every
+  venv of its own. The release is the version in that wheel's own manifest
+  (`deploy/release.json` in the tree, `culture_rules/deploy_data/release.json` in the
+  wheel, read through `culture_rules.deploy_data`), and every
   step records itself in the rollout document `/rollouts/<version>`. `--wheel` must
   name that wheel (`culture_rules-<version>-...whl`); the CLI never picks one up from a
   host.
+- **The wheel carries no rule bundle.** `rollout seed` and `rollout import` take a
+  bundle directory (`workflows/`, `rules/`, `variables.json`, and optionally a
+  `release.json`, which must name this release) with `--bundle DIR`, for example one under `docs/rules/` in a
+  checkout of this release. Without `--bundle` they exit 1 ("this wheel carries no
+  rule bundle").
 - **`release.json` names everything new since the last live release.** Its
   `new_rules` and `new_variables` list every rule and variable added since the last
   release that was rolled out live, not only this release's own. So a release that
@@ -68,12 +75,11 @@ ones (`rollout-0186.sh` to `rollout-0188.sh` on #45), each step dry-run first:
    ```bash
    CULTURE_RULES=/path/to/release-venv/bin/culture-rules \
      grant run --inject CULTURE_RULES_TOKEN=RULES_CULTURE_RULES_SERVICE_TOKEN -- \
-     bash docs/rules/pr-fixer/seed-variables.sh --apply
+     bash <bundle>/seed-variables.sh --apply
    ```
 
-4. Import the bundle (`docs/rules/pr-fixer`, or `pr-fixer/` in the installed
-   wheel): `cr workflows import <bundle> --apply`, then `cr rules import <bundle>
-   --apply`.
+4. Import the release's bundle directory: `cr workflows import <bundle> --apply`,
+   then `cr rules import <bundle> --apply`.
 5. Re-enable each rule in the recorded list, plus the release's new rules
    (`release.json`): `cr rules enable <id> --apply`.
 6. Resume: `cr runs resume --apply`.
@@ -105,12 +111,12 @@ secret **names**, never values.
   "mode": "install_sh",
   "node_name": "spark2",
   "ssh_target": "spark2",
-  "secrets": ["RULES_QWEN_FIXER_TOKEN", "RULES_GITHUB_APP_PRIVATE_KEY"],
-  "gate_run_as": "sudo -n -u culture-fixer -- /usr/bin/env PATH=<fixer-home>/.local/bin:/usr/local/bin:/usr/bin:/bin"
+  "secrets": ["<GRANT_SECRET_NAME>", "RULES_GITHUB_APP_PRIVATE_KEY"],
+  "gate_run_as": "sudo -n -u <user> -- /usr/bin/env PATH=<home>/.local/bin:/usr/local/bin:/usr/bin:/bin"
 }
 ```
 
-`<fixer-home>` is the `culture-fixer` account's home directory on spark2.
+`<home>` is the run-as account's home directory on spark2.
 
 `extras`, `wheelhouse`, `python`, `events_host` and `events_port` are optional; a
 field left out takes `install.sh`'s default. The ssh and scp target is
@@ -145,8 +151,8 @@ cr rollout upgrade --host orin --wheel "$WHEEL" --apply
 cr rollout upgrade --host spark2 --wheel "$WHEEL" --apply
 cr workflows migrate-notes                 # dry run: workflows whose description moves to notes
 cr workflows migrate-notes --apply         # admin; then re-run the dry run: it reports 0
-cr rollout seed --apply                    # new variables from the wheel's variables.json
-cr rollout import --apply                  # the bundle's workflows and rules
+cr rollout seed --bundle DIR --apply       # new variables from the bundle's variables.json
+cr rollout import --bundle DIR --apply     # the bundle's workflows and rules
 cr rules migrate-orphans                   # dry run: workflow-less rules and the workflow each gets
 cr rules migrate-orphans --apply           # admin; then re-run the dry run: it reports 0
 cr rollout enable --apply                  # the snapshot plus the release's new rules
@@ -231,7 +237,7 @@ a whole document, but the CLI does not use it.
   snapshot that no longer exists (deleted since the pause) is refused before
   anything changes, in a dry run too. Restore it (from a backup, or `cr rules
   create --body @rule.json --apply`) or re-import the bundle that carries it
-  (`cr rollout import --apply`), then re-run `enable`.
+  (`cr rollout import --bundle DIR --apply`), then re-run `enable`.
 - **`enable` refuses extra enabled rules.** A rule enabled outside the snapshot
   plus the new rules is refused before anything changes. Disable each one with
   `cr rules disable <id> --apply`. A rule that belongs enabled must be in the
@@ -247,7 +253,7 @@ a whole document, but the CLI does not use it.
   enabled, and when no snapshot is recorded. `import` re-imports the bundle's
   rules disabled, so resuming then would run the engine with them off. On
   0.19.2 a scripted loop ran `resume` after a correctly refused `enable`, and
-  the pr-fixer rules were off for about 9 s (#62). The check reads the rules
+  the rules were off for about 9 s (#62). The check reads the rules
   themselves, not the recorded `enable` step, so an `enable` recorded before a
   later `import` does not count and an `enable` run with an editor token (its
   step unrecorded) does. A running engine is not checked: `resume` only records
@@ -263,7 +269,7 @@ a whole document, but the CLI does not use it.
 - **Versions order by PEP 440.** That covers `N.N`, `aN`/`bN`/`rcN`, `.postN`,
   `.devN` and `+local`. A version that does not parse counts as older, so
   `enable` refuses it and `verify` fails. A step that changes a live actor (the 0.18.6 rollout set
-`qwen-fixer`'s `concurrency_pool`) is not a rollout verb: use
+an agent actor's `concurrency_pool`) is not a rollout verb: use
 `cr actors update ... --apply` between `import` and `enable`.
 
 ## What each lesson became
@@ -275,7 +281,7 @@ The lessons from the hand-run rollouts (#45), and what now enforces each one:
 | Restore what was on, not a fixed list | `pause` stores the enabled-rule snapshot in the rollout document before pausing; `enable` re-enables exactly the snapshot plus `release.json`'s new rules and lists every rule left disabled |
 | Keep each host's install flags in one place | the machine record's `install` section; `upgrade` refuses a record without one |
 | Name the wheel | `--wheel` is required and its version must equal the release; the scp target is a per-version directory and `install.sh` gets `--wheel` with that path |
-| Publish a release's new rules and variables with it | `release.json` and `variables.json` ship in the wheel (`culture_rules/deploy_data`); `seed` and `import` read them, no checkout needed |
+| Publish a release's new rules and variables with it | `release.json` ships in the wheel (`culture_rules/deploy_data`); the bundle (`workflows/`, `rules/`, `variables.json`) is passed with `--bundle DIR` (the wheel carries none); a `release.json` in it must name this release |
 | Wait for a running chain | `pause` refuses while a run is not terminal (`--force` overrides) |
 | Seed before import, upgrade before enable | `import` refuses until this release's `seed` step is recorded; `enable` refuses while an online node's `engine_version` is older than the release (PEP 440 order; an unparseable version counts as older) |
 | Enable before resuming (#62) | `resume` of a paused engine refuses while a rule `enable` restores is off (`--force` overrides and is recorded) |

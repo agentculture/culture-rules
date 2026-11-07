@@ -102,7 +102,7 @@ Search and library failures are not tolerated: they fail the run. The
 issue when the email fails (below).
 
 **Waiting for the pool.** The summaries share the `qwen-spark2` pool with
-the PR fixer, so each summary waits behind a running fix, but only until
+any other step on that actor, so each summary waits behind a running one, but only until
 `summaries_until`. Past it, a queued summary gives up at its next re-ask
 (within a minute), and no later summary starts. On a busy morning the issue
 goes out by 06:45 with the results only. To widen or narrow the window,

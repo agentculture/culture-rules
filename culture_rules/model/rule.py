@@ -87,7 +87,7 @@ class Rule(Model):
     priority: int = doc("Higher wins within an exclusive group", default=0)
     enabled: bool = doc("Disabled rules never fire", default=True)
     concurrency_key: str | None = doc(
-        "Concurrency key template, e.g. pr-fixer:{trigger.data.repository}#{trigger.data.number} "
+        "Concurrency key template, e.g. pr:{trigger.data.repository}#{trigger.data.number} "
         "(only {trigger.<path>} placeholders). The resolved key is global: every rule whose "
         "template resolves to the same string shares one active run and one attempt budget, so "
         "use a distinct template (a namespace prefix) to isolate a rule. An active run or "

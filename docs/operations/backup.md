@@ -9,8 +9,8 @@ state: `run_event_consumption`, `rule_decisions`, `rule_fires` and
 token for them, so the schedule takes a new snapshot first. Last comes
 `github_comment_once` (d25): the claims that make a `github.comment` with a
 `once_key` post at most once, so a restored store never posts such a comment
-again, then `fixer_status_comments` (d26): each PR fix chain's status
-comment, so a restored chain edits its comment instead of posting another.
+again, then the status-comments collection (d26), a legacy collection kept in
+the list so an older backup restores whole.
 The `events`
 collection is not backed up; see [Restore limits](#restore-limits) for what a
 restore repairs and what it does not.
@@ -136,7 +136,7 @@ as `chain_needs_review`.
 ### Not covered
 
 These need an operator's review after a restore. They are to be recorded as a
-risk on the `pr-fixer-rule` plan (d21); until then this list is the record:
+risk on the plan that introduced them (d21); until then this list is the record:
 
 - events other than run events (webhook, bus, schedule and probe events): not
   backed up, so whatever had not been evaluated before the backup is lost;
@@ -145,8 +145,8 @@ risk on the `pr-fixer-rule` plan (d21); until then this list is the record:
   the `events` they are derived from. A candidate lost on restore leaves a
   GitGuardian failure that completed after its head settled unreported. The
   restored store has no settled event or stored completion to rebuild it
-  from. This loss is limited to reporting. The `pr-fix` GitGuardian hold reads the
-  live checks, so the fixer still never works on that head. The next head's
+  from. This loss is limited to reporting. A hold on a GitGuardian failure reads the
+  live checks, so it still sees that head. The next head's
   settle reports a failure that persists. Lost settle records are re-armed by
   the next completion, as for any unarmed head;
 - shared variables, rate windows and the budget-reset markers: not backed

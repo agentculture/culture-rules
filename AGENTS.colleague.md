@@ -84,7 +84,8 @@ rule sentences and the Then side. Workflow saves carry a server-owned
 `revision` (a stale one gets 409), trust accepts a v1 or v2 workflow digest
 (v2 ignores description and notes), and `culture-rules rules
 migrate-orphans [--apply]` gives each workflow-less rule its own stepless
-workflow.
+workflow. The wheel ships `release.json` (`culture_rules/deploy_data`) and no rule
+bundle: `rollout seed` and `rollout import` take `--bundle DIR` (exit 1 without it).
 
 The **model actors** work (spec
 `docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`, setup

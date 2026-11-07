@@ -47,9 +47,8 @@ Options:
   --events-host HOST    write EVENTS_BROKER_HOST into node.env (optional)
   --events-port PORT    write EVENTS_BROKER_PORT into node.env (optional)
   --python VERSION      Python for the venv (default: 3.12)
-  --gate-run-as PREFIX  write CULTURE_RULES_GATE_RUN_AS=PREFIX into node.env (the PR fixer
-                        gate's run-as prefix, e.g. 'sudo -n -u culture-fixer -- /usr/bin/env
-                        PATH=...'); a prefix starting with sudo also sets
+  --gate-run-as PREFIX  write CULTURE_RULES_GATE_RUN_AS=PREFIX into node.env (a run-as prefix,
+                        e.g. 'sudo -n -u <user> -- /usr/bin/env PATH=...'); a prefix starting with sudo also sets
                         NoNewPrivileges=false in the unit, or sudo cannot run
   --apply               perform the install (without it nothing is written)
   -h, --help            show this help
@@ -104,7 +103,7 @@ fi
 [ -z "$CA_FILE" ] || [ -f "$CA_FILE" ] || die "CA file not found: $CA_FILE"
 [ -z "$WHEELHOUSE" ] || [ -d "$WHEELHOUSE" ] || die "wheelhouse is not a directory: $WHEELHOUSE"
 
-# The gate's run-as prefix (culture_rules.actors.gate, docs/operations/pr-fixer.md section 5).
+# The run-as prefix for steps (docs/operations/rollout.md, the install section).
 # One line in node.env: no newline or carriage return. sudo needs the unit to allow new
 # privileges: with NoNewPrivileges=true the kernel's no_new_privs flag makes sudo refuse.
 NO_NEW_PRIVS=true

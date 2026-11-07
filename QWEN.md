@@ -114,7 +114,9 @@ On disk today:
   are migrated), `workflows describe` returning the description and a
   paragraph from one phrase table (`culture_rules/model/paragraph.py`, no
   AI), a server-owned workflow `revision` checked on save, v1 and v2 trust
-  digests, and `rules migrate-orphans [--apply]`.
+  digests, and `rules migrate-orphans [--apply]`. The wheel ships `release.json`
+  (`culture_rules/deploy_data`) and no rule bundle: `rollout seed` and `rollout import`
+  take `--bundle DIR` (exit 1 without it).
 - State between runs (guide `docs/operations/keysets.md`): `keyset.filter` and
   `keyset.add` keep named key sets for a configured window (one document per key, TTL
   index, config-only rules); admin verbs `keysets list|show|clear`.

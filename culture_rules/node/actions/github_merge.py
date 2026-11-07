@@ -19,7 +19,7 @@ store, so a refusal reads no secret and makes no network call:
    * the App actor's document (the one snapshot whose connection is used) matches a digest
      pinned in :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS`
      (``actor_not_trusted``, :func:`~culture_rules.actors.trusted.doc_refusal`), as
-     ``github.push`` checks it: only a pinned App merges (``github-app`` is pinned). It is the
+     this action checks it: only a pinned App merges (``github-app`` is pinned). It is the
      App actor that is pinned, not a workflow;
    * the run was started by a ``discord.button.clicked`` event (:data:`NOT_CLICK`,
      ``not_started_by_click``, otherwise): its trigger is an event of that type, its id is
@@ -254,7 +254,7 @@ class GitHubMergePort(GitHubCommentPort):
         request = _merge_input(input)
         if request is None:
             return InvocationResult.failed(BAD_INPUT, retryable=False)
-        # as github.push: the App actor's security fields must match a digest pinned in code
+        # the App actor's security fields must match a digest pinned in code
         refusal, _digest = trusted.doc_refusal(actor_id, snapshot)
         if not refusal:
             number, sha, _delete = request

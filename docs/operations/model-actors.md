@@ -110,8 +110,8 @@ with a non-empty `params.base_url`; a disabled or deleted actor holds nothing.
 - At run time `llm.complete` refuses a step whose actor shares its model with
   another enabled endpoint actor whose id sorts first (`model_taken`). If two
   actors ever end up sharing a model, the lowest id keeps serving.
-- Actors without `base_url` are outside the rule: `qwen-fixer` and
-  `qwen-reviewer` are mesh-reached agents and both hold the model `cortex`.
+- Actors without `base_url` are outside the rule: mesh-reached agents (for
+  example `qwen-reviewer`) can share the model `cortex`.
 
 The checks run before the write, outside its transaction: they are operator
 guidance, not a store invariant.
@@ -151,7 +151,7 @@ wrapper. Read each dry run before its `--apply`, and stop at the first refusal.
    lists exactly those two as `create` and nothing `refused`; if the gateway
    serves another `cortex-*` model, stop and narrow the glob. The default key is
    `grant:LOBES_GATEWAY_API_KEY`; the pool `qwen-spark2` is set for
-   `cortex-spark2` so it shares the PR fixer's pool.
+   `cortex-spark2` so the actors on that model share one pool.
 
    ```bash
    cr actors enrol-models --gateway spark --match 'cortex-*' \

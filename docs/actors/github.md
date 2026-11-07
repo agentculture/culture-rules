@@ -38,14 +38,13 @@ Keep the printed value for step 2, then clear your terminal.
    | Webhook: Active | ticked |
    | Webhook URL | `https://<rules host>/hooks/github` |
    | Webhook secret | the value printed in step 1 |
-   | Repository permissions | Issues: Read and write; Pull requests: Read and write; Metadata: Read; Contents: Read and write; Checks: Read; Actions: Read and write (the fixer only reads; write is kept on purpose for future use). Never Workflows |
+   | Repository permissions | Issues: Read and write; Pull requests: Read and write; Metadata: Read; Contents: Read and write; Checks: Read; Actions: Read and write (only read is used; write is kept on purpose for future use). Never Workflows |
    | Subscribe to events | Pull request, Issue comment, Issues, Pull request review, Pull request review comment, Check suite, Workflow run |
    | Where can this App be installed | Only on this account |
 
-   Contents write is for `github.push`, which mints a fresh token per push
-   scoped to the one repository and to `contents: write` only. Checks and
-   Actions read let the fixer see check suites and workflow runs finish and
-   read failing job logs. Changing permissions on an existing App only takes
+   Contents write is for `github.merge`, which mints a fresh token per merge
+   scoped to the one repository. Checks and Actions read let the settle see
+   check suites and workflow runs finish. Changing permissions on an existing App only takes
    effect after the installation owner accepts the update under the org's
    **Settings → GitHub Apps**.
 
@@ -183,8 +182,8 @@ holds `self_authored`. Each type then adds:
 | `github.pr.checks_settled` | `head_sha`, `head_branch`, `pr_numbers`, `number`, `settled_by`, `conclusion`, `failed_apps` (d25: app slugs whose suites concluded `failure`) and the PR facts |
 | `github.pr.checks_failed_late` | d25: a counted app's suite concluded `failure` after its head settled. The settled event's data, with `failed_apps` grown by the app, `late_app`, `conclusion: failure` and `settled_by: late`; once per (repo, head SHA, app) |
 
-The **PR facts** have the same names on every PR-scoped type, so the fixer
-rules share one condition shape and the workflow gets the same inputs
+The **PR facts** have the same names on every PR-scoped type, so the rules
+share one condition shape and the workflow gets the same inputs
 whichever rule fired:
 
 | Field | From the pull request |
@@ -213,8 +212,8 @@ Where the facts come from:
   - If there is no allow-listed actor, the read fails or times out, or the
     answer lacks any valid fact, the comment is still stored, without the
     facts and with `pr_enriched: false`. A condition on
-    `head_repo == base_repo` and `draft == false` then does not match, so the
-    fixer does not fire.
+    `head_repo == base_repo` and `draft == false` then does not match, so
+    such a rule does not fire.
   - The 5 seconds cover the whole lookup, including resolving the App's
     private key. A slow first resolve finishes in the background and is
     cached, so later lookups are fast. At most two lookups run at once; one
@@ -293,7 +292,7 @@ was stored.
 
 ## Reading and merging a PR
 
-Two action kinds use the App beyond comments and pushes. Both take
+Two action kinds use the App beyond comments. Both take
 `params.actor` (the GitHub app actor's id, written as a plain id), `repo` (in
 the actor's `connection.repos`) and `number`.
 
@@ -325,7 +324,7 @@ every other check passed. A refused call fails the step without retry:
 | `code_mismatch` | The code belongs to another button, or its stored value does not hold this merge's `repo`, `number` and `sha` |
 | `code_used` | Another run already used the code: a second click, or a replayed one. The same run's retry passes. A merge that merged nothing (the App's secret, `pr_not_open`, `head_moved`, a merge GitHub refused) hands the code back, so the button can be clicked again once the cause is fixed; an unknown outcome keeps it used |
 | `store_unavailable` | The store failed while the fence ran (retryable) |
-| `actor_not_trusted` | The App actor's security fields (`kind`, `machine`, `surface`, `commit_author`, `permissions`, and `app_id`, `installation_id` and `private_key` of its connection) do not match a digest pinned in `TRUSTED_ACTOR_DIGESTS`, as for `github.push`. `github-app` is pinned; `repos` is not part of the digest |
+| `actor_not_trusted` | The App actor's security fields (`kind`, `machine`, `surface`, `commit_author`, `permissions`, and `app_id`, `installation_id` and `private_key` of its connection) do not match a digest pinned in `TRUSTED_ACTOR_DIGESTS`. `github-app` is pinned; `repos` is not part of the digest |
 | `rule_disabled`, `workflow_disabled` | The run's rule or workflow is no longer enabled |
 | `run_not_found` | The run is gone |
 
@@ -394,5 +393,5 @@ and it merges once.
 | Actor id, machine | `github-app`, `spark` |
 | App | `rules-culture-dev`, App ID `5183824`, installation `167755039` (all `agentculture` repositories) |
 | Bot identity | `rules-culture-dev[bot]`, user id `337624453`, commit email `337624453+rules-culture-dev[bot]@users.noreply.github.com` |
-| Live permissions | Contents RW, Checks R, Actions RW (kept on purpose; the fixer only reads), Issues RW, Pull requests RW, Metadata R; push verified 2026-10-06 |
+| Live permissions | Contents RW, Checks R, Actions RW (kept on purpose; only read is used), Issues RW, Pull requests RW, Metadata R |
 | Access bypass app | `rules.culture.dev/hooks/github` |
