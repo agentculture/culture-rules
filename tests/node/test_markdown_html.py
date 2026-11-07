@@ -7,12 +7,12 @@ from datetime import UTC, datetime
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
+from culture_rules.extensions.newspaper.port import NewspaperRenderPort
 from culture_rules.node.actions.markdown_html import (
     FROM_HTML_BUILTIN,
     MarkdownFromHtmlPort,
     html_to_markdown,
 )
-from culture_rules.node.actions.newspaper import NewspaperRenderPort
 
 DEADLINE = datetime(2026, 10, 11, 23, tzinfo=UTC)
 DATE = "2026-10-11"

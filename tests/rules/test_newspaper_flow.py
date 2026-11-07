@@ -23,8 +23,7 @@ from culture_rules.extensions.email.port import EmailSendPort
 from culture_rules.extensions.email.resend import RESEND_EMAILS_URL
 from culture_rules.extensions.library.port import LibraryPushPort
 from culture_rules.extensions.llm.port import LlmCompletePort
-from culture_rules.extensions.search.port import SearchWebPort
-from culture_rules.node.actions.newspaper import (
+from culture_rules.extensions.newspaper.port import (
     FILTER_BUILTIN,
     ISSUE_BUILTIN,
     ISSUES_COLLECTION,
@@ -35,6 +34,7 @@ from culture_rules.node.actions.newspaper import (
     NewspaperRenderPort,
     NewspaperSectionsPort,
 )
+from culture_rules.extensions.search.port import SearchWebPort
 from culture_rules.node.actions.text_validate import TEXT_VALIDATE_BUILTIN, TextValidatePort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node

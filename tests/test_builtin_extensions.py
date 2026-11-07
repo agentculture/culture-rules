@@ -66,6 +66,7 @@ def test_the_alias_shares_its_kinds_port():
 
 
 def _builtin_classes():
+    from culture_rules.extensions.newspaper import port as newspaper
     from culture_rules.node.actions import (
         attachment_fetch,
         checklist,
@@ -74,7 +75,6 @@ def _builtin_classes():
         keyset,
         markdown_html,
         markdown_render,
-        newspaper,
         run_read,
         sections,
         select,

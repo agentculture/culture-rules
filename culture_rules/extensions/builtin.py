@@ -27,6 +27,7 @@ from culture_rules.extensions import (
     library,
     llm,
     machine,
+    newspaper,
     repodocs,
     search,
     stt,
@@ -254,14 +255,6 @@ def register_jira(ext: Extension) -> None:
     ext.webhook_route("/hooks/jira", Lazy("culture_rules.server.hooks.jira", "router", True))
 
 
-def register_newspaper(ext: Extension) -> None:
-    """The newspaper built-ins (#53)."""
-    ext.builtin("newspaper.sections", _plain_port("newspaper", "NewspaperSectionsPort"))
-    ext.builtin("newspaper.filter", _plain_port("newspaper", "NewspaperFilterPort"))
-    ext.builtin("newspaper.render", _plain_port("newspaper", "NewspaperRenderPort"))
-    ext.builtin("newspaper.issue", _store_port("newspaper", "NewspaperIssuePort"))
-
-
 BUILTIN_EXTENSIONS: tuple[tuple[str, Callable[[Extension], None]], ...] = (
     ("core", register_core),
     ("discord", register_discord),
@@ -277,7 +270,7 @@ BUILTIN_EXTENSIONS: tuple[tuple[str, Callable[[Extension], None]], ...] = (
     ("transcript", transcript.register),
     ("library", library.register),
     ("repodocs", repodocs.register),
-    ("newspaper", register_newspaper),
+    ("newspaper", newspaper.register),
 )
 """The built-in extensions, in install order (the catalogue's order follows it)."""
 

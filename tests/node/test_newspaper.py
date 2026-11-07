@@ -15,7 +15,7 @@ import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
 from culture_rules.extensions.email.port import EmailSendPort
-from culture_rules.node.actions.newspaper import (
+from culture_rules.extensions.newspaper.port import (
     DEFAULT_COUNT,
     FILTER_BUILTIN,
     ISSUE_BUILTIN,

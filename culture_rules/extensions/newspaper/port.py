@@ -43,13 +43,13 @@ the issue may show.
 ``newspaper.render`` (:class:`NewspaperRenderPort`)
 ===================================================
 
-See :mod:`culture_rules.node.actions.newspaper_render`: the HTML email body and the EPUB,
+See :mod:`culture_rules.extensions.newspaper.render`: the HTML email body and the EPUB,
 with the link check. Fails non-retryably on bad input or an exceeded size cap.
 
 ``newspaper.issue`` (:class:`NewspaperIssuePort`)
 =================================================
 
-See :mod:`culture_rules.node.actions.newspaper_issue`: one issue per local date, with the
+See :mod:`culture_rules.extensions.newspaper.issue`: one issue per local date, with the
 lease-fenced ``claim``, ``before_email``, ``before_push`` and ``record`` phases.
 """
 
@@ -62,7 +62,7 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.node.actions.newspaper_issue import (
+from culture_rules.extensions.newspaper.issue import (
     CLAIM,
     DEFAULT_CLAIM_TIMEOUT_S,
     ISSUES_COLLECTION,
@@ -70,7 +70,7 @@ from culture_rules.node.actions.newspaper_issue import (
     NewspaperIssuePort,
     local_date,
 )
-from culture_rules.node.actions.newspaper_render import (
+from culture_rules.extensions.newspaper.render import (
     EPUB_CAP,
     HTML_CAP,
     RenderError,
@@ -333,7 +333,7 @@ class NewspaperFilterPort:
 
 
 class NewspaperRenderPort:
-    """``newspaper.render`` (:mod:`~culture_rules.node.actions.newspaper_render`)."""
+    """``newspaper.render`` (:mod:`~culture_rules.extensions.newspaper.render`)."""
 
     supports_idempotency_key = True  # pure
 

@@ -1,6 +1,6 @@
 """The per-date guard of the daily newspaper (#53): built-in ``newspaper.issue``.
 
-:class:`NewspaperIssuePort` is re-exported from :mod:`culture_rules.node.actions.newspaper`.
+:class:`NewspaperIssuePort` is re-exported from :mod:`culture_rules.extensions.newspaper.port`.
 Standard-library only.
 
 One issue per local date (c15, h8). Input ``slot`` (the schedule event's ISO-8601 UTC slot,

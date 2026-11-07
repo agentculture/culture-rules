@@ -1,6 +1,6 @@
 """Rendering for the built-in ``newspaper.render`` (#53): one dated issue as HTML and an EPUB.
 
-:class:`~culture_rules.node.actions.newspaper.NewspaperRenderPort` is the port; this module is
+:class:`~culture_rules.extensions.newspaper.port.NewspaperRenderPort` is the port; this module is
 the pure part it calls (:func:`render_issue`).
 
 Input

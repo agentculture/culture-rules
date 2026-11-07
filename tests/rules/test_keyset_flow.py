@@ -31,6 +31,14 @@ import pytest
 from culture_rules import keysets
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import RUNS_COLLECTION, step_key, step_state
+from culture_rules.extensions.newspaper.port import (
+    FILTER_BUILTIN,
+    RENDER_BUILTIN,
+    SECTIONS_BUILTIN,
+    NewspaperFilterPort,
+    NewspaperRenderPort,
+    NewspaperSectionsPort,
+)
 from culture_rules.extensions.search.port import SearchWebPort
 from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.model.validate import validate
@@ -40,14 +48,6 @@ from culture_rules.node.actions.keyset import (
     KEYSET_FILTER_BUILTIN,
     KeysetAddPort,
     KeysetFilterPort,
-)
-from culture_rules.node.actions.newspaper import (
-    FILTER_BUILTIN,
-    RENDER_BUILTIN,
-    SECTIONS_BUILTIN,
-    NewspaperFilterPort,
-    NewspaperRenderPort,
-    NewspaperSectionsPort,
 )
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
