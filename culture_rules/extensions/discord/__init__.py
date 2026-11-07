@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 from culture_rules.extensions.registry import ApiContext, Extension, Lazy, NodeContext
-from culture_rules.model.action_kinds import INT, REQ_STR, STR, ParamSpec, kind
+from culture_rules.model.action_kinds import INT, REQ_STR, REQ_TEXT, STR, ParamSpec, kind
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
@@ -31,30 +31,33 @@ KINDS = (
     kind(
         "discord.message",
         "Post a message on Discord through a Discord app actor",
+        label="Post a message on Discord",
         actor=REQ_STR,
-        guild=STR,
-        channel=REQ_STR,
-        text=REQ_STR,
-        buttons=ParamSpec("list"),
+        guild=ParamSpec("str", widget="discord_guild"),
+        channel=ParamSpec("str", True, widget="discord_channel"),
+        text=REQ_TEXT,
+        buttons=ParamSpec("list", widget="buttons"),
         thread_name=STR,  # set: channel is a forum and the text starts a post titled so
         tags=ParamSpec("list"),  # forum tag names, with thread_name only
     ),
     kind(
         "discord.read",
         "Read one Discord message in full (text and attachments) through a Discord app actor",
+        label="Read a Discord message in full",
         actor=REQ_STR,
-        guild=STR,  # fills the message url when given
-        channel=REQ_STR,
+        guild=ParamSpec("str", widget="discord_guild"),  # fills the message url when given
+        channel=ParamSpec("str", True, widget="discord_channel"),
         message=REQ_STR,
     ),
     kind(
         "discord.react",
         "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
         " app actor, and take back the bot's own earlier reactions (remove)",
+        label="React to a Discord message",
         any_of=(("emoji", "remove"),),
         actor=REQ_STR,
-        guild=STR,
-        channel=REQ_STR,
+        guild=ParamSpec("str", widget="discord_guild"),
+        channel=ParamSpec("str", True, widget="discord_channel"),
         message=REQ_STR,
         emoji=STR,
         remove=ParamSpec("list"),
@@ -62,17 +65,19 @@ KINDS = (
     kind(
         "discord.reply",
         "Answer a Discord slash or message command privately through a Discord app actor",
+        label="Answer a Discord command privately",
         actor=REQ_STR,
         event_id=REQ_STR,
-        text=REQ_STR,
+        text=REQ_TEXT,
     ),
     kind(
         "discord.sweep",
         "Read a Discord channel's messages newer than a stored cursor through a Discord app"
         " actor",
+        label="Read a Discord channel since the last run",
         actor=REQ_STR,
-        guild=STR,
-        channel=REQ_STR,
+        guild=ParamSpec("str", widget="discord_guild"),
+        channel=ParamSpec("str", True, widget="discord_channel"),
         cursor_key=REQ_STR,
         limit=INT,
         include_bots=ParamSpec("bool"),

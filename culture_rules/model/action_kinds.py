@@ -70,11 +70,16 @@ from culture_rules.model.refs import REF_KEY, is_reference, structured_form
 
 __all__ = [
     "ACTION_KINDS",
+    "ADV",
     "INT",
+    "REQ_INT",
     "REQ_STR",
+    "REQ_TEXT",
     "STR",
+    "TEXT",
     "ActionKind",
     "ParamSpec",
+    "describe_kinds",
     "kind",
     "param_type_ok",
 ]
@@ -82,10 +87,30 @@ __all__ = [
 
 @dataclass(frozen=True)
 class ParamSpec:
-    """A param: ``type`` is str, int, bool, dict, list or any; ``required`` means non-empty."""
+    """A param: ``type`` is str, int, bool, dict, list or any; ``required`` means non-empty.
+
+    The rest is how an editor shows it, served with the catalogue (``GET /actions/kinds``) so
+    no editor keeps a table of its own: ``label`` (default: the name), ``widget`` (``multiline``,
+    ``json``, ``number``, ``buttons``, ``command``, ``command_args``, ``discord_guild``,
+    ``discord_channel`` or ``hidden``; empty: by ``type``), a closed set of ``choices``
+    (``(value, label)`` pairs) or ``options_from`` (the key of the chosen actor's params that
+    lists the values, or maps them as keys), ``choose`` (the prompt of an empty choice) and
+    ``needs_actor_param`` (shown only when the chosen actor has that param set) and ``needed``
+    (not required of a stored step, which the port refuses at run time, but an editor asks
+    for it) and ``advanced`` (rarely set: an editor keeps it behind a "More settings" fold, open
+    when the step already sets it).
+    """
 
     type: str
     required: bool = False
+    label: str = ""
+    widget: str = ""
+    choices: tuple[tuple[str, str], ...] = ()
+    options_from: str = ""
+    choose: str = ""
+    needs_actor_param: str = ""
+    needed: bool = False
+    advanced: bool = False
 
 
 @dataclass(frozen=True)
@@ -97,18 +122,39 @@ class ActionKind:
     summary: str = ""
     #: groups of params of which at least one must be set (e.g. content or content_path)
     any_of: tuple[tuple[str, ...], ...] = ()
+    #: a short name for pickers (default: the summary)
+    label: str = ""
+    #: which actors can perform it: alternatives (OR), each a clause of conditions (AND) over an
+    #: enabled actor: ``kinds``, ``not_kinds``, ``surface``, ``declares_action`` (it lists this
+    #: kind in ``params.actions``), ``has`` (these dotted params non-empty), ``has_any``
+    #: (at least one of these). Empty: an app actor that declares the kind.
+    actors: tuple[dict[str, Any], ...] = ()
+    #: offered even when no enabled actor can perform it (it needs none)
+    actorless: bool = False
 
 
 def kind(
-    name: str, summary: str, /, *, any_of: tuple[tuple[str, ...], ...] = (), **params: ParamSpec
+    name: str,
+    summary: str,
+    /,
+    *,
+    label: str = "",
+    any_of: tuple[tuple[str, ...], ...] = (),
+    actors: tuple[dict[str, Any], ...] = (),
+    actorless: bool = False,
+    **params: ParamSpec,
 ) -> ActionKind:
     """An :class:`ActionKind` from keyword params (what the apps' ``KINDS`` are built with)."""
-    return ActionKind(name, params, summary, any_of)
+    return ActionKind(name, params, summary, any_of, label, actors, actorless)
 
 
 STR = ParamSpec("str")
 REQ_STR = ParamSpec("str", True)
 INT = ParamSpec("int")
+REQ_INT = ParamSpec("int", True)
+TEXT = ParamSpec("str", widget="multiline")
+REQ_TEXT = ParamSpec("str", True, widget="multiline")
+ADV = ParamSpec("str", advanced=True)
 
 
 class _Catalogue(Mapping[str, ActionKind]):
@@ -163,3 +209,44 @@ def is_lenient(kind: str) -> bool:
     """Whether the kind's required params are not enforced (legacy-tolerant kinds: ``message``
     and its alias ``mesh.message``, so the legacy placeholder passes)."""
     return registry().is_lenient(kind)
+
+
+def _describe_param(name: str, spec: ParamSpec) -> dict[str, Any]:
+    return {
+        "name": name,
+        "type": spec.type,
+        "required": spec.required,
+        "label": spec.label,
+        "widget": spec.widget,
+        "choices": [{"value": value, "label": label} for value, label in spec.choices],
+        "options_from": spec.options_from,
+        "choose": spec.choose,
+        "needs_actor_param": spec.needs_actor_param,
+        "needed": spec.needed,
+        "advanced": spec.advanced,
+    }
+
+
+def describe_kinds() -> list[dict[str, Any]]:
+    """The registered action kinds as plain data, in catalogue order (``GET /actions/kinds``).
+
+    Each item: ``kind``, ``label`` (the summary when none), ``summary``, ``lenient``,
+    ``aliases``, ``params`` (in order, with the editor hints of :class:`ParamSpec`), ``any_of``,
+    ``actors`` (the actor clauses of :class:`ActionKind`; an app actor declaring the kind when
+    the kind names none) and ``actorless``. Built from the registry, never from a list here.
+    """
+    reg = registry()
+    return [
+        {
+            "kind": name,
+            "label": kind.label or kind.summary,
+            "summary": kind.summary,
+            "lenient": reg.is_lenient(name),
+            "aliases": list(reg.aliases(name)),
+            "params": [_describe_param(p, spec) for p, spec in kind.params.items()],
+            "any_of": [list(group) for group in kind.any_of],
+            "actors": [dict(c) for c in kind.actors] or [{"declares_action": True}],
+            "actorless": kind.actorless,
+        }
+        for name, kind in reg.action_kinds().items()
+    ]

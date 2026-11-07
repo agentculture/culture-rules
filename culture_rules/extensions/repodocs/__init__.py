@@ -16,6 +16,8 @@ KINDS = (
     kind(
         "repodocs.sync",
         "Push every repo's specs, plans, deliveries, designs and .devague files to the library",
+        label="Push repo documents to the library",
+        actors=({"kinds": ["service"], "has": ["repos_root"]},),
         actor=REQ_STR,  # a service actor: base_url, api_key, repos_root, state_path, limits
     ),
 )

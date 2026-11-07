@@ -8,7 +8,7 @@ the kind's typed params.
 from __future__ import annotations
 
 from culture_rules.extensions.registry import Extension, Lazy
-from culture_rules.model.action_kinds import REQ_STR, STR, ParamSpec, kind
+from culture_rules.model.action_kinds import REQ_STR, REQ_TEXT, STR, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
@@ -16,10 +16,12 @@ KINDS = (
     kind(
         "decider.assess",
         "Ask the mesh's decider for probabilities over the options a step defines (no text)",
+        label="Ask the decider",
+        actors=({"kinds": ["agent"], "has": ["base_url"]},),
         actor=REQ_STR,
-        state=REQ_STR,
+        state=REQ_TEXT,
         questions=ParamSpec(
-            "dict", True
+            "dict", True, widget="json"
         ),  # {key: {type: choice|noul|score, instructions, criteria}}
         not_after=STR,  # ISO-8601: past it the work fails decider_deadline instead of queueing
     ),

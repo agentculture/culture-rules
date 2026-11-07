@@ -16,6 +16,8 @@ KINDS = (
     kind(
         "audio.transcribe",
         "Transcribe an audio file with a speech-to-text endpoint on an agent actor",
+        label="Transcribe an audio file",
+        actors=({"kinds": ["agent"], "has": ["base_url"]},),
         actor=REQ_STR,
         audio_path=REQ_STR,
         audio_sha256=STR,  # optional: without it the port hashes the file itself

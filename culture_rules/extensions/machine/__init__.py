@@ -16,9 +16,11 @@ KINDS = (
     kind(
         "machine.command",
         "Run a command on a machine actor",
+        label="Run a command on a machine",
+        actors=({"kinds": ["runner"]},),
         actor=REQ_STR,
-        command=REQ_STR,
-        args=ParamSpec("dict"),
+        command=ParamSpec("str", True, widget="command"),
+        args=ParamSpec("dict", widget="command_args"),
     ),
 )
 

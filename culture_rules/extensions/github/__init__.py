@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 from culture_rules.extensions.registry import Extension, Lazy, NodeContext
-from culture_rules.model.action_kinds import REQ_STR, STR, ParamSpec, kind
+from culture_rules.model.action_kinds import ADV, REQ_INT, REQ_STR, REQ_TEXT, ParamSpec, kind
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
@@ -28,18 +28,20 @@ KINDS = (
     kind(
         "github.comment",
         "Comment on a GitHub issue or PR",
+        label="Comment on GitHub",
         actor=REQ_STR,
         repo=REQ_STR,
-        number=ParamSpec("int", True),
-        body=REQ_STR,
-        once_key=STR,  # d25: post at most once per (repo, PR, key), durably
+        number=REQ_INT,
+        body=REQ_TEXT,
+        once_key=ADV,  # d25: post at most once per (repo, PR, key), durably
     ),
     kind(
         "github.merge",
         "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
+        label="Merge a GitHub PR",
         actor=REQ_STR,
         repo=REQ_STR,
-        number=ParamSpec("int", True),
+        number=REQ_INT,
         sha=REQ_STR,
         delete_branch=ParamSpec("bool"),
     ),
@@ -47,9 +49,10 @@ KINDS = (
         "github.pr",
         "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
         " as the GitHub App",
+        label="Read a GitHub PR",
         actor=REQ_STR,
         repo=REQ_STR,
-        number=ParamSpec("int", True),
+        number=REQ_INT,
     ),
 )
 

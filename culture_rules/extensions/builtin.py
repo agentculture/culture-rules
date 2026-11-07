@@ -40,7 +40,7 @@ from culture_rules.extensions import (
     transcript,
 )
 from culture_rules.extensions.registry import Extension, Lazy, Registry
-from culture_rules.model.action_kinds import REQ_STR, STR, ActionKind, kind
+from culture_rules.model.action_kinds import REQ_STR, REQ_TEXT, ActionKind, ParamSpec, kind
 
 __all__ = ["BUILTIN_EXTENSIONS", "BUILTIN_KINDS", "CORE_KINDS", "install_builtins"]
 
@@ -48,13 +48,15 @@ _ACTIONS = "culture_rules.node.actions."
 _DISCORD_MESSAGE = "culture_rules.extensions.discord.message"
 
 CORE_KINDS = (
-    kind("noop", "Do nothing (placeholder, tests)"),
+    kind("noop", "Do nothing (placeholder, tests)", label="Do nothing", actorless=True),
     kind(
         "message",
         "Send a message on the Culture mesh",
-        actor=STR,  # legacy: a Discord app actor here still posts to Discord
+        label="Send a message on the mesh",
+        actorless=True,
+        actor=ParamSpec("str", widget="hidden"),  # legacy: a Discord app actor here still posts
         channel=REQ_STR,
-        text=REQ_STR,
+        text=REQ_TEXT,
     ),
 )
 """Core's own kinds: ``noop`` and ``message`` (``mesh.message`` its legacy alias)."""

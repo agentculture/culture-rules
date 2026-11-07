@@ -9,12 +9,19 @@ API mounts it). Registering imports nothing but the kind's typed params.
 from __future__ import annotations
 
 from culture_rules.extensions.registry import Extension, Lazy
-from culture_rules.model.action_kinds import REQ_STR, kind
+from culture_rules.model.action_kinds import REQ_STR, REQ_TEXT, kind
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
 KINDS = (
-    kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
+    kind(
+        "jira.comment",
+        "Comment on a Jira issue",
+        label="Comment on Jira",
+        actor=REQ_STR,
+        issue=REQ_STR,
+        body=REQ_TEXT,
+    ),
 )
 
 EVENT_TYPES = ("jira.issue.created", "jira.issue.updated", "jira.comment.created")

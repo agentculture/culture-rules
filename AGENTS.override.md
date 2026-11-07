@@ -42,7 +42,7 @@ editing) is built on `rules/second-mile`, spec
 `docs/specs/2026-10-03-culture-rules-second-mile.md`.** guildmaster provisioned the
 repo from `culture-agent-template`, and the build followed the devague plan.
 The engine, HTTP API (contract pinned in `api/openapi.json`), node daemon,
-CLI noun groups (`rules`, `workflows`, `actors`, `machines`, `runs`, `rollout`, plus
+CLI noun groups (`rules`, `workflows`, `actors`, `actions`, `machines`, `runs`, `rollout`, plus
 `serve`, `node` and `mcp`), MCP server, web editor and ops docs
 (`docs/operations/`) exist. `docs/demo.md` is the executed end-to-end
 walkthrough.
@@ -149,6 +149,11 @@ Release 3 adds application commands, configured per actor in `params.commands`
 token kept apart, answered privately by `discord.reply`), and `discord.sweep`
 with the generic `cursor.advance`; a builtin's `config.with` reads
 `inputs.item.*` in a loop (d8).
+
+**The action catalogue** (guide `docs/operations/action-catalogue.md`). The API serves the
+registry's action kinds with their typed params (`GET /actions/kinds`, viewer; CLI `actions
+kinds`, MCP tool `actions_kinds`), and the editor's action picker is built from it, so an
+extension's kind needs no editor change.
 
 **State between runs** (guide `docs/operations/keysets.md`). Generic named key sets:
 `keyset.filter` drops the items whose normalised key a set already holds, `keyset.add`

@@ -41,8 +41,8 @@ stops being per-host glue only its author understands.
 - `culture-rules overview` — descriptive snapshot of the agent.
 - `culture-rules doctor` — check the agent-identity invariants.
 - `culture-rules cli overview` — describe the CLI surface.
-- `culture-rules rules|workflows|actors|machines|runs|variables|keysets <verb>` — the engine's
-  nouns over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
+- `culture-rules rules|workflows|actors|actions|machines|runs|variables|keysets <verb>` —
+  the engine's nouns over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
 - `culture-rules rollout <step>` — roll this CLI's release out to every node, one
   dry-run-first step per verb (`plan`, `idle`, `pause`, `upgrade --host`, `seed`,
   `import`, `enable`, `resume`, `verify`).
@@ -234,6 +234,13 @@ _NOUN_BLURBS = {
     "rules": "Rules say *when* work should happen: trigger, condition, workflow, action.",
     "workflows": "Workflows are the reusable *how*: steps, branching and waits.",
     "actors": "Actors are who or what can perform work: agents, humans, code, services.",
+    "actions": (
+        "Actions are the registered kinds of work a rule's workflow can end in. `kinds` lists "
+        "what the API's extension registry holds, in catalogue order, with each kind's typed "
+        "params (`kinds <name>` shows one, an alias included): the data the editor's action "
+        "picker is built from, so a new extension's kind needs no editor change. Read-only, "
+        "viewer role. An older server lacks the route: exit 2."
+    ),
     "machines": "Machines are the hosts that execute steps; drain one to stop new placements.",
     "variables": (
         "Variables are shared values (a scalar or a flat list) that rule conditions and workflow "

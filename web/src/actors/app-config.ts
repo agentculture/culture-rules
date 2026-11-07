@@ -23,27 +23,6 @@ export const APP_SURFACES: readonly AppSurface[] = ["github", "jira", "discord",
 /** The sender domains an email app may send from, the default first (app_actor.py `EMAIL_DOMAINS`). */
 export const EMAIL_DOMAINS: readonly string[] = ["culture.dev", "jetson-ai-lab.org"];
 
-/** Action kinds an app can declare (culture_rules/model/action_kinds.py `ACTION_KINDS`). */
-export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
-  { name: "noop", summary: "Do nothing" },
-  { name: "message", summary: "Send a message on the mesh" },
-  { name: "discord.message", summary: "Post a message on Discord" },
-  { name: "discord.read", summary: "Read one Discord message in full (text and attachments)" },
-  { name: "discord.react", summary: "React to a Discord message" },
-  { name: "discord.reply", summary: "Answer a Discord slash or message command privately" },
-  { name: "discord.sweep", summary: "Read a Discord channel's messages since the last run" },
-  { name: "github.comment", summary: "Comment on a GitHub issue or PR" },
-  { name: "github.merge", summary: "Squash-merge a PR at a given head commit (only from a click carrying the button's one-time code)" },
-  { name: "github.pr", summary: "Read a PR's state (read-only)" },
-  { name: "jira.comment", summary: "Comment on a Jira issue" },
-  { name: "http.call", summary: "Call an HTTP endpoint" },
-  { name: "machine.command", summary: "Run a registered command on a machine" },
-  { name: "email.send", summary: "Send an email through an email app" },
-  { name: "search.web", summary: "Search the web through a search app" },
-  { name: "llm.complete", summary: "Complete one of the actor's named briefs with an OpenAI-compatible model (no tools)" },
-  { name: "library.push", summary: "Upload a file (EPUB, Markdown, PDF, …) to a library (and queue it when the library has a device queue)" },
-];
-
 /** Lowercase dotted event types, at least two segments (app_actor.py `EVENT_TYPE_RE`). */
 export const EVENT_TYPE_RE = /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$/;
 /** A secret reference (actors/secrets.py `_REF_RE`). */

@@ -16,8 +16,15 @@ KINDS = (
     kind(
         "http.call",
         "Call an HTTP endpoint",
+        label="Call an HTTP endpoint",
+        actors=({"declares_action": True}, {"has": ["http.allow"]}),
         actor=REQ_STR,
-        method=REQ_STR,
+        method=ParamSpec(
+            "str",
+            True,
+            choices=tuple((m, m) for m in ("GET", "POST", "PUT", "PATCH", "DELETE")),
+            choose="Choose a method…",
+        ),
         url=REQ_STR,
         headers=ParamSpec("dict"),
         body=ParamSpec("any"),

@@ -86,6 +86,9 @@ refuses while rules enable restores are off unless --force, enable refuses while
 a node is older than the release or a rule outside the snapshot is enabled,
 upgrade --apply needs the admin role before it runs anything, and verify exits 1
 listing each failed check.
+The actions noun (read-only) lists the registered action kinds: actions kinds [<name>]
+prints each kind's typed params in catalogue order, the data the editor's action picker is
+built from (GET /actions/kinds). Needs server >= 0.44.0.
 The keysets noun (admin only, reads included) shows the named sets of remembered keys:
 keysets list counts each set's live keys, keysets show <name> lists them with first_seen
 and expires_at, and keysets clear <name> [--key K] --apply forgets one key or the set

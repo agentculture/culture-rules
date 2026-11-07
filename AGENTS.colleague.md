@@ -42,7 +42,7 @@ code, services, robots, …). It is built and on disk:
   action kinds, ports, built-in steps, event types, webhook routes and node
   listeners (the built-in apps register in `extensions/builtin.py`), with
   each app's integration code in its own package, `extensions/<app>/`;
-- a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `machines`,
+- a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `actions`, `machines`,
   `runs`, `rollout`, `serve`, `node`, `mcp`), an HTTP API with its contract pinned in
   `api/openapi.json`, and an MCP server exposing the same verbs as tools;
 - a Node.js + React Flow editor in `web/` with four tabs: **Workflows |
@@ -169,6 +169,11 @@ Release 3 adds application commands, configured per actor in `params.commands`
 token kept apart, answered privately by `discord.reply`), and `discord.sweep`
 with the generic `cursor.advance`; a builtin's `config.with` reads
 `inputs.item.*` in a loop (d8).
+
+**The action catalogue** (guide `docs/operations/action-catalogue.md`). The API serves the
+registry's action kinds with their typed params (`GET /actions/kinds`, viewer; CLI `actions
+kinds`, MCP tool `actions_kinds`), and the editor's action picker is built from it, so an
+extension's kind needs no editor change.
 
 **State between runs** (guide `docs/operations/keysets.md`). Generic named key sets:
 `keyset.filter` drops the items whose normalised key a set already holds, `keyset.add`

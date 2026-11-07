@@ -8,7 +8,7 @@ the kind's typed params.
 from __future__ import annotations
 
 from culture_rules.extensions.registry import Extension, Lazy
-from culture_rules.model.action_kinds import INT, REQ_STR, STR, kind
+from culture_rules.model.action_kinds import INT, REQ_STR, STR, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
@@ -16,10 +16,21 @@ KINDS = (
     kind(
         "search.web",
         "Search the web through a search app actor (Brave)",
+        label="Search the web",
+        actors=({"kinds": ["app"], "surface": "search"},),
         actor=REQ_STR,
         query=REQ_STR,
         count=INT,
-        freshness=STR,
+        freshness=ParamSpec(
+            "str",
+            choices=(
+                ("pd", "Past day"),
+                ("pw", "Past week"),
+                ("pm", "Past month"),
+                ("py", "Past year"),
+            ),
+            choose="Any time",
+        ),
         country=STR,
         lang=STR,
     ),

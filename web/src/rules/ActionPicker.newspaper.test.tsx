@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Actor } from "../api/actors";
 import type { Action } from "../api/types";
 import { ACTORS } from "../fixtures/rules-fixture";
+import { ACTION_CATALOGUE } from "../fixtures/action-catalogue";
 import ActionPicker, { actionProblem, actorsFor, blankAction } from "./ActionPicker";
 
 /* The daily-newspaper kinds (#53): email.send, search.web, llm.complete, library.push. */
@@ -55,7 +56,7 @@ function Harness({ start }: Readonly<{ start?: Action }>) {
   const [value, setValue] = useState<Action>(start ?? blankAction());
   return (
     <>
-      <ActionPicker value={value} actors={NEWSPAPER_ACTORS} triggerType="schedule" onChange={setValue} />
+      <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={NEWSPAPER_ACTORS} triggerType="schedule" onChange={setValue} />
       <output data-testid="saved">{JSON.stringify(value)}</output>
     </>
   );
@@ -66,7 +67,7 @@ const optionValues = (label: string) =>
   within(screen.getByLabelText(label))
     .getAllByRole("option")
     .map((o) => o.getAttribute("value"));
-const ids = (kind: string) => actorsFor(kind, NEWSPAPER_ACTORS).map((a) => a.id);
+const ids = (kind: string) => actorsFor(kind, NEWSPAPER_ACTORS, ACTION_CATALOGUE).map((a) => a.id);
 
 async function pick(kind: string, actor: string) {
   const user = userEvent.setup();
@@ -108,16 +109,16 @@ describe("email.send", () => {
         html: "workflow.outputs.html",
       },
     });
-    expect(actionProblem(saved())).toBeNull();
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBeNull();
   });
 
   it("needs recipients and a subject, and refuses a non-list recipient value", () => {
-    expect(actionProblem({ kind: "email.send", params: { actor: "mailer", subject: "x" } })).toBe("empty");
-    expect(actionProblem({ kind: "email.send", params: { actor: "mailer", to: [], subject: "x" } })).toBe("empty");
-    expect(actionProblem({ kind: "email.send", params: { actor: "mailer", to: 3, subject: "x" } })).toBe(
+    expect(actionProblem({ kind: "email.send", params: { actor: "mailer", subject: "x" } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "email.send", params: { actor: "mailer", to: [], subject: "x" } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "email.send", params: { actor: "mailer", to: 3, subject: "x" } }, ACTION_CATALOGUE)).toBe(
       "invalid_value",
     );
-    expect(actionProblem({ kind: "email.send", params: { to: ["a@b.c"], subject: "x" } })).toBe("no_actor_port");
+    expect(actionProblem({ kind: "email.send", params: { to: ["a@b.c"], subject: "x" } }, ACTION_CATALOGUE)).toBe("no_actor_port");
   });
 
   it("shows stored recipients as text", () => {
@@ -139,12 +140,12 @@ describe("search.web", () => {
       kind: "search.web",
       params: { actor: "brave", query: "jetson news", count: 5, freshness: "pd", country: "US" },
     });
-    expect(actionProblem(saved())).toBeNull();
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBeNull();
   });
 
   it("needs a query and refuses a freshness outside the four windows", () => {
-    expect(actionProblem({ kind: "search.web", params: { actor: "brave" } })).toBe("empty");
-    expect(actionProblem({ kind: "search.web", params: { actor: "brave", query: "q", freshness: "pz" } })).toBe(
+    expect(actionProblem({ kind: "search.web", params: { actor: "brave" } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "search.web", params: { actor: "brave", query: "q", freshness: "pz" } }, ACTION_CATALOGUE)).toBe(
       "invalid_value",
     );
   });
@@ -169,11 +170,11 @@ describe("llm.complete", () => {
         temperature: 0.2,
       },
     });
-    expect(actionProblem(saved())).toBeNull();
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBeNull();
   });
 
   it("needs content", () => {
-    expect(actionProblem({ kind: "llm.complete", params: { actor: "cortex" } })).toBe("empty");
+    expect(actionProblem({ kind: "llm.complete", params: { actor: "cortex" } }, ACTION_CATALOGUE)).toBe("empty");
   });
 });
 
@@ -198,7 +199,7 @@ describe("library.push", () => {
         device_id: "reader-1",
       },
     });
-    expect(actionProblem(saved())).toBeNull();
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBeNull();
   });
 
   it("offers the kinds and visibilities the library actor lists", async () => {
@@ -250,12 +251,12 @@ describe("library.push", () => {
 
   it("needs the content, a title and a kind", () => {
     const full = { actor: "xteink", content_base64: "x", title: "t", kind: "newspaper" };
-    expect(actionProblem({ kind: "library.push", params: { ...full, content_base64: undefined } })).toBe("empty");
-    expect(actionProblem({ kind: "library.push", params: { ...full, title: undefined } })).toBe("empty");
-    expect(actionProblem({ kind: "library.push", params: { ...full, kind: undefined } })).toBe("empty");
-    expect(actionProblem({ kind: "library.push", params: full })).toBeNull();
+    expect(actionProblem({ kind: "library.push", params: { ...full, content_base64: undefined } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: { ...full, title: undefined } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: { ...full, kind: undefined } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "library.push", params: full }, ACTION_CATALOGUE)).toBeNull();
     // a file on the node (attachment.fetch, d7) is the other source
     const path = { ...full, content_base64: undefined, content_path: "/srv/a/x.pdf", content_root: "/srv/a" };
-    expect(actionProblem({ kind: "library.push", params: path })).toBeNull();
+    expect(actionProblem({ kind: "library.push", params: path }, ACTION_CATALOGUE)).toBeNull();
   });
 });
