@@ -111,12 +111,12 @@ secret **names**, never values.
   "mode": "install_sh",
   "node_name": "spark2",
   "ssh_target": "spark2",
-  "secrets": ["<GRANT_SECRET_NAME>", "RULES_GITHUB_APP_PRIVATE_KEY"],
-  "gate_run_as": "sudo -n -u <user> -- /usr/bin/env PATH=<home>/.local/bin:/usr/local/bin:/usr/bin:/bin"
+  "secrets": ["<GRANT_SECRET_NAME>", "RULES_GITHUB_APP_PRIVATE_KEY"]
 }
 ```
 
-`<home>` is the run-as account's home directory on spark2.
+`gate_run_as` was removed in 0.43.0: a stored record that still holds it loads with
+the field ignored, `upgrade` passes no `--gate-run-as`, and saving it is refused.
 
 `extras`, `wheelhouse`, `python`, `events_host` and `events_port` are optional; a
 field left out takes `install.sh`'s default. The ssh and scp target is
@@ -135,7 +135,7 @@ The install section is code the host runs, so:
   machine fields stay editor.
 - **Every field is one word.** `node_name`, `events_host`, `wheelhouse`, `python`,
   each `extras` entry and each `secrets` name may not hold a control character or
-  whitespace, and `gate_run_as` may not hold a control character. `upgrade` checks
+  whitespace. `upgrade` checks
   them again before it builds any command, and refuses an `address` that is not a
   plain host name (one starting with `-` could read as an ssh option).
 

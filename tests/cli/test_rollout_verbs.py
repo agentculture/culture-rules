@@ -193,7 +193,7 @@ def test_install_flags_follow_the_record():
         {
             "mode": "install_sh",
             "secrets": ["RULES_A", "RULES_B"],
-            "gate_run_as": "sudo -n -u culture-fixer --",
+            "gate_run_as": "sudo -n -u culture-fixer --",  # removed (d7): ignored
             "extras": ["store", "events"],
             "wheelhouse": None,
             "python": "3.12",
@@ -204,7 +204,6 @@ def test_install_flags_follow_the_record():
     assert flags == [
         "--node-name", "spark2",
         "--secret", "RULES_A", "--secret", "RULES_B",
-        "--gate-run-as", "sudo -n -u culture-fixer --",
         "--extras", "store,events",
         "--python", "3.12",
         "--events-host", "broker",

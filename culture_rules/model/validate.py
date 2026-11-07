@@ -1055,8 +1055,6 @@ def _check_machine(obj: Machine, path: str, errors: Errors) -> None:
 
 #: A grant secret name, as install.sh's --secret takes it (never a value).
 _GRANT_NAME_RE = re.compile(r"[A-Z0-9_]+")
-#: The run-as account in a ``sudo -n -u <user>`` prefix (a POSIX-ish user name).
-_RUN_AS_USER_RE = re.compile(r"[a-z_][a-z0-9_.-]*")
 #: A control character (U+0000-U+001F, U+007F): never in a value install.sh receives.
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 #: Install fields install.sh takes as one word: no control character and no whitespace.
@@ -1081,22 +1079,6 @@ def has_control_char(value: str) -> bool:
 def is_install_word(value: str) -> bool:
     """Whether ``value`` may reach install.sh as one word: no control character, no space."""
     return not has_control_char(value) and not any(c.isspace() for c in value)
-
-
-def _sudo_prefix_error(value: str) -> str | None:
-    """Why ``value`` is not a ``sudo -n -u <user> [...]`` run-as prefix, or ``None``.
-
-    Mirrors install.sh's --gate-run-as checks: one line, no quotes or backslashes (the prefix
-    is split on whitespace, never by a shell), and it must open with ``sudo -n -u <user>``.
-    """
-    if has_control_char(value) or any(c in value for c in "'\"\\"):
-        return "must be one line without control characters, quotes or backslashes"
-    words = value.split()
-    if len(words) < 4 or words[0].rsplit("/", 1)[-1] != "sudo" or words[1:3] != ["-n", "-u"]:
-        return "must start with 'sudo -n -u <user>'"
-    if not _RUN_AS_USER_RE.fullmatch(words[3]):
-        return f"{words[3]!r} is not a user name"
-    return None
 
 
 def _check_install_words(obj: MachineInstall, path: str, errors: Errors) -> None:
@@ -1133,14 +1115,6 @@ def _check_install_secrets(obj: MachineInstall, path: str, errors: Errors) -> No
             )
 
 
-def _check_install_run_as(obj: MachineInstall, path: str, errors: Errors) -> None:
-    if not isinstance(obj.gate_run_as, str):
-        return
-    why = _sudo_prefix_error(obj.gate_run_as)
-    if why:
-        _err(errors, _join(path, "gate_run_as"), "invalid_run_as", f"gate_run_as {why}")
-
-
 def _check_install_extras(obj: MachineInstall, path: str, errors: Errors) -> None:
     if not isinstance(obj.extras, (tuple, list)):
         return
@@ -1160,7 +1134,6 @@ def _check_machine_install(obj: MachineInstall, path: str, errors: Errors) -> No
     _check_install_words(obj, path, errors)
     _check_install_ssh_target(obj, path, errors)
     _check_install_secrets(obj, path, errors)
-    _check_install_run_as(obj, path, errors)
     _check_install_extras(obj, path, errors)
     _check_install_port(obj, path, errors)
 

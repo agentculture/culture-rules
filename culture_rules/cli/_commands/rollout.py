@@ -428,7 +428,6 @@ def install_flags(name: str, install: Mapping[str, Any]) -> list[str]:
     for secret in install.get("secrets") or ():
         flags += ["--secret", str(secret)]
     optional = (
-        ("--gate-run-as", install.get("gate_run_as")),
         ("--extras", ",".join(install.get("extras") or ()) or None),
         ("--wheelhouse", install.get("wheelhouse")),
         ("--python", install.get("python")),

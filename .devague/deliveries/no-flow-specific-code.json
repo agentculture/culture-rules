@@ -2,7 +2,7 @@
   "plan_slug": "no-flow-specific-code",
   "schema_version": 2,
   "created": "2026-11-06T20:24:48Z",
-  "updated": "2026-11-07T06:44:58Z",
+  "updated": "2026-11-07T06:58:06Z",
   "deviations": [
     {
       "id": "d1",
@@ -79,6 +79,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "Remove install.sh --gate-run-as and its plumbing (rollout upgrade flag, machine install.gate_run_as accepted on read but refused on save, docs); every node unit keeps NoNewPrivileges=true; clear spark2's machine record live with the operator's go-ahead; a per-actor run-as on code actors is a follow-up issue",
+      "task_ref": "t3",
+      "reason": "code review of #138: its only reader (the fixer's gate) is deleted, and a sudo prefix still relaxes NoNewPrivileges for nothing; operator chose remove now, generic later",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
     }
   ],
   "evidence": [],

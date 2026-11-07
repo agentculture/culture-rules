@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The PR fixer is gone from code (no-flow-specific-code R1). It had been switched off live since 2026-10-19. Removed: its builtins (gate, review, handoff, fixer cooldown and levels, sonar and GitGuardian steps, the PR queue), the action kinds github.push and github.review_reply, its node stages (conflict, reaction and status-board watchers, story stop), the lineage and merge-hint helpers, the reviewer and workflow pins in actors/trusted.py, the docs/rules/pr-fixer bundle, deploy/pr-fixer and docs/operations/pr-fixer.md, and the editor's fixer fixtures
 - github.comment no longer keeps a status board: `status` other than absent or false is refused when saved (`action_param_removed`) and at run time (`bad_input`)
 - `rearm_settle` (the checks settle's re-arm after a refused push) and the duplicate `run_chain.step_state`
+- `install.sh --gate-run-as` (refused by name now), the machine record's `install.gate_run_as` (a stored one loads ignored; saving it is refused) and `rollout upgrade`'s flag for it: its only reader was the fixer's gate, and a sudo prefix relaxed the node unit's NoNewPrivileges. Every node unit keeps `NoNewPrivileges=true`
 - An agent actor with a locked instruction is refused (it was the fixer's)
 
 ### Changed

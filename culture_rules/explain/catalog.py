@@ -346,7 +346,7 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    record's `install` section says (a record without one exits 1). `install_sh`:
    over ssh/scp (`-o BatchMode=yes`) the wheel and `install.sh` go to
    `culture-rules-deploy-<version>/` and `install.sh --apply` runs with the record's
-   flags (`--node-name`, `--wheel`, one `--secret` per grant name, `--gate-run-as`,
+   flags (`--node-name`, `--wheel`, one `--secret` per grant name,
    `--extras`, `--wheelhouse`, `--python`, `--events-host/port`); then the installed
    version and the node unit's `ActiveState` and `ActiveEnterTimestamp` are read.
    `shared_venv` (the API host, run there): `uv pip install --reinstall-package

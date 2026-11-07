@@ -44,35 +44,23 @@ def test_each_secret_is_injected_under_its_culture_rules_variable(tmp_path):
     assert "Dry run: nothing was written" in out
 
 
-# ------------------------------------------------------------ --gate-run-as (t20 defect 1)
-
-SUDO_PREFIX = "sudo -n -u culture-fixer -- /usr/bin/env PATH=/opt/fixer/bin:/usr/bin:/bin"
+# ------------------------------------------------------------ NoNewPrivileges (d7)
 
 
-def test_without_gate_run_as_the_unit_keeps_no_new_privileges(tmp_path):
+def test_the_unit_always_keeps_no_new_privileges(tmp_path):
     out = plan(tmp_path)
     assert "NoNewPrivileges=true" in out
-    assert "CULTURE_RULES_GATE_RUN_AS" not in out
+    assert "NoNewPrivileges=false" not in out
 
 
-def test_a_sudo_gate_run_as_is_written_and_relaxes_no_new_privileges(tmp_path):
-    out = plan(tmp_path, "--gate-run-as", SUDO_PREFIX)
-    assert f'CULTURE_RULES_GATE_RUN_AS="{SUDO_PREFIX}"' in out
-    assert "NoNewPrivileges=false" in out
-    assert "NoNewPrivileges=true" not in out
+def test_node_env_carries_no_run_as_prefix(tmp_path):
+    assert "CULTURE_RULES_GATE_RUN_AS" not in plan(tmp_path)
 
 
-def test_a_non_sudo_gate_run_as_keeps_no_new_privileges(tmp_path):
-    out = plan(tmp_path, "--gate-run-as", "/usr/local/bin/as-fixer --")
-    assert 'CULTURE_RULES_GATE_RUN_AS="/usr/local/bin/as-fixer --"' in out
-    assert "NoNewPrivileges=true" in out
-
-
-@pytest.mark.parametrize("bad", ["sudo -n\n-u x", "sudo -n\r", "   "])
-def test_a_multi_line_or_blank_gate_run_as_is_refused(tmp_path, bad):
+def test_the_removed_gate_run_as_flag_is_refused_by_name(tmp_path):
     with pytest.raises(subprocess.CalledProcessError) as exc:
-        plan(tmp_path, "--gate-run-as", bad)
-    assert "--gate-run-as" in exc.value.stderr
+        plan(tmp_path, "--gate-run-as", "sudo -n -u someone --")
+    assert "--gate-run-as was removed" in exc.value.stderr
 
 
 def _stubs(tmp_path: Path) -> Path:
@@ -97,49 +85,33 @@ def _stubs(tmp_path: Path) -> Path:
     return bin_dir
 
 
-def test_apply_writes_the_prefix_so_the_node_reads_it_back_verbatim(tmp_path):
-    prefix = SUDO_PREFIX + ' odd\\word "q" $HOME `x`'
+def test_apply_writes_a_unit_with_no_new_privileges(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     wheel = tmp_path / "culture_rules-9.9.9-py3-none-any.whl"
     wheel.write_bytes(b"")
     subprocess.run(  # nosec B603 B607 - fixed argv, test only
-        ["bash", str(SCRIPT), "--node-name", "n1", "--wheel", str(wheel)]
-        + ["--gate-run-as", prefix, "--apply"],
+        ["bash", str(SCRIPT), "--node-name", "n1", "--wheel", str(wheel), "--apply"],
         capture_output=True,
         text=True,
         env={"HOME": str(home), "PATH": f"{_stubs(tmp_path)}:/usr/bin:/bin"},
         check=True,
     )
-    env_file = home / ".config" / "culture-rules" / "node.env"
     unit = (home / ".config" / "systemd" / "user" / "culture-rules-node.service").read_text()
-    assert "NoNewPrivileges=false" in unit
-    assert "NoNewPrivileges=true" not in unit
-    # systemd's EnvironmentFile double quotes unescape \\ \" \$ \` exactly as POSIX sh does.
-    read_back = subprocess.run(  # nosec B603 B607 - fixed argv, test only
-        ["sh", "-c", '. "$1"; printf %s "$CULTURE_RULES_GATE_RUN_AS"', "sh", str(env_file)],
+    assert "NoNewPrivileges=true" in unit
+
+
+def test_apply_writes_no_run_as_line_into_node_env(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    wheel = tmp_path / "culture_rules-9.9.9-py3-none-any.whl"
+    wheel.write_bytes(b"")
+    subprocess.run(  # nosec B603 B607 - fixed argv, test only
+        ["bash", str(SCRIPT), "--node-name", "n1", "--wheel", str(wheel), "--apply"],
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin", "HOME": "/nowhere"},
+        env={"HOME": str(home), "PATH": f"{_stubs(tmp_path)}:/usr/bin:/bin"},
         check=True,
     )
-    assert read_back.stdout == prefix
-
-
-@pytest.mark.parametrize(
-    "prefix",
-    [
-        '"/usr/bin/sudo" -n -u culture-fixer -- /usr/bin/env',
-        "'sudo' -n -u culture-fixer --",
-        "su\\do -n -u culture-fixer --",
-        '"/usr/local/bin/as-fixer" --',
-        "'/opt/as fixer' --",
-    ],
-)
-def test_a_quoted_or_escaped_executable_is_refused(tmp_path, prefix):
-    """The gate splits the prefix with shlex; the unit's NoNewPrivileges must agree with it,
-    so an executable whose shell quoting could change what it names is refused outright."""
-    with pytest.raises(subprocess.CalledProcessError) as exc:
-        plan(tmp_path, "--gate-run-as", prefix)
-    assert "--gate-run-as" in exc.value.stderr
-    assert "quote" in exc.value.stderr
+    env_text = (home / ".config" / "culture-rules" / "node.env").read_text()
+    assert "CULTURE_RULES_GATE_RUN_AS" not in env_text
