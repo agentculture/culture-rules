@@ -206,11 +206,6 @@ _KINDS = (
         summary=ParamSpec("any"),  # llm.complete's output: {text} or a string, or none
         format=STR,  # epub (default) or md: summary, key facts, then the transcript
     ),
-    kind(
-        "repodocs.sync",
-        "Push every repo's specs, plans, deliveries, designs and .devague files to the library",
-        actor=REQ_STR,  # a service actor: base_url, api_key, repos_root, state_path, limits
-    ),
 )
 
 BUILTIN_KINDS: dict[str, ActionKind] = {k.name: k for k in _KINDS}

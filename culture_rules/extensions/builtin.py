@@ -20,7 +20,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from culture_rules.extensions import decider, email, http, library, llm, machine, search, stt
+from culture_rules.extensions import (
+    decider,
+    email,
+    http,
+    library,
+    llm,
+    machine,
+    repodocs,
+    search,
+    stt,
+)
 from culture_rules.extensions.registry import Extension, Lazy, NodeContext, Registry
 from culture_rules.model.action_kinds import BUILTIN_KINDS
 
@@ -255,7 +265,6 @@ def _single(kind: str, module: str, attr: str) -> Callable[[Extension], None]:
 
 
 register_transcript = _single("transcript.render", "transcript_render", "TranscriptRenderPort")
-register_repodocs = _single("repodocs.sync", "repodocs", "RepodocsSyncPort")
 
 
 def register_newspaper(ext: Extension) -> None:
@@ -280,7 +289,7 @@ BUILTIN_EXTENSIONS: tuple[tuple[str, Callable[[Extension], None]], ...] = (
     ("stt", stt.register),
     ("transcript", register_transcript),
     ("library", library.register),
-    ("repodocs", register_repodocs),
+    ("repodocs", repodocs.register),
     ("newspaper", register_newspaper),
 )
 """The built-in extensions, in install order (the catalogue's order follows it)."""
