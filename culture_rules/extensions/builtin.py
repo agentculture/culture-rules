@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from culture_rules.extensions import email, http, llm, machine, search
+from culture_rules.extensions import decider, email, http, llm, machine, search
 from culture_rules.extensions.registry import Extension, Lazy, NodeContext, Registry
 from culture_rules.model.action_kinds import BUILTIN_KINDS
 
@@ -254,7 +254,6 @@ def _single(kind: str, module: str, attr: str) -> Callable[[Extension], None]:
     return register
 
 
-register_decider = _single("decider.assess", "decider", "DeciderAssessPort")
 register_stt = _single("audio.transcribe", "stt", "AudioTranscribePort")
 register_transcript = _single("transcript.render", "transcript_render", "TranscriptRenderPort")
 register_library = _single("library.push", "library", "LibraryPushPort")
@@ -279,7 +278,7 @@ BUILTIN_EXTENSIONS: tuple[tuple[str, Callable[[Extension], None]], ...] = (
     ("email", email.register),
     ("search", search.register),
     ("llm", llm.register),
-    ("decider", register_decider),
+    ("decider", decider.register),
     ("stt", register_stt),
     ("transcript", register_transcript),
     ("library", register_library),

@@ -14,10 +14,10 @@ import json
 import pytest
 
 from culture_rules.engine.runs import RUNS_COLLECTION
+from culture_rules.extensions.decider.port import DeciderAssessPort
 from culture_rules.io.exchange import read_bundle
 from culture_rules.model.validate import validate
 from culture_rules.model.workflow import Workflow
-from culture_rules.node.actions.decider import DeciderAssessPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
 from culture_rules.node.runner import NoopAction

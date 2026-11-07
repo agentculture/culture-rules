@@ -196,16 +196,6 @@ _KINDS = (
     ),
     kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
     kind(
-        "decider.assess",
-        "Ask the mesh's decider for probabilities over the options a step defines (no text)",
-        actor=REQ_STR,
-        state=REQ_STR,
-        questions=ParamSpec(
-            "dict", True
-        ),  # {key: {type: choice|noul|score, instructions, criteria}}
-        not_after=STR,  # ISO-8601: past it the work fails decider_deadline instead of queueing
-    ),
-    kind(
         "audio.transcribe",
         "Transcribe an audio file with a speech-to-text endpoint on an agent actor",
         actor=REQ_STR,
