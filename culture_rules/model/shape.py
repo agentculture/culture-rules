@@ -6,23 +6,27 @@ root). The spec is plain JSON-able data (dicts, lists, strings, numbers, boolean
 live in step configuration. Nothing here names a flow: callers bring the spec.
 
 A spec is an object with a ``type`` and the keys that type takes. Every type also takes
-``required`` (bool; a missing object field is refused) and ``default`` (used when the value is
-missing or, at the root, ``None``; it is validated against its own spec).
+``required`` (bool; a missing object field is refused), ``default`` (used when the value is
+missing or ``None``; it is validated against its own spec) and ``nullable`` (bool; a ``None``
+that no default replaced is kept as ``None`` instead of being refused, so ``default: null``
+with ``nullable: true`` makes a field optional with no value).
 
 ========  ==============================================================================
 type      keys
 ========  ==============================================================================
 text      ``strip``, ``lower`` (bool, off unless set), ``min_chars``, ``max_chars``,
-          ``pattern`` (searched; screened by ``regex_safety``), ``enum``
+          ``pattern`` (searched; screened by ``regex_safety``), ``forbid`` (a list of
+          patterns, none of which may be found; each screened too), ``enum``
 word      as ``text``, and the result must be one token with no whitespace
 lines     text split on line breaks, each line stripped, empty lines dropped; ``min`` and
-          ``max`` count lines; ``lower``, ``min_chars``, ``max_chars``, ``pattern`` apply per
-          line; the result is a list of strings
+          ``max`` count lines; ``lower``, ``min_chars``, ``max_chars``, ``pattern``, ``forbid``
+          apply per line; the result is a list of strings
 int       ``min``, ``max`` (values), ``enum``; a bool or a float is not an int
 bool      (none)
 list      ``items`` (a spec for each item; absent = any value), ``min_items``, ``max_items``
 object    ``fields`` (name to spec); ``extra``: ``"refuse"`` (the default) refuses a key not
-          in ``fields``, ``"drop"`` leaves it out of the result
+          in ``fields``, ``"drop"`` leaves it out of the result; ``ignore`` (a list of key
+          names) lets those keys be present but leaves them out, even under ``"refuse"``
 ========  ==============================================================================
 
 Normalisation happens only when the spec asks for it (``strip``, ``lower``, the line split of
@@ -40,18 +44,18 @@ from culture_rules.model.regex_safety import unsafe_reason
 
 __all__ = ["ShapeError", "ShapeSpecError", "validate"]
 
-_COMMON = frozenset({"type", "required", "default"})
-_TEXT_KEYS = frozenset({"strip", "lower", "min_chars", "max_chars", "pattern", "enum"})
+_COMMON = frozenset({"type", "required", "default", "nullable"})
+_TEXT_KEYS = frozenset({"strip", "lower", "min_chars", "max_chars", "pattern", "forbid", "enum"})
 _KEYS: dict[str, frozenset[str]] = {
     "text": _COMMON | _TEXT_KEYS,
     "word": _COMMON | _TEXT_KEYS,
-    "lines": _COMMON | {"lower", "min_chars", "max_chars", "pattern", "min", "max"},
+    "lines": _COMMON | {"lower", "min_chars", "max_chars", "pattern", "forbid", "min", "max"},
     "int": _COMMON | {"min", "max", "enum"},
     "bool": _COMMON,
     "list": _COMMON | {"items", "min_items", "max_items"},
-    "object": _COMMON | {"fields", "extra"},
+    "object": _COMMON | {"fields", "extra", "ignore"},
 }
-_FLAGS = ("required", "strip", "lower")
+_FLAGS = ("required", "strip", "lower", "nullable")
 _BOUNDS = ("min_chars", "max_chars", "min_items", "max_items")
 _PAIRS = (("min", "max"), ("min_chars", "max_chars"), ("min_items", "max_items"))
 _EXTRA = ("refuse", "drop")
@@ -145,8 +149,18 @@ def _check_options(spec: dict[str, Any], bad: Any) -> None:
         raise bad("enum must be a non-empty list")
     if "pattern" in spec:
         _check_pattern(spec["pattern"], bad)
+    if "forbid" in spec:
+        patterns = spec["forbid"]
+        if not (isinstance(patterns, list) and patterns):
+            raise bad("forbid must be a non-empty list of patterns")
+        for pattern in patterns:
+            _check_pattern(pattern, bad)
     if "extra" in spec and spec["extra"] not in _EXTRA:
         raise bad("extra must be refuse or drop")
+    if "ignore" in spec and not (
+        isinstance(spec["ignore"], list) and all(isinstance(k, str) for k in spec["ignore"])
+    ):
+        raise bad("ignore must be a list of key names")
 
 
 def _check_children(spec: dict[str, Any], kind: str, where: str, bad: Any) -> None:
@@ -190,6 +204,9 @@ def _text(value: Any, spec: dict[str, Any], path: str, *, word: bool = False) ->
         raise ShapeError(path, f"must be at most {spec['max_chars']} characters")
     if "pattern" in spec and not re.search(spec["pattern"], value):
         raise ShapeError(path, "does not match the required pattern")
+    for pattern in spec.get("forbid", ()):
+        if re.search(pattern, value):
+            raise ShapeError(path, "matches a forbidden pattern")
     _enum(value, spec, path)
     return value
 
@@ -208,7 +225,9 @@ def _lines(value: Any, spec: dict[str, Any], path: str) -> list[str]:
     if "max" in spec and len(lines) > spec["max"]:
         raise ShapeError(path, f"must have at most {spec['max']} lines")
     line_spec = {
-        k: v for k, v in spec.items() if k in ("lower", "min_chars", "max_chars", "pattern")
+        k: v
+        for k, v in spec.items()
+        if k in ("lower", "min_chars", "max_chars", "pattern", "forbid")
     }
     return [_text(ln, line_spec, f"{path}[{i}]") for i, ln in enumerate(lines)]
 
@@ -241,9 +260,10 @@ def _object(value: Any, spec: dict[str, Any], path: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ShapeError(path, "must be an object")
     fields = spec["fields"]
+    ignored = spec.get("ignore", ())
     if spec.get("extra", "refuse") == "refuse":
         for key in value:
-            if key not in fields:
+            if key not in fields and key not in ignored:
                 raise ShapeError(_join(path, str(key)), "is not allowed")
     out: dict[str, Any] = {}
     for name, sub in fields.items():
@@ -261,6 +281,8 @@ def _run(value: Any, spec: dict[str, Any], path: str) -> Any:
     kind = spec["type"]
     if value is None and "default" in spec:
         value = copy.deepcopy(spec["default"])
+    if value is None and spec.get("nullable"):
+        return None
     if kind == "text":
         return _text(value, spec, path)
     if kind == "word":
