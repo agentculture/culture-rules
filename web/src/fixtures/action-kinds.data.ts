@@ -942,7 +942,7 @@ export const ACTION_KINDS_DATA: unknown = {
           "type": "any",
           "required": false,
           "label": "",
-          "widget": "",
+          "widget": "multiline",
           "choices": [],
           "options_from": "",
           "choose": "",

@@ -28,7 +28,7 @@ KINDS = (
         ),
         url=REQ_STR,
         headers=ParamSpec("dict"),
-        body=ParamSpec("any"),
+        body=ParamSpec("any", widget="multiline"),
         save_to=STR,  # an absolute dir the actor's http.save_roots lists: stream the body there
     ),
 )

@@ -179,3 +179,26 @@ def test_the_command_args_widget_names_its_command_param(world):
         if p["args_for"]
     }
     assert args_for == {("machine.command", "args"): "command"}
+
+
+# The old editor showed these params multiline (its MULTILINE set: body, text, html,
+# content, state); the served catalogue must keep every one of them multiline.
+_OLD_MULTILINE = {
+    ("message", "text"),
+    ("discord.message", "text"),
+    ("discord.reply", "text"),
+    ("github.comment", "body"),
+    ("jira.comment", "body"),
+    ("http.call", "body"),
+    ("email.send", "html"),
+    ("email.send", "text"),
+    ("llm.complete", "content"),
+    ("decider.assess", "state"),
+}
+
+
+@pytest.mark.parametrize(("kind", "param"), sorted(_OLD_MULTILINE))
+def test_params_the_old_editor_showed_multiline_stay_multiline(kind, param):
+    from culture_rules.model.action_kinds import ACTION_KINDS
+
+    assert ACTION_KINDS[kind].params[param].widget == "multiline"

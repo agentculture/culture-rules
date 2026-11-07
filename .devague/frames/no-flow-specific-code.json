@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-06T19:36:25Z",
-  "updated": "2026-11-07T08:39:56Z",
+  "updated": "2026-11-07T09:42:41Z",
   "claims": [
     {
       "id": "c1",
@@ -719,6 +719,17 @@
       "skipped_check": "full suite, web checks, KINDS review before handback",
       "refs": [
         "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l10",
+      "code": "assumption-for-measurement",
+      "what": "d8 agent first documented that re-enabling a rule whose variable was deleted is refused, without reading the code (set_enabled/restore only check node capability); corrected before commit",
+      "skipped_check": "",
+      "refs": [
+        "d8"
       ],
       "origin": "llm",
       "status": "proposed"
