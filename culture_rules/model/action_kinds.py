@@ -196,16 +196,6 @@ _KINDS = (
     ),
     kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
     kind(
-        "audio.transcribe",
-        "Transcribe an audio file with a speech-to-text endpoint on an agent actor",
-        actor=REQ_STR,
-        audio_path=REQ_STR,
-        audio_sha256=STR,  # optional: without it the port hashes the file itself
-        output_dir=REQ_STR,
-        language=STR,
-        model=STR,
-    ),
-    kind(
         "transcript.render",
         "Render one transcript and its summary as an EPUB or Markdown (right to left for Hebrew)",
         actor=STR,  # optional: its transcripts_root/output_root is a second boundary

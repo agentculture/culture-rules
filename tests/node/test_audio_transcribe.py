@@ -23,8 +23,8 @@ from pathlib import Path
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions import stt
-from culture_rules.node.actions.stt import AudioTranscribePort, check_stt_actor, urllib_transport
+from culture_rules.extensions.stt import port as stt
+from culture_rules.extensions.stt.port import AudioTranscribePort, check_stt_actor, urllib_transport
 from culture_rules.node.actions.transcript_file import WorkDir, read_existing, result_path
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.memory import MemoryStore

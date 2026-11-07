@@ -29,7 +29,7 @@ secret):
 5. an existing ``<output_dir>/<audio_sha256>/transcript.<model-slug>.json`` whose
    ``audio_sha256`` and ``model`` match is returned as is: no request, no ffmpeg run;
 6. the file is probed, its silences found and its windows planned
-   (:mod:`~culture_rules.node.actions.audio_split`, at most 480 s each);
+   (:mod:`~culture_rules.extensions.stt.audio_split`, at most 480 s each);
 7. each window whose reply is not already in the work directory
    (:class:`~culture_rules.node.actions.transcript_file.WorkDir`) is extracted as 16 kHz
    mono WAV into a temporary directory and POSTed as multipart (``file`` =
@@ -71,8 +71,9 @@ from typing import Any
 
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
+from culture_rules.extensions.stt import audio_split
 from culture_rules.model.actor import Actor
-from culture_rules.node.actions import audio_split, transcript_file
+from culture_rules.node.actions import transcript_file
 from culture_rules.node.actions._actor import load_bound_actor
 from culture_rules.node.actions._endpoint import (
     INVALID,
