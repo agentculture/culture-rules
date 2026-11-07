@@ -2,7 +2,7 @@
   "plan_slug": "no-flow-specific-code",
   "schema_version": 2,
   "created": "2026-11-06T20:24:48Z",
-  "updated": "2026-11-07T06:15:18Z",
+  "updated": "2026-11-07T06:44:58Z",
   "deviations": [
     {
       "id": "d1",
@@ -53,6 +53,32 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Restore the GitHub comment event fields as generic integration-surface facts: command (first token /word), mention, mention_command and comment_id on issue_comment and review-comment events, without fixer wording; t2 had removed them with comment_intent",
+      "task_ref": "t2",
+      "reason": "code review of #138: they are generic webhook facts a configured flow can match, not fixer business logic; operator chose restore as generic",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "Remove the dead workflow trust seam in the Boundary release, not R1: trusted.pinned_digest (always None), repoint-actor's workflow_trusted 409 and --force, the MCP/explain text and the editor's UsedBy trusted phase",
+      "task_ref": "t7",
+      "reason": "code review of #138 found the path unreachable since no workflow is pinned; operator chose the Boundary release, which reworks this area",
+      "affects": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
     }
   ],
   "evidence": [],

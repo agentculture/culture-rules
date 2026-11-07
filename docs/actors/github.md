@@ -182,6 +182,14 @@ holds `self_authored`. Each type then adds:
 | `github.pr.checks_settled` | `head_sha`, `head_branch`, `pr_numbers`, `number`, `settled_by`, `conclusion`, `failed_apps` (d25: app slugs whose suites concluded `failure`) and the PR facts |
 | `github.pr.checks_failed_late` | d25: a counted app's suite concluded `failure` after its head settled. The settled event's data, with `failed_apps` grown by the app, `late_app`, `conclusion: failure` and `settled_by: late`; once per (repo, head SHA, app) |
 
+A comment, review or review comment also carries what its **first token**
+asks for, each field left out when absent: `command` (a `/word` at the start,
+lowercased, e.g. `/deploy`), `mention` (`@<slug>` when it starts with the
+App's mention, from `self_identity` without `[bot]`) and `mention_command`
+(`@<slug> <word>` when a word follows the mention). Nothing later in the body
+counts. A comment and a review comment also carry `comment_id`. Which
+commands mean anything is the rule's condition, never code.
+
 The **PR facts** have the same names on every PR-scoped type, so the rules
 share one condition shape and the workflow gets the same inputs
 whichever rule fired:
