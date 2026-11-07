@@ -12,6 +12,8 @@ with an :class:`Extension` handle, through which it adds:
   check);
 * **built-in code steps** - ``name -> factory(store)``, served to a ``code`` step with no
   actor whose ``config.builtin`` names it (``action`` is reserved: the executor routes it);
+  its ``label`` and typed ``inputs``/``outputs`` (:class:`BuiltinPortSpec` each) are data the
+  API serves as the builtin catalogue (``GET /steps/builtins``), so an editor keeps no table;
 * **event types** - the dotted types the extension's surface emits;
 * **webhook routes** - ``POST /hooks/<name> -> factory(store)`` returning a FastAPI router;
   the API mounts it outside the OpenAPI contract and lets it through without a principal
@@ -77,6 +79,7 @@ __all__ = [
     "ApiContext",
     "ApiRoutesEntry",
     "BuiltinEntry",
+    "BuiltinPortSpec",
     "EventReservationEntry",
     "EventTypeEntry",
     "Extension",
@@ -85,6 +88,7 @@ __all__ = [
     "KindEntry",
     "Lazy",
     "NodeContext",
+    "PORT_TYPES",
     "NodeListenerEntry",
     "ParamsValidatorEntry",
     "Problem",
@@ -110,6 +114,8 @@ RESERVED_HEALTH_SECTIONS = frozenset(
 #: The API's roles, lowest first (``auth.policy``).
 ROLES = ("viewer", "editor", "admin")
 _METHODS = frozenset({"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"})
+#: A workflow port's types (``model.workflow.PORT_TYPES``; a test pins the two together).
+PORT_TYPES = ("string", "number", "integer", "boolean", "object", "array", "any")
 _TEMPLATE_RE = re.compile(r"^(/([A-Za-z0-9._~-]+|\{[A-Za-z_][A-Za-z0-9_]*\}))+$")
 
 Factory = Callable[[Any], Any]
@@ -179,11 +185,31 @@ class ActionPortEntry:
 
 
 @dataclass(frozen=True)
+class BuiltinPortSpec:
+    """One typed port a built-in takes or gives, as an editor pre-fills it."""
+
+    name: str
+    type: str = "string"
+    required: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "type": self.type, "required": self.required}
+
+
+@dataclass(frozen=True)
 class BuiltinEntry:
     name: str
     factory: Factory
     extension: str
     phrase: str = ""
+    label: str = ""
+    inputs: tuple[BuiltinPortSpec, ...] = ()
+    outputs: tuple[BuiltinPortSpec, ...] = ()
+
+    @property
+    def shown_label(self) -> str:
+        """How a picker names it: its label, else its phrase, else its name."""
+        return self.label or self.phrase or self.name
 
 
 @dataclass(frozen=True)
@@ -297,6 +323,29 @@ def _words(words: Iterable[Any]) -> tuple[tuple[Any, ...], ...]:
     return tuple(out)
 
 
+def _ports(ports: Iterable[Any], what: str) -> tuple[BuiltinPortSpec, ...]:
+    """Ports as specs: each a :class:`BuiltinPortSpec` or ``(name[, type[, required]])``,
+    names unique."""
+    if isinstance(ports, (str, bytes)):
+        raise ExtensionError(f"builtin {what} must be a list of ports, not {ports!r}")
+    out: list[BuiltinPortSpec] = []
+    for port in ports:
+        if not isinstance(port, BuiltinPortSpec):
+            parts = tuple(port) if isinstance(port, (list, tuple)) else (port,)
+            if not 1 <= len(parts) <= 3:
+                raise ExtensionError(f"builtin port {port!r} must be (name[, type[, required]])")
+            port = BuiltinPortSpec(*parts)
+        _name(port.name, f"builtin {what} port name")
+        if port.type not in PORT_TYPES:
+            raise ExtensionError(f"builtin port type {port.type!r} is not one of {PORT_TYPES}")
+        if not isinstance(port.required, bool):
+            raise ExtensionError(f"builtin port required must be a bool, not {port.required!r}")
+        out.append(port)
+    if len({p.name for p in out}) != len(out):
+        raise ExtensionError(f"builtin {what} port names must be unique")
+    return tuple(out)
+
+
 def _roles(roles: Iterable[Any]) -> tuple[tuple[str, str, str], ...]:
     out = []
     for role in roles:
@@ -345,14 +394,35 @@ class Extension:
         entry = ActionPortEntry(_name(kind, "kind"), factory, self.name, needs_module, extra)
         self._registry._add("ports", entry.kind, entry, "action port")
 
-    def builtin(self, name: str, factory: Factory, *, phrase: str = "") -> None:
+    def builtin(
+        self,
+        name: str,
+        factory: Factory,
+        *,
+        phrase: str = "",
+        label: str = "",
+        inputs: Iterable[Any] = (),
+        outputs: Iterable[Any] = (),
+    ) -> None:
         """Serve the built-in code step ``name`` with ``factory(store)``; ``phrase`` is what
-        ``model.describe`` says for it (empty: ``builtin <name>``)."""
+        ``model.describe`` says for it (empty: ``builtin <name>``), ``label`` how a picker
+        names it (empty: the phrase), and ``inputs``/``outputs`` the typed ports an editor
+        pre-fills, each a :class:`BuiltinPortSpec` or ``(name[, type[, required]])`` (empty:
+        none declared)."""
         if _name(name, "builtin name") in RESERVED_BUILTINS:
             raise ExtensionError(f"builtin {name!r} is reserved by core")
-        if not isinstance(phrase, str):
-            raise ExtensionError(f"builtin phrase must be a string, not {phrase!r}")
-        entry = BuiltinEntry(name, factory, self.name, phrase)
+        for value, what in ((phrase, "phrase"), (label, "label")):
+            if not isinstance(value, str):
+                raise ExtensionError(f"builtin {what} must be a string, not {value!r}")
+        entry = BuiltinEntry(
+            name,
+            factory,
+            self.name,
+            phrase,
+            label,
+            _ports(inputs, "inputs"),
+            _ports(outputs, "outputs"),
+        )
         self._registry._add("builtins", name, entry, "builtin")
 
     def event_type(self, name: str, *, summary: str = "") -> None:

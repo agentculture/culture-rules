@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] - 2026-11-07
+
+### Added
+
+- Registry seams for the app knowledge left in core (d9): `ext.params_validator` (a kind's own save-time checks), `ext.trigger_filter` (match, validate and describe for `<namespace>.*` events), `ext.action_phrases` and `ext.builtin(..., phrase=)` (what describe says), `ext.health_section`, `ext.event_reservation` (types and id prefixes only the engine writes) and `ext.api_routes(..., roles=)` (the role each route needs, read by the auth policy); github.comment's status check, the discord.* trigger filters, the Discord gateways health section, GitHub's reserved event types and the Discord targets route role move to their extensions
+- A boundary literal check: `tests/test_extension_boundary.py` fails when a core string literal (docstrings aside) spells an app's kind, built-in, collection or event namespace outside the pinned `APP_LITERALS_ALLOWED` pairs, and a fake extension reaches every d9 seam
+- Generic builtin `json.parse`: JSON text parsed and checked against a shape from step config (`bad_params`, `not_json`, `shape_invalid` naming the failing field path)
+- Shape rules: every type takes `nullable`, `text`/`word`/`lines` take `forbid` (patterns none may match, each screened for regex safety), `object` takes `ignore` (keys allowed but left out)
+- Generic builtins `text.join` (scalars joined by a separator), `time.add` (an exact elapsed duration on the UTC timeline) and `date.local` (an instant as local time in an IANA zone by a strftime format)
+- Generic builtin `file.read`: one file's text or JSON (whole or named fields), only under configured roots (symlinks resolved first), with a size cap
+- Generic builtin `list.filter`: keep the items that pass configured rules in a fixed order (http/https host, dedupe by a field, a `where` condition per item, a limit), with a count per rule
+- Condition ops `contains` (case-insensitive substring or membership), `host_suffix` (a host equal to a domain or under it) and `any`/`all` over a list with the `{"item": path}` operand (bounded list length and nesting; no text form), and `evaluate_item`
+- The six building blocks register in core with their describe phrases and typed ports (guide `docs/operations/building-blocks.md`)
+- Describe phrases for the new condition ops, in symbols (`title contains bug`, `host in domain example.com`, `any of links: ...`) and in words (`its host is in the domain example.com`, `for at least one of links, ...`), which the workflow paragraph uses
+- `ext.builtin(..., label=, inputs=, outputs=)`: a builtin declares its picker label and typed ports (`BuiltinPortSpec`); `GET /steps/builtins` (viewer) serves the builtin catalogue from the registry, with CLI `culture-rules steps builtins [NAME]` (exit 2 on an older server) and the MCP tools `steps_builtins` / `steps_overview`; `scripts/export-builtins.py` writes the web tests' snapshot
+
+### Changed
+
+- Core's builtin phrases are registered with each builtin in `register_core`; `describe.BUILTIN_WORDS` reads only the registry
+- The step editor's Built-in picker reads `GET /steps/builtins` (loaded once, with loading and failed states) instead of a hard-coded table; it pre-fills each builtin's declared ports as before and now offers every registered builtin, the six building blocks among them
+- The editor's condition types include `contains`, `host_suffix`, `any`/`all` and the item operand; the Simple and Detailed views, the workflow list's guard and the rules view show them read-only in the words describe says (they are written as JSON)
+
 ## [0.44.0] - 2026-11-07
 
 ### Added

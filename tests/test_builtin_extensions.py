@@ -71,8 +71,11 @@ def _builtin_classes():
     from culture_rules.node.actions import (
         checklist,
         cursor,
+        file_read,
+        json_parse,
         json_read,
         keyset,
+        list_filter,
         markdown_html,
         markdown_render,
         run_read,
@@ -81,6 +84,7 @@ def _builtin_classes():
         text_refs,
         text_steps,
         text_validate,
+        value_steps,
     )
 
     return {
@@ -105,10 +109,16 @@ def _builtin_classes():
         checklist.SET_BUILTIN: checklist.ChecklistSetPort,
         checklist.RENDER_BUILTIN: checklist.ChecklistRenderPort,
         checklist.BIND_BUILTIN: checklist.ChecklistBindPort,
+        json_parse.JSON_PARSE_BUILTIN: json_parse.JsonParsePort,
+        value_steps.TEXT_JOIN_BUILTIN: value_steps.TextJoinPort,
+        value_steps.TIME_ADD_BUILTIN: value_steps.TimeAddPort,
+        value_steps.DATE_LOCAL_BUILTIN: value_steps.DateLocalPort,
+        file_read.FILE_READ_BUILTIN: file_read.FileReadPort,
+        list_filter.LIST_FILTER_BUILTIN: list_filter.ListFilterPort,
     }
 
 
-def test_the_code_port_holds_exactly_the_built_ins_wired_before():
+def test_the_code_port_holds_exactly_the_registered_built_ins():
     builtins = runner.default_ports(MemoryStore(), "spark")["code"]._builtins
     assert {name: type(p) for name, p in builtins.items()} == _builtin_classes()
 
@@ -167,3 +177,43 @@ def test_each_apps_event_types_are_registered_by_that_app(name):
     owned = {t for t, e in registry().event_types().items() if e.extension == name}
     assert owned
     assert all(t.startswith(f"{name}.") for t in owned)
+
+
+R2A_BUILDING_BLOCKS = (
+    "json.parse",
+    "text.join",
+    "time.add",
+    "date.local",
+    "file.read",
+    "list.filter",
+)
+
+
+@pytest.mark.parametrize("name", R2A_BUILDING_BLOCKS)
+def test_each_building_block_is_core_s(name):
+    owners = {b.name: b.extension for b in registry().builtins()}
+    assert owners[name] == "core"
+
+
+@pytest.mark.parametrize("name", R2A_BUILDING_BLOCKS)
+def test_each_building_block_has_a_phrase_that_starts_with_its_name(name):
+    assert registry().builtin_phrases()[name].startswith(f"{name}: ")
+
+
+@pytest.mark.parametrize("name", R2A_BUILDING_BLOCKS)
+def test_each_building_block_declares_its_ports(name):
+    entry = next(b for b in registry().builtins() if b.name == name)
+    assert entry.inputs
+    assert entry.outputs
+
+
+def test_every_core_built_in_brings_its_phrase():
+    core = {b.name for b in registry().builtins() if b.extension == "core"}
+    assert core <= set(registry().builtin_phrases())
+
+
+def test_the_registry_port_types_are_the_workflow_port_types():
+    from culture_rules.extensions.registry import PORT_TYPES
+    from culture_rules.model.workflow import PORT_TYPES as WORKFLOW_PORT_TYPES
+
+    assert PORT_TYPES == WORKFLOW_PORT_TYPES

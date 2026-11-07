@@ -197,6 +197,12 @@ def register(ext: Extension) -> None:
         "attachment.fetch",
         Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"),
         phrase=ATTACHMENT_FETCH_PHRASE,
+        inputs=(
+            ("attachments", "array"),
+            ("output_root", "string", False),
+            ("retention_days", "integer", False),
+        ),
+        outputs=(("items", "array"), ("fetched", "integer"), ("skipped", "integer")),
     )
     for event in EVENT_TYPES:
         ext.event_type(event)

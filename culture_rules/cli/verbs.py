@@ -14,6 +14,7 @@ from culture_rules.cli._commands import (
     rollout,
     rules,
     runs,
+    steps,
     variables,
     workflows,
 )
@@ -22,5 +23,16 @@ from culture_rules.cli.registry import Registry
 __all__ = ["REGISTRY"]
 
 REGISTRY = Registry()
-for _module in (rules, workflows, actors, actions, machines, runs, variables, keysets, rollout):
+for _module in (
+    rules,
+    workflows,
+    actors,
+    actions,
+    steps,
+    machines,
+    runs,
+    variables,
+    keysets,
+    rollout,
+):
     REGISTRY.extend(_module.VERBS)

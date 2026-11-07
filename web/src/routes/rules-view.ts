@@ -1,3 +1,4 @@
+import { isItemCondition, itemConditionOperands, itemConditionWords, itemWords } from "../api/conditionWords";
 import type { Action, Condition, Operand, Rule, WorkflowRef } from "../api/types";
 import type { StageKind } from "../culture-design/stages";
 
@@ -56,6 +57,7 @@ export interface ConditionText {
 function operandText(op: Operand): string {
   if ("var" in op) return op.var;
   if ("field" in op) return `trigger.${op.field}`;
+  if ("item" in op) return itemWords(op.item);
   return typeof op.literal === "string" ? op.literal : JSON.stringify(op.literal);
 }
 
@@ -82,7 +84,14 @@ export function conditionText(c: Condition): ConditionText {
   if (c.op === "and" || c.op === "or") {
     return { subject: null, rest: `${c.args.length} conditions, ${c.op === "and" ? "all" : "any"} must hold` };
   }
+  if (isItemCondition(c)) return { subject: null, rest: itemConditionWords(c, operandText, conditionLine) };
   return { subject: null, rest: "not …" };
+}
+
+/** A condition as one line of words (its subject, then the rest). */
+function conditionLine(c: Condition): string {
+  const t = conditionText(c);
+  return t.subject ? `${t.subject} ${t.rest}` : t.rest;
 }
 
 /** `4m`, `1h`, `yesterday`, `3d` — the board's 'Last runs' column. */
@@ -123,6 +132,9 @@ function conditionVars(c: Condition, into: Set<string>) {
     case "matches":
       operandVars(c.value, into);
       break;
+    default:
+      itemConditionOperands(c).forEach((o) => operandVars(o, into));
+      if (c.op === "any" || c.op === "all") conditionVars(c.where, into);
   }
 }
 

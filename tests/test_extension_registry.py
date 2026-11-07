@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from culture_rules.extensions import ApiContext, ExtensionError, Lazy, Registry
+from culture_rules.extensions import ApiContext, BuiltinPortSpec, ExtensionError, Lazy, Registry
 from culture_rules.model.action_kinds import ActionKind, ParamSpec, kind
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -487,3 +487,76 @@ def test_a_refused_install_rolls_the_d9_entries_back():
     with pytest.raises(ExtensionError):
         reg.install("rival", half)
     assert [s.name for s in reg.health_sections()] == ["rooms"]
+
+
+# ------------------------------------------------------------------ builtin catalogue data
+
+
+def acme_ports(ext):
+    ext.builtin(
+        "acme.count",
+        router_factory,
+        phrase="acme.count: count the things",
+        inputs=(("things", "array"), BuiltinPortSpec("limit", "integer", False)),
+        outputs=[("count", "integer")],
+    )
+
+
+def test_a_builtins_ports_read_back_as_specs():
+    reg = Registry()
+    reg.install("acme", acme_ports)
+    (entry,) = reg.builtins()
+    assert entry.inputs == (
+        BuiltinPortSpec("things", "array", True),
+        BuiltinPortSpec("limit", "integer", False),
+    )
+
+
+def test_a_port_given_by_name_alone_is_a_required_string():
+    reg = Registry()
+    reg.install("acme", lambda ext: ext.builtin("acme.x", router_factory, outputs=["text"]))
+    assert reg.builtins()[0].outputs == (BuiltinPortSpec("text", "string", True),)
+
+
+def test_a_builtins_label_falls_back_to_its_phrase():
+    reg = Registry()
+    reg.install("acme", acme_ports)
+    assert reg.builtins()[0].shown_label == "acme.count: count the things"
+
+
+def test_a_builtin_without_phrase_or_label_is_shown_by_name():
+    reg = Registry()
+    reg.install("acme", lambda ext: ext.builtin("acme.x", router_factory))
+    assert reg.builtins()[0].shown_label == "acme.x"
+
+
+def test_a_registered_label_wins_over_the_phrase():
+    reg = Registry()
+    reg.install(
+        "acme", lambda ext: ext.builtin("acme.x", router_factory, phrase="long", label="short")
+    )
+    assert reg.builtins()[0].shown_label == "short"
+
+
+@pytest.mark.parametrize(
+    "inputs",
+    [
+        "things",
+        [("things", "list")],
+        [("things", "array", "yes")],
+        [("a",), ("a",)],
+        [("",)],
+        [("a", "string", True, "extra")],
+    ],
+    ids=["a-string", "unknown-type", "required-not-bool", "duplicate", "empty-name", "four"],
+)
+def test_a_malformed_builtin_port_is_refused(inputs):
+    reg = Registry()
+    with pytest.raises(ExtensionError):
+        reg.install("bad", lambda ext: ext.builtin("bad.x", router_factory, inputs=inputs))
+
+
+def test_a_non_string_builtin_label_is_refused():
+    reg = Registry()
+    with pytest.raises(ExtensionError):
+        reg.install("bad", lambda ext: ext.builtin("bad.x", router_factory, label=3))

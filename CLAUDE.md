@@ -29,7 +29,7 @@ plan. What exists today:
   contract is pinned in `api/openapi.json`. Auth is Cloudflare Access on a
   loopback listener, service tokens on a LAN listener, and roles.
 - **The CLI** over the API: the noun groups `rules`, `workflows`, `actors`,
-  `actions`, `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
+  `actions`, `steps`, `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
   identity verbs. Writes are dry-run by default, `--apply` commits. The model
   verbs are `actors enrol-models|references|disable` and `workflows
   repoint-actor` (below).
@@ -373,8 +373,9 @@ Settled constraints that shape the architecture:
     words (the `discord.*` filters, `extensions/discord/filters.py`);
   - `ext.action_phrases(kind, words=, after=)` and `ext.builtin(...,
     phrase=)`: what describe says for an app's kind or built-in;
-    `describe.py` keeps core's words, and `ACTION_WORDS`/`BUILTIN_WORDS` are
-    live views over both;
+    `describe.py` keeps core's action words, every built-in (core's
+    included) brings its phrase, and `ACTION_WORDS`/`BUILTIN_WORDS` are live
+    views;
   - `ext.health_section(name, provider, empty=)`: a key of the health
     document after `hooks` (Discord's `gateways`);
   - `ext.event_reservation(name, check)`: types and id prefixes only the
@@ -412,6 +413,23 @@ Settled constraints that shape the architecture:
   per-kind shim (the blank action is the catalogue's first kind); the
   web tests' snapshot is `web/src/fixtures/action-kinds.data.ts`
   (`python3 scripts/export-action-kinds.py --write`).
+- **The building blocks and the builtin catalogue** (R2a of the no-flow-code
+  plan, guide `docs/operations/building-blocks.md`):
+  - generic builtins in core, every format, root, shape and rule step
+    config: `json.parse` (JSON text checked against a shape; shapes gained
+    `nullable`, `forbid` and `ignore`), `text.join`, `time.add` (exact
+    elapsed time, UTC), `date.local` (an instant in an IANA zone by a
+    `strftime` format), `file.read` (text or JSON under configured roots)
+    and `list.filter` (host, dedupe, `where` and limit, counts per rule);
+  - condition ops `contains`, `host_suffix` and `any`/`all` with the
+    `{"item": path}` operand (no CEL text form); describe says them in
+    words, and the editor shows them read-only in the same words;
+  - `ext.builtin(..., label=, inputs=, outputs=)` declares a builtin's
+    picker label and typed ports; `GET /steps/builtins` (viewer) serves them,
+    CLI `steps builtins`, MCP tool `steps_builtins`; the step editor's
+    Built-in picker reads it (`web/src/api/builtins.ts`) and keeps no table;
+    the web tests' snapshot is `web/src/fixtures/builtins.data.ts`
+    (`python3 scripts/export-builtins.py --write`).
 - **A variable can be deleted** (admin): `DELETE /variables/{name}`, CLI
   `variables delete NAME [--apply]`, MCP tool `variables_delete`. It is a dry
   run unless applied and is refused with 409 `variable_in_use` while a live,

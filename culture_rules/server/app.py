@@ -48,6 +48,7 @@ from culture_rules.events.ingest import QUARANTINE_COLLECTION, ensure_quarantine
 from culture_rules.extensions import ApiContext, WebhookRouteEntry, registry
 from culture_rules.model import describe
 from culture_rules.model.action_kinds import describe_kinds
+from culture_rules.model.builtin_steps import describe_builtins
 from culture_rules.model.paragraph import workflow_paragraph
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
@@ -499,6 +500,30 @@ class ActionKindList(BaseModel):
     items: list[ActionKindItem] = Field(description="the registered kinds, in catalogue order")
 
 
+class BuiltinPort(BaseModel):
+    name: str
+    type: str = Field(
+        description="a workflow port type: string | number | integer | boolean | "
+        "object | array | any"
+    )
+    required: bool
+
+
+class BuiltinItem(BaseModel):
+    name: str = Field(description="what a code step's config.builtin names")
+    label: str = Field(description="how a picker names it (its describe phrase when none)")
+    inputs: list[BuiltinPort] = Field(
+        description="the typed ports it takes, in order; empty: none declared"
+    )
+    outputs: list[BuiltinPort] = Field(
+        description="the typed ports it gives, in order; empty: none declared"
+    )
+
+
+class BuiltinList(BaseModel):
+    items: list[BuiltinItem] = Field(description="the registered builtins, in registration order")
+
+
 class KeysetSummary(BaseModel):
     set: str = Field(description="the set's name")
     keys: int = Field(description="how many live keys it holds")
@@ -892,6 +917,7 @@ def create_app(
     _register_migrations(app, store, defs)
     _register_variables(app, Variables(store, audit))
     _register_actions(app)
+    _register_steps(app)
     _register_keysets(app, Keysets(store, audit=audit))
     _register_rollouts(app, Rollouts(store, audit))
     for kind in DEFINITION_KINDS:
@@ -1312,6 +1338,21 @@ def _register_actions(app: FastAPI) -> None:
         """Every registered action kind, in catalogue order, with its typed params and the
         hints an editor needs to build its picker (the editor keeps no table of its own)."""
         return {"items": describe_kinds()}
+
+
+def _register_steps(app: FastAPI) -> None:
+    """The builtin catalogue, read from the extension registry (viewer, like other reads)."""
+
+    @app.get(
+        "/steps/builtins",
+        response_model=BuiltinList,
+        tags=["steps"],
+        operation_id="list_builtins",
+    )
+    def list_builtins():
+        """Every registered built-in code step, in registration order, with the label and
+        typed ports an editor pre-fills (the editor keeps no table of its own)."""
+        return {"items": describe_builtins()}
 
 
 def _register_keysets(app: FastAPI, sets: Keysets) -> None:

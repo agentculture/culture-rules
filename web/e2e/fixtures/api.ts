@@ -11,6 +11,7 @@ import {
   runsFor,
 } from "../../src/fixtures/rules-fixture";
 import { ACTION_CATALOGUE } from "../../src/fixtures/action-catalogue";
+import { BUILTIN_CATALOGUE } from "../../src/fixtures/builtin-catalogue";
 
 /**
  * Serve the culture-rules API (api/openapi.json shapes) by request
@@ -31,6 +32,7 @@ export async function mockApi(
     "/api/machines": { items: MACHINES },
     "/api/actors": { items: ACTORS },
     "/api/actions/kinds": ACTION_CATALOGUE,
+    "/api/steps/builtins": BUILTIN_CATALOGUE,
     "/api/workflows": { items: WORKFLOWS },
     "/api/runs": { items: runsFor(now) },
     "/api/variables": { items: VARIABLES },
