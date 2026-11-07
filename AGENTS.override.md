@@ -42,7 +42,7 @@ editing) is built on `rules/second-mile`, spec
 `docs/specs/2026-10-03-culture-rules-second-mile.md`.** guildmaster provisioned the
 repo from `culture-agent-template`, and the build followed the devague plan.
 The engine, HTTP API (contract pinned in `api/openapi.json`), node daemon,
-CLI noun groups (`rules`, `workflows`, `actors`, `actions`, `machines`, `runs`, `rollout`, plus
+CLI noun groups (`rules`, `workflows`, `actors`, `actions`, `steps`, `machines`, `runs`, `rollout`, plus
 `serve`, `node` and `mcp`), MCP server, web editor and ops docs
 (`docs/operations/`) exist. `docs/demo.md` is the executed end-to-end
 walkthrough.
@@ -156,6 +156,18 @@ kinds`, MCP tool `actions_kinds`), and the editor's action picker is built from 
 extension's kind needs no editor change. The editor keeps no per-kind shim: the Actors tab
 offers the kinds marked `declarable_by_apps`, a legacy form is shown through `shown_as`, and
 the command widgets pair through `args_for`.
+
+**The building blocks and the builtin catalogue** (guide `docs/operations/building-blocks.md`).
+Generic builtins in core take every format, root, shape and rule as step config: `json.parse`
+(JSON text checked against a shape; shapes gained `nullable`, `forbid` and `ignore`),
+`text.join`, `time.add`, `date.local`, `file.read` (text or JSON under configured roots) and
+`list.filter` (host, dedupe, `where` and limit). The condition ops `contains`, `host_suffix`
+and `any`/`all` (with the `{"item": path}` operand) read in words in describe and in the
+editor. `ext.builtin(..., label=, inputs=, outputs=)` declares a builtin's label and typed
+ports; the API serves them (`GET /steps/builtins`, viewer; CLI `steps builtins`, MCP tool
+`steps_builtins`), and the step editor's Built-in picker is built from it, keeping no table. `json.parse`'s
+shape is config only, `host_suffix` compares ASCII hosts only, and every condition evaluation
+has a step budget (`budget_exceeded` fails it closed).
 
 **Deleting a variable.** `variables delete NAME [--apply]` (admin; `DELETE
 /variables/{name}`, MCP tool `variables_delete`) is a dry run unless applied and is refused
@@ -280,6 +292,8 @@ culture_rules/   library + agent-first CLI (CLI cited from teken's python-cli)
   store/ io/ auth/        MongoDB + memory stores, export/import, access
   server/ node/ mcp/      HTTP API, engine node daemon, MCP server
   extensions/             the registry, and one package per app (its integration code)
+                          (apps register validators, trigger filters, phrases, health
+                          sections, event reservations and route roles there too)
   explain/                markdown catalog for `explain`
 web/                      the React Flow editor (built into culture_rules/web_dist)
 api/openapi.json          the pinned API contract

@@ -8,6 +8,8 @@
 * ``POST /hooks/github`` (:mod:`~culture_rules.extensions.github.hooks`) and the checks
   settler (:mod:`~culture_rules.extensions.github.checks_settle`, a node listener and the
   webhook's settle-on-check), their event types and collections;
+* the event types and id prefixes only the engine writes, reserved at external ingest
+  (:mod:`~culture_rules.extensions.github.events`);
 * :mod:`~culture_rules.extensions.github.public_text`, untrusted text made inert for a public
   comment.
 
@@ -17,16 +19,23 @@ are ``extra_missing``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
-from culture_rules.extensions.registry import Extension, Lazy, NodeContext
+from culture_rules.extensions.github import events
+from culture_rules.extensions.registry import Extension, Lazy, NodeContext, Problem
 from culture_rules.model.action_kinds import ADV, REQ_INT, REQ_STR, REQ_TEXT, ParamSpec, kind
+from culture_rules.model.serde import join
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
+GITHUB_COMMENT = "github.comment"
+GITHUB_MERGE = "github.merge"
+GITHUB_PR = "github.pr"
+
 KINDS = (
     kind(
-        "github.comment",
+        GITHUB_COMMENT,
         "Comment on a GitHub issue or PR",
         label="Comment on GitHub",
         declarable_by_apps=True,
@@ -37,7 +46,7 @@ KINDS = (
         once_key=ADV,  # d25: post at most once per (repo, PR, key), durably
     ),
     kind(
-        "github.merge",
+        GITHUB_MERGE,
         "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
         label="Merge a GitHub PR",
         declarable_by_apps=True,
@@ -48,7 +57,7 @@ KINDS = (
         delete_branch=ParamSpec("bool"),
     ),
     kind(
-        "github.pr",
+        GITHUB_PR,
         "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
         " as the GitHub App",
         label="Read a GitHub PR",
@@ -71,7 +80,7 @@ EVENT_TYPES = (
     "github.review_comment.created",
     "github.checks.suite_completed",
     "github.checks.workflow_completed",
-    "github.pr.checks_settled",
+    events.CHECKS_SETTLED_TYPE,
 )
 
 _EXTRA = {"needs_module": "cryptography", "extra": "github"}
@@ -140,17 +149,48 @@ def github_collections() -> tuple[str, ...]:
     return (SETTLE_COLLECTION, RECOVERY_COLLECTION, LATE_COLLECTION, ONCE_COLLECTION)
 
 
+def comment_params(params: Mapping[str, Any], path: str) -> list[Problem]:
+    """``github.comment`` keeps no status board since 0.43.0: a ``status`` other than absent
+    or false is refused when saved, as the port refuses it (``bad_input``) when it runs."""
+    if params.get("status") in (None, False):
+        return []
+    return [
+        (
+            join(path, "status"),
+            "action_param_removed",
+            "github.comment has no status comment any more; drop params.status",
+        )
+    ]
+
+
+def comment_guard(params: Mapping[str, Any]) -> list[str]:
+    """``github.comment``'s guard words: once per key."""
+    return ["(once per once_key)"] if params.get("once_key") else []
+
+
+def merge_guard(params: Mapping[str, Any]) -> list[str]:
+    """``github.merge``'s fence: the port runs it only from a click with the button's code."""
+    del params
+    return ["(only on a button click, with the button's one-time code)"]
+
+
 def register(ext: Extension) -> None:
     """GitHub (as a GitHub App, the ``github`` extra): comment, merge and PR facts, the head
     lookup, ``POST /hooks/github``, the checks settler and their event types."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.params_validator(GITHUB_COMMENT, comment_params)
+    ext.action_phrases(GITHUB_COMMENT, after=comment_guard)
+    ext.action_phrases(GITHUB_MERGE, after=merge_guard)
+    ext.action_phrases(GITHUB_PR)
     ext.action_port("github.pr_head", _port("port", "GitHubPrHeadPort"), **_EXTRA)
-    ext.action_port("github.comment", _port("port", "GitHubCommentPort"), **_EXTRA)
-    ext.action_port("github.pr", _port("port", "GitHubPrPort"), **_EXTRA)
-    ext.action_port("github.merge", _port("merge", "GitHubMergePort"), **_EXTRA)
+    ext.action_port(GITHUB_COMMENT, _port("port", "GitHubCommentPort"), **_EXTRA)
+    ext.action_port(GITHUB_PR, _port("port", "GitHubPrPort"), **_EXTRA)
+    ext.action_port(GITHUB_MERGE, _port("merge", "GitHubMergePort"), **_EXTRA)
     for event in EVENT_TYPES:
         ext.event_type(event)
+    ext.event_reservation("github.reaction", events.reaction_reserved)
+    ext.event_reservation("github.settle", events.settle_reserved)
     ext.webhook_route("/hooks/github", github_router)
     ext.node_listener("github.checks_settle", github_checks_settle)
     ext.node_collections(github_collections)

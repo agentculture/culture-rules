@@ -14,21 +14,22 @@ refused as ``not_scalar``).
 Outputs: one per field name, a string, number, bool or ``None`` (null for a missing field). A
 list or object at a requested path fails ``not_scalar`` naming the field. Final (non-retryable)
 failures, all before anything is parsed beyond what is needed: ``bad_params``,
-``path_refused`` (outside the root, missing, not a regular file), ``too_large`` (over 1 MiB,
-checked before reading), ``not_json``, ``not_scalar``. Standard library only.
+``path_refused`` (outside the root, missing, not a regular file, a NUL byte in the
+path, swapped after the check: the read is bound to the checked file as ``file.read``'s
+is), ``too_large`` (over 1 MiB, checked before reading), ``not_json``, ``not_scalar``.
+Standard library only.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Mapping
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.node.actions._paths import PathProblem, read_under
 
 __all__ = ["JSON_READ_BUILTIN", "JsonReadPort", "MAX_BYTES"]
 
@@ -62,29 +63,10 @@ def _fields(value: Any) -> dict[str, list[str]]:
     return out
 
 
-def _resolve(path_value: Any, root_value: Any) -> Path:
-    if not isinstance(root_value, str) or not os.path.isabs(root_value):
-        raise _Refused(_BAD_PARAMS, "root must be an absolute directory")
-    if not isinstance(path_value, str) or not path_value:
-        raise _Refused(_BAD_PARAMS, "path must be a non-empty string")
+def _load(raw: bytes) -> Any:
     try:
-        root = Path(root_value).resolve(strict=True)
-        path = (root / path_value).resolve(strict=True)  # an absolute path_value wins
-    except (OSError, RuntimeError) as exc:
-        raise _Refused(_PATH_REFUSED, "the file or its root does not exist") from exc
-    if not path.is_relative_to(root):
-        raise _Refused(_PATH_REFUSED, "the file is not under the root")
-    if not path.is_file():
-        raise _Refused(_PATH_REFUSED, "the path is not a file")
-    return path
-
-
-def _load(path: Path) -> Any:
-    try:
-        if path.stat().st_size > MAX_BYTES:
-            raise _Refused("too_large", f"the file is over {MAX_BYTES} bytes")
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:
+        return json.loads(raw.decode("utf-8"))
+    except (ValueError, RecursionError) as exc:
         raise _Refused("not_json", "the file is not readable JSON") from exc
 
 
@@ -100,8 +82,11 @@ def _walk(doc: Any, parts: list[str]) -> Any:
 def json_read(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
     """The named fields of the JSON file (module doc), else :class:`_Refused`."""
     fields = _fields(_param(input, config, "fields"))
-    path = _resolve(_param(input, config, "path"), _param(input, config, "root"))
-    doc = _load(path)
+    try:
+        raw = read_under(_param(input, config, "path"), [_param(input, config, "root")], MAX_BYTES)
+    except PathProblem as exc:
+        raise _Refused(exc.code, exc.message) from exc
+    doc = _load(raw)
     out: dict[str, Any] = {}
     for name, parts in fields.items():
         value = _walk(doc, parts)

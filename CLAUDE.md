@@ -29,7 +29,7 @@ plan. What exists today:
   contract is pinned in `api/openapi.json`. Auth is Cloudflare Access on a
   loopback listener, service tokens on a LAN listener, and roles.
 - **The CLI** over the API: the noun groups `rules`, `workflows`, `actors`,
-  `actions`, `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
+  `actions`, `steps`, `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
   identity verbs. Writes are dry-run by default, `--apply` commits. The model
   verbs are `actors enrol-models|references|disable` and `workflows
   repoint-actor` (below).
@@ -202,7 +202,7 @@ plan. What exists today:
     `jetson-bot`); the gateway's delivery id is per actor, and `connection.guild_id`
     is one id or a list (upgrade every node and the API before switching to a list);
   - `discord.*` trigger filters `include_bots`, `channels`, `users`, `roles` (users OR
-    roles; `model/discord_filters.py`); the gateway stores only channels an enabled
+    roles; `extensions/discord/filters.py`); the gateway stores only channels an enabled
     `discord.*` rule selects, and Discord events expire after 30 days;
   - the action kind `discord.read` (one message in full, with attachments) and the
     builtin `markdown.render` (a deterministic page and its `content_base64` for
@@ -358,10 +358,36 @@ Settled constraints that shape the architecture:
 - **Apps plug in through one registry**, `culture_rules/extensions`
   (stdlib only): an extension's `register(ext)` adds action kinds (their
   `ParamSpec`s), action ports, built-in code steps, event types, webhook
-  routes (`POST /hooks/...`) and node listeners. `ACTION_KINDS`,
-  `default_ports`, the API's webhook routes and the node's listeners read
-  `registry()`; the built-in apps register in
+  routes (`POST /hooks/...`), node listeners and collections, and API
+  routes. `ACTION_KINDS`, `default_ports`, the API's routes and the node's
+  listeners read `registry()`; the built-in apps register in
   `culture_rules/extensions/builtin.py`, every factory imported lazily.
+- **What core used to know about apps is registered too** (d9):
+  - `ext.params_validator(kind, fn)`: a kind's own save-time checks
+    (`github.comment`'s `params.status`, `action_param_removed`), run by
+    `model/validate.py`;
+  - `ext.trigger_filter(namespace, match=, validate=, describe=)`: the
+    filters of the event types `<namespace>.*`; `engine/matching.py`
+    finds the match with one dict lookup per event, `validate.py` runs every
+    filter's check on every event trigger and `model/describe.py` adds the
+    words (the `discord.*` filters, `extensions/discord/filters.py`);
+  - `ext.action_phrases(kind, words=, after=)` and `ext.builtin(...,
+    phrase=)`: what describe says for an app's kind or built-in;
+    `describe.py` keeps core's action words, every built-in (core's
+    included) brings its phrase, and `ACTION_WORDS`/`BUILTIN_WORDS` are live
+    views;
+  - `ext.health_section(name, provider, empty=)`: a key of the health
+    document after `hooks` (Discord's `gateways`);
+  - `ext.event_reservation(name, check)`: types and id prefixes only the
+    engine writes, refused at external ingest by `events/emit.py`'s
+    `reserved_reason` (GitHub's checks settle and reaction watch,
+    `extensions/github/events.py`);
+  - `ext.api_routes(..., roles=)`: the role each route needs, read by
+    `auth/policy.py` after core's admin patterns; a declared path must carry the
+    extension's own name as a segment, and a declared role applies only to a
+    request that matches no core route (`create_app` collects them as
+    `CoreRoutes`, `app.core_routes`), so it can never set a core route's role, not
+    even for a record named after the extension (`DELETE /rules/discord`).
 - **Each app's integration code lives on the extension side**, one
   package per app under `culture_rules/extensions/<app>/` (`discord`,
   `github`, `jira`, `http`, `machine`, `email`, `search`, `llm`,
@@ -375,10 +401,10 @@ Settled constraints that shape the architecture:
   `GET /actors/{id}/discord/targets` is `extensions/discord/api.py`,
   mounted through the registry's `api_routes`. Core (everything else,
   the generic built-ins in `node/actions/` included) imports no app:
-  `tests/test_extension_boundary.py` checks it and pins the few imports
-  between apps. The `discord.*` trigger filters stay core's
-  (`model/discord_filters.py`), since the engine matches and validates
-  them.
+  `tests/test_extension_boundary.py` checks it, pins the few imports
+  between apps and checks that no core string literal (docstrings aside)
+  spells an app's kind, built-in, collection or event namespace, except the
+  pairs pinned in `APP_LITERALS_ALLOWED`, each with its reason.
 - **The API serves the action catalogue and the editor reads it**
   (guide `docs/operations/action-catalogue.md`): `GET /actions/kinds`
   (viewer) lists the registry's kinds in order with their typed params, the
@@ -391,6 +417,29 @@ Settled constraints that shape the architecture:
   per-kind shim (the blank action is the catalogue's first kind); the
   web tests' snapshot is `web/src/fixtures/action-kinds.data.ts`
   (`python3 scripts/export-action-kinds.py --write`).
+- **The building blocks and the builtin catalogue** (R2a of the no-flow-code
+  plan, guide `docs/operations/building-blocks.md`):
+  - generic builtins in core, every format, root, shape and rule step
+    config: `json.parse` (JSON text checked against a shape from config
+    only; shapes gained `nullable`, `forbid` and `ignore`), `text.join`,
+    `time.add` (exact elapsed time, UTC), `date.local` (an instant in an IANA
+    zone by a `strftime` format), `file.read` (text or JSON under configured
+    roots, read through a descriptor bound to the checked file) and
+    `list.filter` (host, dedupe, `where` and limit, counts per rule; a URL
+    whose host a browser could read differently is dropped); no input of
+    theirs is a required port;
+  - condition ops `contains`, `host_suffix` (ASCII hosts only) and
+    `any`/`all` with the `{"item": path}` operand (no CEL text form);
+    describe says them in words, and the editor shows them read-only in the
+    same words; every evaluation spends at most `MAX_EVAL_STEPS` steps
+    (`budget_exceeded` fails it closed), and `prepare(tree)` validates once
+    for many evaluations;
+  - `ext.builtin(..., label=, inputs=, outputs=)` declares a builtin's
+    picker label and typed ports; `GET /steps/builtins` (viewer) serves them,
+    CLI `steps builtins`, MCP tool `steps_builtins`; the step editor's
+    Built-in picker reads it (`web/src/api/builtins.ts`) and keeps no table;
+    the web tests' snapshot is `web/src/fixtures/builtins.data.ts`
+    (`python3 scripts/export-builtins.py --write`).
 - **A variable can be deleted** (admin): `DELETE /variables/{name}`, CLI
   `variables delete NAME [--apply]`, MCP tool `variables_delete`. It is a dry
   run unless applied and is refused with 409 `variable_in_use` while a live,

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { Action, Condition, Operand, Rule } from "../../api/types";
+import { itemConditionWords, itemWords } from "../../api/conditionWords";
 import { eitherText } from "../../fold/model";
 import type { Chain, Continuation, FoldEntry, FoldModel, FoldWorkflow } from "../../fold/model";
 
@@ -22,6 +23,7 @@ const valueText = (value: unknown): string => typeof value === "string" && value
 function operandText(operand: Operand): string {
   if ("field" in operand) return operand.field;
   if ("var" in operand) return `vars.${operand.var}`;
+  if ("item" in operand) return itemWords(operand.item);
   return valueText(operand.literal);
 }
 /**
@@ -43,6 +45,7 @@ export function guardText(condition: Condition): string {
     case "exists": return `${operandText(condition.arg)} exists`;
     case "in": return `${operandText(condition.value)} in ${operandText(condition.items)}`;
     case "matches": return `${operandText(condition.value)} matches ${condition.pattern}`;
+    default: return itemConditionWords(condition, operandText, (inner) => `(${guardText(inner)})`);
   }
 }
 export function triggerText(rule: Rule): string {

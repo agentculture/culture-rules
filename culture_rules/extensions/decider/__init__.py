@@ -12,9 +12,11 @@ from culture_rules.model.action_kinds import REQ_STR, REQ_TEXT, STR, ParamSpec, 
 
 __all__ = ["KINDS", "register"]
 
+DECIDER_ASSESS = "decider.assess"
+
 KINDS = (
     kind(
-        "decider.assess",
+        DECIDER_ASSESS,
         "Ask the mesh's decider for probabilities over the options a step defines (no text)",
         label="Ask the decider",
         actors=({"kinds": ["agent"], "has": ["base_url"]},),
@@ -32,4 +34,5 @@ def register(ext: Extension) -> None:
     """``decider.assess`` (``port.DeciderAssessPort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_port("decider.assess", Lazy(__name__ + ".port", "DeciderAssessPort", store=True))
+    ext.action_phrases(DECIDER_ASSESS)
+    ext.action_port(DECIDER_ASSESS, Lazy(__name__ + ".port", "DeciderAssessPort", store=True))

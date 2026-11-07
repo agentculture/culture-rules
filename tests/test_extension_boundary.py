@@ -7,11 +7,17 @@ inside a function, through ``importlib.import_module`` or as a :class:`Lazy` tar
 packages is the built-in loader, ``culture_rules/extensions/builtin.py``.
 
 Apps may lean on one another; those edges are pinned here so a new one is a conscious choice.
+
+d9: core does not spell an app's names either. No string literal in a core module (docstrings
+aside) holds a non-core extension's action kind, alias, built-in or store collection, or a type
+in the namespace of the event types it registers; the few that remain are pinned in
+:data:`APP_LITERALS_ALLOWED`, each with its reason, so a new one fails.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -148,8 +154,178 @@ def test_core_and_the_registry_are_not_apps():
     assert app_imports_in(source) == set()
 
 
-def test_health_reads_the_gateway_state_collection_the_gateway_writes():
-    from culture_rules.extensions.discord.gateway import GATEWAY_STATE_COLLECTION
-    from culture_rules.ops import health
+def test_the_gateways_health_section_is_the_discord_extensions():
+    from culture_rules.extensions import registry
 
-    assert health.GATEWAY_STATE_COLLECTION == GATEWAY_STATE_COLLECTION
+    owners = {e.name: e.extension for e in registry().health_sections()}
+    assert owners == {"gateways": "discord"}
+
+
+def test_the_gateways_section_reads_the_state_collection_the_gateway_writes():
+    from culture_rules.extensions.discord import gateway, health
+
+    assert health.GATEWAY_STATE_COLLECTION is gateway.GATEWAY_STATE_COLLECTION
+
+
+# --------------------------------------------------------------------------- d9: no app names
+
+
+def _app_names() -> tuple[frozenset[str], frozenset[str]]:
+    """What only an app may spell: every non-core extension's action kinds (and aliases),
+    built-ins and store collections, and the namespaces of the event types they register
+    (``discord``, ``github``, ``jira``). Read from the registry, so a new extension is guarded
+    with no edit here."""
+    from culture_rules.extensions import registry
+
+    reg = registry()
+    names = {b.name for b in reg.builtins() if b.extension != "core"}
+    for name, kind in reg.action_kinds().items():
+        if reg._tables["kinds"][name].extension != "core":
+            names |= {name, *reg.aliases(name)}
+    spaces = {t.split(".")[0] for t, e in reg.event_types().items() if e.extension != "core"}
+    for entry in reg._tables["collections"].values():
+        if entry.extension != "core":
+            names |= set(entry.provider())  # an app's store collections (gateway_state, ...)
+    return frozenset(names), frozenset(spaces)
+
+
+def _pattern(names: frozenset[str], spaces: frozenset[str]) -> re.Pattern[str]:
+    alternatives = [re.escape(n) + r"(?![\w])" for n in sorted(names, key=len, reverse=True)]
+    alternatives += [re.escape(s) + r"\.(?:[a-z_*]|$)" for s in sorted(spaces)]
+    return re.compile(r"(?<![\w./-])(" + "|".join(alternatives) + ")")
+
+
+def _docstring_ids(tree: ast.AST) -> set[int]:
+    """Module, class and function docstrings and bare string statements (attribute docs):
+    prose, which may name an app; code may not."""
+    found = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            found.add(id(node.value))
+    return found
+
+
+def app_literals_in(source: str, pattern: re.Pattern[str]) -> set[str]:
+    """The string literals (docstrings aside) in ``source`` that spell an app name."""
+    tree = ast.parse(source)
+    prose = _docstring_ids(tree)
+    return {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in prose
+        and pattern.search(node.value)
+    }
+
+
+#: (core module, literal) pairs that still spell an app name, each with its reason. A new one
+#: fails the test: give the knowledge to the app through a registry seam instead.
+APP_LITERALS_ALLOWED = {
+    # the loader: core's ``message`` kind is shown in the editor as the Discord kind that took
+    # over its legacy actor form (shown_as); builtin.py is the one module that names apps
+    ("extensions/builtin.py", "discord.message"),
+    # help text served in the JSON schemas and the OpenAPI contract (field docs): changing it
+    # changes the pinned contract, so it waits for a contract release
+    ("model/action.py", "Action type, e.g. github.comment, mesh.message, http.call"),
+    ("model/rule.py", "__RULE_MAX_ATTEMPTS_DOC__"),
+    # the CLI's explain catalogue: user-facing help naming the kinds a model actor serves
+    ("explain/catalog.py", "__CATALOG_MODEL_ACTORS__"),
+    # left in core after d9 (outside its list; reported as later seams):
+    # - the model rule's endpoint kinds (one enabled endpoint actor per model)
+    ("actors/model_rule.py", "llm.complete"),
+    ("actors/model_rule.py", "audio.transcribe"),
+    ("actors/model_rule.py", "decider.assess"),
+    # - the wait step's head_unchanged guard reads the PR head through github.pr_head
+    ("engine/runs.py", "action:github.pr_head"),
+    ("engine/runs.py", "github.pr_head"),
+    # - the hook sink's settle-on-check types
+    ("events/hook_sink.py", "github.checks.suite_completed"),
+    ("events/hook_sink.py", "github.checks.workflow_completed"),
+    # - the backup's run-history collections name github.comment's once claims
+    ("ops/backup.py", "github_comment_once"),
+    # - the attempt budget's reset signals (a human push, green checks)
+    ("node/firing.py", "github."),  # BUDGET_RESET_FAMILIES: the rules a reset concerns
+    ("node/firing.py", "github.pr.synchronize"),
+    ("node/firing.py", "github.pr.checks_settled"),
+}
+#: Long literals are pinned by a stable prefix (the placeholder stands for the literal that
+#: starts with it).
+_LONG_LITERALS = {
+    "__RULE_MAX_ATTEMPTS_DOC__": "Attempt budget (>= 1): after ``max_attempts`` admitted runs",
+    "__CATALOG_MODEL_ACTORS__": "## Model actors (needs culture-rules >= 0.22.0)",
+}
+
+
+def _pinned(rel: str, literal: str) -> bool:
+    if (rel, literal) in APP_LITERALS_ALLOWED:
+        return True
+    return any(
+        (rel, key) in APP_LITERALS_ALLOWED and literal.startswith(prefix)
+        for key, prefix in _LONG_LITERALS.items()
+    )
+
+
+def _core_app_literals() -> dict[str, set[str]]:
+    pattern = _pattern(*_app_names())
+    found: dict[str, set[str]] = {}
+    for path in _sources():
+        if _owner(path) is not None:
+            continue
+        rel = path.relative_to(PKG).as_posix()
+        literals = app_literals_in(path.read_text(encoding="utf-8"), pattern)
+        if literals:
+            found[rel] = literals
+    return found
+
+
+def test_no_core_module_spells_an_app_name_outside_the_allowlist():
+    found = _core_app_literals()
+    unexpected = {
+        rel: sorted(lit for lit in lits if not _pinned(rel, lit)) for rel, lits in found.items()
+    }
+    assert {rel: lits for rel, lits in unexpected.items() if lits} == {}
+
+
+def test_every_allowlisted_app_literal_is_still_there():
+    found = _core_app_literals()
+    stale = {
+        (rel, lit)
+        for rel, lit in APP_LITERALS_ALLOWED
+        if not any(_pinned(rel, value) for value in found.get(rel, ()))
+        or (lit not in _LONG_LITERALS and lit not in found.get(rel, ()))
+    }
+    assert stale == set()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "KIND = 'github.comment'\n",
+        "def f(t):\n    return t.startswith('discord.')\n",
+        "X = f'type {name} on jira.issue'\n",
+        "B = 'attachment.fetch'\n",
+        "A = ('llm.complete',)\n",
+        "C = 'gateway_state'\n",
+    ],
+)
+def test_the_app_name_check_sees_every_literal_form(source):
+    assert app_literals_in(source, _pattern(*_app_names()))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""A docstring may name github.comment."""\n',
+        "def f():\n    '''Prose: discord.* events.'''\n",
+        "X = 'machine.drain'\n",
+        "X = 'http.response.start'\n",
+        "X = 'https://github.com/agentculture'\n",
+    ],
+)
+def test_the_app_name_check_ignores_prose_and_core_names(source):
+    assert app_literals_in(source, _pattern(*_app_names())) == set()

@@ -41,7 +41,7 @@ stops being per-host glue only its author understands.
 - `culture-rules overview` — descriptive snapshot of the agent.
 - `culture-rules doctor` — check the agent-identity invariants.
 - `culture-rules cli overview` — describe the CLI surface.
-- `culture-rules rules|workflows|actors|actions|machines|runs|variables|keysets <verb>` —
+- `culture-rules rules|workflows|actors|actions|steps|machines|runs|variables|keysets <verb>` —
   the engine's nouns over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
 - `culture-rules rollout <step>` — roll this CLI's release out to every node, one
   dry-run-first step per verb (`plan`, `idle`, `pause`, `upgrade --host`, `seed`,
@@ -240,6 +240,14 @@ _NOUN_BLURBS = {
         "params (`kinds <name>` shows one, an alias included): the data the editor's action "
         "picker is built from, so a new extension's kind needs no editor change. Read-only, "
         "viewer role. An older server lacks the route: exit 2."
+    ),
+    "steps": (
+        "Steps are what a workflow is made of; builtins are the code steps the engine ships "
+        "(a `code` step's `config.builtin`). `builtins` lists what the API's extension registry "
+        "holds, in registration order, with each builtin's label and typed input and output "
+        "ports (`builtins <name>` shows one): the data the editor's Built-in picker is built "
+        "from, so a new extension's builtin needs no editor change. Read-only, viewer role. An "
+        "older server lacks the route: exit 2."
     ),
     "machines": "Machines are the hosts that execute steps; drain one to stop new placements.",
     "variables": (

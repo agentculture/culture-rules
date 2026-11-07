@@ -89,6 +89,9 @@ listing each failed check.
 The actions noun (read-only) lists the registered action kinds: actions kinds [<name>]
 prints each kind's typed params in catalogue order, the data the editor's action picker is
 built from (GET /actions/kinds). Needs server >= 0.44.0.
+The steps noun (read-only) lists the built-in code steps: steps builtins [<name>] prints
+each builtin's label and typed input and output ports in registration order, the data the
+editor's Built-in picker is built from (GET /steps/builtins). Needs server >= 0.45.0.
 The keysets noun (admin only, reads included) shows the named sets of remembered keys:
 keysets list counts each set's live keys, keysets show <name> lists them with first_seen
 and expires_at, and keysets clear <name> [--key K] --apply forgets one key or the set

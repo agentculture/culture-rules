@@ -41,7 +41,7 @@ export interface Whoami {
 export interface EventTriggerParams {
   type: string;
   include_self?: boolean;
-  /** discord.* events (culture_rules/model/discord_filters.py): channel ids; absent = every channel. */
+  /** discord.* events (culture_rules/extensions/discord/filters.py): channel ids; absent = every channel. */
   channels?: string[];
   /** discord.* events: user ids or usernames. */
   users?: string[];
@@ -168,14 +168,24 @@ export interface Placement {
 }
 
 /** Condition tree (culture_rules/model/condition.py): every node has an `op`. */
-export type Operand = { field: string } | { var: string } | { literal: unknown };
+/** `item`: a dotted path into the current element of an `any`/`all` (`"."`: the element itself). */
+export type Operand = { field: string } | { var: string } | { literal: unknown } | { item: string };
 export type Condition =
   | { op: "compare"; cmp: string; left: Operand; right: Operand }
   | { op: "and" | "or"; args: Condition[] }
   | { op: "not"; arg: Condition }
   | { op: "exists"; arg: Operand }
   | { op: "in"; value: Operand; items: Operand }
-  | { op: "matches"; value: Operand; pattern: string };
+  | { op: "matches"; value: Operand; pattern: string }
+  /** Case-insensitive: a substring of a text, or a member of a list. */
+  | { op: "contains"; value: Operand; needle: Operand }
+  /** A bare host equal to the domain or under it (not a plain ends-with). */
+  | { op: "host_suffix"; value: Operand; suffix: Operand }
+  /** `where` holds for at least one (`any`) or every (`all`) element of the list `items`. */
+  | { op: "any" | "all"; items: Operand; where: Condition };
+
+/** The condition ops the editor reads but does not build: shown in words, edited as raw JSON. */
+export type ItemCondition = Extract<Condition, { op: "contains" | "host_suffix" | "any" | "all" }>;
 
 export interface Rule {
   id: string;

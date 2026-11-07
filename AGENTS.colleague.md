@@ -40,9 +40,11 @@ code, services, robots, …). It is built and on disk:
   (`culture-rules node run`);
 - one extension registry, `culture_rules/extensions`, through which apps add
   action kinds, ports, built-in steps, event types, webhook routes and node
-  listeners (the built-in apps register in `extensions/builtin.py`), with
-  each app's integration code in its own package, `extensions/<app>/`;
-- a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `actions`, `machines`,
+  listeners, and what core used to know about them: params validators,
+  trigger filters, describe phrases, health sections, event reservations and
+  API route roles (the built-in apps register in `extensions/builtin.py`),
+  with each app's integration code in its own package, `extensions/<app>/`;
+- a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `actions`, `steps`, `machines`,
   `runs`, `rollout`, `serve`, `node`, `mcp`), an HTTP API with its contract pinned in
   `api/openapi.json`, and an MCP server exposing the same verbs as tools;
 - a Node.js + React Flow editor in `web/` with four tabs: **Workflows |
@@ -176,6 +178,18 @@ kinds`, MCP tool `actions_kinds`), and the editor's action picker is built from 
 extension's kind needs no editor change. The editor keeps no per-kind shim: the Actors tab
 offers the kinds marked `declarable_by_apps`, a legacy form is shown through `shown_as`, and
 the command widgets pair through `args_for`.
+
+**The building blocks and the builtin catalogue** (guide `docs/operations/building-blocks.md`).
+Generic builtins in core take every format, root, shape and rule as step config: `json.parse`
+(JSON text checked against a shape; shapes gained `nullable`, `forbid` and `ignore`),
+`text.join`, `time.add`, `date.local`, `file.read` (text or JSON under configured roots) and
+`list.filter` (host, dedupe, `where` and limit). The condition ops `contains`, `host_suffix`
+and `any`/`all` (with the `{"item": path}` operand) read in words in describe and in the
+editor. `ext.builtin(..., label=, inputs=, outputs=)` declares a builtin's label and typed
+ports; the API serves them (`GET /steps/builtins`, viewer; CLI `steps builtins`, MCP tool
+`steps_builtins`), and the step editor's Built-in picker is built from it, keeping no table. `json.parse`'s
+shape is config only, `host_suffix` compares ASCII hosts only, and every condition evaluation
+has a step budget (`budget_exceeded` fails it closed).
 
 **Deleting a variable.** `variables delete NAME [--apply]` (admin; `DELETE
 /variables/{name}`, MCP tool `variables_delete`) is a dry run unless applied and is refused

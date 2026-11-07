@@ -24,7 +24,7 @@ import urllib.request  # nosec B404 - fixed https base URL, no file/custom schem
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from culture_rules.model.discord_filters import emoji_ok
+from culture_rules.extensions.discord.filters import emoji_ok
 
 __all__ = [
     "DEFAULT_BASE_URL",

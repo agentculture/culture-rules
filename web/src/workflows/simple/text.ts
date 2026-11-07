@@ -5,6 +5,7 @@
  * the workflow and the entries that differ as overrides (D3-D6). Pure: no
  * React, no network.
  */
+import { itemConditionWords, itemWords } from "../../api/conditionWords";
 import type { Action, Condition, Operand, Placement, Rule, Trigger } from "../../api/types";
 import { eitherAlone, predecessorTerms, type Continuation } from "../../fold/model";
 
@@ -28,6 +29,7 @@ export interface ConditionRow {
 function operand(op: Operand): { text: string; kind: OperandKind } {
   if ("field" in op) return { text: op.field.replace(/^data\./, ""), kind: "field" };
   if ("var" in op) return { text: `vars.${op.var}`, kind: "var" };
+  if ("item" in op) return { text: itemWords(op.item), kind: "words" };
   return { text: JSON.stringify(op.literal) ?? "null", kind: "literal" };
 }
 
@@ -53,6 +55,16 @@ function rowOf(node: Condition, not = false): ConditionRow {
       const left = operand(node.value);
       return { not, left: left.text, leftKind: left.kind, op: "matches", right: JSON.stringify(node.pattern), rightKind: "literal" };
     }
+    case "contains":
+    case "host_suffix": {
+      const left = operand(node.value);
+      const right = operand(node.op === "contains" ? node.needle : node.suffix);
+      const op = node.op === "contains" ? "contains" : "is in the domain";
+      return { not, left: left.text, leftKind: left.kind, op, right: right.text, rightKind: right.kind };
+    }
+    case "any":
+    case "all":
+      return { not, left: itemConditionWords(node, (o) => operand(o).text, rowWords), leftKind: "words", op: "", right: "", rightKind: "words" };
     case "not":
       return node.arg.op === "not" || node.arg.op === "and" || node.arg.op === "or"
         ? { not: !not, left: `${node.arg.op} of ${countOf(node.arg)} conditions`, leftKind: "words", op: "", right: "", rightKind: "words" }
@@ -67,6 +79,12 @@ function rowOf(node: Condition, not = false): ConditionRow {
         rightKind: "words",
       };
   }
+}
+
+/** A row as one phrase (an `any`/`all`'s inner condition). */
+function rowWords(node: Condition): string {
+  const row = rowOf(node);
+  return [row.not ? "not" : "", row.left, row.op, row.right].filter(Boolean).join(" ");
 }
 
 function countOf(node: Condition): number {

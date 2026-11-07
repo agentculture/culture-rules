@@ -12,9 +12,11 @@ from culture_rules.model.action_kinds import REQ_STR, kind
 
 __all__ = ["KINDS", "register"]
 
+REPODOCS_SYNC = "repodocs.sync"
+
 KINDS = (
     kind(
-        "repodocs.sync",
+        REPODOCS_SYNC,
         "Push every repo's specs, plans, deliveries, designs and .devague files to the library",
         label="Push repo documents to the library",
         actors=({"kinds": ["service"], "has": ["repos_root"]},),
@@ -27,4 +29,5 @@ def register(ext: Extension) -> None:
     """``repodocs.sync`` (``port.RepodocsSyncPort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_port("repodocs.sync", Lazy(__name__ + ".port", "RepodocsSyncPort", store=True))
+    ext.action_phrases(REPODOCS_SYNC)
+    ext.action_port(REPODOCS_SYNC, Lazy(__name__ + ".port", "RepodocsSyncPort", store=True))

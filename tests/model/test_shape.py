@@ -484,3 +484,35 @@ def test_object_extra_must_be_refuse_or_drop(extra):
 def test_extra_is_not_valid_for_a_text_spec():
     with pytest.raises(ShapeSpecError):
         validate("x", {"type": "text", "extra": "drop"})
+
+
+# -- forbid, nullable, ignore ------------------------------------------------------------------
+
+
+def test_forbid_refuses_a_found_pattern():
+    assert _fail("a--b", {"type": "text", "forbid": ["--"]}).reason == "matches a forbidden pattern"
+
+
+def test_forbid_keeps_text_without_the_pattern():
+    assert validate("a-b", {"type": "text", "forbid": ["--"]}) == "a-b"
+
+
+def test_forbid_must_be_a_non_empty_list():
+    assert "forbid must be" in str(_bad_spec({"type": "text", "forbid": "--"}))
+
+
+def test_forbid_patterns_are_screened_as_unsafe():
+    assert "unsafe" in str(_bad_spec({"type": "text", "forbid": ["(a+)+"]}))
+
+
+def test_nullable_keeps_none():
+    assert validate(None, {"type": "int", "nullable": True}) is None
+
+
+def test_nullable_must_be_a_bool():
+    assert "nullable must be" in str(_bad_spec({"type": "int", "nullable": "yes"}))
+
+
+def test_ignore_must_be_a_list_of_names():
+    spec = {"type": "object", "fields": {}, "ignore": [1]}
+    assert "ignore must be" in str(_bad_spec(spec))

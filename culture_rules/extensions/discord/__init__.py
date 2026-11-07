@@ -8,28 +8,39 @@
   through the ``http`` extension's vetted opener);
 * the Gateway listener (:mod:`~culture_rules.extensions.discord.gateway`, with
   :mod:`~culture_rules.extensions.discord.buttons` and
-  :mod:`~culture_rules.extensions.discord.commands`), its four event types and its state
-  collection;
+  :mod:`~culture_rules.extensions.discord.commands`), its four event types, its state
+  collection and its ``gateways`` health section
+  (:mod:`~culture_rules.extensions.discord.health`);
 * the contract route ``GET /actors/{id}/discord/targets``
   (:mod:`~culture_rules.extensions.discord.api`).
 
-The ``discord.*`` trigger filters stay core's (:mod:`culture_rules.model.discord_filters`):
-the engine matches and validates them. Registering imports nothing but the kinds' typed
-params; every port, listener and route imports its module when it is built.
+* the ``discord.*`` trigger filters (:mod:`~culture_rules.extensions.discord.filters`): the
+  engine's match, the save-time checks and the describe words.
+
+Registering imports nothing but the kinds' typed params and the filters (standard library,
+called on every Discord event); every port, listener and route imports its module when it is
+built.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from culture_rules.extensions.discord import filters
 from culture_rules.extensions.registry import ApiContext, Extension, Lazy, NodeContext
 from culture_rules.model.action_kinds import INT, REQ_STR, REQ_TEXT, STR, ParamSpec, kind
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
+DISCORD_MESSAGE = "discord.message"
+DISCORD_READ = "discord.read"
+DISCORD_REACT = "discord.react"
+DISCORD_REPLY = "discord.reply"
+DISCORD_SWEEP = "discord.sweep"
+
 KINDS = (
     kind(
-        "discord.message",
+        DISCORD_MESSAGE,
         "Post a message on Discord through a Discord app actor",
         label="Post a message on Discord",
         declarable_by_apps=True,
@@ -42,7 +53,7 @@ KINDS = (
         tags=ParamSpec("list"),  # forum tag names, with thread_name only
     ),
     kind(
-        "discord.read",
+        DISCORD_READ,
         "Read one Discord message in full (text and attachments) through a Discord app actor",
         label="Read a Discord message in full",
         declarable_by_apps=True,
@@ -52,7 +63,7 @@ KINDS = (
         message=REQ_STR,
     ),
     kind(
-        "discord.react",
+        DISCORD_REACT,
         "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
         " app actor, and take back the bot's own earlier reactions (remove)",
         label="React to a Discord message",
@@ -66,7 +77,7 @@ KINDS = (
         remove=ParamSpec("list"),
     ),
     kind(
-        "discord.reply",
+        DISCORD_REPLY,
         "Answer a Discord slash or message command privately through a Discord app actor",
         label="Answer a Discord command privately",
         declarable_by_apps=True,
@@ -75,7 +86,7 @@ KINDS = (
         text=REQ_TEXT,
     ),
     kind(
-        "discord.sweep",
+        DISCORD_SWEEP,
         "Read a Discord channel's messages newer than a stored cursor through a Discord app"
         " actor",
         label="Read a Discord channel since the last run",
@@ -95,6 +106,26 @@ EVENT_TYPES = (
     "discord.reaction.added",
     "discord.command.invoked",
     "discord.button.clicked",
+)
+
+
+_IN_CHANNEL = ("channel", "in {}")
+
+#: What describe says for each Discord kind after its name and actor.
+PHRASES = {
+    DISCORD_MESSAGE: (("channel", "to {}"),),
+    DISCORD_READ: (_IN_CHANNEL, ("message", "message {}")),
+    DISCORD_REACT: (
+        ("emoji", "with {}"),
+        ("remove", "removing {}"),
+        _IN_CHANNEL,
+        ("message", "on message {}"),
+    ),
+    DISCORD_REPLY: (("text", '"{}"'),),
+    DISCORD_SWEEP: (_IN_CHANNEL, ("limit", "up to {} messages")),
+}
+ATTACHMENT_FETCH_PHRASE = (
+    "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node"
 )
 
 
@@ -142,6 +173,14 @@ def discord_collections() -> tuple[str, ...]:
     return (GATEWAY_STATE_COLLECTION,)
 
 
+def discord_health(store: Any, now: Any) -> list[dict[str, Any]]:
+    """The ``gateways`` health section: each gateway's lease holder, connection and last
+    event (:mod:`~culture_rules.extensions.discord.health`)."""
+    from culture_rules.extensions.discord.health import gateways  # noqa: PLC0415
+
+    return gateways(store, now)
+
+
 def discord_targets(app: Any, ctx: ApiContext) -> None:
     """``GET /actors/{id}/discord/targets`` (the ``server`` extra)."""
     from culture_rules.extensions.discord.api import register_targets  # noqa: PLC0415
@@ -154,14 +193,33 @@ def register(ext: Extension) -> None:
     listener and its four event types, and the targets route."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_port("discord.message", _port("message", "DiscordMessageAction"))
-    ext.action_port("discord.read", _port("read", "DiscordReadAction"))
-    ext.action_port("discord.react", _port("react", "DiscordReactAction"))
-    ext.action_port("discord.reply", _port("reply", "DiscordReplyAction"))
-    ext.action_port("discord.sweep", _port("sweep", "DiscordSweepAction"))
-    ext.builtin("attachment.fetch", Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"))
+        ext.action_phrases(k.name, words=PHRASES[k.name])
+    ext.action_port(DISCORD_MESSAGE, _port("message", "DiscordMessageAction"))
+    ext.action_port(DISCORD_READ, _port("read", "DiscordReadAction"))
+    ext.action_port(DISCORD_REACT, _port("react", "DiscordReactAction"))
+    ext.action_port(DISCORD_REPLY, _port("reply", "DiscordReplyAction"))
+    ext.action_port(DISCORD_SWEEP, _port("sweep", "DiscordSweepAction"))
+    ext.builtin(
+        "attachment.fetch",
+        Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"),
+        phrase=ATTACHMENT_FETCH_PHRASE,
+        inputs=(
+            ("attachments", "array"),
+            ("output_root", "string", False),
+            ("retention_days", "integer", False),
+        ),
+        outputs=(("items", "array"), ("fetched", "integer"), ("skipped", "integer")),
+    )
     for event in EVENT_TYPES:
         ext.event_type(event)
+    ext.trigger_filter(
+        "discord", match=filters.admits, validate=filters.problems, describe=filters.words
+    )
     ext.node_listener("discord.gateway", discord_gateway, long_lived=True)
     ext.node_collections(discord_collections)
-    ext.api_routes("discord.targets", discord_targets)
+    ext.health_section("gateways", discord_health, empty=list)
+    ext.api_routes(
+        "discord.targets",
+        discord_targets,
+        roles=(("GET", "/actors/{actor_id}/discord/targets", "viewer"),),
+    )

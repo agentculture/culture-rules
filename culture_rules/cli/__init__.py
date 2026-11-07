@@ -77,6 +77,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from culture_rules.cli._commands import rules as _rules
     from culture_rules.cli._commands import runs as _runs
     from culture_rules.cli._commands import serve as _serve
+    from culture_rules.cli._commands import steps as _steps
     from culture_rules.cli._commands import variables as _variables
     from culture_rules.cli._commands import whoami as _whoami_cmd
     from culture_rules.cli._commands import workflows as _workflows
@@ -106,6 +107,7 @@ def _build_parser() -> argparse.ArgumentParser:
         _workflows,
         _actors,
         _actions,
+        _steps,
         _machines,
         _runs,
         _variables,

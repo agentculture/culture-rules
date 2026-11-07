@@ -30,7 +30,7 @@ On disk today:
 - the engine node daemon, `culture-rules node run`;
 - the HTTP API (`culture_rules/server`, the `server` extra), whose contract
   is pinned in `api/openapi.json`;
-- the CLI noun groups `rules`, `workflows`, `actors`, `actions`, `machines`, `runs` and
+- the CLI noun groups `rules`, `workflows`, `actors`, `actions`, `steps`, `machines`, `runs` and
   `rollout`, plus `serve`, `node` and `mcp`;
 - the MCP server, `culture-rules mcp` (the `mcp` extra), with the same verbs
   as the CLI;
@@ -122,6 +122,15 @@ On disk today:
   no editor change. No per-kind shim either: the Actors tab offers the kinds marked
   `declarable_by_apps`, a legacy form is shown through `shown_as`, and the command widgets
   pair through `args_for`.
+- The building blocks (guide `docs/operations/building-blocks.md`): the generic builtins
+  `json.parse` (a shape check; shapes gained `nullable`, `forbid` and `ignore`), `text.join`,
+  `time.add`, `date.local`, `file.read` and `list.filter`, every rule step config; the
+  condition ops `contains`, `host_suffix` and `any`/`all` with the `{"item": path}` operand,
+  read in words. The API serves the builtin catalogue (`GET /steps/builtins`, viewer; CLI
+  `steps builtins`, MCP tool `steps_builtins`) from each builtin's registered label and typed
+  ports, and the step editor's Built-in picker is built from it, keeping no table. `json.parse`'s
+  shape is config only, `host_suffix` compares ASCII hosts only, and every condition
+  evaluation has a step budget (`budget_exceeded` fails it closed).
 - `variables delete NAME [--apply]` (admin; `DELETE /variables/{name}`, MCP tool
   `variables_delete`) is a dry run unless applied, refused with 409 `variable_in_use` while
   a live, enabled rule references the variable (disabled and soft-deleted referrers are
@@ -290,6 +299,8 @@ culture_rules/   library + agent-first CLI (CLI cited from teken's python-cli)
   store/ io/ auth/        MongoDB + memory stores, export/import, access
   server/ node/ mcp/      HTTP API, engine node daemon, MCP server
   extensions/             the registry, and one package per app (its integration code)
+                          (apps register validators, trigger filters, phrases, health
+                          sections, event reservations and route roles there too)
   explain/                markdown catalog for `explain`
 web/                      the React Flow editor (built into culture_rules/web_dist)
 api/openapi.json          the pinned API contract

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from string import Formatter
 from typing import Any, Literal, get_args, get_origin
 
+from culture_rules.extensions import registry
 from culture_rules.model import condition as condition_tree
 from culture_rules.model import serde
 from culture_rules.model.action import Action
@@ -39,7 +40,6 @@ from culture_rules.model.action_step import (
 from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
-from culture_rules.model.discord_filters import BUTTON_CLICKED, emoji_ok
 from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine, MachineInstall
 from culture_rules.model.placement import PLACEMENT_FORMS, Placement
@@ -67,7 +67,6 @@ __all__ = [
 
 #: Pseudo step id an edge uses to read from the workflow's own inputs.
 INPUTS_NODE = "inputs"
-_CHANNEL_ID = re.compile(r"^\d{1,25}$")
 _RESERVED_STEP_IDS = frozenset({"inputs", "outputs", "vars", "steps", "trigger"})
 _PROBE_MODES = ("change", "condition")
 
@@ -441,20 +440,15 @@ def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
             )
     if not lenient:
         _check_any_of(obj, spec.any_of, pp, errors)
-    _check_comment_status(obj, pp, errors)
+    _check_registered_params(obj, pp, errors)
 
 
-def _check_comment_status(obj: Action, pp: str, errors: Errors) -> None:
-    """``github.comment`` keeps no status board since 0.43.0: a ``status`` other than absent
-    or false is refused when saved, as the port refuses it (``bad_input``) when it runs."""
-    if obj.kind != "github.comment" or obj.params.get("status") in (None, False):
-        return
-    _err(
-        errors,
-        _join(pp, "status"),
-        "action_param_removed",
-        "github.comment has no status comment any more; drop params.status",
-    )
+def _check_registered_params(obj: Action, pp: str, errors: Errors) -> None:
+    """The kind's own checks, registered by its extension
+    (:meth:`~culture_rules.extensions.Extension.params_validator`)."""
+    check = registry().params_validator(obj.kind)
+    if check is not None:
+        errors.extend(ValidationError(*problem) for problem in check(obj.params, pp))
 
 
 def _check_any_of(
@@ -503,132 +497,17 @@ def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
         _err(errors, _join(pp, "cron"), "trigger_cron_required", "schedule requires params.cron")
     elif obj.kind == "probe":
         _check_probe_params(params, pp, errors)
-    if obj.kind == "event" and str(params.get("type", "")).startswith("discord."):
-        _check_discord_filters(params, pp, errors)
     if obj.kind == "event":
-        _check_command_filter(params, pp, errors)
-        _check_custom_id_filter(params, pp, errors)
+        _check_trigger_filters(params, pp, errors)
 
 
-def _filter_item(value: Any) -> bool:
-    return isinstance(value, str) or (isinstance(value, int) and not isinstance(value, bool))
-
-
-def _check_discord_filters(params: dict, pp: str, errors: Errors) -> None:
-    """A ``discord.*`` trigger's filters (engine.matching): ``include_bots`` a bool;
-    ``channels``, ``users`` and ``roles`` an id/name or a list of them; ``emoji`` a unicode
-    emoji, a custom ``name:id``, an id or a name, or a list of them."""
-    if "include_bots" in params and not isinstance(params["include_bots"], bool):
-        _err(
-            errors,
-            _join(pp, "include_bots"),
-            "trigger_param_invalid",
-            "params.include_bots must be true or false",
-        )
-    for name in ("channels", "users", "roles"):
-        value = params.get(name)
-        if not _filter_value_ok(value):
-            _err(
-                errors,
-                _join(pp, name),
-                "trigger_param_invalid",
-                f"params.{name} must be an id or name, or a list of them",
-            )
-            continue
-        if name == "channels" and value is not None and not _channel_ids_ok(value):
-            _err(
-                errors,
-                _join(pp, name),
-                "trigger_param_invalid",
-                'params.channels holds numeric Discord channel ids, or "all"',
-            )
-
-    if "emoji" in params and params.get("type") != "discord.reaction.added":
-        _err(
-            errors,
-            _join(pp, "emoji"),
-            "trigger_param_invalid",
-            "params.emoji filters reactions: only a discord.reaction.added trigger takes it",
-        )
-    elif "emoji" in params and not _emoji_ok(params["emoji"]):
-        _err(
-            errors,
-            _join(pp, "emoji"),
-            "trigger_param_invalid",
-            "params.emoji is an emoji (unicode, or a custom name:id), or a list of them",
-        )
-
-
-def _check_command_filter(params: dict, pp: str, errors: Errors) -> None:
-    """``command`` (d12): one command name or a list, on a discord.command.invoked trigger."""
-    if "command" not in params:
-        return
-    if params.get("type") != "discord.command.invoked":
-        _err(
-            errors,
-            _join(pp, "command"),
-            "trigger_param_invalid",
-            "params.command picks a command: only a discord.command.invoked trigger takes it",
-        )
-        return
-    value = params["command"]
-    items = value if isinstance(value, (list, tuple)) else [value]
-    if not items or not all(isinstance(i, str) and i.strip() for i in items):
-        _err(
-            errors,
-            _join(pp, "command"),
-            "trigger_param_invalid",
-            "params.command is a command name, or a list of them",
-        )
-
-
-def _check_custom_id_filter(params: dict, pp: str, errors: Errors) -> None:
-    """``custom_id``: one string or a list, on a discord.button.clicked trigger (a value ending
-    in ``:`` is a prefix; any other is the id itself or the id followed by ``:``)."""
-    if "custom_id" not in params:
-        return
-    if params.get("type") != BUTTON_CLICKED:
-        _err(
-            errors,
-            _join(pp, "custom_id"),
-            "trigger_param_invalid",
-            f"params.custom_id picks a button: only a {BUTTON_CLICKED} trigger takes it",
-        )
-        return
-    value = params["custom_id"]
-    items = value if isinstance(value, (list, tuple)) else [value]
-    if not items or not all(isinstance(i, str) and i for i in items):
-        _err(
-            errors,
-            _join(pp, "custom_id"),
-            "trigger_param_invalid",
-            "params.custom_id is a button's custom id (or a prefix ending in ':'), "
-            "or a list of them",
-        )
-
-
-def _emoji_ok(value: Any) -> bool:
-    items = value if isinstance(value, (list, tuple)) else [value]
-    if not items:
-        return False
-    return all(emoji_ok(item) for item in items)
-
-
-def _filter_value_ok(value: Any) -> bool:
-    """Absent, one id or name, or a list of them."""
-    if value is None or _filter_item(value):
-        return True
-    return isinstance(value, (list, tuple)) and all(_filter_item(v) for v in value)
-
-
-def _channel_ids_ok(value: Any) -> bool:
-    """Every ``channels`` entry is a numeric Discord id or ``all`` (a name never matches)."""
-    items = value if isinstance(value, (list, tuple)) else [value]
-    for item in items:
-        text = str(item).strip()
-        if text and text.casefold() != "all" and not _CHANNEL_ID.match(text):
-            return False
-    return True
+def _check_trigger_filters(params: dict, pp: str, errors: Errors) -> None:
+    """The registered trigger filters' checks
+    (:meth:`~culture_rules.extensions.Extension.trigger_filter`), in registration order: each
+    sees every event trigger, so it can refuse its filter params on another type."""
+    for entry in registry().trigger_filters():
+        if entry.validate is not None:
+            errors.extend(ValidationError(*problem) for problem in entry.validate(params, pp))
 
 
 def _present(params: dict, name: str) -> bool:

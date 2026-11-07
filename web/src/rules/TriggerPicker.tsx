@@ -230,7 +230,7 @@ interface DiscordFiltersProps {
 }
 
 /**
- * Filters for a discord.* event trigger (culture_rules/model/discord_filters.py): channels
+ * Filters for a discord.* event trigger (culture_rules/extensions/discord/filters.py): channels
  * (all, or picked from what the bot sees), users, roles and bots. An empty filter is dropped, so
  * a rule with none keeps its stored shape.
  */

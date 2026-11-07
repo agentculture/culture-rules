@@ -12,9 +12,11 @@ from culture_rules.model.action_kinds import REQ_STR, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
+MACHINE_COMMAND = "machine.command"
+
 KINDS = (
     kind(
-        "machine.command",
+        MACHINE_COMMAND,
         "Run a command on a machine actor",
         label="Run a command on a machine",
         actors=({"kinds": ["runner"]},),
@@ -29,4 +31,5 @@ def register(ext: Extension) -> None:
     """``machine.command`` (``port.MachineCommandPort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_port("machine.command", Lazy(__name__ + ".port", "MachineCommandPort", store=True))
+    ext.action_phrases(MACHINE_COMMAND, words=(("command", "`{}`"),))
+    ext.action_port(MACHINE_COMMAND, Lazy(__name__ + ".port", "MachineCommandPort", store=True))

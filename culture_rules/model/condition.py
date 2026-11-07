@@ -13,6 +13,37 @@ Tree shape (every node is a dict with an ``op`` key)::
     {"op": "exists", "arg": operand}
     {"op": "in", "value": operand, "items": operand}   # items resolves to a list
     {"op": "matches", "value": operand, "pattern": "<regex>"}  # re.fullmatch, length-capped
+    {"op": "contains", "value": operand, "needle": operand}
+    {"op": "host_suffix", "value": operand, "suffix": operand}
+    {"op": "any" | "all", "items": operand, "where": node}      # per-item sub-condition
+
+``contains`` takes a string ``needle`` and is case-insensitive (``casefold``). With a string
+``value`` it is a substring test; with a list ``value`` it is membership of a string member
+equal to the needle once both are casefolded (members that are not strings never match). A
+needle that is not a string or is empty, a missing operand or any other ``value`` type is false.
+
+``host_suffix`` takes a bare host (not a URL) as ``value`` and a domain as ``suffix``: true when
+the host equals the suffix or ends with ``"." + suffix``, ignoring ASCII case, one trailing dot
+on either side and a leading dot on the suffix. It is not a plain ``endswith``:
+``evilexample.com`` does not match ``example.com``. Only ASCII hosts compare: a host or suffix
+holding any non-ASCII character is false (write an internationalised name in its ``xn--``
+form), so no Unicode folding can make two different names equal (``straße.de`` is not
+``strasse.de``). Non-strings and an empty suffix are false.
+
+``any`` / ``all`` run ``where`` once per element of the list ``items`` resolves to. Inside
+``where`` the current element is the operand ``{"item": "<path>"}`` (a dotted path into the
+element, or ``"."`` for the element itself); an inner ``any``/``all`` shadows the outer item.
+``all`` over an empty list is true and ``any`` is false; a missing or non-list ``items`` makes
+both false, as does a list longer than ``MAX_ITEMS``. Item operands outside ``any``/``all``
+resolve to missing, unless the caller supplies an item with :func:`evaluate_item`. ``any`` and
+``all`` nest at most ``MAX_ITEM_NESTING`` deep. These ops have no text form.
+
+Work is bounded by a :class:`Budget` of :data:`MAX_EVAL_STEPS` steps per evaluation: every node
+visited costs one step and every list member an ``in`` or ``contains`` compares costs one more.
+An evaluation that runs out raises :class:`EvaluationBudgetError` (a :class:`ConditionError`)
+instead of running on, so the engine fails it closed (a rule does not fire, a ``when`` fails
+``when_invalid``). A caller that evaluates one tree many times (``list.filter``, once per item)
+validates it once with :func:`prepare` and passes one shared budget to every evaluation.
 
 A ``matches`` pattern must also pass :func:`culture_rules.model.regex_safety.unsafe_reason`
 (no nested quantifiers, ambiguous alternations, backreferences, or more than one pair of
@@ -29,6 +60,7 @@ Operands::
     {"field": "a.b"}    # dotted path into context["trigger"]
     {"var": "name"}     # context["variables"][name]
     {"literal": <json>} # a JSON scalar or list
+    {"item": "a.b"}     # dotted path into the current item (any/all, evaluate_item)
 
 Text form (CEL-style subset)::
 
@@ -51,6 +83,12 @@ MAX_PATTERN_LEN = 256
 #: Longest string a ``matches`` runs on; a longer value is a non-match (bounds regex work).
 MAX_INPUT_LEN = 2_000
 MAX_DEPTH = 64
+#: Longest list an ``any`` / ``all`` walks; a longer list makes the op false (bounds work).
+MAX_ITEMS = 1_000
+#: Deepest nesting of ``any`` / ``all``.
+MAX_ITEM_NESTING = 2
+#: Steps one evaluation may take (module doc); running out raises EvaluationBudgetError.
+MAX_EVAL_STEPS = 200_000
 
 CMP_OPS = ("==", "!=", "<=", ">=", "<", ">")
 _IDENT = re.compile(r"[A-Za-z_]\w*\Z", re.ASCII)
@@ -89,13 +127,45 @@ class UnsafePatternError(ConditionError):
     code = "unsafe_pattern"
 
 
+class EvaluationBudgetError(ConditionError):
+    """An evaluation that took more steps than its :class:`Budget` allows."""
+
+    code = "budget_exceeded"
+
+
+class Budget:
+    """The steps evaluations may still take (module doc); one per evaluation by default,
+    or one shared by many (``list.filter`` shares one across its items)."""
+
+    __slots__ = ("left", "limit")
+
+    def __init__(self, limit: int = MAX_EVAL_STEPS) -> None:
+        self.limit = limit
+        self.left = limit
+
+    def spend(self, steps: int = 1) -> None:
+        self.left -= steps
+        if self.left < 0:
+            raise EvaluationBudgetError(
+                f"the condition took more than {self.limit} evaluation steps"
+            )
+
+
 @dataclass(frozen=True)
 class ParseResult:
     tree: dict | None
     error: ConditionParseError | None
 
 
-_MISSING = object()
+class _Missing:
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "MISSING"
+
+
+#: What :func:`walk_path` (and an operand) gives for a path that does not resolve.
+MISSING: Any = _Missing()
 
 
 # --------------------------------------------------------------------------- validation
@@ -107,9 +177,9 @@ def _err(msg: str, path: str) -> ConditionError:
 
 def _check_operand(o: Any, path: str) -> None:
     if not isinstance(o, dict) or len(o) != 1:
-        raise _err("operand must be one of field/var/literal", path)
+        raise _err("operand must be one of field/var/literal/item", path)
     ((k, v),) = o.items()
-    if k in ("field", "var"):
+    if k in ("field", "var", "item"):
         if not isinstance(v, str) or not v:
             raise _err(f"{k} must be a non-empty string", path)
     elif k == "literal":
@@ -129,7 +199,7 @@ def _is_json(v: Any) -> bool:
     return False
 
 
-def validate(node: Any, path: str = "$", depth: int = 0) -> None:
+def validate(node: Any, path: str = "$", depth: int = 0, nesting: int = 0) -> None:
     """Raise ConditionError if ``node`` is not a well-formed predicate tree."""
     if depth > MAX_DEPTH:
         raise _err("condition nested too deeply", path)
@@ -142,23 +212,41 @@ def validate(node: Any, path: str = "$", depth: int = 0) -> None:
         _check_operand(node.get("left"), path + ".left")
         _check_operand(node.get("right"), path + ".right")
     elif op in ("and", "or"):
-        _validate_group(node, op, path, depth)
+        _validate_group(node, op, path, depth, nesting)
     elif op == "not":
         if "arg" not in node:
             raise _err("not needs arg", path)
-        validate(node["arg"], path + ".arg", depth + 1)
-    elif op == "exists":
-        _check_operand(node.get("arg"), path + ".arg")
-    elif op == "in":
-        _check_operand(node.get("value"), path + ".value")
-        _check_operand(node.get("items"), path + ".items")
+        validate(node["arg"], path + ".arg", depth + 1, nesting)
+    elif op in _OPERAND_FIELDS:
+        for key in _OPERAND_FIELDS[op]:
+            _check_operand(node.get(key), f"{path}.{key}")
     elif op == "matches":
         _validate_matches(node, path)
+    elif op in ("any", "all"):
+        _validate_per_item(node, op, path, depth, nesting)
     else:
         raise _err(f"unknown op {op!r}", path)
 
 
-def _validate_group(node: dict, op: str, path: str, depth: int) -> None:
+#: Ops whose whole shape is a fixed set of operand keys.
+_OPERAND_FIELDS = {
+    "exists": ("arg",),
+    "in": ("value", "items"),
+    "contains": ("value", "needle"),
+    "host_suffix": ("value", "suffix"),
+}
+
+
+def _validate_per_item(node: dict, op: str, path: str, depth: int, nesting: int) -> None:
+    if nesting >= MAX_ITEM_NESTING:
+        raise _err(f"{op} nested more than {MAX_ITEM_NESTING} deep", path)
+    _check_operand(node.get("items"), path + ".items")
+    if "where" not in node:
+        raise _err(f"{op} needs where", path)
+    validate(node["where"], path + ".where", depth + 1, nesting + 1)
+
+
+def _validate_group(node: dict, op: str, path: str, depth: int, nesting: int = 0) -> None:
     args = node.get("args")
     # At least two args: a single-argument group has no text form of its own, so it
     # would not round-trip through to_text/from_text (Qwen review of t2). Editors unwrap
@@ -166,7 +254,7 @@ def _validate_group(node: dict, op: str, path: str, depth: int) -> None:
     if not isinstance(args, list) or len(args) < 2:
         raise _err(f"{op} needs an args list of at least two conditions", path)
     for i, a in enumerate(args):
-        validate(a, f"{path}.args[{i}]", depth + 1)
+        validate(a, f"{path}.args[{i}]", depth + 1, nesting)
 
 
 def _validate_matches(node: dict, path: str) -> None:
@@ -188,19 +276,28 @@ def _validate_matches(node: dict, path: str) -> None:
 # --------------------------------------------------------------------------- evaluation
 
 
+def walk_path(cur: Any, path: str) -> Any:
+    """Follow the dotted ``path`` through nested dicts; ``"."`` is ``cur`` itself. A path
+    that does not resolve gives :data:`MISSING`."""
+    if path == ".":
+        return cur
+    for part in path.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return MISSING
+    return cur
+
+
 def _resolve(o: dict, ctx: dict) -> Any:
     if "literal" in o:
         return o["literal"]
     if "var" in o:
         cur = ctx.get("variables") or {}
-        return cur.get(o["var"], _MISSING) if isinstance(cur, dict) else _MISSING
-    cur = ctx.get("trigger") or {}
-    for part in o["field"].split("."):
-        if isinstance(cur, dict) and part in cur:
-            cur = cur[part]
-        else:
-            return _MISSING
-    return cur
+        return cur.get(o["var"], MISSING) if isinstance(cur, dict) else MISSING
+    if "item" in o:
+        return walk_path(ctx["item"], o["item"]) if "item" in ctx else MISSING
+    return walk_path(ctx.get("trigger") or {}, o["field"])
 
 
 def _is_num(x: Any) -> bool:
@@ -208,7 +305,7 @@ def _is_num(x: Any) -> bool:
 
 
 def _eq(a: Any, b: Any) -> bool:
-    if a is _MISSING or b is _MISSING:
+    if a is MISSING or b is MISSING:
         return False
     if isinstance(a, bool) != isinstance(b, bool):
         return False
@@ -216,7 +313,7 @@ def _eq(a: Any, b: Any) -> bool:
 
 
 def _compare(op: str, a: Any, b: Any) -> bool:
-    if a is _MISSING or b is _MISSING:
+    if a is MISSING or b is MISSING:
         return False  # every comparison, `!=` included; `!(a == b)` stays true
     if op == "==":
         return _eq(a, b)
@@ -227,39 +324,156 @@ def _compare(op: str, a: Any, b: Any) -> bool:
     return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
 
 
-def _eval(node: dict, ctx: dict) -> bool:
-    op = node["op"]
-    if op == "compare":
-        return _compare(node["cmp"], _resolve(node["left"], ctx), _resolve(node["right"], ctx))
-    if op == "and":
-        return all(_eval(a, ctx) for a in node["args"])
-    if op == "or":
-        return any(_eval(a, ctx) for a in node["args"])
-    if op == "not":
-        return not _eval(node["arg"], ctx)
-    if op == "exists":
-        return _resolve(node["arg"], ctx) is not _MISSING
-    if op == "in":
-        value, items = _resolve(node["value"], ctx), _resolve(node["items"], ctx)
-        if value is _MISSING or not isinstance(items, list):
-            return False
-        return any(_eq(value, i) for i in items)
-    value = _resolve(node["value"], ctx)  # matches
+def _eval_in(node: dict, ctx: dict, budget: Budget) -> bool:
+    value, items = _resolve(node["value"], ctx), _resolve(node["items"], ctx)
+    if value is MISSING or not isinstance(items, list):
+        return False
+    budget.spend(len(items))
+    return any(_eq(value, i) for i in items)
+
+
+def _eval_matches(node: dict, ctx: dict) -> bool:
+    value = _resolve(node["value"], ctx)
     if not isinstance(value, str) or len(value) > MAX_INPUT_LEN:
         return False
     return re.fullmatch(node["pattern"], value) is not None
 
 
-def evaluate(tree: dict, context: dict) -> bool:
+def _eval_contains(node: dict, ctx: dict, budget: Budget) -> bool:
+    value, needle = _resolve(node["value"], ctx), _resolve(node["needle"], ctx)
+    if not isinstance(needle, str) or not needle:
+        return False
+    folded = needle.casefold()
+    if isinstance(value, str):
+        return folded in value.casefold()
+    if isinstance(value, list):
+        budget.spend(len(value))
+        return any(isinstance(item, str) and item.casefold() == folded for item in value)
+    return False
+
+
+def _norm_host(text: str) -> str | None:
+    """``text`` stripped, ASCII-lowercased, one trailing dot dropped; None if not ASCII."""
+    text = text.strip()
+    if not text.isascii():
+        return None
+    text = text.lower()  # ASCII only here, so lower() is exactly ASCII case folding
+    return text[:-1] if text.endswith(".") else text
+
+
+def host_matches_suffix(host: Any, suffix: Any) -> bool:
+    """True when ``host`` equals ``suffix`` or ends with ``"." + suffix``, ignoring ASCII case.
+
+    One trailing dot is ignored on both, a leading dot on the suffix too; non-strings, an
+    empty suffix and any non-ASCII host or suffix are false (an internationalised name is
+    written in its ``xn--`` form), so no Unicode folding makes two names equal.
+    ``evilexample.com`` does not match ``example.com``.
+    """
+    if not isinstance(host, str) or not isinstance(suffix, str):
+        return False
+    host_norm, suffix_norm = _norm_host(host), _norm_host(suffix)
+    if not host_norm or not suffix_norm:
+        return False
+    suffix_norm = suffix_norm.lstrip(".")
+    if not suffix_norm:
+        return False
+    return host_norm == suffix_norm or host_norm.endswith("." + suffix_norm)
+
+
+def _eval_host_suffix(node: dict, ctx: dict) -> bool:
+    return host_matches_suffix(_resolve(node["value"], ctx), _resolve(node["suffix"], ctx))
+
+
+def _eval_per_item(node: dict, ctx: dict, budget: Budget) -> bool:
+    items = _resolve(node["items"], ctx)
+    if not isinstance(items, list) or len(items) > MAX_ITEMS:
+        return False
+    holds = (_eval(node["where"], {**ctx, "item": item}, budget) for item in items)
+    return any(holds) if node["op"] == "any" else all(holds)
+
+
+def _eval(node: dict, ctx: dict, budget: Budget) -> bool:
+    budget.spend()
+    op = node["op"]
+    if op == "compare":
+        return _compare(node["cmp"], _resolve(node["left"], ctx), _resolve(node["right"], ctx))
+    if op == "and":
+        return all(_eval(a, ctx, budget) for a in node["args"])
+    if op == "or":
+        return any(_eval(a, ctx, budget) for a in node["args"])
+    if op == "not":
+        return not _eval(node["arg"], ctx, budget)
+    if op == "exists":
+        return _resolve(node["arg"], ctx) is not MISSING
+    if op in _FLAT_OPS:
+        return _FLAT_OPS[op](node, ctx)
+    return _BUDGETED_OPS[op](node, ctx, budget)
+
+
+#: Leaf ops whose work is one step (the node's own).
+_FLAT_OPS = {"matches": _eval_matches, "host_suffix": _eval_host_suffix}
+#: Ops that spend more of the budget (list members, per-item evaluations).
+_BUDGETED_OPS = {
+    "in": _eval_in,
+    "contains": _eval_contains,
+    "any": _eval_per_item,
+    "all": _eval_per_item,
+}
+
+
+class PreparedCondition:
+    """A tree :func:`prepare` has validated: evaluate it any number of times without
+    validating again (``list.filter`` evaluates one per item). Build it with :func:`prepare`."""
+
+    __slots__ = ("tree",)
+
+    def __init__(self, tree: dict, _token: object = None) -> None:
+        if _token is not _PREPARE_TOKEN:
+            raise TypeError("build a PreparedCondition with prepare(tree)")
+        self.tree = tree
+
+    def evaluate(self, context: Any, budget: Budget | None = None) -> bool:
+        """Like :func:`evaluate`, without validating; ``budget`` defaults to a fresh one."""
+        ctx = context if isinstance(context, dict) else {}
+        return _eval(self.tree, ctx, budget if budget is not None else Budget())
+
+    def evaluate_item(self, item: Any, context: Any = None, budget: Budget | None = None) -> bool:
+        """Like :func:`evaluate_item`, without validating; ``budget`` defaults to a fresh one."""
+        base = context if isinstance(context, dict) else {}
+        return self.evaluate({**base, "item": item}, budget)
+
+
+_PREPARE_TOKEN = object()
+
+
+def prepare(tree: Any) -> PreparedCondition:
+    """``tree`` validated once (ConditionError / UnsafePatternError as :func:`validate`)."""
+    validate(tree)
+    return PreparedCondition(tree, _PREPARE_TOKEN)
+
+
+def evaluate(tree: dict, context: dict, budget: Budget | None = None) -> bool:
     """Evaluate ``tree`` against ``context`` ({"trigger": {...}, "variables": {...}}).
 
     Pure and deterministic: the context is never mutated.  Missing fields make comparisons
-    (``!=`` included) false rather than raising; a malformed tree raises ConditionError, and
-    a ``matches`` pattern that fails the backtracking screen raises UnsafePatternError
-    without running.
+    (``!=`` included) false rather than raising; a malformed tree raises ConditionError, a
+    ``matches`` pattern that fails the backtracking screen raises UnsafePatternError
+    without running, and an evaluation that takes more than its budget's steps (default
+    :data:`MAX_EVAL_STEPS`) raises EvaluationBudgetError.
     """
-    validate(tree)
-    return _eval(tree, context if isinstance(context, dict) else {})
+    return prepare(tree).evaluate(context, budget)
+
+
+def evaluate_item(
+    tree: dict, item: Any, context: dict | None = None, budget: Budget | None = None
+) -> bool:
+    """Evaluate ``tree`` for one ``item``, addressable as ``{"item": "<path>"}`` operands.
+
+    ``context`` is the usual trigger/variables context, optional. Validates like
+    :func:`evaluate` and is budgeted like it; the inputs are never mutated. To evaluate one
+    tree for many items, :func:`prepare` it once instead.
+    """
+    return prepare(tree).evaluate_item(item, context, budget)
 
 
 # --------------------------------------------------------------------------- text: render
@@ -276,6 +490,8 @@ def _lit_text(v: Any) -> str:
 
 
 def _operand_text(o: dict) -> str:
+    if "item" in o:
+        raise ConditionError("item operands have no text form")
     if "literal" in o:
         return _lit_text(o["literal"])
     if "var" in o:
@@ -290,6 +506,8 @@ def _operand_text(o: dict) -> str:
 
 def _text(node: dict, parent: int) -> str:
     op = node["op"]
+    if op in ("contains", "host_suffix", "any", "all"):
+        raise ConditionError(f"{op} has no text form")
     if op == "compare":
         return f"{_operand_text(node['left'])} {node['cmp']} {_operand_text(node['right'])}"
     if op in ("and", "or"):

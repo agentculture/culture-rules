@@ -1,0 +1,261 @@
+"""The built-in ``file.read``: a file read only under configured roots."""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+
+from culture_rules.engine.actorport import InvocationContext
+from culture_rules.node.actions.file_read import (
+    FILE_READ_BUILTIN,
+    HARD_MAX_BYTES,
+    FileReadPort,
+)
+
+DEADLINE = datetime(2030, 1, 1, tzinfo=UTC)
+
+
+def invoke(inputs, config):
+    cfg = {"builtin": FILE_READ_BUILTIN, **config}
+    ctx = InvocationContext("run-1", "wf[0]/read", "code", "spark2", config=cfg)
+    return FileReadPort().invoke(inputs, "k", DEADLINE, context=ctx)
+
+
+def failed(res, code):
+    assert res.outcome == "failed"
+    assert res.error.startswith(f"{code}:"), res.error
+    assert res.retryable is False
+
+
+def test_text_file_under_the_root_is_read(tmp_path):
+    (tmp_path / "a.txt").write_text("héllo", encoding="utf-8")
+    res = invoke({"path": str(tmp_path / "a.txt")}, {"root": str(tmp_path)})
+    assert res.outcome == "completed", res.error
+    assert dict(res.output) == {"content": "héllo", "bytes": 6}
+
+
+def test_relative_path_is_under_the_first_root(tmp_path):
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    res = invoke({"path": "a.txt"}, {"roots": [str(tmp_path)]})
+    assert res.output["content"] == "x"
+
+
+def test_any_one_root_suffices(tmp_path):
+    one, two = tmp_path / "one", tmp_path / "two"
+    one.mkdir()
+    two.mkdir()
+    (two / "b.txt").write_text("b", encoding="utf-8")
+    res = invoke({"path": str(two / "b.txt")}, {"roots": [str(one), str(two)]})
+    assert res.output["content"] == "b"
+
+
+def test_path_outside_every_root_is_refused(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (tmp_path / "out.txt").write_text("secret", encoding="utf-8")
+    failed(invoke({"path": str(tmp_path / "out.txt")}, {"root": str(root)}), "path_refused")
+
+
+def test_dotdot_path_is_refused(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (tmp_path / "out.txt").write_text("secret", encoding="utf-8")
+    failed(invoke({"path": "../out.txt"}, {"root": str(root)}), "path_refused")
+
+
+def test_symlink_escaping_the_root_is_refused(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (tmp_path / "out.txt").write_text("secret", encoding="utf-8")
+    (root / "link.txt").symlink_to(tmp_path / "out.txt")
+    failed(invoke({"path": str(root / "link.txt")}, {"root": str(root)}), "path_refused")
+
+
+def test_directory_is_refused(tmp_path):
+    (tmp_path / "d").mkdir()
+    failed(invoke({"path": str(tmp_path / "d")}, {"root": str(tmp_path)}), "path_refused")
+
+
+def test_oversize_file_is_refused_before_reading(tmp_path):
+    (tmp_path / "big.txt").write_text("x" * 11, encoding="utf-8")
+    res = invoke({"path": "big.txt"}, {"root": str(tmp_path), "max_bytes": 10})
+    failed(res, "too_large")
+
+
+def test_file_at_the_cap_is_read(tmp_path):
+    (tmp_path / "ok.txt").write_text("x" * 10, encoding="utf-8")
+    res = invoke({"path": "ok.txt"}, {"root": str(tmp_path), "max_bytes": 10})
+    assert res.output["bytes"] == 10
+
+
+def test_undecodable_file_is_not_text(tmp_path):
+    (tmp_path / "b.bin").write_bytes(b"\xff\xfe\x00")
+    failed(invoke({"path": "b.bin"}, {"root": str(tmp_path)}), "not_text")
+
+
+def test_json_mode_returns_the_value(tmp_path):
+    (tmp_path / "d.json").write_text(json.dumps({"a": [1, 2]}), encoding="utf-8")
+    res = invoke({"path": "d.json"}, {"root": str(tmp_path), "mode": "json"})
+    assert res.output["value"] == {"a": [1, 2]}
+
+
+def test_json_mode_with_fields(tmp_path):
+    doc = {"a": {"b": [1, 2]}, "n": 3}
+    (tmp_path / "d.json").write_text(json.dumps(doc), encoding="utf-8")
+    cfg = {"root": str(tmp_path), "mode": "json", "fields": {"b": "a.b", "n": "n", "x": "q"}}
+    res = invoke({"path": "d.json"}, cfg)
+    assert res.output["fields"] == {"b": [1, 2], "n": 3, "x": None}
+
+
+def test_invalid_json_fails(tmp_path):
+    (tmp_path / "d.json").write_text("{nope", encoding="utf-8")
+    failed(invoke({"path": "d.json"}, {"root": str(tmp_path), "mode": "json"}), "not_json")
+
+
+def test_missing_roots_fail(tmp_path):
+    failed(invoke({"path": "a.txt"}, {}), "bad_params")
+
+
+def test_relative_root_fails(tmp_path):
+    failed(invoke({"path": "a.txt"}, {"root": "rel"}), "bad_params")
+
+
+def test_bad_mode_fails(tmp_path):
+    failed(invoke({"path": "a"}, {"root": str(tmp_path), "mode": "xml"}), "bad_params")
+
+
+def test_fields_need_json_mode(tmp_path):
+    cfg = {"root": str(tmp_path), "fields": {"a": "a"}}
+    failed(invoke({"path": "a"}, cfg), "bad_params")
+
+
+def test_cap_above_the_hard_maximum_fails(tmp_path):
+    cfg = {"root": str(tmp_path), "max_bytes": HARD_MAX_BYTES + 1}
+    failed(invoke({"path": "a"}, cfg), "bad_params")
+
+
+def test_roots_come_from_config_not_input(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (tmp_path / "out.txt").write_text("secret", encoding="utf-8")
+    res = invoke({"path": str(tmp_path / "out.txt"), "root": str(tmp_path)}, {"root": str(root)})
+    failed(res, "path_refused")
+
+
+def test_a_file_whose_stated_size_understates_its_content_is_refused(tmp_path, monkeypatch):
+    """The cap holds on the read itself, not only on stat: a file that grew after the check,
+    or one reporting size 0 like /proc files, is refused once more than the cap comes back."""
+    import os
+    from pathlib import Path
+
+    target = tmp_path / "grows.txt"
+    target.write_text("x" * 10, encoding="utf-8")
+    real_stat = Path.stat
+
+    def stat_says_zero(self, *args, **kwargs):
+        result = real_stat(self, *args, **kwargs)
+        if self == target:
+            return os.stat_result((result.st_mode, *result[1:6], 0, *result[7:]))
+        return result
+
+    monkeypatch.setattr(Path, "stat", stat_says_zero)
+    res = invoke({"path": str(target)}, {"root": str(tmp_path), "max_bytes": 4})
+    assert res.error.startswith("too_large")
+
+
+# -- review fixes: NUL bytes, missing roots, a read bound to the checked file ----------------
+
+
+def test_a_nul_byte_in_the_path_is_refused(tmp_path):
+    failed(invoke({"path": "a\0.txt"}, {"root": str(tmp_path)}), "path_refused")
+
+
+def test_a_nul_byte_in_a_root_is_bad_params(tmp_path):
+    failed(invoke({"path": "a.txt"}, {"root": str(tmp_path) + "\0x"}), "bad_params")
+
+
+def test_a_missing_root_is_skipped_when_another_exists(tmp_path):
+    (tmp_path / "b.txt").write_text("b", encoding="utf-8")
+    roots = [str(tmp_path / "unmounted"), str(tmp_path)]
+    res = invoke({"path": str(tmp_path / "b.txt")}, {"roots": roots})
+    assert res.output["content"] == "b"
+
+
+def test_every_root_missing_is_refused(tmp_path):
+    roots = [str(tmp_path / "gone1"), str(tmp_path / "gone2")]
+    failed(invoke({"path": "b.txt"}, {"roots": roots}), "path_refused")
+
+
+def _swap_after_check(monkeypatch, swap):
+    from culture_rules.node.actions import _paths
+
+    checked = _paths._checked
+
+    def check_then_swap(path_value, root_values):
+        result = checked(path_value, root_values)
+        swap()
+        return result
+
+    monkeypatch.setattr(_paths, "_checked", check_then_swap)
+
+
+def _secret(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "a.txt").write_text("secret", encoding="utf-8")
+    return outside
+
+
+def test_a_file_swapped_for_a_link_after_the_check_is_refused(tmp_path, monkeypatch):
+    outside, root = _secret(tmp_path), tmp_path / "root"
+    root.mkdir()
+    (root / "a.txt").write_text("fine", encoding="utf-8")
+
+    def swap():
+        (root / "a.txt").unlink()
+        (root / "a.txt").symlink_to(outside / "a.txt")
+
+    _swap_after_check(monkeypatch, swap)
+    failed(invoke({"path": "a.txt"}, {"root": str(root)}), "path_refused")
+
+
+def _dir_swap(tmp_path):
+    outside, root = _secret(tmp_path), tmp_path / "root"
+    (root / "d").mkdir(parents=True)
+    (root / "d" / "a.txt").write_text("fine", encoding="utf-8")
+
+    def swap():
+        (root / "d").rename(tmp_path / "d_old")
+        (root / "d").symlink_to(outside)
+
+    return root, swap
+
+
+def test_a_directory_swapped_for_a_link_after_the_check_is_refused(tmp_path, monkeypatch):
+    root, swap = _dir_swap(tmp_path)
+    _swap_after_check(monkeypatch, swap)
+    failed(invoke({"path": "d/a.txt"}, {"root": str(root)}), "path_refused")
+
+
+def test_without_proc_the_descriptor_is_checked_by_identity(tmp_path, monkeypatch):
+    from culture_rules.node.actions import _paths
+
+    root, swap = _dir_swap(tmp_path)
+    _swap_after_check(monkeypatch, swap)
+    monkeypatch.setattr(_paths, "_opened_path", lambda fd: None)
+    failed(invoke({"path": "d/a.txt"}, {"root": str(root)}), "path_refused")
+
+
+def test_without_proc_an_unswapped_file_is_read(tmp_path, monkeypatch):
+    from culture_rules.node.actions import _paths
+
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(_paths, "_opened_path", lambda fd: None)
+    assert invoke({"path": "a.txt"}, {"root": str(tmp_path)}).output["content"] == "x"
+
+
+def test_a_fifo_is_refused_without_blocking(tmp_path):
+    import os
+
+    os.mkfifo(tmp_path / "pipe")
+    failed(invoke({"path": "pipe"}, {"root": str(tmp_path)}), "path_refused")

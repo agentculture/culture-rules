@@ -12,9 +12,11 @@ from culture_rules.model.action_kinds import REQ_STR, STR, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
+HTTP_CALL = "http.call"
+
 KINDS = (
     kind(
-        "http.call",
+        HTTP_CALL,
         "Call an HTTP endpoint",
         label="Call an HTTP endpoint",
         declarable_by_apps=True,
@@ -38,4 +40,5 @@ def register(ext: Extension) -> None:
     """``http.call`` (``port.HttpCallPort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_port("http.call", Lazy(__name__ + ".port", "HttpCallPort", store=True))
+    ext.action_phrases(HTTP_CALL, words=(("method", "{}"), ("url", "{}")))
+    ext.action_port(HTTP_CALL, Lazy(__name__ + ".port", "HttpCallPort", store=True))

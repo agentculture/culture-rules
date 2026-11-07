@@ -112,3 +112,7 @@ def test_bad_params_fail(tmp_path):
     failed(invoke(good, {"fields": {}}), "bad_params")
     failed(invoke(good, {"fields": {"Bad Name": "language"}}), "bad_params")
     failed(invoke(good, {"fields": {"a": "x..y"}}), "bad_params")
+
+
+def test_a_nul_byte_in_the_path_is_refused(tmp_path):
+    failed(invoke({"path": "meta\0.json", "root": str(tmp_path)}), "path_refused")

@@ -3,8 +3,11 @@
 :func:`registry` is the engine's registry, with the built-in apps
 (:mod:`culture_rules.extensions.builtin`) installed on first use. Core reads it - the action
 catalogue (``model.action_kinds``), the node's ports (``node.runner.default_ports``), the
-API's webhook routes (``server.app``) and the node's listeners and collections
-(``node.daemon``) - and never imports an app to learn what exists. Another extension
+API's webhook routes and contract routes (``server.app``) and their roles
+(``auth.policy``), the node's listeners and collections (``node.daemon``), params validators
+and trigger filters (``model.validate``, ``engine.matching``), phrases
+(``model.describe``), health sections (``ops.health``) and event reservations
+(``events.emit``) - and never imports an app to learn what exists. Another extension
 installs itself the same way::
 
     from culture_rules.extensions import Lazy, registry
@@ -25,38 +28,56 @@ import threading
 from culture_rules.extensions.registry import (
     EVENT_TYPE_RE,
     RESERVED_BUILTINS,
+    RESERVED_HEALTH_SECTIONS,
+    ROLES,
     WEBHOOK_PREFIX,
+    ActionPhrasesEntry,
     ActionPortEntry,
     ApiContext,
     ApiRoutesEntry,
     BuiltinEntry,
+    BuiltinPortSpec,
+    EventReservationEntry,
     EventTypeEntry,
     Extension,
     ExtensionError,
+    HealthSectionEntry,
     KindEntry,
     Lazy,
     NodeContext,
     NodeListenerEntry,
+    ParamsValidatorEntry,
+    Problem,
     Registry,
+    TriggerFilterEntry,
     WebhookRouteEntry,
 )
 
 __all__ = [
     "EVENT_TYPE_RE",
     "RESERVED_BUILTINS",
+    "RESERVED_HEALTH_SECTIONS",
+    "ROLES",
     "WEBHOOK_PREFIX",
+    "ActionPhrasesEntry",
     "ActionPortEntry",
     "ApiContext",
     "ApiRoutesEntry",
     "BuiltinEntry",
+    "BuiltinPortSpec",
+    "EventReservationEntry",
     "EventTypeEntry",
     "Extension",
     "ExtensionError",
+    "HealthSectionEntry",
     "KindEntry",
     "Lazy",
     "NodeContext",
     "NodeListenerEntry",
+    "ParamsValidatorEntry",
+    "Problem",
     "Registry",
+    "TriggerFilterEntry",
     "WebhookRouteEntry",
     "registry",
 ]
