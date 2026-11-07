@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-06T19:36:25Z",
-  "updated": "2026-11-06T19:55:52Z",
+  "updated": "2026-11-06T20:41:04Z",
   "claims": [
     {
       "id": "c1",
@@ -623,7 +623,30 @@
       "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "t1 agent: 29 full-suite errors in the first run were never identified (output piped through tail, last-failed cache overwritten); assumed MongoDB connection drops like the 4 visible ones",
+      "skipped_check": "keep the full pytest report (-rfE) on the first full run",
+      "refs": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "t1 agent: tests/multihost/test_timing.py failed in both full runs and passes alone; not compared with a full run on the base commit",
+      "skipped_check": "run the same test on the base commit under the same load",
+      "refs": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",

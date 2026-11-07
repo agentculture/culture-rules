@@ -2,7 +2,7 @@
   "plan_slug": "no-flow-specific-code",
   "schema_version": 2,
   "created": "2026-11-06T20:24:48Z",
-  "updated": "2026-11-06T20:24:48Z",
+  "updated": "2026-11-07T05:38:20Z",
   "deviations": [
     {
       "id": "d1",
@@ -16,6 +16,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t3 also deletes docs/rules/pr-fixer and repoints deploy_data: the wheel ships release.json and the node installer with no rule bundle; rollout import/seed need --bundle (moved from t4)",
+      "task_ref": "t3",
+      "reason": "rollout and packaging read the release version, default bundle and variables from the pr-fixer bundle (deploy_data, rollout.py:93-122); its workflows use the removed github.push, so the suite cannot pass after t3 while it ships",
+      "affects": [
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
     }
   ],
   "evidence": [],
