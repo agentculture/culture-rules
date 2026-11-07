@@ -1,0 +1,852 @@
+"""``llm.complete`` action port: one OpenAI-compatible chat completion, an actor brief, no tools.
+
+Params (``culture_rules.model.action_kinds``): ``actor`` (required; falls back to
+``context.actor``), ``content`` (a string, sent verbatim, or any JSON-able value,
+serialised deterministically with sorted keys) or, instead, ``content_path`` with
+``content_root`` and optional ``content_max_chars`` (d2: the text of the schema-1 transcript at
+``content_path``, which must resolve under ``content_root``, symlinks followed, else
+``path_refused``; cut to ``content_max_chars``, at most the content limit, so a long transcript
+is summarised from its start instead of refused; the text never enters the run's outputs),
+optional ``max_tokens`` (int >= 1, default
+:data:`DEFAULT_MAX_TOKENS`, capped at :data:`MAX_TOKENS_CAP`) and ``temperature`` (a number
+0..2), and ``brief`` (required at run time): a name looked up in the bound actor's
+``params.briefs`` (a mapping of name to non-empty string: the actor's configuration holds the
+text, never a step or this code). An absent brief, a name the actor lacks, a non-string name or
+an empty or non-string text (including null) fails ``invalid_request`` before any request. A step
+can only name a brief, not supply its text, and cannot add tools or name a repository. Optional
+``answer`` (``{shape: <spec>}``, a :mod:`culture_rules.model.shape` spec) asks for a structured
+answer, and ``cache`` / ``cache_name`` / ``cache_label`` keep it (below). Every other param is
+ignored.
+
+The bound actor is an ``agent`` actor whose ``params`` carry ``base_url`` (``http(s)://host
+[:port][/v1]``, no credentials), ``model`` (non-empty; else the actor's own ``model``) and
+an optional ``api_key`` that must be a ``grant:<NAME>`` reference (resolved at call time on
+this host and sent as a bearer token; a vLLM server may need none). The actor's
+``concurrency_pool`` / ``max_concurrency`` are applied by
+:class:`~culture_rules.node.actors.ActorRouter`, which wraps every action naming
+``params.actor`` in a :class:`~culture_rules.actors.limits.LimitedActor` with that actor's
+limits - a summary in pool ``qwen-spark2`` waits (``blocked``) behind a running fix. The
+port never goes through the coding-agent bridge, even when the actor also has a
+``bridge_url``.
+
+The request is ``POST <base_url>/v1/chat/completions`` with exactly ``model``,
+``messages`` (the system message is the actor's named brief, the user message the
+content), ``max_tokens``, ``stream: true``, ``stream_options: {include_usage: true}`` and,
+when given, ``temperature`` - never a ``tools`` field. Proxies from the environment are
+ignored and redirects are not followed.
+
+The reply is read as server-sent events (d7, operator 2026-11-02: "Always use stream"):
+``data: <chunk>`` lines ending with ``data: [DONE]``. The first choice's ``delta.content``
+pieces, joined in order, are the text (``reasoning`` / ``reasoning_content`` deltas are
+not); the model is the chunks' ``model`` and the usage the usage chunk's. The default
+transport reads the whole stream within the request's timeout (a stream still trickling in
+when it ends, or stalled past it, raises ``TimeoutError``, so ``llm_unavailable``: each
+read's socket timeout is the time left) and at most :data:`MAX_RESPONSE_BYTES` (8 MiB, room
+for :data:`MAX_TOKENS_CAP` tokens of SSE). ``event:``, ``id:`` and ``retry:`` lines are
+ignored, and may come before the first ``data:``. A body that is not an event stream (an
+error body, or a server that ignores ``stream``) is read as one JSON reply, as before.
+
+An optional ``not_after`` param (an ISO-8601 time with a UTC offset) is the latest time the
+work may start: at or past it the port fails ``llm_deadline`` (not retryable) without a
+request, and before it the request's timeout ends at it. Both are read on the clock *after*
+the bearer token's grant lookup, just before the request (Codex r2 #2), so a lookup that
+blocks past ``not_after`` sends nothing. A key that already completed in this process
+(among its last :data:`LEDGER_SIZE` completions) replays its result
+(:meth:`~LlmCompletePort.replay`) before any of this, also through
+:class:`~culture_rules.actors.limits.LimitedActor`, which asks it before admission: a
+completion re-asked after ``not_after`` replays, without a slot (Codex r2 #3). The ledger
+is per process: after a node restart, or once evicted, a completion re-asked past its
+``not_after`` fails ``llm_deadline`` - a missed summary, never a wrong send.
+:class:`LlmCompletePort` also answers :meth:`~LlmCompletePort.refuse_before_admit`, which
+:class:`~culture_rules.actors.limits.LimitedActor` asks before it queues the work, so a
+summary waiting ``blocked`` behind a busy pool gives up at its next re-ask after
+``not_after`` instead of waiting out the queue bound. The daily newspaper passes the
+issue's ``summaries_until`` (the slot plus the summary window), so the issue goes out on
+time with the results only (Codex r1 #3).
+
+Answer (``answer.shape``): the reply, with every ``<think>`` block and one Markdown fence
+dropped, is read as JSON and validated by :func:`culture_rules.model.shape.validate` against the
+step's ``answer.shape`` (:func:`parse_answer`); the normalised value is the output ``answer``. A
+reply that is not JSON (or not a JSON object for an ``object`` shape) fails ``answer_not_json``,
+one that does not fit fails ``answer_invalid: <field path>: <reason>`` (neither retryable). A
+malformed shape fails ``invalid_request`` before any request.
+
+Answer cache: with ``cache: true``, an ``answer.shape`` and a ``content_path`` (any brief), the
+validated answer is kept beside the content file as ``answer.<cache_name>.<first 16 hex of the
+content file's sha256>.json`` (written atomically, like ``transcript.render``'s book), a document
+``{schema: 1, brief: <cache_label>, content_sha256, model, usage, answer}``, and a later run over
+the same file bytes returns it without calling the model (``cached: true``). ``cache_name`` (a
+file stem: letters, digits, ``-``, ``_``) and ``cache_label`` default to ``"recording"``, so a
+file 0.41.0 wrote reads back. A stored answer is already normalised, so it is checked against the
+shape's stored form (a ``lines`` field is its list of lines); one that does not fit, a
+different label or content hash, or a damaged file is ignored and rewritten. Only a valid answer
+is stored; a folder that cannot be written still returns the answer. ``cache`` is a boolean, and
+``cache: true`` without ``answer.shape`` or ``content_path`` fails ``invalid_request`` before any
+request.
+
+Outcome: completed ``{text, model, usage}`` (``text`` is the first choice's message content
+with a leading ``<think>`` block dropped; ``usage`` keeps the integer token counts, so the
+actor's token budget counts them; with ``answer.shape`` also ``answer``, the normalised answer,
+and ``cached``). Failures
+(``"<code>: <detail>"``, never a body, a header value or a secret):
+
+* ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
+  5xx, 408 or 429, or a stream ``error`` event saying the same (a 5xx / 408 / 429 ``code``
+  or ``status``, or a ``type`` / ``message`` saying overloaded, service or temporarily
+  unavailable, or timeout; a bare "unavailable", say of a model, is not). The
+  newspaper's summary step tolerates any failure (``config.on_error: "skip"``): that section
+  goes out with its results and "Summary unavailable.", and when no section got a summary the
+  masthead also says so;
+* ``llm_deadline`` (not retryable) - ``not_after`` has passed;
+* ``llm_rejected`` (not retryable) - any other non-2xx answer;
+* ``llm_bad_response`` (not retryable) - not JSON, or no string message content; for a
+  stream also a chunk that is not a JSON object, any other non-null ``error``, a stream that ends
+  without ``data: [DONE]`` (like a truncated JSON body) or one with no content delta;
+* ``model_taken`` (not retryable) - another enabled endpoint actor holds this actor's model
+  (``model_taken: <holder id>``; checked before any request);
+* ``llm_content_too_large``, ``invalid_request``, ``llm_actor_invalid``,
+  ``actor_kind_mismatch``, ``secret_unresolved`` (not retryable) - before any request.
+
+Standard-library only.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import http.client
+import json
+import re
+import string
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
+from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
+from culture_rules.model.actor import Actor
+from culture_rules.model.shape import ShapeError, ShapeSpecError, validate
+from culture_rules.node.actions._actor import load_bound_actor
+from culture_rules.node.actions._endpoint import (
+    INVALID,
+    Refused,
+    base_url_problem,
+    check_not_after,
+    is_number,
+    model_taken,
+    opener,
+    time_left,
+)
+from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
+from culture_rules.node.actions.transcript_file import (
+    ExcerptRefused,
+    _under,
+    file_sha256,
+    read_excerpt,
+    write_bytes_atomic,
+)
+
+__all__ = [
+    "ANSWER_INVALID",
+    "ANSWER_NOT_JSON",
+    "DEFAULT_CACHE_LABEL",
+    "DEFAULT_CACHE_NAME",
+    "DEFAULT_MAX_CONTENT_CHARS",
+    "DEFAULT_MAX_TOKENS",
+    "MAX_TOKENS_CAP",
+    "AnswerRefused",
+    "LlmCompletePort",
+    "Transport",
+    "check_llm_actor",
+    "parse_answer",
+    "urllib_transport",
+]
+
+_BRIEFS_PARAM = "briefs"
+_CACHE = "cache"
+_CACHE_SCHEMA = 1
+DEFAULT_CACHE_NAME = "recording"
+"""The cache file's stem when a step names none (``answer.recording.<sha16>.json``, as 0.41.0
+wrote it)."""
+DEFAULT_CACHE_LABEL = "recording"
+"""The cache document's ``brief`` label when a step names none (as 0.41.0 wrote it)."""
+_CACHE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_ANSWER, _SHAPE = "answer", "shape"
+ANSWER_NOT_JSON, ANSWER_INVALID = "answer_not_json", "answer_invalid"
+
+DEFAULT_MAX_TOKENS = 1500
+MAX_TOKENS_CAP = 4000
+DEFAULT_MAX_CONTENT_CHARS = 48_000
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+"""The largest reply read. The reply is a stream (d7), and each token costs one ``data:``
+chunk of ~150-300 bytes (an id, a timestamp, the model, nulls), reasoning tokens alike, so
+:data:`MAX_TOKENS_CAP` tokens can pass 1 MiB; 8 MiB holds them at 2 KiB each and still caps
+a runaway server."""
+MAX_TIMEOUT = 600.0
+COMPLETIONS_PATH = "/chat/completions"
+READ_CHUNK = 64 * 1024
+LEDGER_SIZE = DEFAULT_LEDGER_SIZE
+"""How many completed results the port keeps for :meth:`LlmCompletePort.replay`."""
+
+UNAVAILABLE = "llm_unavailable"
+REJECTED = "llm_rejected"
+BAD_RESPONSE = "llm_bad_response"
+DEADLINE_PASSED = "llm_deadline"
+ACTOR_INVALID = "llm_actor_invalid"
+_CONTENT, _MODEL = "content", "model"
+_CONTENT_PATH, _CONTENT_ROOT, _CONTENT_MAX_CHARS = (
+    "content_path",
+    "content_root",
+    "content_max_chars",
+)
+
+_RETRYABLE_4XX = frozenset({408, 429})
+_THINK_OPEN, _THINK_CLOSE = "<think>", "</think>"
+_THINK_BLOCKS = re.compile(r"<think>.*?</think>", re.DOTALL)
+_DATA, _DONE = "data:", "[DONE]"
+_FENCE = "```"
+_SSE_LINE_END = re.compile(r"\r\n|\r|\n")
+_SSE_FIELDS = frozenset({"event", "data", "id", "retry"})
+#: load or time words only: a bare "unavailable" ("model foo unavailable") is not transient
+_TRANSIENT_WORDS = re.compile(
+    r"overload|service[\s_-]+unavailable|temporarily[\s_-]+unavailable|time[d_ ]?\s?out",
+    re.IGNORECASE,
+)
+_USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total_tokens")
+
+Transport = Callable[[str, bytes, Mapping[str, str], float], tuple[int, bytes]]
+"""``(url, body, headers, timeout) -> (status, body)``; raises OSError /
+``http.client.HTTPException`` when the server cannot be reached."""
+
+
+# ------------------------------------------------------------------ the default transport
+
+
+def urllib_transport(
+    url: str, data: bytes, headers: Mapping[str, str], timeout: float
+) -> tuple[int, bytes]:
+    """POST ``data`` to ``url`` (http/https only, checked by the caller) with urllib: the
+    status and at most ``MAX_RESPONSE_BYTES + 1`` bytes of the body, all read within
+    ``timeout`` seconds of the call (a stream still arriving then raises ``TimeoutError``)."""
+    ends_at = time.monotonic() + timeout
+    request = urllib.request.Request(url, data=data, headers=dict(headers), method="POST")
+    try:
+        response = opener().open(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        response = exc  # a non-2xx answer is still an answer
+    with response:
+        status = int(getattr(response, "status", None) or response.code)
+        return status, _read_within(response, ends_at, MAX_RESPONSE_BYTES + 1)
+
+
+def _socket_of(response: Any) -> Any:
+    """The socket under a urllib reply (an ``HTTPResponse``, or an ``HTTPError`` wrapping
+    one): ``fp`` -> buffered reader -> ``raw`` socket file -> ``_sock``. ``None`` when the
+    reply is not backed by one (a fake in tests)."""
+    obj = response
+    for _ in range(6):
+        if obj is None or callable(getattr(obj, "settimeout", None)):
+            return obj
+        obj = next(
+            (getattr(obj, a) for a in ("fp", "raw", "_sock") if getattr(obj, a, None) is not None),
+            None,
+        )
+    return None
+
+
+def _read_within(response: Any, ends_at: float, max_bytes: int) -> bytes:
+    """Read ``response`` to its end, or to ``max_bytes``, before the monotonic ``ends_at``.
+    Before each read the socket's timeout is set to the time left, so a stream that stalls
+    late raises ``TimeoutError`` at ``ends_at`` (plus scheduling slack), not a full socket
+    timeout after it, and one that keeps trickling is cut off at ``ends_at``."""
+    chunks: list[bytes] = []
+    size = 0
+    while size < max_bytes:
+        left = ends_at - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("the reply did not end within the request's timeout")
+        sock = _socket_of(response)  # looked up each time: a reply read to its end closes it
+        if sock is not None:
+            with contextlib.suppress(OSError):  # a socket closed under us: the read ends it
+                sock.settimeout(left)
+        want = min(READ_CHUNK, max_bytes - size)
+        chunk = response.read1(want) if hasattr(response, "read1") else response.read(want)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+    return b"".join(chunks)
+
+
+# ------------------------------------------------------------------ actor and input checks
+
+
+def check_llm_actor(actor: Actor) -> str | None:
+    """Why ``actor`` cannot serve ``llm.complete`` (None when it can)."""
+    params = actor.params
+    problem = base_url_problem(params.get("base_url"))
+    if problem:
+        return problem
+    model = params.get(_MODEL) or actor.model
+    if not isinstance(model, str) or not model.strip():
+        return "params.model must be a non-empty string"
+    key = params.get("api_key")
+    if key not in (None, "") and not is_secret_ref(key):
+        return "params.api_key must be a 'grant:<NAME>' reference"
+    return None
+
+
+def _completions_url(base_url: str) -> str:
+    base = base_url.strip().rstrip("/")
+    return base + COMPLETIONS_PATH if base.endswith("/v1") else base + "/v1" + COMPLETIONS_PATH
+
+
+def _user_message(content: Any, limit: int) -> str:
+    if isinstance(content, str):
+        text = content
+    elif content is None:
+        text = ""
+    else:
+        try:
+            text = json.dumps(content, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError) as exc:
+            raise Refused(INVALID, "content is not JSON-serialisable") from exc
+    if not text.strip():
+        raise Refused(INVALID, "content is required")
+    if len(text) > limit:
+        raise Refused("llm_content_too_large", f"content is {len(text)} chars, limit {limit}")
+    return text
+
+
+def _brief(input: Mapping[str, Any], actor_params: Mapping[str, Any]) -> str:
+    """The system message: the text the bound actor's ``params.briefs`` holds under the step's
+    ``brief`` name. There is no code brief and no default: a step names one, the actor has it."""
+    name = input.get("brief")
+    if name is None:
+        raise Refused(INVALID, "brief is required: name one of the actor's briefs")
+    if not isinstance(name, str) or not name:
+        raise Refused(INVALID, "brief must be a name")
+    briefs = actor_params.get(_BRIEFS_PARAM)
+    text = briefs.get(name) if isinstance(briefs, Mapping) else None
+    if not isinstance(text, str) or not text.strip():
+        raise Refused(INVALID, f"brief {name!r} is not one of the actor's briefs")
+    return text
+
+
+def _answer_shape(input: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The step's ``answer.shape`` (a :mod:`culture_rules.model.shape` spec), checked, or None
+    when the step asks for no structured answer."""
+    option = input.get(_ANSWER)
+    if option is None:
+        return None
+    if not isinstance(option, dict) or set(option) != {_SHAPE}:
+        raise Refused(INVALID, "answer must be an object with exactly one key, shape")
+    spec = option[_SHAPE]
+    if not isinstance(spec, dict):
+        raise Refused(INVALID, "answer.shape must be a shape spec object")
+    try:
+        validate(None, spec)  # a malformed spec raises before any value is looked at
+    except ShapeSpecError as exc:
+        raise Refused(INVALID, f"answer.shape: {exc}") from exc
+    except ShapeError:
+        pass  # the spec is fine; None simply is not a value of it
+    return spec
+
+
+def _max_tokens(value: Any) -> int:
+    if value is None:
+        return DEFAULT_MAX_TOKENS
+    if not (isinstance(value, int) and not isinstance(value, bool) and value >= 1):
+        raise Refused(INVALID, "max_tokens must be a positive integer")
+    return min(value, MAX_TOKENS_CAP)
+
+
+def _temperature(value: Any) -> float | None:
+    if value is None:
+        return None
+    if not (is_number(value) and 0 <= value <= 2):
+        raise Refused(INVALID, "temperature must be a number from 0 to 2")
+    return float(value)
+
+
+# ------------------------------------------------------------------ the response
+
+
+def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise Refused(BAD_RESPONSE, "response too large")
+    try:
+        body = raw.decode("utf-8")
+    except ValueError as exc:  # UnicodeDecodeError
+        raise Refused(BAD_RESPONSE, "response is not JSON") from exc
+    lines = _event_lines(body)
+    if _is_event_stream(lines):
+        return _parse_stream(lines, fallback_model)
+    try:
+        data = json.loads(body)
+    except ValueError as exc:
+        raise Refused(BAD_RESPONSE, "response is not JSON") from exc
+    choices = data.get("choices") if isinstance(data, dict) else None
+    first = choices[0] if isinstance(choices, list) and choices else None
+    message = first.get("message") if isinstance(first, dict) else None
+    text = message.get(_CONTENT) if isinstance(message, dict) else None
+    if not isinstance(text, str):
+        raise Refused(BAD_RESPONSE, "no message content in the first choice")
+    model = data.get(_MODEL)
+    usage = data.get("usage")
+    return {
+        "text": _without_think(text),
+        _MODEL: model if isinstance(model, str) and model else fallback_model,
+        "usage": _usage(usage if isinstance(usage, dict) else {}),
+    }
+
+
+def _event_lines(body: str) -> list[str]:
+    """The stream's field lines (ended by CR, LF or CRLF only, so a U+2028 inside a chunk's
+    JSON stays in its line): blank separators and ``:`` comments dropped."""
+    lines = _SSE_LINE_END.split(body)
+    return [line for line in lines if line.strip() and not line.startswith(":")]
+
+
+def _field(line: str) -> str | None:
+    """The SSE field name of ``line`` (``event``, ``data``, ``id`` or ``retry``, alone or
+    before a ``:``), else None."""
+    name = line.split(":", 1)[0]
+    return name if name in _SSE_FIELDS else None
+
+
+def _is_event_stream(lines: list[str]) -> bool:
+    """Whether the body's field ``lines`` are server-sent events (a ``data:`` line comes
+    before any line that is not an SSE field, so ``event:`` / ``id:`` / ``retry:`` may lead)
+    rather than one JSON reply (an error body, or a server that ignored ``stream``)."""
+    for line in lines:
+        name = _field(line)
+        if name is None:
+            return False
+        if name == "data":
+            return True
+    return False
+
+
+def _error_is_transient(error: Any) -> bool:
+    """Whether a stream's ``error`` event reads as the server being busy or down (a 5xx,
+    408 or 429 ``code`` / ``status``, or a ``type`` / ``message`` saying overloaded, service
+    or temporarily unavailable, or timeout), as the same answer over HTTP would be
+    ``llm_unavailable``. A bare "unavailable" (a model or a feature) is not transient."""
+    if not isinstance(error, Mapping):
+        return isinstance(error, str) and bool(_TRANSIENT_WORDS.search(error))
+    for key in ("code", "status"):
+        value = error.get(key)
+        if isinstance(value, str) and value.strip().isdigit():
+            value = int(value)
+        if isinstance(value, int) and not isinstance(value, bool):
+            if value >= 500 or value in _RETRYABLE_4XX:
+                return True
+    words = " ".join(str(error.get(k) or "") for k in ("type", "message"))
+    return bool(_TRANSIENT_WORDS.search(words))
+
+
+def _stream_chunks(lines: list[str]) -> list[dict[str, Any]]:
+    """The JSON chunks of an event stream up to ``data: [DONE]``; a stream that ends
+    without it was cut short, like a truncated JSON body."""
+    chunks: list[dict[str, Any]] = []
+    for line in lines:
+        if not line.startswith(_DATA):
+            continue  # event:, id:, retry: carry nothing a completion needs
+        payload = line[len(_DATA) :].strip()
+        if payload == _DONE:
+            return chunks
+        try:
+            chunk = json.loads(payload)
+        except ValueError as exc:
+            raise Refused(BAD_RESPONSE, "a stream chunk is not JSON") from exc
+        if not isinstance(chunk, dict):
+            raise Refused(BAD_RESPONSE, "a stream chunk is not an object")
+        if chunk.get("error") is not None:  # "error": null is no error
+            if _error_is_transient(chunk["error"]):
+                raise Refused(UNAVAILABLE, "the stream reported a server error", retryable=True)
+            raise Refused(BAD_RESPONSE, "the stream reported an error")
+        chunks.append(chunk)
+    raise Refused(BAD_RESPONSE, "the stream ended without [DONE]")
+
+
+def _delta_content(chunk: Mapping[str, Any]) -> str | None:
+    """The first choice's ``delta.content`` in ``chunk`` (never its reasoning), else None."""
+    choices = chunk.get("choices")
+    if not isinstance(choices, list):
+        return None
+    for choice in choices:
+        if not isinstance(choice, dict) or choice.get("index", 0) != 0:
+            continue
+        delta = choice.get("delta")
+        content = delta.get(_CONTENT) if isinstance(delta, dict) else None
+        return content if isinstance(content, str) else None
+    return None
+
+
+def _parse_stream(lines: list[str], fallback_model: str) -> dict[str, Any]:
+    pieces: list[str] = []
+    model: Any = None
+    usage: Any = None
+    for chunk in _stream_chunks(lines):
+        piece = _delta_content(chunk)
+        if piece is not None:
+            pieces.append(piece)
+        if not (isinstance(model, str) and model):
+            model = chunk.get(_MODEL)
+        if isinstance(chunk.get("usage"), dict):
+            usage = chunk["usage"]
+    if not pieces:
+        raise Refused(BAD_RESPONSE, "no message content in the first choice")
+    return {
+        "text": _without_think("".join(pieces)),
+        _MODEL: model if isinstance(model, str) and model else fallback_model,
+        "usage": _usage(usage if isinstance(usage, dict) else {}),
+    }
+
+
+def _without_think(text: str) -> str:
+    """``text`` without a leading ``<think>...</think>`` block (a reasoning model's notes)."""
+    stripped = text.lstrip()
+    if stripped.startswith(_THINK_OPEN) and _THINK_CLOSE in stripped:
+        stripped = stripped.split(_THINK_CLOSE, 1)[1]
+    return stripped.strip()
+
+
+def _usage(usage: Mapping[str, Any]) -> dict[str, int]:
+    return {
+        k: v
+        for k in _USAGE_KEYS
+        if isinstance(v := usage.get(k), int) and not isinstance(v, bool) and v >= 0
+    }
+
+
+# ------------------------------------------------------------------ the answer and its cache
+
+
+class AnswerRefused(ValueError):
+    """A reply that is not a valid answer under the step's shape; ``code`` says why."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
+def _unfenced(text: str) -> str:
+    """The body of a reply wrapped in one Markdown code fence (its language word dropped)."""
+    if len(text) < 2 * len(_FENCE) or not (text.startswith(_FENCE) and text.endswith(_FENCE)):
+        return text
+    return text[len(_FENCE) : -len(_FENCE)].lstrip(string.ascii_letters).strip()
+
+
+def parse_answer(value: Any, shape: Mapping[str, Any]) -> Any:
+    """The reply as JSON, validated and normalised by ``shape`` (a
+    :mod:`culture_rules.model.shape` spec, from step config).
+
+    ``value`` is the reply text, or a mapping with a ``text`` field (an ``llm.complete``
+    output). Every ``<think>...</think>`` block, then one Markdown fence, is dropped first.
+    Raises :class:`AnswerRefused`: ``answer_not_json`` when the text is not JSON (or not a JSON
+    object for an ``object`` shape), ``answer_invalid`` naming the field otherwise. Never
+    repaired or truncated."""
+    if isinstance(value, Mapping):
+        value = value.get("text")
+    if not isinstance(value, str):
+        raise AnswerRefused(ANSWER_NOT_JSON, "the reply has no text")
+    text = _unfenced(_THINK_BLOCKS.sub("", value).strip())
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError) as exc:
+        raise AnswerRefused(ANSWER_NOT_JSON, "the reply is not JSON") from exc
+    if shape.get("type") == "object" and not isinstance(data, dict):
+        raise AnswerRefused(ANSWER_NOT_JSON, "the reply is not a JSON object")
+    try:
+        return validate(data, dict(shape))
+    except ShapeSpecError as exc:
+        raise AnswerRefused(INVALID, f"answer.shape: {exc}") from exc
+    except ShapeError as exc:
+        raise AnswerRefused(ANSWER_INVALID, str(exc)) from exc
+
+
+def _stored_form(spec: Mapping[str, Any]) -> dict[str, Any]:
+    """``spec`` for an answer it already normalised: a ``lines`` field is stored as its list of
+    stripped, non-empty lines, so it reads back as a ``list`` of ``text`` items bounded the same
+    way (``min``/``max`` lines become ``min_items``/``max_items``). Every other normalisation
+    (``strip``, ``lower``) is idempotent and is kept as it is."""
+    kind = spec.get("type")
+    if kind == "lines":
+        item = {"type": "text", "min_chars": max(1, spec.get("min_chars", 1))}
+        item.update({k: spec[k] for k in ("lower", "max_chars", "pattern") if k in spec})
+        out: dict[str, Any] = {"type": "list", "items": item}
+        for low, high in (("min", "min_items"), ("max", "max_items")):
+            if low in spec:
+                out[high] = spec[low]
+        if "required" in spec:
+            out["required"] = spec["required"]
+        return out
+    out = {k: v for k, v in spec.items() if k not in ("fields", "items", "default")}
+    if kind == "object" and isinstance(spec.get("fields"), Mapping):
+        out["fields"] = {name: _stored_form(sub) for name, sub in spec["fields"].items()}
+    if isinstance(spec.get("items"), Mapping):
+        out["items"] = _stored_form(spec["items"])
+    return out
+
+
+def _cache_name(input: Mapping[str, Any]) -> tuple[str, str]:
+    """The cache file stem and document label from step config, defaulting to 0.41.0's."""
+    name = input.get("cache_name", DEFAULT_CACHE_NAME)
+    label = input.get("cache_label", DEFAULT_CACHE_LABEL)
+    if not isinstance(name, str) or not _CACHE_NAME_RE.fullmatch(name):
+        raise Refused(INVALID, "cache_name must be 1-64 letters, digits, '-' or '_'")
+    if not isinstance(label, str) or not label.strip():
+        raise Refused(INVALID, "cache_label must be a non-empty string")
+    return name, label
+
+
+def _cache_path(
+    input: Mapping[str, Any], shape: Mapping[str, Any] | None
+) -> tuple[Path, str, str] | None:
+    """``(answer cache file, content sha256, label)`` when ``cache: true`` applies, else None."""
+    flag = input.get(_CACHE)
+    if flag is None or flag is False:
+        return None
+    if flag is not True:
+        raise Refused(INVALID, "cache must be a boolean")
+    if shape is None or input.get(_CONTENT_PATH) is None:
+        raise Refused(INVALID, "cache needs answer.shape and a content_path")
+    name, label = _cache_name(input)
+    try:
+        path = _under(input.get(_CONTENT_PATH), input.get(_CONTENT_ROOT))
+        digest = file_sha256(path)
+    except ExcerptRefused as exc:
+        raise Refused(exc.code, exc.detail) from exc
+    except OSError as exc:
+        raise Refused(INVALID, "the content file is not readable") from exc
+    return path.parent / f"answer.{name}.{digest[:16]}.json", digest, label
+
+
+def _cached_answer(
+    file: Path, digest: str, label: str, shape: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """The outputs stored for exactly this content file, or None (a damaged file, or one whose
+    answer does not fit the step's shape, is ignored)."""
+    try:
+        doc = json.loads(file.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict) or doc.get("content_sha256") != digest:
+            return None
+        if doc.get("schema") != _CACHE_SCHEMA or doc.get("brief") != label:
+            return None
+        answer = validate(doc.get("answer"), _stored_form(shape))
+        model, usage = doc.get(_MODEL), doc.get("usage")
+    except (OSError, ValueError, RecursionError):  # ShapeError is a ValueError
+        return None
+    if not isinstance(model, str) or not model or not isinstance(usage, dict):
+        return None
+    return {
+        "text": json.dumps(answer, sort_keys=True, ensure_ascii=False),
+        _MODEL: model,
+        "usage": {},  # no model call, so nothing counts toward the actor's token budget
+        "answer": answer,
+        "cached": True,
+    }
+
+
+def _store_answer(file: Path, digest: str, label: str, out: Mapping[str, Any]) -> None:
+    """Keep a validated answer beside its content file (best effort: an unwritable folder only
+    means the model is asked again next time)."""
+    doc = {
+        "schema": _CACHE_SCHEMA,
+        "brief": label,
+        "content_sha256": digest,
+        _MODEL: out[_MODEL],
+        "usage": out["usage"],
+        "answer": out["answer"],
+    }
+    with contextlib.suppress(OSError):
+        write_bytes_atomic(
+            file, json.dumps(doc, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        )
+
+
+def _status_failure(status: int) -> Refused:
+    if status >= 500 or status in _RETRYABLE_4XX:
+        return Refused(UNAVAILABLE, f"server answered {status}", retryable=True)
+    return Refused(REJECTED, f"server answered {status}")
+
+
+# ------------------------------------------------------------------ the port
+
+
+class LlmCompletePort:
+    """ActorPort for ``llm.complete`` (see the module docstring)."""
+
+    # a completion has no side effect outside the model server, so repeating one after a
+    # lost acknowledgement is safe; a completed key also replays from this process's ledger
+    supports_idempotency_key = True
+
+    def __init__(
+        self,
+        store: Any,
+        *,
+        transport: Transport | None = None,
+        secret_runner: Callable[[str], str] | None = None,
+        max_content_chars: int = DEFAULT_MAX_CONTENT_CHARS,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._store = store
+        self._transport = transport or urllib_transport
+        self._secret_runner = secret_runner
+        self._max_content_chars = max_content_chars
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._ledger = ReplayLedger(LEDGER_SIZE)
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        replayed = self.replay(idempotency_key)
+        if replayed is not None:
+            return replayed
+        refused = self.refuse_before_admit(input)
+        if refused is not None:
+            return refused
+        actor, _doc, failure = load_bound_actor(self._store, input, context)
+        if failure is not None or actor is None:
+            return failure or InvocationResult.failed("actor_not_found", retryable=False)
+        taken = model_taken(self._store, actor, _doc)
+        if taken is not None:
+            return taken.result()
+        try:
+            result = self._complete(input, actor, deadline)
+        except Refused as exc:
+            return exc.result()
+        if result.outcome == COMPLETED:
+            self._ledger.put(idempotency_key, result)
+        return result
+
+    def refuse_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:
+        """The failure for work that must not start (``not_after`` passed or malformed).
+
+        :class:`~culture_rules.actors.limits.LimitedActor` asks this before it takes or waits
+        for a slot, so a passed deadline is never queued."""
+        try:
+            self._not_after(input)
+        except Refused as exc:
+            return exc.result()
+        return None
+
+    def _not_after(self, input: Mapping[str, Any]) -> datetime | None:
+        return check_not_after(input, self._clock, DEADLINE_PASSED)
+
+    def _remaining(self, input: Mapping[str, Any], deadline: datetime) -> float:
+        """Seconds left for the request, read on the clock just before it is sent: a passed
+        ``not_after`` fails ``llm_deadline``, a passed attempt deadline ``llm_unavailable``."""
+        return time_left(deadline, self._clock, UNAVAILABLE, self._not_after(input))
+
+    def replay(self, idempotency_key: str) -> InvocationResult | None:
+        """The completed result already recorded for ``idempotency_key``, else None.
+
+        :class:`~culture_rules.actors.limits.LimitedActor` asks this before
+        :meth:`refuse_before_admit`, so a completion re-asked after ``not_after`` (its
+        acknowledgement was lost) replays instead of failing ``llm_deadline`` (Codex r2 #3)."""
+        return self._ledger.get(idempotency_key)
+
+    def _user_content(self, input: Mapping[str, Any]) -> str:
+        """``content``, or with ``content_path`` the transcript's text read under
+        ``content_root`` and cut to ``content_max_chars`` (d2: it never enters run state)."""
+        if input.get(_CONTENT_PATH) is None:
+            return _user_message(input.get(_CONTENT), self._max_content_chars)
+        if input.get(_CONTENT) is not None:
+            raise Refused(INVALID, "give content or content_path, not both")
+        limit = input.get(_CONTENT_MAX_CHARS, self._max_content_chars)
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise Refused(INVALID, "content_max_chars must be an integer >= 1")
+        try:
+            text = read_excerpt(
+                input.get(_CONTENT_PATH),
+                input.get(_CONTENT_ROOT),
+                min(limit, self._max_content_chars),
+            )
+        except ExcerptRefused as exc:
+            raise Refused(exc.code, exc.detail) from exc
+        if not text:
+            raise Refused(INVALID, "the transcript has no text to send")
+        return text
+
+    def _request(
+        self, input: Mapping[str, Any], model: str, content: str, params: Mapping[str, Any]
+    ) -> bytes:
+        body: dict[str, Any] = {
+            _MODEL: model,
+            "messages": [
+                {"role": "system", _CONTENT: _brief(input, params)},
+                {"role": "user", _CONTENT: content},
+            ],
+            "max_tokens": _max_tokens(input.get("max_tokens")),
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        temperature = _temperature(input.get("temperature"))
+        if temperature is not None:
+            body["temperature"] = temperature
+        return json.dumps(body).encode("utf-8")
+
+    def _headers(self, params: Mapping[str, Any]) -> dict[str, str]:
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream, application/json",  # an error body is JSON
+        }
+        key = params.get("api_key")
+        if key:
+            try:
+                headers["Authorization"] = "Bearer " + resolve(key, self._secret_runner)
+            except SecretError as exc:
+                raise Refused("secret_unresolved", "params.api_key") from exc
+        return headers
+
+    def _complete(
+        self, input: Mapping[str, Any], actor: Actor, deadline: datetime
+    ) -> InvocationResult:
+        if actor.kind != "agent":
+            raise Refused(
+                "actor_kind_mismatch",
+                f"llm.complete needs an agent actor, {actor.id!r} is {actor.kind!r}",
+            )
+        problem = check_llm_actor(actor)
+        if problem:
+            raise Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
+        model = str(actor.params.get(_MODEL) or actor.model).strip()
+        _brief(input, actor.params)  # a missing or unknown brief is refused before anything
+        shape = _answer_shape(input)
+        cache = _cache_path(input, shape)
+        if cache is not None and shape is not None:
+            hit = _cached_answer(*cache, shape)
+            if hit is not None:
+                return InvocationResult.completed(hit)
+        data = self._request(input, model, self._user_content(input), actor.params)
+        headers = self._headers(actor.params)  # may block on a grant lookup (Codex r2 #2)
+        url = _completions_url(actor.params["base_url"])
+        timeout = self._remaining(input, deadline)
+        try:
+            status, raw = self._transport(url, data, headers, min(timeout, MAX_TIMEOUT))
+        except (OSError, http.client.HTTPException) as exc:  # URLError/timeouts are OSErrors
+            raise Refused(UNAVAILABLE, type(exc).__name__, retryable=True) from exc
+        if not 200 <= status < 300:
+            raise _status_failure(status)
+        out = _parse(raw, model)
+        if shape is not None:
+            try:
+                out["answer"] = parse_answer(out["text"], shape)
+            except AnswerRefused as exc:
+                raise Refused(exc.code, exc.detail) from exc
+            out["cached"] = False
+            if cache is not None:
+                _store_answer(*cache, out)
+        return InvocationResult.completed(out)

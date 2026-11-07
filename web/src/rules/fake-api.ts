@@ -12,6 +12,7 @@ import {
   WORKFLOWS,
   runsFor,
 } from "../fixtures/rules-fixture";
+import { ACTION_CATALOGUE } from "../fixtures/action-catalogue";
 
 /**
  * A stateful, in-memory culture-rules API (api/openapi.json shapes) for the
@@ -143,6 +144,7 @@ function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResp
   if (path === "/whoami") return json(200, WHOAMI);
   if (path === "/rules") return json(200, { items: api.rules.map((rule) => stampRule(api, rule)) });
   if (path === "/actors") return json(200, { items: ACTORS });
+  if (path === "/actions/kinds") return json(200, ACTION_CATALOGUE);
   if (path === "/machines") return json(200, { items: MACHINES });
   if (path === "/workflows") return json(200, { items: api.workflows });
   const one = getOne(api, path);

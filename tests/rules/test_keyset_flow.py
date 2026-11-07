@@ -31,6 +31,15 @@ import pytest
 from culture_rules import keysets
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import RUNS_COLLECTION, step_key, step_state
+from culture_rules.extensions.newspaper.port import (
+    FILTER_BUILTIN,
+    RENDER_BUILTIN,
+    SECTIONS_BUILTIN,
+    NewspaperFilterPort,
+    NewspaperRenderPort,
+    NewspaperSectionsPort,
+)
+from culture_rules.extensions.search.port import SearchWebPort
 from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.model.validate import validate
 from culture_rules.model.workflow import Workflow
@@ -40,15 +49,6 @@ from culture_rules.node.actions.keyset import (
     KeysetAddPort,
     KeysetFilterPort,
 )
-from culture_rules.node.actions.newspaper import (
-    FILTER_BUILTIN,
-    RENDER_BUILTIN,
-    SECTIONS_BUILTIN,
-    NewspaperFilterPort,
-    NewspaperRenderPort,
-    NewspaperSectionsPort,
-)
-from culture_rules.node.actions.search import SearchWebPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
 from culture_rules.node.runner import BuiltinCodePort, NoopAction
@@ -692,10 +692,11 @@ def test_the_add_stores_the_keys_of_the_iterations_that_ran(world):  # c10
 
 # --------------------------------------------------------------------------- (4) boundaries
 
-UNTOUCHED = [
-    "culture_rules/node/actions/newspaper.py",
-    "culture_rules/node/actions/newspaper_issue.py",
-]
+UNTOUCHED: list[str] = []
+# newspaper.py and newspaper_issue.py left this list with the Boundary release (no flow-specific
+# code, t8): it moves every app, the newspaper built-ins included, into
+# culture_rules/extensions/, so a branch diff cannot tell keyset work from the move. The keysets
+# still add no newspaper behaviour (the newspaper flow tests run them unchanged).
 # newspaper_render.py left this list for no-hardcoded-prompts: its notes now come from
 # step config; the keysets still add no rendering behavior.
 # trusted.py and validate.py left this list with the green PR merge prompt: github.merge needs

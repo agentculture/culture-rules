@@ -298,7 +298,7 @@ describe("Actors board: model actors (t10)", () => {
         method: "POST",
         path: "/api/workflows/newspaper/repoint-actor",
         search: "",
-        body: { from: "claude-code", to: "codex", expected_revision: 4, force: false, dry_run: false },
+        body: { from: "claude-code", to: "codex", expected_revision: 4, dry_run: false },
       });
       // The references are read again: newspaper no longer uses Claude Code.
       await waitFor(() => expect(within(usedBy).queryByRole("link", { name: "newspaper" })).toBeNull());
@@ -327,22 +327,19 @@ describe("Actors board: model actors (t10)", () => {
       expect(await within(usedBy).findByRole("status")).toHaveTextContent("Moved newspaper to Codex");
     });
 
-    it("a trusted workflow is refused with the server's message and a deliberate Move anyway", async () => {
+    it("a refused move shows the server's message and offers no way around it", async () => {
       const { calls } = mockApi({
         overrides: {
-          "POST /api/workflows/newspaper/repoint-actor": (n) =>
-            n === 1
-              ? {
-                  status: 409,
-                  body: {
-                    error: {
-                      code: "workflow_trusted",
-                      message: "workflows/newspaper is trusted (digest abc); a repoint changes its digest and drops that trust",
-                      errors: [],
-                    },
-                  },
-                }
-              : { status: 200, body: { workflow_id: "newspaper", dry_run: false, from: "claude-code", to: "codex", changed: ["summarise"], warnings: ["repoint drops trust: abc no longer matches"], revision: 5, digest: null, digest_v2: null } },
+          "POST /api/workflows/newspaper/repoint-actor": {
+            status: 409,
+            body: {
+              error: {
+                code: "target_kind_mismatch",
+                message: "codex cannot run the steps of workflows/newspaper",
+                errors: [],
+              },
+            },
+          },
         },
       });
       const user = userEvent.setup();
@@ -351,12 +348,9 @@ describe("Actors board: model actors (t10)", () => {
       await user.click(await within(usedBy).findByRole("button", { name: "Move newspaper" }));
       await user.selectOptions(within(usedBy).getByRole("combobox", { name: "To" }), "codex");
       await user.click(within(usedBy).getByRole("button", { name: "Move" }));
-      expect(await within(usedBy).findByRole("alert")).toHaveTextContent("is trusted (digest abc)");
-      await user.click(within(usedBy).getByRole("button", { name: "Move anyway" }));
-      const status = await within(usedBy).findByRole("status");
-      expect(status).toHaveTextContent("Moved newspaper to Codex");
-      expect(status).toHaveTextContent("repoint drops trust");
-      expect(calls.filter((c) => c.path === "/api/workflows/newspaper/repoint-actor").at(-1)?.body).toMatchObject({ force: true });
+      expect(await within(usedBy).findByRole("alert")).toHaveTextContent("cannot run the steps");
+      expect(within(usedBy).queryByRole("button", { name: "Move anyway" })).toBeNull();
+      expect(calls.filter((c) => c.path === "/api/workflows/newspaper/repoint-actor")).toHaveLength(1);
     });
 
     it("says so when no other actor fits, instead of an empty select", async () => {

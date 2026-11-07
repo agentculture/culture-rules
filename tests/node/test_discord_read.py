@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions.discord_read import DiscordReadAction
+from culture_rules.extensions.discord.read import DiscordReadAction
 from culture_rules.store.memory import MemoryStore
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)

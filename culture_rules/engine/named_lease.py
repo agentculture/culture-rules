@@ -2,7 +2,7 @@
 
 Run and step claims (:mod:`culture_rules.engine.claims`) lease a *piece of work*. Some
 duties are instead held continuously by exactly one engine node - a long-lived connection
-such as the Discord Gateway listener (:mod:`culture_rules.apps.discord_gateway`). A
+such as the Discord Gateway listener (:mod:`culture_rules.extensions.discord.gateway`). A
 :class:`NamedLease` is one document in :data:`LEASES_COLLECTION` whose id is the lease name
 (e.g. ``discord-gateway:<actor id>``)::
 

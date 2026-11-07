@@ -17,10 +17,10 @@ from pathlib import Path
 import pytest
 
 from culture_rules.actors import secrets
-from culture_rules.apps import discord_gateway as dg
 from culture_rules.engine.leasekeeper import LeaseKeeper
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
+from culture_rules.extensions.discord import gateway as dg
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule, Trigger
@@ -403,7 +403,7 @@ def test_intents_include_message_content():
 def test_module_imports_without_the_discord_extra():
     code = (
         "import sys\nsys.modules['discord'] = None\n"
-        "import culture_rules.apps.discord_gateway as m\n"
+        "import culture_rules.extensions.discord.gateway as m\n"
         "assert m.DiscordPyGateway().available() is False\n"
     )
     proc = subprocess.run(
@@ -782,7 +782,7 @@ def _click_rig(rig, **rule_params):
 
 
 def _kept(r):
-    from culture_rules.apps.discord_commands import INTERACTIONS_COLLECTION
+    from culture_rules.extensions.discord.commands import INTERACTIONS_COLLECTION
 
     return list(r.store.find(INTERACTIONS_COLLECTION))
 
@@ -867,7 +867,7 @@ def test_a_clicker_cannot_supply_a_code():
 
 
 def _store_value(r, custom_id, value, posted_by=None, code=False):
-    from culture_rules.apps.discord_buttons import remember_buttons
+    from culture_rules.extensions.discord.buttons import remember_buttons
 
     remember_buttons(
         r.store, "bot", "100", [(custom_id, value, code)], now=r.sup._clock(), posted_by=posted_by
@@ -1172,7 +1172,7 @@ def test_a_click_no_rule_admits_is_answered_privately_and_leaves_the_prompt():
 
 def test_a_click_whose_write_failed_is_told_to_try_again():
     pytest.importorskip("discord")
-    from culture_rules.apps.discord_commands import NOT_SAVED
+    from culture_rules.extensions.discord.commands import NOT_SAVED
 
     order: list = []
     handler = dg.DiscordPyGateway._interaction_handler(lambda raw: None)  # noqa: SLF001
@@ -1182,7 +1182,7 @@ def test_a_click_whose_write_failed_is_told_to_try_again():
 
 def test_a_hand_over_that_raises_is_answered_not_saved():
     pytest.importorskip("discord")
-    from culture_rules.apps.discord_commands import NOT_SAVED
+    from culture_rules.extensions.discord.commands import NOT_SAVED
 
     def boom(raw):
         raise RuntimeError("x")

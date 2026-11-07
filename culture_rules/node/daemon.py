@@ -20,17 +20,20 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    then **probe** - runs each due probe rule's allow-listed command on the actor's own
    machine and emits a ``kind=probe`` event on change or success
    (:mod:`culture_rules.node.probe_trigger`; same slot marker and window as schedule);
-   then **settle** - the checks settler's due SHAs
-   (:mod:`culture_rules.node.checks_settle`);
-   then **discord gateway** - reconciles the Discord Gateway listeners
-   (:class:`~culture_rules.apps.discord_gateway.GatewaySupervisor`): for each enabled
+   then **expire holds** - releases chain holds past their TTL;
+   then **listeners** - ticks every node listener the extension registry holds
+   (:mod:`culture_rules.extensions`), in registration order. The built-in apps register two
+   (:mod:`culture_rules.extensions.builtin`): ``github.checks_settle``, the checks settler's
+   due SHAs (:mod:`culture_rules.extensions.github.checks_settle`), and ``discord.gateway``, which
+   reconciles the Discord Gateway listeners
+   (:class:`~culture_rules.extensions.discord.gateway.GatewaySupervisor`): for each enabled
    Discord app actor declaring ``discord.message.created``, ``discord.reaction.added``,
    ``discord.command.invoked`` or ``discord.button.clicked`` it acquires/renews the mesh-wide
    lease ``discord-gateway:<actor id>`` and keeps a listener thread connected while this
-   node holds it (one connection mesh-wide); messages land through the webhook sink. The
-   listeners stop when :meth:`Node.run` returns (:meth:`Node.close`). Off with
-   ``NodeOptions(listen_gateways=False)`` (``node run --once`` never opens a long-lived
-   connection);
+   node holds it (one connection mesh-wide); messages land through the webhook sink.
+   Listeners are closed when :meth:`Node.run` returns (:meth:`Node.close`). Long-lived ones
+   (the gateway) are off with ``NodeOptions(listen_gateways=False)`` (``node run --once``
+   never opens a long-lived connection);
 4. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
    consumer for unplaced rules (:mod:`culture_rules.node.firing`), committing firing
    intents; a rule placed on ``H`` while ``H`` is drained/offline keeps its event; then
@@ -74,12 +77,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors import agent, human
-from culture_rules.apps.discord_gateway import (
-    GATEWAY_STATE_COLLECTION,
-    Gateway,
-    GatewayOptions,
-    GatewaySupervisor,
-)
 from culture_rules.engine.claims import DEFAULT_LEASE, RULE_ATTEMPT_BUDGETS
 from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.named_lease import LEASES_COLLECTION
@@ -96,6 +93,7 @@ from culture_rules.events.ingest import (
 )
 from culture_rules.events.source import EventSource
 from culture_rules.events.triggers import FIRES_COLLECTION
+from culture_rules.extensions import NodeContext, registry
 from culture_rules.machines.enrol import MACHINES_COLLECTION
 from culture_rules.machines.heartbeat import (
     HEARTBEAT_COLLECTION,
@@ -105,28 +103,26 @@ from culture_rules.machines.heartbeat import (
 )
 from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
-from culture_rules.node.actions.github import ONCE_COLLECTION
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
 from culture_rules.node.chain import CHAIN_NEEDS_REVIEW
-from culture_rules.node.checks_settle import (
-    LATE_COLLECTION,
-    RECOVERY_COLLECTION,
-    SETTLE_COLLECTION,
-    UNRESOLVED_RETRY_S,
-    AppSuiteLister,
-    ChecksSettler,
-)
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
 from culture_rules.node.schedule import Scheduler
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import Change, ChangeFeed, Document, StoragePort, feed_end
 
-__all__ = ["NODE_COLLECTIONS", "CycleReport", "HeartbeatOptions", "Node", "NodeOptions"]
+__all__ = [
+    "NODE_COLLECTIONS",
+    "CycleReport",
+    "HeartbeatOptions",
+    "Node",
+    "NodeOptions",
+    "node_collections",
+]
 
 log = logging.getLogger("culture_rules.node")
 
-NODE_COLLECTIONS = (
+_CORE_COLLECTIONS = (
     "rules",
     "workflows",
     ACTORS_COLLECTION,
@@ -142,18 +138,24 @@ NODE_COLLECTIONS = (
     PROBE_STATE,
     LEASES_COLLECTION,
     HOOK_STATS_COLLECTION,
-    GATEWAY_STATE_COLLECTION,
-    SETTLE_COLLECTION,
-    RECOVERY_COLLECTION,
-    LATE_COLLECTION,
-    ONCE_COLLECTION,
     RULE_ATTEMPT_BUDGETS,
     RUN_COMPLETIONS,
     RUN_EVENT_CONSUMPTION,
     QUARANTINE_COLLECTION,
     CHAIN_NEEDS_REVIEW,
 )
-"""Collections a node touches (created up front on MongoDB)."""
+
+
+def node_collections() -> tuple[str, ...]:
+    """Collections a node touches (created up front on MongoDB): core's, then every
+    installed extension's (:meth:`~culture_rules.extensions.Registry.node_collections`)."""
+    extra = registry().node_collections()
+    return _CORE_COLLECTIONS + tuple(c for c in extra if c not in _CORE_COLLECTIONS)
+
+
+NODE_COLLECTIONS = node_collections()
+"""Collections a node touches, as installed at import (a node reads
+:func:`node_collections` when it starts)."""
 
 DEFAULT_MAX_TICKS = 100
 
@@ -186,7 +188,8 @@ class NodeOptions:
     probe_runner: CommandRunner | None = None
     """Runs probe commands (``None``: the default runner; inject a fake in tests)."""
     listen_gateways: bool = True
-    """Whether the discord gateway stage opens listeners (``node run --once`` does not)."""
+    """Whether long-lived node listeners (the discord gateway) are ticked (``node run --once``
+    does not)."""
 
 
 @dataclass
@@ -246,10 +249,9 @@ class Node:
         heartbeat_options: HeartbeatOptions | None = None,
         reporter: RunReporter | None = None,
         on_evaluated: Callable[[str, str], None] | None = None,
-        discord_gateway: Gateway | None = None,
         resolve_secret: Callable[[str], str] | None = None,
-        gateway_options: GatewayOptions | None = None,
         options: NodeOptions | None = None,
+        listener_options: Mapping[str, Any] | None = None,
     ) -> None:
         if not isinstance(host, str) or not host:
             raise ValueError("host must be a non-empty string")
@@ -258,7 +260,7 @@ class Node:
         self._clock = clock or (lambda: datetime.now(UTC))
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):
-            ensure(*NODE_COLLECTIONS)
+            ensure(*node_collections())
         ensure_quarantine_ttl(store)  # every node can quarantine (outbox, ingest)
         options = options or NodeOptions()
         self._beat_options = heartbeat_options or HeartbeatOptions()
@@ -290,27 +292,21 @@ class Node:
             if event_source is not None
             else None
         )
-        self.gateways = GatewaySupervisor(
-            store,
-            self.executor.identity,
-            gateway=discord_gateway,
-            resolve_secret=resolve_secret,
-            clock=self._clock,
-            options=gateway_options,
+        # listener_options are handed to every listener factory; the discord.gateway listener
+        # reads ``discord_gateway`` (a gateway supervisor stand-in) and ``gateway_options``
+        context = NodeContext(
+            store=store,
             host=host,
-        )
-        self._listen_gateways = options.listen_gateways
-        # placed: this node settles only the SHAs whose App actor it can serve (wave-3 P1)
-        lister = AppSuiteLister(
-            store, secrets=resolve_secret, host=host, unresolved_retry_s=UNRESOLVED_RETRY_S
-        )
-        self.settler = ChecksSettler(
-            store,
-            lister.list_suites,
-            pull=lister.get_pull,
-            serves=lister.serves,
+            identity=self.executor.identity,
             clock=self._clock,
+            resolve_secret=resolve_secret,
+            options=dict(listener_options or {}),
         )
+        entries = registry().node_listeners()
+        # the registered node listeners, name -> listener, in tick order
+        self.listeners: dict[str, Any] = {e.name: e.factory(context) for e in entries}
+        skipped = () if options.listen_gateways else (e.name for e in entries if e.long_lived)
+        self._quiet = frozenset(skipped)
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
@@ -370,9 +366,13 @@ class Node:
         self._stop.set()
 
     def close(self) -> None:
-        """Stop the gateway listeners and release their leases (another node takes over)."""
+        """Close every node listener: the gateway stops its threads and releases its leases
+        (another node takes over)."""
         with log_context(host=self.host):
-            self.gateways.shutdown()
+            for listener in self.listeners.values():
+                close = getattr(listener, "close", None)
+                if callable(close):
+                    close()
 
     @property
     def stopping(self) -> bool:
@@ -431,10 +431,10 @@ class Node:
                 self._stage(report, self._ingest, report)
             self._stage(report, self._schedule, report)
             self._stage(report, self._probe, report)
-            self._stage(report, self._settle, report)
             self._stage(report, self._expire_holds, report)
-            if self._listen_gateways:
-                self._stage(report, self._discord_gateway, report)
+            for name, listener in self.listeners.items():
+                if name not in self._quiet:
+                    self._stage(report, listener.tick, report, name=name)
             for consumer in self.firing.consumers:
                 self._stage(report, self._poll, consumer, report)
             self._stage(report, self._start_fired, report)
@@ -445,13 +445,18 @@ class Node:
                 self._stage(report, self._report, report)
         return report
 
-    def _stage(self, report: CycleReport, fn: Callable[..., Any], *args: Any) -> None:
+    def _stage(
+        self, report: CycleReport, fn: Callable[..., Any], *args: Any, name: str | None = None
+    ) -> None:
+        """Run one stage; a failure is recorded and logged under ``name`` (a listener's
+        registry name), else the stage function's own name, and the cycle goes on."""
         try:
             fn(*args)
         except Exception as exc:  # noqa: BLE001 - a node keeps going; recorded and retried
             self.errors.append(exc)
-            report.errors.append(f"{type(exc).__name__}: {exc}")
-            log.warning("node %s stage %s failed: %s", self.host, fn.__name__, exc)
+            prefix = f"{name}: " if name else ""  # a listener's failure says which listener
+            report.errors.append(f"{prefix}{type(exc).__name__}: {exc}")
+            log.warning("node %s stage %s failed: %s", self.host, name or fn.__name__, exc)
 
     def _beat_if_due(self, report: CycleReport) -> None:
         now = self._clock()
@@ -473,9 +478,6 @@ class Node:
     def _probe(self, report: CycleReport) -> None:
         report.probed += self.prober.tick()
 
-    def _settle(self, report: CycleReport) -> None:
-        self.settler.tick()
-
     def _expire_holds(self, report: CycleReport) -> None:
         """Release chain holds past their TTL (d21): their pending events then fire through
         the chain consumers (:func:`~culture_rules.engine.chain_hold.expire_holds`)."""
@@ -484,9 +486,6 @@ class Node:
 
         for doc_id in expire_holds(self._store, self._clock()):
             log.warning("chain hold on %s expired before its continuation: released", doc_id)
-
-    def _discord_gateway(self, report: CycleReport) -> None:
-        report.listening += self.gateways.tick()
 
     def _poll(self, consumer: Any, report: CycleReport) -> None:
         outcome = self.firing.poll(consumer)

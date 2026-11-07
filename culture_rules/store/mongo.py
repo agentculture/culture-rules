@@ -70,6 +70,8 @@ from culture_rules.model.variable import (
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     EVENTS_COLLECTION,
+    VARIABLE_DELETE_VERB,
+    VARIABLE_GUARDS_COLLECTION,
     VARIABLES_COLLECTION,
     Change,
     ChangeFeed,
@@ -81,9 +83,13 @@ from culture_rules.store.port import (
     TransientStoreError,
     UpdateResult,
     VariableVersionConflict,
+    VariableWriteHook,
     VersionSkewError,
     cursor_id,
     events_query,
+    live_latest_version,
+    variable_tombstone,
+    write_variable_guard,
 )
 from culture_rules.store.retry import DEFAULT_ATTEMPTS, run_transaction
 from culture_rules.store.versioning import (
@@ -618,7 +624,7 @@ class MongoStore:
             "updated_by": version["updated_by"],
             "updated_at": version["updated_at"],
             "description": version.get("description"),
-        }
+        } | ({"deleted": True} if version.get("deleted") else {})
 
     def _get_variable_doc(self, name: str) -> Document | None:
         raw = self._collection(VARIABLES_COLLECTION).find_one({"_id": name})
@@ -690,8 +696,16 @@ class MongoStore:
         doc = self._get_variable_doc(name)
         if doc is None:
             return None
-        versions = doc.get("versions", [])
-        return None if not versions else self._variable_view(doc["name"], versions[-1])
+        latest = live_latest_version(doc.get("versions"))
+        return None if latest is None else self._variable_view(doc["name"], latest)
+
+    def variable_versions(self, name: str) -> list[Document] | None:
+        doc = self._get_variable_doc(name)
+        if doc is None:
+            return None
+        versions = [v for v in doc.get("versions", []) if isinstance(v, dict)]
+        versions.sort(key=lambda v: v.get("version", 0))
+        return [self._variable_view(doc["name"], v) for v in versions]
 
     def get_variable_version(self, name: str, version: int) -> Document | None:
         doc = self._get_variable_doc(name)
@@ -707,10 +721,47 @@ class MongoStore:
         result: list[Document] = []
         for raw in cursor:
             doc = _to_doc(raw)
-            versions = doc.get("versions", [])
-            if versions:
-                result.append(self._variable_view(doc["name"], versions[-1]))
+            latest = live_latest_version(doc.get("versions"))
+            if latest is not None:
+                result.append(self._variable_view(doc["name"], latest))
         return result
+
+    def delete_variable(
+        self,
+        name: str,
+        *,
+        deleted_by: str,
+        expected_version: int,
+        on_write: VariableWriteHook | None = None,
+    ) -> Document | None:
+        self._validate_variable_name(name)
+        now = self._now()
+
+        def body(tx: StoreOps) -> Document | None:
+            doc = tx.get(VARIABLES_COLLECTION, name)
+            latest = live_latest_version(doc.get("versions")) if doc is not None else None
+            if doc is None or latest is None:
+                return None
+            if self._stored_latest_version(name, doc) != expected_version:
+                raise VariableVersionConflict(
+                    f"variable {name!r} is at version {latest['version']}, not {expected_version}"
+                )
+            entry = variable_tombstone(latest, deleted_by, now)
+            result = tx.update_if(
+                VARIABLES_COLLECTION,
+                name,
+                expected=_variable_expected(doc),
+                changes=_variable_changes(doc, name, entry),
+            )
+            if not result.won:
+                raise VariableVersionConflict(f"variable {name!r} changed while deleting it")
+            write_variable_guard(tx, name, by=VARIABLE_DELETE_VERB, at=now)
+            after = self._variable_view(name, entry)
+            if on_write is not None:
+                on_write(tx, self._variable_view(name, latest), after)
+            return after
+
+        return run_transaction(self, body)
 
     def find_range(
         self,
@@ -769,8 +820,9 @@ class MongoStore:
 
     def ensure_variables_collection(self) -> None:
         """Create the variables collection (with change-stream images) and a
-        unique index on ``name``."""
+        unique index on ``name``, and the variable guards collection beside it."""
         self._collection(VARIABLES_COLLECTION)
+        self._ensure(VARIABLE_GUARDS_COLLECTION)
         self._db[VARIABLES_COLLECTION].create_index("name", unique=True, name="name_unique")
 
 

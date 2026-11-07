@@ -371,7 +371,7 @@ def test_too_large_is_not_retryable(tmp_path) -> None:
 
 
 def test_the_default_cap_is_50_mib() -> None:
-    from culture_rules.node.actions import http as http_mod
+    from culture_rules.extensions.http import port as http_mod
 
     assert http_mod.DEFAULT_SAVE_MAX_BYTES == 50 * 1024 * 1024
 

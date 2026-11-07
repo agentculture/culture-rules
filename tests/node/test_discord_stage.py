@@ -10,10 +10,10 @@ from functools import partial
 import pytest
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_gateway import GatewayOptions
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
+from culture_rules.extensions.discord.gateway import GatewayOptions
 from culture_rules.machines.probe import ProbeResult
 from culture_rules.node.daemon import HeartbeatOptions, Node
 from culture_rules.node.firing import run_id_for
@@ -48,9 +48,13 @@ class Mesh:
             actors={"*": FakeActor()},
             clock=self.clock,
             heartbeat_options=BEATS,
-            discord_gateway=FakeGateway(self.hub, host),
             resolve_secret=partial(secrets.resolve, runner=self.grant),
-            gateway_options=GatewayOptions(ttl=TTL, keeper=None, backoff=0.01, max_backoff=0.02),
+            listener_options={
+                "discord_gateway": FakeGateway(self.hub, host),
+                "gateway_options": GatewayOptions(
+                    ttl=TTL, keeper=None, backoff=0.01, max_backoff=0.02
+                ),
+            },
         )
 
     def holder(self):
@@ -63,7 +67,7 @@ class Mesh:
     def close(self) -> None:
         for n in self.nodes.values():
             n.close()
-            assert not n.gateways.threads_alive()
+            assert not n.listeners["discord.gateway"].supervisor.threads_alive()
 
 
 @pytest.fixture
@@ -162,7 +166,7 @@ def test_run_closes_the_gateway_on_exit(mesh):
     a = m.nodes["spark"]
     a.run(idle=0.0, max_cycles=1)
     assert m.hub.live_now() == []
-    assert not a.gateways.threads_alive()
+    assert not a.listeners["discord.gateway"].supervisor.threads_alive()
     assert m.holder() is None
 
 
@@ -219,9 +223,11 @@ def test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing():
         actors={"*": FakeActor()},
         clock=clock,
         heartbeat_options=BEATS,
-        discord_gateway=_BotGateways(hubs, "spark"),
         resolve_secret=partial(secrets.resolve, runner=lambda name: f"{name}:{salt}"),
-        gateway_options=GatewayOptions(ttl=TTL, keeper=None, backoff=0.01, max_backoff=0.02),
+        listener_options={
+            "discord_gateway": _BotGateways(hubs, "spark"),
+            "gateway_options": GatewayOptions(ttl=TTL, keeper=None, backoff=0.01, max_backoff=0.02),
+        },
     )
 
     def events():
@@ -245,7 +251,7 @@ def test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing():
         _two_bots_flow(node, base, events, post)
     finally:
         node.close()
-        assert not node.gateways.threads_alive()
+        assert not node.listeners["discord.gateway"].supervisor.threads_alive()
 
 
 def _two_bots_flow(node, base, events, post) -> None:

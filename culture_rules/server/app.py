@@ -45,7 +45,9 @@ from culture_rules.engine.runs import (
     is_paused,
 )
 from culture_rules.events.ingest import QUARANTINE_COLLECTION, ensure_quarantine_ttl
+from culture_rules.extensions import ApiContext, WebhookRouteEntry, registry
 from culture_rules.model import describe
+from culture_rules.model.action_kinds import describe_kinds
 from culture_rules.model.paragraph import workflow_paragraph
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
@@ -68,7 +70,7 @@ from culture_rules.server.service import (
     Variables,
 )
 from culture_rules.store.migrations import backfill_run_ids, disable_typeless_event_rules
-from culture_rules.store.port import StoragePort
+from culture_rules.store.port import VARIABLE_GUARDS_COLLECTION, StoragePort
 
 __all__ = [
     "API_VERSION",
@@ -80,11 +82,13 @@ __all__ = [
     "current_principal",
 ]
 
-# The only requests that skip principal resolution: ``POST`` to exactly these paths (the
-# webhook receivers, authenticated by their own signature/token check). Exact string match on
-# the decoded *and* raw path, so a prefix, a trailing slash, a case or percent-encoding
+# The only requests that skip principal resolution: ``POST`` to exactly the registered webhook
+# paths (the receivers, authenticated by their own signature/token check). Exact string match
+# on the decoded *and* raw path, so a prefix, a trailing slash, a case or percent-encoding
 # variant, or the ``/api`` alias never matches. Nothing else is public - not even ``/health``.
-HOOK_PATHS = frozenset({"/hooks/github", "/hooks/jira"})
+# ``create_app`` exempts the routes it mounts from the extension registry; HOOK_PATHS is the
+# built-in apps' set (``/hooks/github``, ``/hooks/jira``).
+HOOK_PATHS = frozenset(route.path for route in registry().webhook_routes())
 BRIDGE_CALLBACK_RE = agent.BRIDGE_CALLBACK_RE
 """The one other exemption: ``POST`` to a bridge callback path,
 ``/bridge-invocations/bri_<24 hex>/events`` (full match, same raw-path and ``/api`` rules).
@@ -106,6 +110,7 @@ _ALL_COLLECTIONS = tuple(
             RULE_DECISIONS,
             QUARANTINE_COLLECTION,
             ROLLOUTS_COLLECTION,
+            VARIABLE_GUARDS_COLLECTION,  # written in delete and rule-write transactions
         )
         + events.STREAMABLE
     )
@@ -410,6 +415,88 @@ class VariableWrite(BaseModel):
 
 class VariableItem(BaseModel):
     item: Any = Field(description="a JSON scalar of the list's item type")
+
+
+class VariableReferrer(BaseModel):
+    id: str
+    name: str | None = None
+    enabled: bool
+    deleted: bool = Field(description="true = the rule is soft-deleted")
+
+
+class VariableDeleteResult(BaseModel):
+    name: str
+    dry_run: bool
+    version: int = Field(description="the live version the delete retires")
+    deleted_version: int = Field(
+        description="the tombstone version: written when applied, planned on a dry run"
+    )
+    not_blocking: list[VariableReferrer] = Field(
+        description="rules that reference the variable but are disabled or soft-deleted, so "
+        "do not block the delete; once it is deleted, enabling or restoring one is refused "
+        "(variable_undefined) until the variable is set again"
+    )
+
+
+class ActionChoice(BaseModel):
+    value: str
+    label: str
+
+
+class ActionParam(BaseModel):
+    name: str
+    type: str = Field(description="str | int | bool | dict | list | any")
+    required: bool = Field(description="must be non-empty")
+    label: str = Field(description="how a picker names it; empty: the name")
+    widget: str = Field(
+        description="multiline | json | number | buttons | command | command_args | "
+        "discord_guild | discord_channel | hidden; empty: by type"
+    )
+    choices: list[ActionChoice] = Field(description="a closed set of values, or empty")
+    options_from: str = Field(
+        description="the chosen actor's params key that lists (or, as a mapping, names) the values"
+    )
+    choose: str = Field(description="the prompt of the empty choice")
+    args_for: str = Field(
+        description="on a command_args param: the sibling command param it holds arguments for"
+    )
+    needs_actor_param: str = Field(description="shown only when the chosen actor has it set")
+    advanced: bool = Field(description="rarely set: an editor keeps it behind a fold")
+    needed: bool = Field(
+        description="not required of a stored step (the port refuses it at run time) "
+        "but an editor asks for it"
+    )
+
+
+class ActionShownAs(BaseModel):
+    when_param: str
+    kind: str
+
+
+class ActionKindItem(BaseModel):
+    kind: str
+    label: str = Field(description="a short name for pickers (the summary when none)")
+    summary: str
+    lenient: bool = Field(description="required params are not enforced (legacy-tolerant)")
+    aliases: list[str] = Field(description="legacy names of the kind")
+    params: list[ActionParam] = Field(description="in the order a picker shows them")
+    any_of: list[list[str]] = Field(description="groups of which at least one param must be set")
+    actors: list[dict[str, Any]] = Field(
+        description="alternative clauses (OR) over an enabled actor, each an AND of: kinds, "
+        "not_kinds, surface, declares_action, has, has_any"
+    )
+    actorless: bool = Field(description="offered even when no enabled actor can perform it")
+    declarable_by_apps: bool = Field(
+        description="an app actor may list it in params.actions (the Actors tab offers it)"
+    )
+    shown_as: ActionShownAs | None = Field(
+        description="a stored action of this kind that sets when_param is shown, and saved, as "
+        "kind (a legacy form another kind took over); null for most kinds"
+    )
+
+
+class ActionKindList(BaseModel):
+    items: list[ActionKindItem] = Field(description="the registered kinds, in catalogue order")
 
 
 class KeysetSummary(BaseModel):
@@ -795,13 +882,16 @@ def create_app(
         },
     )
     _install_errors(app)
-    _install_auth(app, resolver, humans.HumanSignIn(store, audit))
+    routes = registry().webhook_routes()
+    hook_paths = frozenset(route.path for route in routes)
+    _install_auth(app, resolver, humans.HumanSignIn(store, audit), hook_paths)
     # Registration order is route-matching and schema order: /machines/status (ops) must
     # come before the definition routes so /machines/{id} cannot shadow it.
     _register_auth_routes(app, tokens)
     _register_ops(app, store, node)
     _register_migrations(app, store, defs)
-    _register_variables(app, Variables(store))
+    _register_variables(app, Variables(store, audit))
+    _register_actions(app)
     _register_keysets(app, Keysets(store, audit=audit))
     _register_rollouts(app, Rollouts(store, audit))
     for kind in DEFINITION_KINDS:
@@ -811,9 +901,11 @@ def create_app(
     _register_exchange(app, store, defs, targets)
     _register_asks(app, store, answer_ask)
     _register_stream(app, store)
-    _register_hooks(app, store)
+    _register_hooks(app, store, routes)
     _register_bridge_callbacks(app, store)
-    _register_discord_targets(app, store, resolve_secret, discord_transport)
+    _register_api_routes(
+        app, ApiContext(store, resolve_secret, {"discord_transport": discord_transport})
+    )
     _register_model_actors(app, store, defs, resolve_secret, models_transport)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
@@ -821,13 +913,18 @@ def create_app(
     return app
 
 
-def _install_auth(app: FastAPI, resolver: Resolver, sign_in: humans.HumanSignIn) -> None:
+def _install_auth(
+    app: FastAPI,
+    resolver: Resolver,
+    sign_in: humans.HumanSignIn,
+    hook_paths: frozenset[str] = HOOK_PATHS,
+) -> None:
     from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
 
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
         """Resolve the principal and check the route's role before routing (any handler)."""
-        if _hook_exempt(request):
+        if _hook_exempt(request, hook_paths):
             request.state.principal = None  # the hook handler authenticates the delivery
             return await call_next(request)
         try:
@@ -844,41 +941,33 @@ def _install_auth(app: FastAPI, resolver: Resolver, sign_in: humans.HumanSignIn)
         return await call_next(request)
 
 
-def _hook_exempt(request: Request) -> bool:
-    """``POST`` to an exact :data:`HOOK_PATHS` entry or a :data:`BRIDGE_CALLBACK_RE` path, as
-    sent (not via ``/api``, not encoded)."""
+def _hook_exempt(request: Request, hook_paths: frozenset[str] = HOOK_PATHS) -> bool:
+    """``POST`` to an exact ``hook_paths`` entry (the mounted webhook routes) or a
+    :data:`BRIDGE_CALLBACK_RE` path, as sent (not via ``/api``, not encoded)."""
     if request.method != "POST":
         return False
     scope = request.scope
     path = scope.get("path", "")
     if scope.get(static._FLAG):  # /api alias
         return False
-    if path not in HOOK_PATHS and BRIDGE_CALLBACK_RE.fullmatch(path) is None:
+    if path not in hook_paths and BRIDGE_CALLBACK_RE.fullmatch(path) is None:
         return False
     raw = scope.get("raw_path")
     return raw is None or raw == path.encode("ascii")
 
 
-def _register_hooks(app: FastAPI, store: StoragePort) -> None:
-    """``POST /hooks/github`` and ``POST /hooks/jira``: public, signature-authenticated.
+def _register_hooks(
+    app: FastAPI, store: StoragePort, routes: Sequence[WebhookRouteEntry] | None = None
+) -> None:
+    """The registered webhook routes (``POST /hooks/github`` and ``POST /hooks/jira`` from
+    the built-in apps): public, signature-authenticated, mounted in registration order.
 
     Kept out of the OpenAPI contract (``include_in_schema=False``): they are called by
     GitHub/Jira, not by the CLI, MCP or web clients the contract types, and the contract's
     global 401/403 envelope and credential schemes do not apply to them.
     """
-    from culture_rules.node import checks_settle  # noqa: PLC0415
-    from culture_rules.server.hooks import github, jira  # noqa: PLC0415
-
-    lister = checks_settle.AppSuiteLister(store)
-    # Every GitHub read on the delivery path is bounded (suites, PR read and secret resolve
-    # within one budget); past it the SHA stays armed and the node's tick settles it.
-    on_check = checks_settle.webhook_on_check(store, lister)
-
-    def pull(repo: str, number: int) -> Any:  # read-only, bounded PR lookup for PR comments
-        return lister.get_pull(repo, number, timeout_s=github.PULL_LOOKUP_TIMEOUT_S)
-
-    app.include_router(github.router(store, on_check=on_check, pull=pull), include_in_schema=False)
-    app.include_router(jira.router(store), include_in_schema=False)
+    for route in registry().webhook_routes() if routes is None else routes:
+        app.include_router(route.factory(store), include_in_schema=False)
 
 
 class BridgeEventAck(BaseModel):
@@ -999,71 +1088,12 @@ def _register_bridge_callbacks(app: FastAPI, store: StoragePort) -> None:
     app.openapi = openapi  # type: ignore[method-assign]
 
 
-class DiscordChannel(BaseModel):
-    id: str
-    name: str
-    visible: bool = Field(description="whether the bot can open the channel (private: added?)")
-
-
-class DiscordGuild(BaseModel):
-    id: str
-    name: str
-    channels: list[DiscordChannel]
-
-
-class DiscordTargets(BaseModel):
-    guilds: list[DiscordGuild]
-
-
-def _register_discord_targets(
-    app: FastAPI, store: StoragePort, resolve_secret: Any, transport: Any
-) -> None:
-    from culture_rules.actors import secrets  # noqa: PLC0415
-    from culture_rules.apps.discord_rest import (  # noqa: PLC0415
-        DiscordClient,
-        DiscordError,
-        guild_ids,
-    )
-
-    @app.get(
-        "/actors/{actor_id}/discord/targets",
-        tags=["actors"],
-        operation_id="discord_targets",
-        responses={
-            404: ERRORS[404],
-            409: ERRORS[409],
-            422: ERRORS[422],
-            502: {"model": ErrorEnvelope, "description": "Discord answered with an error"},
-        },
-    )
-    def discord_targets(actor_id: str) -> DiscordTargets:
-        """The servers and text channels a Discord app actor's bot can post to."""
-        conn = _discord_connection(store, actor_id)
-        if conn is None:
-            return _envelope(422, "not_discord_actor", f"actor {actor_id!r} is not a Discord app")
-        try:
-            token = (resolve_secret or secrets.resolve)(str(conn.get("bot_token") or ""))
-        except Exception:  # noqa: BLE001 - never echo why: the text may hold a value
-            return _envelope(409, "secret_unavailable", "the bot token cannot be read here")
-        kwargs = {"transport": transport} if transport is not None else {}
-        try:
-            guilds = DiscordClient(token, **kwargs).list_targets(guild_ids(conn.get("guild_id")))
-        except DiscordError as exc:
-            return _envelope(502, "discord_error", str(exc))
-        return DiscordTargets(guilds=guilds)
-
-
-def _discord_connection(store: StoragePort, actor_id: str) -> dict[str, Any] | None:
-    """The connection block of Discord app actor ``actor_id``; ``None`` when the actor is not a
-    Discord app. Raises :class:`NotFound` for a missing or deleted actor."""
-    doc = store.get("actors", actor_id)
-    if doc is None or doc.get("deleted_at"):
-        raise NotFound(f"actor {actor_id!r} does not exist")
-    params = doc.get("params") if isinstance(doc.get("params"), dict) else {}
-    if doc.get("kind") != "app" or params.get("surface") != "discord":
-        return None
-    conn = params.get("connection")
-    return conn if isinstance(conn, dict) else {}
+def _register_api_routes(app: FastAPI, ctx: ApiContext) -> None:
+    """The contract routes the registered extensions add (``GET /actors/{id}/discord/targets``
+    from the Discord app), mounted in registration order at this one point so the contract's
+    path order holds."""
+    for entry in registry().api_routes():
+        entry.mount(app, ctx)
 
 
 def _register_auth_routes(app: FastAPI, tokens: ServiceTokens) -> None:
@@ -1228,6 +1258,23 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
         """Remove an item from a list variable (admin); absent means no new version."""
         return variables.remove_item(name, body.item, identity)
 
+    @app.delete(
+        "/variables/{name}",
+        tags=["variables"],
+        operation_id="delete_variable",
+        response_model=VariableDeleteResult,
+        responses={404: ERRORS[404], 409: ERRORS[409], 422: ERRORS[422]},
+    )
+    def delete_variable(name: str, identity: Identity, dry_run: bool = True):
+        """Delete the variable (admin); a dry run (the default) writes nothing. Refused (409
+        ``variable_in_use``) while a live, enabled rule references it; disabled and
+        soft-deleted referrers are listed, not blocking. Applied, a tombstone version keeps
+        the history and one audit entry names the caller. No enabled rule can end up
+        referencing a deleted variable: the delete re-checks referrers in its transaction,
+        and it and every rule write leaving an enabled referrer (create, update, enable,
+        restore, import) write the same per-variable guard, so the store serializes them."""
+        return variables.delete(name, dry_run=dry_run, identity=identity)
+
     @app.get(
         "/variables/{name}/history",
         response_model=ItemList,
@@ -1236,7 +1283,8 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
         responses={404: ERRORS[404], 422: ERRORS[422]},
     )
     def variable_history(name: str):
-        """Every version of the variable, oldest first."""
+        """Every version of the variable, oldest first; after a delete, the last is its
+        tombstone (``deleted`` true)."""
         return {"items": variables.history(name)}
 
     @app.get(
@@ -1249,6 +1297,21 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
     def variable_refs(name: str):
         """Live rules whose condition or workflow inputs reference the variable."""
         return {"items": variables.refs(name)}
+
+
+def _register_actions(app: FastAPI) -> None:
+    """The action catalogue, read from the extension registry (viewer, like other reads)."""
+
+    @app.get(
+        "/actions/kinds",
+        response_model=ActionKindList,
+        tags=["actions"],
+        operation_id="list_action_kinds",
+    )
+    def list_action_kinds():
+        """Every registered action kind, in catalogue order, with its typed params and the
+        hints an editor needs to build its picker (the editor keeps no table of its own)."""
+        return {"items": describe_kinds()}
 
 
 def _register_keysets(app: FastAPI, sets: Keysets) -> None:
@@ -1930,7 +1993,7 @@ def _register_kind(
     def restore(id: str, identity: Identity):
         defs.get(kind, id)
         actor_guards.check_restore(store, kind, id)
-        return defs.restore(kind, id, identity, life)  # d7: the node-capability guard
+        return defs.restore(kind, id, identity, life)  # variables defined + d7, guarded
 
     @app.post(
         f"{path}/purge",

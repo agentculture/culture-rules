@@ -8,7 +8,7 @@ import wave
 
 import pytest
 
-from culture_rules.node.actions import audio_split as a
+from culture_rules.extensions.stt import audio_split as a
 
 needs_ffmpeg = pytest.mark.skipif(
     not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg/ffprobe not installed"

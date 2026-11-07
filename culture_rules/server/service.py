@@ -39,7 +39,13 @@ from culture_rules.model.variable import validate_variable_name
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 from culture_rules.store import revision as rev
-from culture_rules.store.port import Document, StoragePort, VariableVersionConflict
+from culture_rules.store.port import (
+    VARIABLES_COLLECTION,
+    Document,
+    StoragePort,
+    VariableVersionConflict,
+    write_variable_guard,
+)
 from culture_rules.store.retry import run_transaction
 
 __all__ = [
@@ -237,6 +243,16 @@ def _old_node_errors(rules: Iterable[Any], lacking: list[str]) -> list[dict[str,
     ]
 
 
+def _guard_variables(tx: Any, rule: Any, *, verb: str, at: str) -> None:
+    """Write the guard document of every shared variable ``rule`` (a :class:`Rule` or its
+    stored document) references, through the transaction ``tx``. A variable delete writes
+    the same document in its own transaction, so the store serializes the two: of a delete
+    and a rule write that leaves an enabled rule referencing the variable, one commits and
+    the other re-runs against what it committed (:data:`VARIABLE_GUARDS_COLLECTION`)."""
+    for name in sorted(rule_variable_refs(rule)):
+        write_variable_guard(tx, name, by=verb, at=at)
+
+
 def _rule_set_errors(rules: Iterable[Rule], workflows: Iterable[Workflow]) -> list[dict[str, str]]:
     found = validate_rule_set(list(rules), {w.id: w for w in workflows})
     return [e.to_dict() for e in found]
@@ -408,7 +424,9 @@ class Definitions:
                 # re-reads and refuses with the revision it finds)
                 _check_revision(kind, ident, before, expected)
             if isinstance(obj, Rule):
-                self._check_rule_set(tx, obj)
+                self._check_rule_set(tx, obj)  # variables read through tx: defined, or refused
+                if obj.enabled:
+                    _guard_variables(tx, obj, verb=verb, at=self._clock().isoformat())
             doc = self._stored(obj, ident)
             if check is not None:
                 check(kind, before, doc)
@@ -424,7 +442,8 @@ class Definitions:
             )
             return after
 
-        if rev.is_revisioned(kind):
+        if rev.is_revisioned(kind) or kind == "rules":
+            # a rule write may conflict with a variable delete on its guard: re-run it
             return run_transaction(self._store, write)
         with self._store.transaction() as tx:
             return write(tx)
@@ -446,23 +465,29 @@ class Definitions:
 
     @mutating_verb("definitions.set_enabled", "Enable or disable a definition")
     def set_enabled(self, kind: str, id: str, enabled: bool, identity: str) -> Document:
+        """Enable or disable a definition. Enabling a rule that references shared variables
+        is refused (422) while one of them is undefined (``variable_undefined``, the save
+        path's errors) or an online node lacks variable support (d7); both are read inside
+        the write's transaction, which also writes each variable's guard, so a concurrent
+        ``variables delete`` and this enable cannot both commit. Disabling is never
+        refused and writes no guard."""
         require_identity(identity)
         self._cls(kind)
-        with self._store.transaction() as tx:
+
+        def write(tx: Any) -> Document:
             before = tx.get(kind, id)
             if before is None:
                 raise NotFound(f"{kind}/{id} does not exist")
             if not _is_live(before):
                 raise Conflict(f"{kind}/{id} is deleted; restore it first")
             if kind == "rules" and enabled and rule_variable_refs(before):
-                # Enabling is where a variable rule starts to fire (bundles ship
-                # disabled): refuse it while an online node lacks variable support (d7).
-                # Disabling is never blocked.
-                errors = _old_node_errors(
-                    [_RuleRef(id, before)], nodes_without_variables(tx, self._clock())
+                # Enabling is where a variable rule starts to fire (bundles ship disabled).
+                self._hold_variables(
+                    tx,
+                    _RuleRef(id, before),
+                    "rule cannot be enabled yet",
+                    "definitions.set_enabled",
                 )
-                if errors:
-                    raise Invalid("rule cannot be enabled yet", errors)
             res = tx.update_if(
                 kind,
                 id,
@@ -480,7 +505,21 @@ class Definitions:
                 before=before,
                 after=res.document,
             )
-        return res.document
+            return res.document
+
+        return run_transaction(self._store, write)
+
+    def _hold_variables(self, tx: Any, ref: _RuleRef, refusal: str, verb: str) -> None:
+        """For a stored rule about to be live and enabled through ``tx``: refuse
+        (:class:`Invalid`, ``refusal``) when a shared variable it references is undefined
+        (``variable_undefined``) or an online node lacks variable support
+        (``variables_unsupported_nodes``, d7), then write each referenced variable's guard
+        (:func:`_guard_variables`)."""
+        errors = [e.to_dict() for e in variable_ref_errors(ref, defined_variables(tx))]
+        errors += _old_node_errors([ref], nodes_without_variables(tx, self._clock()))
+        if errors:
+            raise Invalid(refusal, errors)
+        _guard_variables(tx, ref, verb=verb, at=self._clock().isoformat())
 
     @mutating_verb("definitions.migrate_notes", "Move workflow and step descriptions to notes")
     def migrate_notes(self, identity: str, *, apply: bool = False) -> list[dict[str, Any]]:
@@ -596,21 +635,22 @@ class Definitions:
 
     def restore(self, kind: str, id: str, identity: str, life: Lifecycle) -> Document:
         """Restore a tombstoned definition through ``life`` (audited there), refusing an
-        *enabled* rule that references a shared variable while an online node lacks variable
-        support (d7, as :meth:`set_enabled` refuses enabling it). The check runs inside the
-        restore transaction, so the rule never goes live past it. A disabled rule restores
-        freely: enabling it later is where the guard applies."""
+        *enabled* rule that references a shared variable while one of them is undefined
+        (``variable_undefined``) or an online node lacks variable support (d7), as
+        :meth:`set_enabled` refuses enabling it. The check runs inside the restore
+        transaction, which also writes each referenced variable's guard, so the rule never
+        goes live past it nor past a concurrent ``variables delete``. A disabled rule
+        restores freely: enabling it later is where the check applies."""
         self._cls(kind)
 
         def check(tx: Any, before: Mapping[str, Any]) -> None:
             if kind != "rules" or before.get("enabled") is False:
                 return
             ref = _RuleRef(id, before)
-            if not rule_variable_refs(ref):
-                return
-            errors = _old_node_errors([ref], nodes_without_variables(tx, self._clock()))
-            if errors:
-                raise Invalid("rule cannot be restored enabled yet", errors)
+            if rule_variable_refs(ref):
+                self._hold_variables(
+                    tx, ref, "rule cannot be restored enabled yet", "lifecycle.restore"
+                )
 
         return life.restore(kind, id, identity, check=check)
 
@@ -807,18 +847,22 @@ class Definitions:
         check: SaveCheck | None = None,
     ) -> dict[str, Any]:
         require_identity(identity)
-        with self._store.transaction() as tx:
-            plan, writes = self._plan(tx, files, check)
+
+        def body(tx: Any) -> dict[str, Any]:
+            plan, writes = self._plan(tx, files, check)  # variables read through tx
             if plan["errors"]:
                 raise Invalid("import failed validation", plan["errors"])
             plan["applied"] = False
             if not apply:
                 return plan
+            at = self._clock().isoformat()
             for kind, doc in writes:
                 # an import change is a write like any other: the stored revision plus one
                 # (never the bundle's; it carries none)
                 if rev.is_revisioned(kind):
                     doc = {**doc, **rev.bump(kind, tx.get(kind, doc["id"]))}
+                if kind == "rules" and doc.get("enabled", True):
+                    _guard_variables(tx, doc, verb="definitions.import", at=at)
                 tx.put(kind, doc)
             self._audit.write(
                 tx,
@@ -830,7 +874,9 @@ class Definitions:
                 after={"imported": sorted(f"{k}/{d['id']}" for k, d in writes)},
             )
             plan["applied"] = True
-        return plan
+            return plan
+
+        return run_transaction(self._store, body)
 
 
 class _LiveView:
@@ -884,14 +930,16 @@ def _check_item(value: list, item: Any, *, add: bool) -> None:
 
 
 class Variables:
-    """Shared variables behind the API: reads, an append-only write, history and referrers.
+    """Shared variables behind the API: reads, an append-only write, history, referrers and a
+    delete (a tombstone version, audited).
 
     Authorization (admin-only writes) is the route matrix's job; this class records whichever
     identity it is handed as ``updated_by``.
     """
 
-    def __init__(self, store: StoragePort) -> None:
+    def __init__(self, store: StoragePort, audit: AuditLog | None = None) -> None:
         self._store = store
+        self._audit = audit or AuditLog()
 
     @staticmethod
     def _checked(name: str) -> str:
@@ -969,20 +1017,125 @@ class Variables:
         raise Conflict(f"variables/{name}: too many concurrent writers, try again")
 
     def history(self, name: str) -> list[Document]:
-        """Every version, oldest first (the store is append-only, so versions are 1..latest)."""
-        latest = self.get(name)["version"]
-        out = [self._store.get_variable_version(name, n) for n in range(1, latest + 1)]
-        return [v for v in out if v is not None]
+        """Every stored version, oldest first, in one store read (gaps kept as stored). A
+        deleted variable keeps its history: the last version is the delete's tombstone
+        (``deleted`` true, value null, ``updated_by`` the admin who deleted it)."""
+        self._checked(name)
+        out = self._store.variable_versions(name)
+        if not out:
+            raise NotFound(f"variables/{name} does not exist")
+        return out
 
     def refs(self, name: str) -> list[Document]:
         """Live rules whose condition or workflow inputs reference ``name``, by id."""
-        self._checked(name)
-        docs = [d for d in self._store.find("rules") if _is_live(d)]
-        hits = [d for d in docs if name in rule_variable_refs(d)]
         return [
-            {"id": d.get("id"), "name": d.get("name"), "enabled": d.get("enabled", True)}
+            {k: r[k] for k in ("id", "name", "enabled")}
+            for r in self._referrers(name)
+            if not r["deleted"]
+        ]
+
+    def _referrers(self, name: str, ops: Any = None) -> list[Document]:
+        """Every rule, soft-deleted ones included, whose condition or workflow inputs
+        reference ``name``, by id, read through ``ops`` (a transaction; default the store).
+        Workflows hold no shared-variable references (their ``vars.<n>`` are
+        workflow-local), so rules are the whole reference graph."""
+        self._checked(name)
+        found = (self._store if ops is None else ops).find("rules")
+        hits = [d for d in found if name in rule_variable_refs(d)]
+        return [
+            {
+                "id": d.get("id"),
+                "name": d.get("name"),
+                "enabled": d.get("enabled", True),
+                "deleted": not _is_live(d),
+            }
             for d in sorted(hits, key=lambda d: str(d.get("id")))
         ]
+
+    @mutating_verb("variables.delete", "Delete a shared variable (dry run unless applied)")
+    def delete(
+        self, name: str, *, dry_run: bool = True, identity: str | None = None
+    ) -> dict[str, Any]:
+        """Delete variable ``name`` (admin): ``{name, dry_run, version, deleted_version,
+        not_blocking}``.
+
+        Refused (409 ``variable_in_use``, a dry run too) while a live, enabled rule references
+        it. A disabled or soft-deleted referrer does not block it and is listed in
+        ``not_blocking``; once the variable is deleted, enabling, restoring (enabled) or
+        saving such a rule is refused (422 ``variable_undefined``) until the variable is set
+        again.
+
+        Guarantee: no enabled rule can end up referencing a deleted variable through the
+        verbs (rule create, update, enable, restore, import and this delete). Applied, the
+        referrer check runs again inside the delete's transaction, which also writes the
+        variable's guard document; every rule write that leaves an enabled rule referencing
+        it checks the variable is defined and writes the same guard in its own transaction,
+        so the store serializes the two and the one that loses re-runs against what the
+        other committed. The store appends a tombstone version (the history stays) and
+        exactly one audit entry in that transaction; a dry run writes nothing.
+        """
+        current = self.get(name)
+        referrers = self._referrers(name)
+        blocking = _blocking(referrers)
+        if blocking:  # a fast answer, and the dry run's; applied, it is checked again in tx
+            raise _in_use(name, blocking)
+        version = current["version"]
+        deleted_version = version + 1
+        if not dry_run:
+            deleted_version = self._apply_delete(require_identity(identity), name, version)
+        return {
+            "name": name,
+            "dry_run": dry_run,
+            "version": version,
+            "deleted_version": deleted_version,
+            "not_blocking": [r for r in referrers if r not in blocking],
+        }
+
+    def _apply_delete(self, principal: str, name: str, version: int) -> int:
+        def recheck_and_audit(tx: Any, before: Document, after: Document) -> None:
+            # inside the delete's transaction (which writes the variable's guard): a rule
+            # enabled since the check above is seen here, or its write conflicts with ours
+            blocking = _blocking(self._referrers(name, tx))
+            if blocking:
+                raise _in_use(name, blocking)
+            self._audit.write(
+                tx,
+                identity=principal,
+                verb="variables.delete",
+                collection=VARIABLES_COLLECTION,
+                target_id=name,
+                before={"version": before["version"], "value": before["value"]},
+                after={"version": after["version"], "deleted": True},
+            )
+
+        try:
+            doc = self._store.delete_variable(
+                name, deleted_by=principal, expected_version=version, on_write=recheck_and_audit
+            )
+        except VariableVersionConflict:
+            raise Conflict(f"variables/{name} changed while deleting it; read it and retry")
+        if doc is None:
+            raise NotFound(f"variables/{name} does not exist")
+        return int(doc["version"])
+
+
+def _blocking(referrers: list[Document]) -> list[Document]:
+    """The referrers that block a variable delete: live and enabled."""
+    return [r for r in referrers if r["enabled"] and not r["deleted"]]
+
+
+def _in_use(name: str, blocking: list[Document]) -> Conflict:
+    """The 409 ``variable_in_use`` refusal of deleting ``name``, naming each blocking rule."""
+    ids = ", ".join(f"rules/{r['id']}" for r in blocking)
+    return Conflict(
+        f"variable_in_use: variables/{name} is referenced by enabled {ids}; "
+        "disable those rules or remove the reference first",
+        [
+            {"path": f"rules/{r['id']}", "code": "variable_in_use", "message": name}
+            for r in blocking
+        ],
+        code="variable_in_use",
+    )
 
 
 def _iso(value: Any) -> Any:

@@ -21,7 +21,8 @@ from typing import Any
 
 import pytest
 
-from culture_rules.node.actions import newspaper_render, transcript_render
+from culture_rules.extensions.newspaper import render as newspaper_render
+from culture_rules.extensions.transcript import port as transcript_render
 from culture_rules.node.actions.transcript_file import build_result
 
 HOSTILE = "<b>&\"'</b>\x01"

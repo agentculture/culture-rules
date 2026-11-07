@@ -62,6 +62,7 @@ def _argv_has_json(argv: list[str] | None) -> bool:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from culture_rules.cli._commands import actions as _actions
     from culture_rules.cli._commands import actors as _actors
     from culture_rules.cli._commands import cli as _cli_group
     from culture_rules.cli._commands import doctor as _doctor_cmd
@@ -104,6 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
         _rules,
         _workflows,
         _actors,
+        _actions,
         _machines,
         _runs,
         _variables,

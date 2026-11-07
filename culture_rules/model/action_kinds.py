@@ -51,25 +51,68 @@ has a device queue (culture-rules#86).
 ``repodocs.sync`` pushes the devague record (specs, plans, deliveries, designs, ``.devague``) of
 every top-level repo under its service actor's ``repos_root`` to the library the actor
 describes (culture-rules#124); everything but the actor is the actor's params.
-Standard-library only.
+
+Which kinds exist is the extension registry's (:mod:`culture_rules.extensions`):
+:data:`ACTION_KINDS` is a live view over it. Each kind above is defined by the extension
+that registers it (``KINDS`` in its package under :mod:`culture_rules.extensions`; ``noop``
+and ``message`` in :mod:`culture_rules.extensions.builtin`, which also gathers them as
+``BUILTIN_KINDS``), built with :func:`kind`. Standard-library only.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from culture_rules.extensions import registry
 from culture_rules.model.refs import REF_KEY, is_reference, structured_form
 
-__all__ = ["ACTION_KINDS", "ActionKind", "ParamSpec", "param_type_ok"]
+__all__ = [
+    "ACTION_KINDS",
+    "ADV",
+    "INT",
+    "REQ_INT",
+    "REQ_STR",
+    "REQ_TEXT",
+    "STR",
+    "TEXT",
+    "ActionKind",
+    "ParamSpec",
+    "describe_kinds",
+    "kind",
+    "param_type_ok",
+]
 
 
 @dataclass(frozen=True)
 class ParamSpec:
-    """A param: ``type`` is str, int, bool, dict, list or any; ``required`` means non-empty."""
+    """A param: ``type`` is str, int, bool, dict, list or any; ``required`` means non-empty.
+
+    The rest is how an editor shows it, served with the catalogue (``GET /actions/kinds``) so
+    no editor keeps a table of its own: ``label`` (default: the name), ``widget`` (``multiline``,
+    ``json``, ``number``, ``buttons``, ``command``, ``command_args``, ``discord_guild``,
+    ``discord_channel`` or ``hidden``; empty: by ``type``), a closed set of ``choices``
+    (``(value, label)`` pairs) or ``options_from`` (the key of the chosen actor's params that
+    lists the values, or maps them as keys), ``choose`` (the prompt of an empty choice) and
+    ``needs_actor_param`` (shown only when the chosen actor has that param set) and ``needed``
+    (not required of a stored step, which the port refuses at run time, but an editor asks
+    for it) and ``advanced`` (rarely set: an editor keeps it behind a "More settings" fold, open
+    when the step already sets it) and ``args_for`` (on a ``command_args`` param: the sibling
+    ``command`` param whose chosen command's declared arguments this mapping holds).
+    """
 
     type: str
     required: bool = False
+    label: str = ""
+    widget: str = ""
+    choices: tuple[tuple[str, str], ...] = ()
+    options_from: str = ""
+    choose: str = ""
+    needs_actor_param: str = ""
+    needed: bool = False
+    advanced: bool = False
+    args_for: str = ""
 
 
 @dataclass(frozen=True)
@@ -81,226 +124,74 @@ class ActionKind:
     summary: str = ""
     #: groups of params of which at least one must be set (e.g. content or content_path)
     any_of: tuple[tuple[str, ...], ...] = ()
+    #: a short name for pickers (default: the summary)
+    label: str = ""
+    #: which actors can perform it: alternatives (OR), each a clause of conditions (AND) over an
+    #: enabled actor: ``kinds``, ``not_kinds``, ``surface``, ``declares_action`` (it lists this
+    #: kind in ``params.actions``), ``has`` (these dotted params non-empty), ``has_any``
+    #: (at least one of these). Empty: an app actor that declares the kind.
+    actors: tuple[dict[str, Any], ...] = ()
+    #: offered even when no enabled actor can perform it (it needs none)
+    actorless: bool = False
+    #: an ``app`` actor may list it in ``params.actions`` (the Actors tab offers it)
+    declarable_by_apps: bool = False
+    #: ``(param, kind)``: a stored action of this kind that sets ``param`` is shown, and saved,
+    #: as ``kind`` by an editor (a legacy form another kind took over)
+    shown_as: tuple[str, str] | None = None
 
 
-def _k(
-    name: str, summary: str, /, *, any_of: tuple[tuple[str, ...], ...] = (), **params: ParamSpec
+def kind(
+    name: str,
+    summary: str,
+    /,
+    *,
+    label: str = "",
+    any_of: tuple[tuple[str, ...], ...] = (),
+    actors: tuple[dict[str, Any], ...] = (),
+    actorless: bool = False,
+    declarable_by_apps: bool = False,
+    shown_as: tuple[str, str] | None = None,
+    **params: ParamSpec,
 ) -> ActionKind:
-    return ActionKind(name, params, summary, any_of)
+    """An :class:`ActionKind` from keyword params (what the apps' ``KINDS`` are built with)."""
+    return ActionKind(
+        name, params, summary, any_of, label, actors, actorless, declarable_by_apps, shown_as
+    )
 
 
-_S = ParamSpec("str")
-_RS = ParamSpec("str", True)
-_I = ParamSpec("int")
+STR = ParamSpec("str")
+REQ_STR = ParamSpec("str", True)
+INT = ParamSpec("int")
+REQ_INT = ParamSpec("int", True)
+TEXT = ParamSpec("str", widget="multiline")
+REQ_TEXT = ParamSpec("str", True, widget="multiline")
+ADV = ParamSpec("str", advanced=True)
 
-_KINDS = (
-    _k("noop", "Do nothing (placeholder, tests)"),
-    _k(
-        "message",
-        "Send a message on the Culture mesh",
-        actor=_S,  # legacy: a Discord app actor here still posts to Discord
-        channel=_RS,
-        text=_RS,
-    ),
-    _k(
-        "discord.message",
-        "Post a message on Discord through a Discord app actor",
-        actor=_RS,
-        guild=_S,
-        channel=_RS,
-        text=_RS,
-        buttons=ParamSpec("list"),
-        thread_name=_S,  # set: channel is a forum and the text starts a post titled so
-        tags=ParamSpec("list"),  # forum tag names, with thread_name only
-    ),
-    _k(
-        "discord.read",
-        "Read one Discord message in full (text and attachments) through a Discord app actor",
-        actor=_RS,
-        guild=_S,  # fills the message url when given
-        channel=_RS,
-        message=_RS,
-    ),
-    _k(
-        "discord.react",
-        "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
-        " app actor, and take back the bot's own earlier reactions (remove)",
-        any_of=(("emoji", "remove"),),
-        actor=_RS,
-        guild=_S,
-        channel=_RS,
-        message=_RS,
-        emoji=_S,
-        remove=ParamSpec("list"),
-    ),
-    _k(
-        "discord.reply",
-        "Answer a Discord slash or message command privately through a Discord app actor",
-        actor=_RS,
-        event_id=_RS,
-        text=_RS,
-    ),
-    _k(
-        "discord.sweep",
-        "Read a Discord channel's messages newer than a stored cursor through a Discord app"
-        " actor",
-        actor=_RS,
-        guild=_S,
-        channel=_RS,
-        cursor_key=_RS,
-        limit=_I,
-        include_bots=ParamSpec("bool"),
-        backfill=ParamSpec("bool"),
-    ),
-    _k(
-        "github.comment",
-        "Comment on a GitHub issue or PR",
-        actor=_RS,
-        repo=_RS,
-        number=ParamSpec("int", True),
-        body=_RS,
-        once_key=_S,  # d25: post at most once per (repo, PR, key), durably
-    ),
-    _k(
-        "github.merge",
-        "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
-        actor=_RS,
-        repo=_RS,
-        number=ParamSpec("int", True),
-        sha=_RS,
-        delete_branch=ParamSpec("bool"),
-    ),
-    _k(
-        "github.pr",
-        "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
-        " as the GitHub App",
-        actor=_RS,
-        repo=_RS,
-        number=ParamSpec("int", True),
-    ),
-    _k("jira.comment", "Comment on a Jira issue", actor=_RS, issue=_RS, body=_RS),
-    _k(
-        "http.call",
-        "Call an HTTP endpoint",
-        actor=_RS,
-        method=_RS,
-        url=_RS,
-        headers=ParamSpec("dict"),
-        body=ParamSpec("any"),
-        save_to=_S,  # an absolute dir the actor's http.save_roots lists: stream the body there
-    ),
-    _k(
-        "machine.command",
-        "Run a command on a machine actor",
-        actor=_RS,
-        command=_RS,
-        args=ParamSpec("dict"),
-    ),
-    _k(
-        "email.send",
-        "Send an email through an email app actor (Resend)",
-        actor=_RS,
-        to=ParamSpec("list", True),  # each must be on the actor's recipient allowlist
-        subject=_RS,
-        html=_S,  # at least one of html/text: the port checks it
-        text=_S,
-        idempotency_key=_S,  # replaces the engine's per-run key (a durable, per-date key)
-        sender=_S,  # replaces the actor's from address; must be at the actor's domain
-        not_after=_S,  # ISO-8601: at or past it the send fails email_window_passed, no request
-    ),
-    _k(
-        "search.web",
-        "Search the web through a search app actor (Brave)",
-        actor=_RS,
-        query=_RS,
-        count=_I,
-        freshness=_S,
-        country=_S,
-        lang=_S,
-    ),
-    _k(
-        "llm.complete",
-        "Complete an actor's brief with an OpenAI-compatible model on an agent actor (no tools)",
-        any_of=(("content", "content_path"),),
-        actor=_RS,
-        content=ParamSpec("any"),  # or content_path (d2): one of the two is required
-        content_path=_S,  # a schema-1 transcript file; needs content_root (checked at run time)
-        content_root=_S,
-        content_max_chars=_I,
-        max_tokens=_I,
-        temperature=ParamSpec("any"),
-        not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
-        brief=_S,  # a name in the actor's params.briefs; required at run time, no default
-        answer=ParamSpec("dict"),  # {shape: <culture_rules.model.shape spec>}: a JSON answer
-        cache=ParamSpec("bool"),  # answer + content_path: keep the first valid answer
-        cache_name=_S,  # the cache file stem (answer.<name>.<sha16>.json), default "recording"
-        cache_label=_S,  # the cache document's brief label, default "recording"
-    ),
-    _k(
-        "decider.assess",
-        "Ask the mesh's decider for probabilities over the options a step defines (no text)",
-        actor=_RS,
-        state=_RS,
-        questions=ParamSpec(
-            "dict", True
-        ),  # {key: {type: choice|noul|score, instructions, criteria}}
-        not_after=_S,  # ISO-8601: past it the work fails decider_deadline instead of queueing
-    ),
-    _k(
-        "audio.transcribe",
-        "Transcribe an audio file with a speech-to-text endpoint on an agent actor",
-        actor=_RS,
-        audio_path=_RS,
-        audio_sha256=_S,  # optional: without it the port hashes the file itself
-        output_dir=_RS,
-        language=_S,
-        model=_S,
-    ),
-    _k(
-        "transcript.render",
-        "Render one transcript and its summary as an EPUB or Markdown (right to left for Hebrew)",
-        actor=_S,  # optional: its transcripts_root/output_root is a second boundary
-        result_path=_RS,
-        root=_RS,  # the transcripts root: result_path must resolve under it
-        recorded_at=_RS,  # ISO-8601 with a zone; dated in Asia/Jerusalem
-        language=_S,
-        summary=ParamSpec("any"),  # llm.complete's output: {text} or a string, or none
-        format=_S,  # epub (default) or md: summary, key facts, then the transcript
-    ),
-    _k(
-        "library.push",
-        "Upload a file to a library, or replace one by id (and queue it on a device queue)",
-        any_of=(("content_base64", "content_path"),),
-        actor=_RS,
-        content_base64=_S,  # or content_path + content_root (d7): one of the two is required
-        content_path=_S,  # a file under content_root on the node; its bytes never enter run state
-        content_root=_S,
-        title=_RS,
-        kind=_RS,  # one of the actor's params.kinds
-        visibility=_S,  # one of the actor's params.visibilities
-        author=_S,
-        device_id=_S,  # used only when the actor has a queue_path
-        format=_S,  # one of the actor's params.formats; epub when unset
-        item_id=ParamSpec("int"),  # replace this item through the actor's replace_path
-    ),
-    _k(
-        "repodocs.sync",
-        "Push every repo's specs, plans, deliveries, designs and .devague files to the library",
-        actor=_RS,  # a service actor: base_url, api_key, repos_root, state_path, limits
-    ),
-)
 
-ACTION_KINDS: dict[str, ActionKind] = {k.name: k for k in _KINDS}
+class _Catalogue(Mapping[str, ActionKind]):
+    """The registered kinds, read live from :func:`culture_rules.extensions.registry`."""
 
-#: Legacy names accepted as aliases of a catalogued kind (web editor placeholder).
-_ALIASES = {"mesh.message": "message"}
-#: ``message`` is lenient: channel/text are not enforced so the legacy placeholder passes.
-_LENIENT = frozenset({"message"})
+    def __getitem__(self, name: str) -> ActionKind:
+        return registry().action_kinds()[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(tuple(registry().action_kinds()))
+
+    def __len__(self) -> int:
+        return len(registry().action_kinds())
+
+    def __repr__(self) -> str:
+        return f"ACTION_KINDS({list(self)!r})"
+
+
+ACTION_KINDS: Mapping[str, ActionKind] = _Catalogue()
+"""Every registered action kind, ``name -> ActionKind`` in registration order (a live view
+over the extension registry; the built-in apps register theirs on first use)."""
 
 
 def resolve_kind(kind: str) -> ActionKind | None:
     """The catalogue entry for ``kind`` (aliases resolved), or ``None`` if unknown."""
-    return ACTION_KINDS.get(_ALIASES.get(kind, kind))
+    return registry().resolve_kind(kind)
 
 
 def _is_dynamic(value: Any) -> bool:
@@ -326,5 +217,55 @@ def param_type_ok(spec: ParamSpec, value: Any) -> bool:
 
 
 def is_lenient(kind: str) -> bool:
-    """Whether the kind's required params are not enforced (legacy-tolerant kinds)."""
-    return _ALIASES.get(kind, kind) in _LENIENT
+    """Whether the kind's required params are not enforced (legacy-tolerant kinds: ``message``
+    and its alias ``mesh.message``, so the legacy placeholder passes)."""
+    return registry().is_lenient(kind)
+
+
+def _describe_param(name: str, spec: ParamSpec) -> dict[str, Any]:
+    return {
+        "name": name,
+        "type": spec.type,
+        "required": spec.required,
+        "label": spec.label,
+        "widget": spec.widget,
+        "choices": [{"value": value, "label": label} for value, label in spec.choices],
+        "options_from": spec.options_from,
+        "choose": spec.choose,
+        "needs_actor_param": spec.needs_actor_param,
+        "needed": spec.needed,
+        "advanced": spec.advanced,
+        "args_for": spec.args_for,
+    }
+
+
+def describe_kinds() -> list[dict[str, Any]]:
+    """The registered action kinds as plain data, in catalogue order (``GET /actions/kinds``).
+
+    Each item: ``kind``, ``label`` (the summary when none), ``summary``, ``lenient``,
+    ``aliases``, ``params`` (in order, with the editor hints of :class:`ParamSpec`), ``any_of``,
+    ``actors`` (the actor clauses of :class:`ActionKind`; an app actor declaring the kind when
+    the kind names none), ``actorless``, ``declarable_by_apps`` and ``shown_as``
+    (``{when_param, kind}`` or null). Built from the registry, never from a list here.
+    """
+    reg = registry()
+    return [
+        {
+            "kind": name,
+            "label": kind.label or kind.summary,
+            "summary": kind.summary,
+            "lenient": reg.is_lenient(name),
+            "aliases": list(reg.aliases(name)),
+            "params": [_describe_param(p, spec) for p, spec in kind.params.items()],
+            "any_of": [list(group) for group in kind.any_of],
+            "actors": [dict(c) for c in kind.actors] or [{"declares_action": True}],
+            "actorless": kind.actorless,
+            "declarable_by_apps": kind.declarable_by_apps,
+            "shown_as": (
+                {"when_param": kind.shown_as[0], "kind": kind.shown_as[1]}
+                if kind.shown_as
+                else None
+            ),
+        }
+        for name, kind in reg.action_kinds().items()
+    ]

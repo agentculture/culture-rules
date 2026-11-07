@@ -29,7 +29,7 @@ plan. What exists today:
   contract is pinned in `api/openapi.json`. Auth is Cloudflare Access on a
   loopback listener, service tokens on a LAN listener, and roles.
 - **The CLI** over the API: the noun groups `rules`, `workflows`, `actors`,
-  `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
+  `actions`, `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
   identity verbs. Writes are dry-run by default, `--apply` commits. The model
   verbs are `actors enrol-models|references|disable` and `workflows
   repoint-actor` (below).
@@ -105,7 +105,8 @@ plan. What exists today:
     needs `expected_revision` (409 `revision_conflict` otherwise), and
     `workflows update` sends it (`--expected-revision`);
   - the v1 and v2 workflow digests remain (`python -m culture_rules.actors.trusted`;
-    v2 ignores description and notes); no workflow is pinned today;
+    v2 ignores description and notes); nothing pins a workflow, and
+    `workflows repoint-actor` has no trust check;
   - `rules migrate-orphans [--apply]` gives each workflow-less rule its own
     stepless workflow; the rollout order runs both migrations
     (`docs/operations/rollout.md`);
@@ -121,7 +122,7 @@ plan. What exists today:
     it passes), `actors references ID` lists what names an actor,
     `actors disable ID [--force]` is refused with `actor_in_use` while an
     enabled workflow or rule uses it, and `workflows repoint-actor WF --from A
-    --to B` moves a workflow (`--force` is for a pinned one; none is pinned today);
+    --to B` moves a workflow;
   - the model rule: one enabled endpoint actor (one with `params.base_url`)
     per model (409 `model_taken`, and again at run time in `llm.complete`);
     mesh agents without `base_url` are outside it;
@@ -243,7 +244,7 @@ plan. What exists today:
   actor guides `docs/actors/github.md` and `docs/actors/discord.md`): generic surfaces only;
   the prompt and merge rules are configured live, never committed:
   - there is **one merge kind, fenced by an operator click and a one-time button code**:
-    `github.merge` (`node/actions/github_merge.py`) squash-merges at `sha` (required; the
+    `github.merge` (`extensions/github/merge.py`) squash-merges at `sha` (required; the
     head moving is refused `head_moved`, GitHub's 409/405 fail without retry, a once claim
     in `github_merge_once` never re-sends an unknown outcome) and may delete a same-repo
     branch; before any secret or request it refuses an actor that is not an `app`
@@ -269,7 +270,7 @@ plan. What exists today:
     reads `trigger.data.value.repo|number|sha` and no id is parsed.
 - **Repo documents** (culture-rules#124, guide `docs/operations/repodocs.md`; the contract
   is culture-library's `docs/api/repodocs.md`):
-  - the action kind `repodocs.sync` (`node/actions/repodocs.py`, stdlib, git as argv lists)
+  - the action kind `repodocs.sync` (`extensions/repodocs/port.py`, stdlib, git as argv lists)
     pushes every top-level repo under its `service` actor's `repos_root` (worktree dirs,
     symlinks and linked worktrees skipped): every file under `docs/specs|plans|deliveries|design`
     and `.devague` (gitignored ones too), with `project` from `culture.yaml`;
@@ -354,6 +355,54 @@ Settled constraints that shape the architecture:
   own, with **zero third-party runtime dependencies**. Everything third-party
   sits behind an optional extra and is imported lazily: `server`, `store`,
   `mcp`, `events`, `yaml`, `backup`, `agent`.
+- **Apps plug in through one registry**, `culture_rules/extensions`
+  (stdlib only): an extension's `register(ext)` adds action kinds (their
+  `ParamSpec`s), action ports, built-in code steps, event types, webhook
+  routes (`POST /hooks/...`) and node listeners. `ACTION_KINDS`,
+  `default_ports`, the API's webhook routes and the node's listeners read
+  `registry()`; the built-in apps register in
+  `culture_rules/extensions/builtin.py`, every factory imported lazily.
+- **Each app's integration code lives on the extension side**, one
+  package per app under `culture_rules/extensions/<app>/` (`discord`,
+  `github`, `jira`, `http`, `machine`, `email`, `search`, `llm`,
+  `decider`, `stt`, `transcript`, `library`, `repodocs`, `newspaper`):
+  its `KINDS` and `register(ext)` in `__init__.py`, its port in
+  `port.py` (or one module per kind), its client in `client.py` (or the
+  vendor's name, `resend.py`, `brave.py`) and its webhook receiver in
+  `hooks.py`. GitHub's check settling is
+  `extensions/github/checks_settle.py`; the Discord Gateway is
+  `extensions/discord/gateway.py`; the contract route
+  `GET /actors/{id}/discord/targets` is `extensions/discord/api.py`,
+  mounted through the registry's `api_routes`. Core (everything else,
+  the generic built-ins in `node/actions/` included) imports no app:
+  `tests/test_extension_boundary.py` checks it and pins the few imports
+  between apps. The `discord.*` trigger filters stay core's
+  (`model/discord_filters.py`), since the engine matches and validates
+  them.
+- **The API serves the action catalogue and the editor reads it**
+  (guide `docs/operations/action-catalogue.md`): `GET /actions/kinds`
+  (viewer) lists the registry's kinds in order with their typed params, the
+  editor hints on `ParamSpec` (`label`, `widget`, `choices`, `options_from`,
+  `needs_actor_param`, `needed`, `advanced`, `args_for`), the actor clauses,
+  `declarable_by_apps` (the Actors tab offers only these) and `shown_as` (a
+  legacy form shown as another kind); the CLI verb is
+  `actions kinds`, the MCP tool `actions_kinds`. `web/src/rules/ActionPicker.tsx`
+  builds from it (`web/src/api/actions.ts`) and keeps no table of kinds and no
+  per-kind shim (the blank action is the catalogue's first kind); the
+  web tests' snapshot is `web/src/fixtures/action-kinds.data.ts`
+  (`python3 scripts/export-action-kinds.py --write`).
+- **A variable can be deleted** (admin): `DELETE /variables/{name}`, CLI
+  `variables delete NAME [--apply]`, MCP tool `variables_delete`. It is a dry
+  run unless applied and is refused with 409 `variable_in_use` while a live,
+  enabled rule references the variable (rules are the whole reference graph;
+  disabled and soft-deleted referrers are listed in `not_blocking`). Applied,
+  it appends a tombstone version (`deleted: true`) and one audit entry
+  (`variables.delete`) in one transaction; `variables history` keeps every
+  version, and the variable then reads as undefined. A per-variable guard
+  document (`variable_guards`), written by the delete and by every rule write
+  that leaves an enabled referrer (create, update, enable, restore, import),
+  serializes them: no enabled rule can end up referencing a deleted variable,
+  and enabling or restoring a referrer of one is refused (`variable_undefined`).
 - **The `culture-rules` CLI is a thin layer** over the HTTP API (except
   `node run`, which is the engine and uses the store directly). Writes are
   **dry-run by default**, `--apply` commits them, and every verb takes

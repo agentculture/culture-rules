@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-06T19:36:25Z",
-  "updated": "2026-11-06T20:41:04Z",
+  "updated": "2026-11-07T09:42:41Z",
   "claims": [
     {
       "id": "c1",
@@ -642,6 +642,94 @@
       "skipped_check": "run the same test on the base commit under the same load",
       "refs": [
         "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "provenance-missing",
+      "what": "t7 agent did not capture the error text of the flaky Mongo race test before re-running it alone (test_abandonment_committing_inside_the_start_transaction_aborts_the_start[mongo])",
+      "skipped_check": "",
+      "refs": [
+        "t7"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "control-absent",
+      "what": "t7 agent ran no full suite after its final daemon.py edit; only targeted tests and lint",
+      "skipped_check": "full suite after the last edit",
+      "refs": [
+        "t7"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "assumption-for-measurement",
+      "what": "t7 agent's claim that Lazy string imports keep extras lazy rests on a zero-deps subprocess test and monkeypatched find_spec, not on a node without cryptography",
+      "skipped_check": "",
+      "refs": [
+        "t7"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "control-absent",
+      "what": "t9 agent did not run the webglass agent-state CI gate; only Playwright",
+      "skipped_check": "webglass agent-state gate",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "control-absent",
+      "what": "t9 agent did not re-run vitest and Playwright after its last edits (flake8 wrap, openapi.json regeneration)",
+      "skipped_check": "vitest + Playwright after the last edit",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "assumption-for-measurement",
+      "what": "t9 agent assumed other e2e fixture route files either need no /actions/kinds or tolerate a 404, without checking which",
+      "skipped_check": "",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "control-absent",
+      "what": "t9 agent handed back the rules/boundary merge uncommitted, before the full suite and web checks, and without reviewing its regex-rewritten KINDS blocks",
+      "skipped_check": "full suite, web checks, KINDS review before handback",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l10",
+      "code": "assumption-for-measurement",
+      "what": "d8 agent first documented that re-enabling a rule whose variable was deleted is refused, without reading the code (set_enabled/restore only check node capability); corrected before commit",
+      "skipped_check": "",
+      "refs": [
+        "d8"
       ],
       "origin": "llm",
       "status": "proposed"

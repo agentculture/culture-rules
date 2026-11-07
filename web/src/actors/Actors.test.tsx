@@ -1,3 +1,4 @@
+import { ACTION_CATALOGUE } from "../fixtures/action-catalogue";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -30,6 +31,7 @@ function mockActorsApi(overrides: Record<string, { status: number; body: unknown
       const key = `${method} ${url.pathname}`;
       if (overrides[key]) return reply(overrides[key].status, overrides[key].body);
       if (url.pathname === "/api/machines") return reply(200, { items: MACHINES });
+      if (url.pathname === "/api/actions/kinds") return reply(200, ACTION_CATALOGUE);
       if (url.pathname === "/api/actors" && method === "GET") return reply(200, { items: actors });
       const m = url.pathname.match(/^\/api\/actors\/([^/]+)(?:\/(enable|disable))?$/);
       if (m) {

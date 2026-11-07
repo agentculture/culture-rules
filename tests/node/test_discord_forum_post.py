@@ -6,10 +6,10 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
-from culture_rules.apps.discord_rest import MAX_CONTENT
 from culture_rules.engine.actorport import FAILED, InvocationContext
+from culture_rules.extensions.discord.message import DiscordMessageAction
+from culture_rules.extensions.discord.rest import MAX_CONTENT
 from culture_rules.model.action_kinds import ACTION_KINDS
-from culture_rules.node.actions.message import DiscordMessageAction
 from culture_rules.store.memory import MemoryStore
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)

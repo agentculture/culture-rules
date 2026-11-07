@@ -20,12 +20,12 @@ from urllib.parse import urlsplit
 import pytest
 
 from culture_rules.cli import main
+from culture_rules.extensions.newspaper.port import parse_sections
 from culture_rules.io.exchange import import_bundle, read_bundle
 from culture_rules.model.action_step import action_spec
 from culture_rules.model.app_actor import email_sender
 from culture_rules.model.variable import validate_variable_value
 from culture_rules.model.variable_refs import rule_variable_refs
-from culture_rules.node.actions.newspaper import parse_sections
 from culture_rules.store.memory import MemoryStore
 from tests.cli.test_nouns_api import store, wire  # noqa: F401
 

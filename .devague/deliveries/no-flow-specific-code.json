@@ -2,7 +2,7 @@
   "plan_slug": "no-flow-specific-code",
   "schema_version": 2,
   "created": "2026-11-06T20:24:48Z",
-  "updated": "2026-11-07T06:58:06Z",
+  "updated": "2026-11-07T09:11:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -92,6 +92,59 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "The 9 fixer variables stay live after R1: the API has no variable delete. The Boundary release adds a generic admin-only variables delete (API, CLI, MCP; refused while an enabled rule or workflow references the variable), then deletes fixer_capacity_cooldown_s, fixer_comment_triggers, fixer_excluded_repos, fixer_levels, fixer_protected_paths, fixer_repos, fixer_stop_triggers, fixer_unavailable and trusted_authors",
+      "task_ref": "t6",
+      "reason": "found at the R1 live cleanup: no DELETE /variables/{name}; operator chose to add the verb in the Boundary release",
+      "affects": [
+        "t7",
+        "t10"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "R2 opens with registry seams for the app knowledge t8 left in core: an extension-registered params validator (github.comment status check), trigger-filter matching and validation (model/discord_filters.py, used by engine/matching.py and describe.py), describe phrases (model/describe.py per-kind tables), and the three app literals (health Discord gateways section, checks-settled event type in events/emit.py, discord targets policy role)",
+      "task_ref": "t8",
+      "reason": "found after t8: no imports but app knowledge in core; operator chose first task of R2 for the seams and literals with them (decider 0.79 / 0.50; 0.93 that adding them to Boundary makes it too big)",
+      "affects": [
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "Split core's message kind (mesh) from the Discord post in R3, with a migration of stored workflows that use message with an actor; until then the discord package's port serves both",
+      "task_ref": "t8",
+      "reason": "found after t8; splitting changes live workflows; operator chose R3 (decider 0.60)",
+      "affects": [
+        "t22"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "Boundary release adds a small editor task: the catalogue says which kinds an app actor may declare and carries generic widget hints; the editor's per-kind shims (legacy message shown as discord.message, noop default form, command/args sibling-name widgets) go, and the Actors tab lists only declarable kinds",
+      "task_ref": "t9",
+      "reason": "found after t9; operator chose this release (decider 0.59)",
+      "affects": [
+        "t10"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 11
     }
   ],
   "evidence": [],

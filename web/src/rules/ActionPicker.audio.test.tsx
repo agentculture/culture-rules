@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Actor } from "../api/actors";
 import type { Action } from "../api/types";
 import { ACTORS } from "../fixtures/rules-fixture";
+import { ACTION_CATALOGUE } from "../fixtures/action-catalogue";
 import ActionPicker, { actionProblem, actorsFor, blankAction } from "./ActionPicker";
 
 /* audio.transcribe: speech-to-text through an agent actor that carries a base_url. */
@@ -18,10 +19,10 @@ const AUDIO_ACTORS: Actor[] = [
 ];
 
 function Harness() {
-  const [value, setValue] = useState<Action>(blankAction());
+  const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
   return (
     <>
-      <ActionPicker value={value} actors={AUDIO_ACTORS} triggerType="schedule" onChange={setValue} />
+      <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={AUDIO_ACTORS} triggerType="schedule" onChange={setValue} />
       <output data-testid="saved">{JSON.stringify(value)}</output>
     </>
   );
@@ -40,7 +41,7 @@ describe("audio.transcribe", () => {
   });
 
   it("offers only enabled agent actors with a base_url", () => {
-    expect(actorsFor("audio.transcribe", AUDIO_ACTORS).map((a) => a.id)).toEqual(["whisper"]);
+    expect(actorsFor("audio.transcribe", AUDIO_ACTORS, ACTION_CATALOGUE).map((a) => a.id)).toEqual(["whisper"]);
   });
 
   it("saves the audio path, hash and output directory", async () => {
@@ -62,10 +63,10 @@ describe("audio.transcribe", () => {
         language: "en",
       },
     });
-    expect(actionProblem(saved())).toBeNull();
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBeNull();
   });
 
   it("needs its required params", () => {
-    expect(actionProblem({ kind: "audio.transcribe", params: { actor: "whisper" } })).toBe("empty");
+    expect(actionProblem({ kind: "audio.transcribe", params: { actor: "whisper" } }, ACTION_CATALOGUE)).toBe("empty");
   });
 });

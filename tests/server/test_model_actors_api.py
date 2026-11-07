@@ -603,67 +603,31 @@ def test_repoint_of_a_missing_workflow_is_404(store):
     assert repoint(client, id="nope").status_code == 404
 
 
-def _pinned_workflow():
-    return {
-        "id": "pinned",
-        "name": "Pinned workflow",
-        "steps": [
-            {
-                "id": "read",
-                "kind": "code",
-                "config": {
-                    "builtin": "action",
-                    "action": {
-                        "kind": "github.pr",
-                        "params": {
-                            "actor": "github-app",
-                            "repo": "o/r",
-                            "number": 1,
-                        },
-                    },
-                },
-            }
-        ],
-    }
-
-
-def test_repoint_of_a_v2_trusted_workflow_is_refused_without_force(store, monkeypatch):
-    client, _ = make_client(store)
-    wf = _pinned_workflow()
-    old_v2 = workflow_digest_v2(wf)
-    monkeypatch.setattr(
-        trusted, "pinned_digest", lambda doc: old_v2 if workflow_digest_v2(doc) == old_v2 else None
-    )
-    store.put("workflows", {**wf, "revision": 1})
-    client.post("/actors", json=target_actor("new"), headers=ALICE)
-    for dry in (True, False):
-        r = repoint(client, id=wf["id"], **{"from": "github-app"}, dry_run=dry)
-        assert r.status_code == 409, r.text
-        err = r.json()["error"]
-        assert err["code"] == "workflow_trusted"
-        assert old_v2 in err["message"]
-    r = repoint(client, id=wf["id"], **{"from": "github-app"}, dry_run=False, force=True)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["trusted_digest"] == old_v2
-    assert body["digest_v2"] != old_v2
-    assert body["digest_v2"] == workflow_digest_v2(store.get("workflows", wf["id"]))
-    assert any("trust" in w for w in body["warnings"])
-
-
-def test_repoint_of_a_v1_trusted_workflow_is_refused_without_force(store, monkeypatch):
+def test_repoint_has_no_trust_seam(store):
     client = seeded(store)
-    v1 = workflow_digest(store.get("workflows", "news"))
-    monkeypatch.setattr(
-        trusted, "pinned_digest", lambda doc: v1 if workflow_digest(doc) == v1 else None
-    )
-    r = repoint(client)
-    assert r.status_code == 409
-    assert v1 in r.json()["error"]["message"]
-    r = repoint(client, force=True)
-    assert r.status_code == 200
-    assert r.json()["trusted_digest"] == v1
-    assert r.json()["digest"] != v1
+    r = repoint(client, dry_run=False)
+    assert r.status_code == 200, r.text
+    assert "trusted_digest" not in r.json()
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_repoint_from_an_older_client_sending_force_still_works(store, force):
+    """Clients before 0.44.0 always send ``force``; it is accepted and has no effect."""
+    client = seeded(store)
+    r = repoint(client, dry_run=False, force=force)
+    assert r.status_code == 200, r.text
+
+
+def test_repoint_still_refuses_an_unknown_field(store):
+    client = seeded(store)
+    r = repoint(client, bogus=True)
+    assert r.status_code == 422, r.text
+    assert store.get("workflows", "news")["revision"] == 1
+
+
+def test_trusted_has_no_workflow_pin():
+    assert not hasattr(trusted, "pinned_digest")
+    assert "pinned_digest" not in trusted.__all__
 
 
 # --------------------------------------------------------------------------- the real transport

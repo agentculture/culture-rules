@@ -7,6 +7,7 @@ The CLI parser, ``learn``, ``explain``, the MCP server and the parity test all e
 from __future__ import annotations
 
 from culture_rules.cli._commands import (
+    actions,
     actors,
     keysets,
     machines,
@@ -21,5 +22,5 @@ from culture_rules.cli.registry import Registry
 __all__ = ["REGISTRY"]
 
 REGISTRY = Registry()
-for _module in (rules, workflows, actors, machines, runs, variables, keysets, rollout):
+for _module in (rules, workflows, actors, actions, machines, runs, variables, keysets, rollout):
     REGISTRY.extend(_module.VERBS)

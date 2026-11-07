@@ -24,7 +24,7 @@ def _noop(ctx, **params):
 
 
 def test_registry_covers_the_nouns_with_overview():
-    assert {v.noun for v in REGISTRY.verbs()} == NOUNS | {"variables", "keysets"}
+    assert {v.noun for v in REGISTRY.verbs()} == NOUNS | {"variables", "keysets", "actions"}
     for noun in NOUNS:
         assert REGISTRY.get(noun, "overview") is not None
         assert REGISTRY.get(noun, "list") is not None
@@ -33,7 +33,7 @@ def test_registry_covers_the_nouns_with_overview():
 
 def test_variables_noun_verbs_and_admin_only_write():
     names = {v.name for v in REGISTRY.verbs("variables")}
-    writes = {"set", "add", "remove"}
+    writes = {"set", "add", "remove", "delete"}
     assert names == {"overview", "list", "get", "history", "refs"} | writes
     for name in writes:
         assert REGISTRY.get("variables", name).mutating

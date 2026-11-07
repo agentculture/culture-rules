@@ -1,8 +1,16 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { getDiscordTargets } from "../api/actors";
 import { useDiscordTargets, type LoadTargets } from "./useDiscordTargets";
-import type { Actor, HttpPolicy, RunnerActorParams } from "../api/actors";
+import type { Actor, RunnerActorParams } from "../api/actors";
 import type { Action, DiscordButton, Workflow } from "../api/types";
+import {
+  kindOf,
+  useActionCatalogue,
+  type ActionCatalogue,
+  type ActionKindSpec,
+  type ActionParam,
+  type ActorClause,
+} from "../api/actions";
 
 type ParamType = "str" | "int" | "number" | "bool" | "dict" | "list" | "any" | "json";
 
@@ -11,195 +19,13 @@ interface Choice {
   label: string;
 }
 
-interface ParamSpec {
-  type: ParamType;
-  required?: boolean;
-  /** A closed set of values, picked from a select whose empty option reads `choose`. */
-  options?: readonly Choice[];
-  /** Like `options`, but the values are the list or mapping keys in the chosen actor's `params[optionsFrom]`. */
-  optionsFrom?: string;
-  choose?: string;
-}
-
-interface KindSpec {
-  label: string;
-  params: Record<string, ParamSpec>;
-  /** Groups of params of which at least one must be set (the catalog's `any_of`). */
-  anyOf?: readonly (readonly string[])[];
-}
-
-const S: ParamSpec = { type: "str" };
-const RS: ParamSpec = { type: "str", required: true };
-const I: ParamSpec = { type: "int" };
-const RI: ParamSpec = { type: "int", required: true };
-
-const METHODS: readonly Choice[] = ["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => ({ value: m, label: m }));
-/** Brave's freshness windows (search.web `freshness`). */
-/** transcript.render's output formats. */
-const RENDER_FORMATS: readonly Choice[] = [
-  { value: "epub", label: "EPUB book" },
-  { value: "md", label: "Markdown" },
-];
-const FRESHNESS: readonly Choice[] = [
-  { value: "pd", label: "Past day" },
-  { value: "pw", label: "Past week" },
-  { value: "pm", label: "Past month" },
-  { value: "py", label: "Past year" },
-];
-
-/**
- * The action catalogue, mirroring culture_rules/model/action_kinds.py: the
- * params each kind takes, their types and which are required. Order is the
- * order the picker lists them in.
- */
-export const ACTION_KINDS: Record<string, KindSpec> = {
-  noop: { label: "Do nothing", params: {} },
-  message: { label: "Send a message on the mesh", params: { channel: RS, text: RS } },
-  "discord.message": {
-    label: "Post a message on Discord",
-    params: { actor: RS, guild: S, channel: RS, text: RS, buttons: { type: "list" }, thread_name: S, tags: { type: "list" } },
-  },
-  "discord.read": {
-    label: "Read a Discord message in full",
-    params: { actor: RS, guild: S, channel: RS, message: RS },
-  },
-  "discord.react": {
-    label: "React to a Discord message",
-    params: { actor: RS, guild: S, channel: RS, message: RS, emoji: S, remove: { type: "list" } },
-    anyOf: [["emoji", "remove"]],
-  },
-  "discord.reply": {
-    label: "Answer a Discord command privately",
-    params: { actor: RS, event_id: RS, text: RS },
-  },
-  "discord.sweep": {
-    label: "Read a Discord channel since the last run",
-    params: {
-      actor: RS,
-      guild: S,
-      channel: RS,
-      cursor_key: RS,
-      limit: I,
-      include_bots: { type: "bool" },
-      backfill: { type: "bool" },
-    },
-  },
-  "github.comment": {
-    label: "Comment on GitHub",
-    params: { actor: RS, repo: RS, number: RI, body: RS },
-  },
-  "github.merge": {
-    label: "Merge a GitHub PR",
-    params: { actor: RS, repo: RS, number: RI, sha: RS, delete_branch: { type: "bool" } },
-  },
-  "github.pr": {
-    label: "Read a GitHub PR",
-    params: { actor: RS, repo: RS, number: RI },
-  },
-  "jira.comment": { label: "Comment on Jira", params: { actor: RS, issue: RS, body: RS } },
-  "http.call": {
-    label: "Call an HTTP endpoint",
-    params: {
-      actor: RS,
-      method: { ...RS, options: METHODS, choose: "Choose a method…" },
-      url: RS,
-      headers: { type: "dict" },
-      body: { type: "any" },
-      save_to: S,
-    },
-  },
-  "machine.command": {
-    label: "Run a command on a machine",
-    params: { actor: RS, command: RS, args: { type: "dict" } },
-  },
-  "email.send": {
-    label: "Send an email",
-    params: { actor: RS, to: { type: "list", required: true }, subject: RS, html: S, text: S },
-  },
-  "search.web": {
-    label: "Search the web",
-    params: {
-      actor: RS,
-      query: RS,
-      count: I,
-      freshness: { ...S, options: FRESHNESS, choose: "Any time" },
-      country: S,
-      lang: S,
-    },
-  },
-  "llm.complete": {
-    label: "Summarise with a language model",
-    params: {
-      actor: RS,
-      brief: { ...RS, optionsFrom: "briefs", choose: "Choose one of the actor's briefs…" },
-      answer: { type: "json" },
-      content: { type: "any" },
-      content_path: S,
-      content_root: S,
-      content_max_chars: I,
-      max_tokens: I,
-      temperature: { type: "number" },
-      not_after: S,
-      cache: { type: "bool" },
-      cache_name: S,
-      cache_label: S,
-    },
-    anyOf: [["content", "content_path"]],
-  },
-  "audio.transcribe": {
-    label: "Transcribe an audio file",
-    params: { actor: RS, audio_path: RS, audio_sha256: S, output_dir: RS, language: S, model: S },
-  },
-  "transcript.render": {
-    label: "Make a book or Markdown from a transcript",
-    params: {
-      actor: S,
-      result_path: RS,
-      root: RS,
-      recorded_at: RS,
-      language: S,
-      summary: { type: "any" },
-      format: { ...S, options: RENDER_FORMATS, choose: "EPUB book (default)" },
-    },
-  },
-  "decider.assess": {
-    label: "Ask the decider",
-    params: { actor: RS, state: RS, questions: { type: "any", required: true }, not_after: S },
-  },
-  "library.push": {
-    label: "Send a book to a library",
-    params: {
-      actor: RS,
-      content_base64: S,
-      content_path: S,
-      content_root: { ...S, optionsFrom: "content_roots", choose: "Choose one of the library's content roots…" },
-      title: RS,
-      kind: { ...RS, optionsFrom: "kinds", choose: "Choose a kind…" },
-      visibility: { ...S, optionsFrom: "visibilities", choose: "The library's default" },
-      format: { ...S, optionsFrom: "formats", choose: "EPUB (default)" },
-      item_id: I,
-      author: S,
-      device_id: S,
-    },
-    anyOf: [["content_base64", "content_path"]],
-  },
-  "repodocs.sync": {
-    label: "Push repo documents to the library",
-    params: { actor: RS },
-  },
+/** A served param as the fields below read it: a widget can turn the type into `json` or `number`. */
+const typeOf = (p: ActionParam): ParamType => {
+  if (p.widget === "json" || p.widget === "number") return p.widget;
+  return p.type as ParamType;
 };
-
-/** Checkbox labels that read better than the param name. */
-const BOOL_LABELS: Record<string, string> = {
-  cache: "Keep the first answer for this file",
-};
-
-/** Params shown as a textarea: long text. */
-const MULTILINE = new Set(["body", "text", "html", "content", "state"]);
-
-/** Legacy names the backend accepts as aliases of a catalogued kind. */
-const ALIASES: Record<string, string> = { "mesh.message": "message" };
-const canonical = (kind: string) => ALIASES[kind] ?? kind;
+const isRequired = (p: ActionParam) => p.required || p.needed;
+const choicesOf = (p: ActionParam): readonly Choice[] | undefined => (p.choices.length ? p.choices : undefined);
 
 const REFERENCE = /^(trigger|workflow|vars|rule)\.[A-Za-z0-9_.]+$/;
 const CUSTOM = "__custom__";
@@ -212,15 +38,14 @@ const TRIGGER_FIELDS: { prefix: string; fields: string[] }[] = [
 ];
 
 /**
- * How the picker shows a stored action: a `message` that still names an actor is the form a
- * Discord message had before `discord.message` existed, so it is shown (and saved) as one.
+ * How the picker shows a stored action: a kind whose catalogue entry carries `shown_as` is a
+ * legacy form another kind took over (a `message` naming an actor was a Discord message before
+ * `discord.message` existed), so when it sets `when_param` it is shown (and saved) as that kind.
  */
-export function viewOf(action: Action): Action {
-  const actor = (action.params as Record<string, unknown> | undefined)?.actor;
-  if (canonical(action.kind) === "message" && typeof actor === "string" && actor) {
-    return { ...action, kind: "discord.message" };
-  }
-  return action;
+export function viewOf(action: Action, catalogue?: ActionCatalogue): Action {
+  const shownAs = kindOf(catalogue, action.kind)?.shown_as;
+  const value = shownAs ? (action.params as Record<string, unknown> | undefined)?.[shownAs.when_param] : undefined;
+  return shownAs && typeof value === "string" && value ? { ...action, kind: shownAs.kind } : action;
 }
 
 /** A reference to a trigger or workflow value, as a string or a `{"$ref"}` object; else null. */
@@ -236,7 +61,9 @@ const isEmpty = (v: unknown) =>
   v === undefined || v === null || (typeof v === "string" && v.trim() === "") || (Array.isArray(v) && v.length === 0);
 const isDynamic = (v: unknown) => refOf(v) !== null || (typeof v === "string" && v.includes("{{"));
 
-function typeOk({ type, options }: ParamSpec, value: unknown): boolean {
+function typeOk(p: ActionParam, value: unknown): boolean {
+  const type = typeOf(p);
+  const options = choicesOf(p);
   if (isDynamic(value) || type === "any") return true;
   if (options) return options.some((o) => o.value === value);
   if (type === "int") return typeof value === "number" && Number.isInteger(value);
@@ -247,91 +74,116 @@ function typeOk({ type, options }: ParamSpec, value: unknown): boolean {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** An action of `kind` with no params filled in; the name is kept across kinds. */
-export function blankAction(kind = "noop", name?: string): Action {
-  const base: Action = kind === "noop" ? { kind } : { kind, params: {} };
+/**
+ * An action of `kind` (default: the first kind in catalogue order) with no params filled in, and
+ * no `params` at all when the kind takes none; the name is kept across kinds.
+ */
+export function blankAction(catalogue: ActionCatalogue, kind?: string, name?: string): Action {
+  const spec = kind === undefined ? catalogue.items[0] : kindOf(catalogue, kind);
+  const chosen = kind ?? spec?.kind ?? "";
+  const base: Action = spec?.params.length === 0 ? { kind: chosen } : { kind: chosen, params: {} };
   return name ? { ...base, name } : base;
 }
 
 /**
  * What stops an action from being saved, as a guidance code (api/guidance.ts), or null when it
- * is complete. Kinds the editor does not know, and the legacy `mesh.message` placeholder (the
- * backend does not enforce it either), are kept as they are.
+ * is complete. Kinds the catalogue does not hold (or while it is not loaded), and a legacy alias
+ * of a lenient kind (the `mesh.message` placeholder; the backend does not enforce it either), are
+ * kept as they are.
  */
-export function actionProblem(stored: Action): "no_actor_port" | "empty" | "invalid_value" | null {
-  const action = viewOf(stored);
-  const spec = ACTION_KINDS[canonical(action.kind)];
-  if (!spec || action.kind === "mesh.message") return null;
+export function actionProblem(
+  stored: Action,
+  catalogue?: ActionCatalogue,
+): "no_actor_port" | "empty" | "invalid_value" | null {
+  const action = viewOf(stored, catalogue);
+  const spec = kindOf(catalogue, action.kind);
+  if (!spec || (spec.lenient && spec.kind !== action.kind)) return null;
   const params = (action.params ?? {}) as Record<string, unknown>;
-  if (spec.params.actor?.required && isEmpty(params.actor)) return "no_actor_port";
-  for (const [name, p] of Object.entries(spec.params)) {
-    if (name !== "actor" && p.required && isEmpty(params[name])) return "empty";
+  if (paramNamed(spec, "actor")?.required && isEmpty(params.actor)) return "no_actor_port";
+  for (const p of spec.params) {
+    if (p.name !== "actor" && isRequired(p) && isEmpty(params[p.name])) return "empty";
   }
-  if ((spec.anyOf ?? []).some((group) => group.every((name) => isEmpty(params[name])))) return "empty";
-  for (const [name, p] of Object.entries(spec.params)) {
-    if (!isEmpty(params[name]) && !typeOk(p, params[name])) return "invalid_value";
+  if (spec.any_of.some((group) => group.every((name) => isEmpty(params[name])))) return "empty";
+  for (const p of spec.params) {
+    if (!isEmpty(params[p.name]) && !typeOk(p, params[p.name])) return "invalid_value";
   }
-  return buttonsInvalid(action.kind, params) ? "invalid_value" : null;
+  return buttonsInvalid(spec, params) ? "invalid_value" : null;
 }
+
+const paramNamed = (spec: ActionKindSpec | undefined, name: string) => spec?.params.find((p) => p.name === name);
 
 /** A discord.message button whose posted id would pass Discord's 100 characters, or whose
  * one-time code has no value to be bound to. */
-function buttonsInvalid(kind: string, params: Record<string, unknown>): boolean {
-  if (canonical(kind) !== "discord.message" || !Array.isArray(params.buttons)) return false;
-  return (params.buttons as DiscordButton[]).some((b) => buttonIdTooLong(b) || codeWithoutValue(b));
+function buttonsInvalid(spec: ActionKindSpec, params: Record<string, unknown>): boolean {
+  const field = spec.params.find((p) => p.widget === "buttons");
+  const rows = field ? params[field.name] : undefined;
+  if (!Array.isArray(rows)) return false;
+  return (rows as DiscordButton[]).some((b) => buttonIdTooLong(b) || codeWithoutValue(b));
 }
 
 const enabled = (a: Actor) => a.enabled !== false;
-const declares = (a: Actor, kind: string) =>
-  a.kind === "app" && enabled(a) && (a.params?.actions ?? []).includes(kind);
-const allowsHttp = (a: Actor) => enabled(a) && ((a.params?.http as HttpPolicy | undefined)?.allow ?? []).length > 0;
 const commandsOf = (a?: Actor) => (a?.params as RunnerActorParams | undefined)?.commands ?? {};
-const onSurface = (a: Actor, surface: string) => a.kind === "app" && enabled(a) && a.params?.surface === surface;
-const hasBaseUrl = (a: Actor) => enabled(a) && typeof a.params?.base_url === "string" && a.params.base_url !== "";
-const hasTranscriptsRoot = (a: Actor) =>
-  enabled(a) && ["transcripts_root", "output_root"].some((k) => typeof a.params?.[k] === "string" && a.params[k] !== "");
 
-/**
- * Enabled actors able to perform `kind`: app actors by declared actions (email and search by
- * surface), runners by command, an OpenAI-compatible agent (one with a `base_url`) for
- * llm.complete, audio.transcribe and decider.assess, and any other actor with a `base_url` (the library service) for library.push.
- * transcript.render needs no actor; one with a transcripts or output root may narrow where it reads.
- * repodocs.sync needs an enabled service actor with a `repos_root`.
- */
-export function actorsFor(kind: string, actors: Actor[]): Actor[] {
-  switch (canonical(kind)) {
-    case "machine.command":
-      return actors.filter((a) => a.kind === "runner" && enabled(a));
-    case "http.call":
-      return actors.filter((a) => declares(a, "http.call") || allowsHttp(a));
-    case "email.send":
-      return actors.filter((a) => onSurface(a, "email"));
-    case "search.web":
-      return actors.filter((a) => onSurface(a, "search"));
-    case "llm.complete":
-      return actors.filter((a) => a.kind === "agent" && hasBaseUrl(a));
-    case "audio.transcribe":
-    case "decider.assess":
-      return actors.filter((a) => a.kind === "agent" && hasBaseUrl(a));
-    case "library.push":
-      return actors.filter((a) => a.kind !== "agent" && a.kind !== "app" && hasBaseUrl(a));
-    case "transcript.render":
-      return actors.filter(hasTranscriptsRoot);
-    case "repodocs.sync":
-      return actors.filter((a) => a.kind === "service" && enabled(a) && typeof a.params?.repos_root === "string");
-    case "noop":
-      return [];
-    default:
-      return actors.filter((a) => declares(a, canonical(kind)));
+/** A param of an actor holds something: a non-empty string or list (a dotted path reads nested objects). */
+function actorParam(a: Actor, path: string): unknown {
+  let at: unknown = a.params;
+  for (const key of path.split(".")) {
+    at = isJsonObject(at) ? at[key] : undefined;
   }
+  return at;
 }
 
-/** Discord kinds whose server and channel are picked from what the bot can see. */
-const DISCORD_TARGET_KINDS = new Set(["discord.message", "discord.read", "discord.react", "discord.sweep"]);
+/** An actor clause's `has`/`has_any`: a non-empty string, list or mapping. */
+function actorHas(a: Actor, path: string): boolean {
+  const at = actorParam(a, path);
+  if (typeof at === "string") return at !== "";
+  if (Array.isArray(at)) return at.length > 0;
+  return isJsonObject(at) && Object.keys(at).length > 0;
+}
 
-/** The mesh message, noop and transcript.render need no actor; every other kind needs one enabled actor that supports it. */
-const offered = (kind: string, actors: Actor[]) =>
-  kind === "noop" || kind === "message" || kind === "transcript.render" || actorsFor(kind, actors).length > 0;
+/**
+ * A param's `needs_actor_param`: the actor provides that value. Any string counts (an empty
+ * `queue_path` still means a queue, as before), a list or mapping counts when non-empty.
+ */
+function actorProvides(a: Actor, path: string): boolean {
+  const at = actorParam(a, path);
+  if (at === undefined || at === null) return false;
+  if (Array.isArray(at)) return at.length > 0;
+  if (isJsonObject(at)) return Object.keys(at).length > 0;
+  return true;
+}
+
+function matches(a: Actor, kind: string, c: ActorClause): boolean {
+  if (c.kinds && !c.kinds.includes(a.kind)) return false;
+  if (c.not_kinds?.includes(a.kind)) return false;
+  if (c.surface && a.params?.surface !== c.surface) return false;
+  if (c.declares_action && !(a.kind === "app" && (a.params?.actions ?? []).includes(kind))) return false;
+  if (c.has && !c.has.every((path) => actorHas(a, path))) return false;
+  return !c.has_any || c.has_any.some((path) => actorHas(a, path));
+}
+
+/**
+ * Enabled actors able to perform `kind`: those matching any of the catalogue's actor clauses for
+ * it (`actors` in the served kind: actor kinds, a surface, a declared action, params that are
+ * set). A kind the catalogue does not hold has none.
+ */
+export function actorsFor(kind: string, actors: Actor[], catalogue?: ActionCatalogue): Actor[] {
+  const spec = kindOf(catalogue, kind);
+  if (!spec || !paramNamed(spec, "actor")) return [];
+  return actors.filter((a) => enabled(a) && spec.actors.some((c) => matches(a, spec.kind, c)));
+}
+
+/** Kinds whose server and channel are picked from what the bot can see (a `discord_channel` param). */
+const hasTargetPicker = (spec: ActionKindSpec | undefined) => !!spec?.params.some((p) => p.widget === "discord_channel");
+
+/** On an actor change, the channel params (widget `discord_channel`) cleared by their own
+ * names: the new bot may not see the old bot's channel. A kind with none clears nothing. */
+export const clearedTargets = (spec: ActionKindSpec | undefined): Record<string, undefined> =>
+  Object.fromEntries((spec?.params ?? []).filter((p) => p.widget === "discord_channel").map((p) => [p.name, undefined]));
+
+/** A kind that needs no actor is always offered; every other needs one enabled actor that supports it. */
+const offered = (spec: ActionKindSpec, actors: Actor[], catalogue: ActionCatalogue) =>
+  spec.actorless || actorsFor(spec.kind, actors, catalogue).length > 0;
 
 function triggerFields(triggerType: string | undefined): string[] {
   const hit = TRIGGER_FIELDS.find((t) => triggerType?.startsWith(t.prefix));
@@ -763,7 +615,8 @@ function DiscordTarget({ id, actorId, params, refs, load, setParams }: Readonly<
 }
 
 interface Props {
-  value: Action;
+  /** The stored action; absent: a blank one of the first kind in the catalogue. */
+  value?: Action;
   actors: Actor[];
   /** The rule's trigger event type, for the common trigger fields offered as mappings. */
   triggerType?: string;
@@ -772,7 +625,12 @@ interface Props {
   onChange: (action: Action) => void;
   /** Where a Discord message's servers and channels come from (default: the API). */
   loadDiscordTargets?: LoadTargets;
+  /** The action catalogue to build from (default: the API's, `GET /actions/kinds`, loaded once). */
+  catalogue?: ActionCatalogue;
 }
+
+/** What a picker calls a param: its served label, else its name in words. */
+const labelOf = (p: ActionParam) => p.label || cap(p.name);
 
 const cap = (s: string) => {
   const words = s.replaceAll("_", " ");
@@ -781,9 +639,8 @@ const cap = (s: string) => {
 
 interface ParamFieldsProps {
   id: string;
-  kind: string;
   load: LoadTargets;
-  spec: KindSpec;
+  spec: ActionKindSpec;
   params: Record<string, unknown>;
   actor: Actor | undefined;
   refs: MappingRefs;
@@ -791,10 +648,29 @@ interface ParamFieldsProps {
   setParams: (next: Record<string, unknown>) => void;
 }
 
+/**
+ * The rarely-set params behind a disclosure, collapsed unless one already has a value (so nothing
+ * stored is hidden silently); a native `details`, so the keyboard opens it.
+ */
+function MoreSettings({ open, children }: Readonly<{ open: boolean; children: ReactNode }>) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <details className="action-picker__more" open={open || opened} onToggle={(e) => setOpened(e.currentTarget.open)}>
+      <summary>More settings</summary>
+      {children}
+    </details>
+  );
+}
+
 /** One typed field per param of the chosen action kind (the actor select is rendered separately). */
 function ParamFields(props: Readonly<ParamFieldsProps>) {
-  const discord = DISCORD_TARGET_KINDS.has(props.kind);
+  const discord = hasTargetPicker(props.spec);
   const actorId = typeof props.params.actor === "string" ? props.params.actor : "";
+  const shown = props.spec.params
+    .filter((p) => p.name !== "actor" && p.widget !== "hidden")
+    .filter((p) => !(discord && (p.widget === "discord_guild" || p.widget === "discord_channel")))
+    .filter((p) => !hiddenForActor(p, props.actor));
+  const advanced = shown.filter((p) => p.advanced);
   return (
     <>
       {discord ? (
@@ -807,57 +683,61 @@ function ParamFields(props: Readonly<ParamFieldsProps>) {
           setParams={props.setParams}
         />
       ) : null}
-      {Object.entries(props.spec.params)
-        .filter(([name]) => name !== "actor" && !(discord && (name === "guild" || name === "channel")))
-        .filter(([name]) => !hiddenForActor(props.kind, name, props.actor))
-        .map(([name, p]) => (
-          <ParamField key={name} name={name} p={p} {...props} />
-        ))}
+      {shown.filter((p) => !p.advanced).map((p) => (
+        <ParamField key={p.name} p={p} {...props} />
+      ))}
+      {advanced.length > 0 ? (
+        <MoreSettings open={advanced.some((p) => !isEmpty(props.params[p.name]))}>
+          {advanced.map((p) => (
+            <ParamField key={p.name} p={p} {...props} />
+          ))}
+        </MoreSettings>
+      ) : null}
     </>
   );
 }
 
 interface ChoiceFieldProps {
   id: string;
-  name: string;
-  p: ParamSpec;
+  p: ActionParam;
+  options: readonly Choice[];
   value: unknown;
   onPick: (value: string | undefined) => void;
 }
 
-/**
- * library.push params the chosen actor makes moot: `device_id` without a `queue_path` (the
- * library has no device queue), `visibility` when the actor lists no visibilities.
- */
-function hiddenForActor(kind: string, name: string, actor: Actor | undefined): boolean {
-  if (kind !== "library.push" || !actor) return false;
-  if (name === "device_id") return actor.params?.queue_path == null;
-  if (name === "visibility") return actorChoices(actor, "visibilities").length === 0;
-  return false;
+/** Params that belong to the chosen actor (its command and arguments, the Discord server) and go with it. */
+const clearedWithActor = (spec: ActionKindSpec): Record<string, undefined> =>
+  Object.fromEntries(
+    spec.params
+      .filter((p) => ["command", "command_args", "discord_guild"].includes(p.widget))
+      .map((p) => [p.name, undefined]),
+  );
+
+/** A param the chosen actor makes moot: it is shown only when the actor has `needs_actor_param` set. */
+function hiddenForActor(p: ActionParam, actor: Actor | undefined): boolean {
+  return !!p.needs_actor_param && !!actor && !actorProvides(actor, p.needs_actor_param);
 }
 
 /**
- * On an actor change, clear an unavailable model brief or library values the actor refuses: a
- * `device_id` it has no `queue_path` for, a `kind` or `visibility` it does not list (#91 review).
- * Hidden values would otherwise stay saved where the step can no longer show or fix them.
+ * On an actor change, clear a value the new actor refuses: one that is not among the values the
+ * actor lists for its param (`options_from`: a model brief, a library kind) and one the actor
+ * has no setting for (`needs_actor_param`: a device id without a queue). Hidden values would
+ * otherwise stay saved where the step can no longer show or fix them (#91 review).
  */
 function actorCarryOver(
-  kind: string,
+  spec: ActionKindSpec,
   params: Record<string, unknown>,
   actor: Actor | undefined,
 ): Record<string, unknown> {
-  if (kind === "llm.complete") {
-    return { brief: actorChoices(actor, "briefs").some((c) => c.value === params.brief) ? params.brief : undefined };
+  const out: Record<string, unknown> = {};
+  for (const p of spec.params) {
+    if (p.options_from) {
+      out[p.name] = actorChoices(actor, p.options_from).some((cc) => cc.value === params[p.name]) ? params[p.name] : undefined;
+    } else if (p.needs_actor_param) {
+      out[p.name] = actor && actorProvides(actor, p.needs_actor_param) ? params[p.name] : undefined;
+    }
   }
-  if (kind !== "library.push") return {};
-  const listed = (key: string, value: unknown) =>
-    actorChoices(actor, key).some((c) => c.value === value) ? value : undefined;
-  return {
-    device_id: actor?.params?.queue_path == null ? undefined : params.device_id,
-    kind: listed("kinds", params.kind),
-    visibility: listed("visibilities", params.visibility),
-    format: listed("formats", params.format),
-  };
+  return out;
 }
 
 /**
@@ -866,22 +746,19 @@ function actorCarryOver(
  */
 function actorChoices(actor: Actor | undefined, key: string): Choice[] {
   const list = actor?.params?.[key];
-  if (key === "briefs") {
-    return isJsonObject(list) ? Object.keys(list).map((v) => ({ value: v, label: cap(v) })) : [];
-  }
+  if (isJsonObject(list)) return Object.keys(list).map((v) => ({ value: v, label: cap(v) }));
   if (!Array.isArray(list)) return [];
   return list.filter((v): v is string => typeof v === "string").map((v) => ({ value: v, label: cap(v) }));
 }
 
 /** A param with a closed set of values (http.call `method`, search.web `freshness`) as a select. */
-function ChoiceField({ id, name, p, value, onPick }: Readonly<ChoiceFieldProps>) {
+function ChoiceField({ id, p, options, value, onPick }: Readonly<ChoiceFieldProps>) {
   const current = typeof value === "string" ? value : "";
-  const options = p.options ?? [];
   return (
     <label>
-      <span id={id}>{cap(name)}</span>
+      <span id={id}>{labelOf(p)}</span>
       <select aria-labelledby={id} value={current} onChange={(e) => onPick(e.target.value || undefined)}>
-        <option value="">{p.choose ?? "Choose…"}</option>
+        <option value="">{p.choose || "Choose…"}</option>
         {current && !options.some((o) => o.value === current) ? <option value={current}>{current}</option> : null}
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -1071,27 +948,30 @@ function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: 
 /** A single param's field: the command / args / choice selects, the headers rows, or a value. */
 function ParamField({
   id,
-  name,
   p,
+  spec,
   params,
   actor,
   refs,
   setParam,
   setParams,
-}: Readonly<ParamFieldsProps & { name: string; p: ParamSpec }>) {
-  const command = typeof params.command === "string" ? params.command : "";
+}: Readonly<ParamFieldsProps & { p: ActionParam }>) {
+  const name = p.name;
   const commands = commandsOf(actor);
-  const declared = Object.keys(commands[command]?.params ?? {});
-  const args = (params.args ?? {}) as Record<string, unknown>;
-  if (name === "command") {
+  if (p.widget === "command") {
+    const command = typeof params[name] === "string" ? (params[name] as string) : "";
+    // the arguments of the previous command go with it (the params whose args_for names this one)
+    const argsCleared = Object.fromEntries(
+      spec.params.filter((q) => q.widget === "command_args" && q.args_for === name).map((q) => [q.name, undefined]),
+    );
     return (
       <label key={name}>
-        <span id={`${id}-command`}>Command</span>
+        <span id={`${id}-param-${name}`}>{labelOf(p)}</span>
         <select
-          aria-labelledby={`${id}-command`}
+          aria-labelledby={`${id}-param-${name}`}
           value={command}
           disabled={!actor}
-          onChange={(e) => setParams({ ...params, command: e.target.value || undefined, args: undefined })}
+          onChange={(e) => setParams({ ...params, ...argsCleared, [name]: e.target.value || undefined })}
         >
           <option value="">Choose a command…</option>
           {command && !(command in commands) ? <option value={command}>{command} (not registered)</option> : null}
@@ -1104,7 +984,10 @@ function ParamField({
       </label>
     );
   }
-  if (name === "args") {
+  if (p.widget === "command_args") {
+    const command = typeof params[p.args_for] === "string" ? (params[p.args_for] as string) : "";
+    const declared = Object.keys(commands[command]?.params ?? {});
+    const args = (params[name] ?? {}) as Record<string, unknown>;
     return declared.map((arg) => (
       <ValueField
         key={`${command}-${arg}`}
@@ -1115,17 +998,14 @@ function ParamField({
         value={args[arg]}
         onChange={(v) => {
           const next = Object.fromEntries(Object.entries({ ...args, [arg]: v }).filter(([, x]) => x !== undefined));
-          setParam("args", Object.keys(next).length ? next : undefined);
+          setParam(name, Object.keys(next).length ? next : undefined);
         }}
       />
     ));
   }
-  if (p.optionsFrom) {
-    const fromActor = { ...p, options: actorChoices(actor, p.optionsFrom) };
-    return <ChoiceField id={`${id}-param-${name}`} name={name} p={fromActor} value={params[name]} onPick={(v) => setParam(name, v)} />;
-  }
-  if (p.options) {
-    return <ChoiceField id={`${id}-param-${name}`} name={name} p={p} value={params[name]} onPick={(v) => setParam(name, v)} />;
+  const options = p.options_from ? actorChoices(actor, p.options_from) : choicesOf(p);
+  if (options) {
+    return <ChoiceField id={`${id}-param-${name}`} p={p} options={options} value={params[name]} onPick={(v) => setParam(name, v)} />;
   }
   if (p.type === "bool") {
     return (
@@ -1135,25 +1015,25 @@ function ParamField({
           checked={params[name] === true}
           onChange={(e) => setParam(name, e.target.checked ? true : undefined)}
         />
-        <span>{BOOL_LABELS[name] ?? cap(name)}</span>
+        <span>{labelOf(p)}</span>
       </label>
     );
   }
-  if (name === "buttons") {
+  if (p.widget === "buttons") {
     return <ButtonsField value={params[name]} onChange={(v) => setParam(name, v)} />;
   }
-  if (p.type === "dict") {
+  if (p.type === "dict" && p.widget !== "json") {
     return <HeadersField key={name} value={params[name]} onChange={(v) => setParam(name, v)} />;
   }
   return (
     <ValueField
       key={name}
-      label={cap(name)}
-      type={p.type}
+      label={labelOf(p)}
+      type={typeOf(p)}
       testKey={name}
       refs={refs}
-      required={p.required}
-      multiline={MULTILINE.has(name)}
+      required={isRequired(p)}
+      multiline={p.widget === "multiline"}
       value={params[name]}
       onChange={(v) => setParam(name, v)}
     />
@@ -1166,20 +1046,48 @@ function ParamField({
  * the trigger or the workflow's outputs instead of typed. Controlled: `value` is the action that
  * would be saved.
  */
-export default function ActionPicker({
+export default function ActionPicker(props: Readonly<Props>) {
+  return props.catalogue ? <Picker {...props} catalogue={props.catalogue} /> : <FetchedPicker {...props} />;
+}
+
+/** The picker over the API's catalogue, with a loading and a failed state until it is there. */
+function FetchedPicker(props: Readonly<Props>) {
+  const { catalogue, failed, retry } = useActionCatalogue();
+  if (catalogue) return <Picker {...props} catalogue={catalogue} />;
+  return (
+    <fieldset className="trigger-picker action-picker">
+      <legend>Then what happens?</legend>
+      {failed ? (
+        <>
+          <output className="trigger-picker__empty">Could not load the kinds of action the server offers.</output>
+          <button type="button" className="btn" onClick={retry}>
+            Try again
+          </button>
+        </>
+      ) : (
+        <output className="trigger-picker__words" aria-live="polite">
+          Loading the kinds of action…
+        </output>
+      )}
+    </fieldset>
+  );
+}
+
+function Picker({
   value: stored,
   actors,
   triggerType,
   workflow,
   onChange,
   loadDiscordTargets = getDiscordTargets,
-}: Readonly<Props>) {
+  catalogue,
+}: Readonly<Props & { catalogue: ActionCatalogue }>) {
   const id = useId();
-  const value = viewOf(stored);
-  const kind = canonical(value.kind);
-  const spec = ACTION_KINDS[kind];
+  const value = viewOf(stored ?? blankAction(catalogue), catalogue);
+  const spec = kindOf(catalogue, value.kind);
+  const kind = spec?.kind ?? value.kind;
   const params = (value.params ?? {}) as Record<string, unknown>;
-  const eligible = actorsFor(kind, actors);
+  const eligible = actorsFor(kind, actors, catalogue);
   const actorId = typeof params.actor === "string" ? params.actor : "";
   const actor = actors.find((a) => a.id === actorId);
   const refs: MappingRefs = {
@@ -1193,12 +1101,14 @@ export default function ActionPicker({
   };
   const setParam = (key: string, v: unknown) => setParams({ ...params, [key]: v });
   const chooseKind = (next: string) => {
-    if (next !== kind) onChange(blankAction(next, value.name));
+    if (next !== kind) onChange(blankAction(catalogue, next, value.name));
   };
 
-  const kindOptions = Object.entries(ACTION_KINDS).filter(([k]) => offered(k, actors) || k === kind);
+  const kindOptions = catalogue.items.filter((k) => offered(k, actors, catalogue) || k.kind === kind);
   const known = spec !== undefined;
-  const extras = Object.entries(params).filter(([k]) => spec && !(k in spec.params));
+  const extras = Object.entries(params).filter(([k]) => spec && !paramNamed(spec, k));
+  const actorParam = paramNamed(spec, "actor");
+  const showActor = actorParam !== undefined && actorParam.widget !== "hidden";
 
   return (
     <fieldset className="trigger-picker action-picker">
@@ -1207,9 +1117,9 @@ export default function ActionPicker({
         <span id={`${id}-kind`}>What happens</span>
         <select aria-labelledby={`${id}-kind`} value={known ? kind : value.kind} onChange={(e) => chooseKind(e.target.value)}>
           {known ? null : <option value={value.kind}>{value.kind}</option>}
-          {kindOptions.map(([k, s]) => (
-            <option key={k} value={k}>
-              {s.label}
+          {kindOptions.map((k) => (
+            <option key={k.kind} value={k.kind}>
+              {k.label}
             </option>
           ))}
         </select>
@@ -1219,13 +1129,13 @@ export default function ActionPicker({
           This rule uses a “{value.kind}” action the editor cannot change; it is kept as it is.
         </p>
       )}
-      {known && kind !== "noop" && eligible.length === 0 && spec.params.actor?.required ? (
+      {known && eligible.length === 0 && actorParam?.required ? (
         <output className="trigger-picker__empty">
           No enabled actor can do this yet. Add one on the Actors tab.
         </output>
       ) : null}
 
-      {known && spec.params.actor ? (
+      {known && showActor ? (
         <label>
           <span id={`${id}-actor`}>Actor</span>
           <select
@@ -1235,11 +1145,9 @@ export default function ActionPicker({
               setParams({
                 ...params,
                 actor: e.target.value || undefined,
-                command: undefined,
-                args: undefined,
-                guild: undefined,
-                channel: DISCORD_TARGET_KINDS.has(kind) ? undefined : params.channel,
-                ...actorCarryOver(kind, params, actors.find((a) => a.id === e.target.value)),
+                ...clearedWithActor(spec),
+                ...clearedTargets(spec),
+                ...actorCarryOver(spec, params, actors.find((a) => a.id === e.target.value)),
               })
             }
           >
@@ -1259,7 +1167,6 @@ export default function ActionPicker({
       {known ? (
         <ParamFields
           id={id}
-          kind={kind}
           load={loadDiscordTargets}
           spec={spec}
           params={params}

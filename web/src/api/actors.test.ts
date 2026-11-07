@@ -49,7 +49,7 @@ describe("model-actor routes", () => {
     expect(callOf(fetchMock)).toEqual({
       url: "/api/workflows/w/repoint-actor",
       method: "POST",
-      body: { from: "a", to: "b", expected_revision: 3, force: false, dry_run: false },
+      body: { from: "a", to: "b", expected_revision: 3, dry_run: false },
     });
   });
 

@@ -1,6 +1,235 @@
 {
   "components": {
     "schemas": {
+      "ActionChoice": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "ActionChoice",
+        "type": "object"
+      },
+      "ActionKindItem": {
+        "properties": {
+          "actorless": {
+            "description": "offered even when no enabled actor can perform it",
+            "title": "Actorless",
+            "type": "boolean"
+          },
+          "actors": {
+            "description": "alternative clauses (OR) over an enabled actor, each an AND of: kinds, not_kinds, surface, declares_action, has, has_any",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Actors",
+            "type": "array"
+          },
+          "aliases": {
+            "description": "legacy names of the kind",
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "any_of": {
+            "description": "groups of which at least one param must be set",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Any Of",
+            "type": "array"
+          },
+          "declarable_by_apps": {
+            "description": "an app actor may list it in params.actions (the Actors tab offers it)",
+            "title": "Declarable By Apps",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "a short name for pickers (the summary when none)",
+            "title": "Label",
+            "type": "string"
+          },
+          "lenient": {
+            "description": "required params are not enforced (legacy-tolerant)",
+            "title": "Lenient",
+            "type": "boolean"
+          },
+          "params": {
+            "description": "in the order a picker shows them",
+            "items": {
+              "$ref": "#/components/schemas/ActionParam"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "shown_as": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionShownAs"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "a stored action of this kind that sets when_param is shown, and saved, as kind (a legacy form another kind took over); null for most kinds"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "summary",
+          "lenient",
+          "aliases",
+          "params",
+          "any_of",
+          "actors",
+          "actorless",
+          "declarable_by_apps",
+          "shown_as"
+        ],
+        "title": "ActionKindItem",
+        "type": "object"
+      },
+      "ActionKindList": {
+        "properties": {
+          "items": {
+            "description": "the registered kinds, in catalogue order",
+            "items": {
+              "$ref": "#/components/schemas/ActionKindItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ActionKindList",
+        "type": "object"
+      },
+      "ActionParam": {
+        "properties": {
+          "advanced": {
+            "description": "rarely set: an editor keeps it behind a fold",
+            "title": "Advanced",
+            "type": "boolean"
+          },
+          "args_for": {
+            "description": "on a command_args param: the sibling command param it holds arguments for",
+            "title": "Args For",
+            "type": "string"
+          },
+          "choices": {
+            "description": "a closed set of values, or empty",
+            "items": {
+              "$ref": "#/components/schemas/ActionChoice"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "choose": {
+            "description": "the prompt of the empty choice",
+            "title": "Choose",
+            "type": "string"
+          },
+          "label": {
+            "description": "how a picker names it; empty: the name",
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needed": {
+            "description": "not required of a stored step (the port refuses it at run time) but an editor asks for it",
+            "title": "Needed",
+            "type": "boolean"
+          },
+          "needs_actor_param": {
+            "description": "shown only when the chosen actor has it set",
+            "title": "Needs Actor Param",
+            "type": "string"
+          },
+          "options_from": {
+            "description": "the chosen actor's params key that lists (or, as a mapping, names) the values",
+            "title": "Options From",
+            "type": "string"
+          },
+          "required": {
+            "description": "must be non-empty",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "str | int | bool | dict | list | any",
+            "title": "Type",
+            "type": "string"
+          },
+          "widget": {
+            "description": "multiline | json | number | buttons | command | command_args | discord_guild | discord_channel | hidden; empty: by type",
+            "title": "Widget",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "required",
+          "label",
+          "widget",
+          "choices",
+          "options_from",
+          "choose",
+          "args_for",
+          "needs_actor_param",
+          "advanced",
+          "needed"
+        ],
+        "title": "ActionParam",
+        "type": "object"
+      },
+      "ActionShownAs": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "when_param": {
+            "title": "When Param",
+            "type": "string"
+          }
+        },
+        "required": [
+          "when_param",
+          "kind"
+        ],
+        "title": "ActionShownAs",
+        "type": "object"
+      },
       "ActiveRun": {
         "properties": {
           "id": {
@@ -1652,10 +1881,17 @@
             "title": "Expected Revision"
           },
           "force": {
-            "default": false,
-            "description": "repoint a trusted workflow anyway (drops trust)",
-            "title": "Force",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "deprecated": true,
+            "description": "ignored: accepted from clients before 0.44.0, which always send it; no workflow is pinned, so nothing is ever forced",
+            "title": "Force"
           },
           "from": {
             "description": "the actor steps name today",
@@ -1727,18 +1963,6 @@
           "to": {
             "title": "To",
             "type": "string"
-          },
-          "trusted_digest": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "the pinned digest a forced repoint drops, if any",
-            "title": "Trusted Digest"
           },
           "warnings": {
             "items": {
@@ -2286,6 +2510,45 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VariableDeleteResult": {
+        "properties": {
+          "deleted_version": {
+            "description": "the tombstone version: written when applied, planned on a dry run",
+            "title": "Deleted Version",
+            "type": "integer"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "not_blocking": {
+            "description": "rules that reference the variable but are disabled or soft-deleted, so do not block the delete; once it is deleted, enabling or restoring one is refused (variable_undefined) until the variable is set again",
+            "items": {
+              "$ref": "#/components/schemas/VariableReferrer"
+            },
+            "title": "Not Blocking",
+            "type": "array"
+          },
+          "version": {
+            "description": "the live version the delete retires",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "dry_run",
+          "version",
+          "deleted_version",
+          "not_blocking"
+        ],
+        "title": "VariableDeleteResult",
+        "type": "object"
+      },
       "VariableItem": {
         "properties": {
           "item": {
@@ -2297,6 +2560,41 @@
           "item"
         ],
         "title": "VariableItem",
+        "type": "object"
+      },
+      "VariableReferrer": {
+        "properties": {
+          "deleted": {
+            "description": "true = the rule is soft-deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "enabled",
+          "deleted"
+        ],
+        "title": "VariableReferrer",
         "type": "object"
       },
       "VariableWrite": {
@@ -2385,6 +2683,56 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/actions/kinds": {
+      "get": {
+        "description": "Every registered action kind, in catalogue order, with its typed params and the\nhints an editor needs to build its picker (the editor keeps no table of its own).",
+        "operationId": "list_action_kinds",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionKindList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Action Kinds",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
     "/actors": {
       "get": {
         "operationId": "list_actors",
@@ -8212,6 +8560,105 @@
       }
     },
     "/variables/{name}": {
+      "delete": {
+        "description": "Delete the variable (admin); a dry run (the default) writes nothing. Refused (409\n``variable_in_use``) while a live, enabled rule references it; disabled and\nsoft-deleted referrers are listed, not blocking. Applied, a tombstone version keeps\nthe history and one audit entry names the caller. No enabled rule can end up\nreferencing a deleted variable: the delete re-checks referrers in its transaction,\nand it and every rule write leaving an enabled referrer (create, update, enable,\nrestore, import) write the same per-variable guard, so the store serializes them.",
+        "operationId": "delete_variable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariableDeleteResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Delete Variable",
+        "tags": [
+          "variables"
+        ]
+      },
       "get": {
         "operationId": "get_variable",
         "parameters": [
@@ -8376,7 +8823,7 @@
     },
     "/variables/{name}/history": {
       "get": {
-        "description": "Every version of the variable, oldest first.",
+        "description": "Every version of the variable, oldest first; after a delete, the last is its\ntombstone (``deleted`` true).",
         "operationId": "variable_history",
         "parameters": [
           {
@@ -9681,7 +10128,7 @@
     },
     "/workflows/{id}/repoint-actor": {
       "post": {
-        "description": "Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies\nincluded; description, notes and placement untouched, reported as warnings). A\nmissing or stale ``expected_revision`` is 409 ``revision_conflict``; a trusted\nworkflow is 409 ``workflow_trusted`` unless ``force``; a ``to`` that cannot do the\nwork is 409 ``target_kind_mismatch``.",
+        "description": "Rewrite every step action's ``params.actor`` == ``from`` to ``to`` (loop bodies\nincluded; description, notes and placement untouched, reported as warnings). A\nmissing or stale ``expected_revision`` is 409 ``revision_conflict``; a ``to`` that\ncannot do the work is 409 ``target_kind_mismatch``.",
         "operationId": "repoint_workflow_actor",
         "parameters": [
           {

@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { Actor } from "../api/actors";
 import type { Action } from "../api/types";
 import { ACTORS } from "../fixtures/rules-fixture";
-import ActionPicker, { ACTION_KINDS, actorsFor, blankAction } from "./ActionPicker";
+import { ACTION_CATALOGUE, paramsOf } from "../fixtures/action-catalogue";
+import ActionPicker, { actorsFor, blankAction } from "./ActionPicker";
 
 /* decider.assess: calibrated probabilities from the decider, through an agent actor with a base_url. */
 
@@ -18,8 +19,8 @@ const DECIDER_ACTORS: Actor[] = [
 ];
 
 function Harness() {
-  const [value, setValue] = useState<Action>(blankAction());
-  return <ActionPicker value={value} actors={DECIDER_ACTORS} triggerType="schedule" onChange={setValue} />;
+  const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
+  return <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={DECIDER_ACTORS} triggerType="schedule" onChange={setValue} />;
 }
 
 describe("decider.assess", () => {
@@ -33,11 +34,11 @@ describe("decider.assess", () => {
   });
 
   it("offers only enabled agent actors with a base_url", () => {
-    expect(actorsFor("decider.assess", DECIDER_ACTORS).map((a) => a.id)).toEqual(["decider"]);
+    expect(actorsFor("decider.assess", DECIDER_ACTORS, ACTION_CATALOGUE).map((a) => a.id)).toEqual(["decider"]);
   });
 
   it("declares actor, state and questions as required and not_after as optional", () => {
-    const p = ACTION_KINDS["decider.assess"].params;
+    const p = paramsOf("decider.assess");
     expect(p.actor.required).toBe(true);
     expect(p.state.required).toBe(true);
     expect(p.questions.required).toBe(true);

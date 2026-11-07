@@ -205,18 +205,17 @@ export const getActorReferences = (id: string, signal?: AbortSignal) =>
 
 /**
  * `POST /workflows/{id}/repoint-actor` (editor), applied: every step action naming `from`
- * names `to`. A stale `expected_revision` is 409 `revision_conflict`; a trusted workflow is
- * 409 `workflow_trusted` unless `force`.
+ * names `to`. A stale `expected_revision` is 409 `revision_conflict`.
  */
 export const repointWorkflowActor = (
   workflowId: string,
-  body: Pick<RepointRequest, "from" | "to" | "expected_revision" | "force">,
+  body: Pick<RepointRequest, "from" | "to" | "expected_revision">,
   signal?: AbortSignal,
 ) =>
   request<RepointResult>(
     "POST",
     `/workflows/${enc(workflowId)}/repoint-actor`,
-    { from: body.from, to: body.to, expected_revision: body.expected_revision, force: body.force ?? false, dry_run: false },
+    { from: body.from, to: body.to, expected_revision: body.expected_revision, dry_run: false },
     signal,
   );
 

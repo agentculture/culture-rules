@@ -6,9 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from culture_rules.apps.github import GitHubError
 from culture_rules.events.ingest import EVENTS_COLLECTION
-from culture_rules.node.checks_settle import (
+from culture_rules.extensions.github.checks_settle import (
     LATE_TYPE,
     SETTLE_COLLECTION,
     SETTLED_TYPE,
@@ -16,6 +15,7 @@ from culture_rules.node.checks_settle import (
     late_event_id,
     settled_event_id,
 )
+from culture_rules.extensions.github.client import GitHubError
 from culture_rules.store.memory import MemoryStore
 
 REPO, SHA = "acme/widgets", "a" * 40
@@ -315,7 +315,7 @@ def test_app_lister_get_pull_is_read_only_allowlisted_and_bounded():
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
 
-    from culture_rules.node.checks_settle import AppSuiteLister
+    from culture_rules.extensions.github.checks_settle import AppSuiteLister
 
     pem = (
         rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -452,7 +452,7 @@ def test_app_lister_bound_covers_cold_secret_resolution_and_warms_the_cache():
     import pytest
 
     pytest.importorskip("cryptography")
-    from culture_rules.node.checks_settle import AppSuiteLister
+    from culture_rules.extensions.github.checks_settle import AppSuiteLister
 
     secrets = SlowSecrets(_pem())
     lister = AppSuiteLister(_lister_store(), transport=_ok_transport, secrets=secrets)
@@ -486,7 +486,7 @@ def test_app_lister_caps_the_threads_stuck_on_slow_lookups():
     import pytest
 
     pytest.importorskip("cryptography")
-    from culture_rules.node.checks_settle import LOOKUP_WORKERS, AppSuiteLister
+    from culture_rules.extensions.github.checks_settle import LOOKUP_WORKERS, AppSuiteLister
 
     secrets = SlowSecrets(_pem())
     lister = AppSuiteLister(_lister_store(), transport=_ok_transport, secrets=secrets)
@@ -524,7 +524,7 @@ def stored_check(store, clock, id="completion", **data):
 
 
 def past_grace(clock):
-    from culture_rules.node.checks_settle import RECOVERY_GRACE_S
+    from culture_rules.extensions.github.checks_settle import RECOVERY_GRACE_S
 
     clock.now += timedelta(seconds=RECOVERY_GRACE_S + 1)
 
@@ -593,7 +593,7 @@ def test_recovery_never_rearms_a_sha_whose_settled_event_exists():
 def test_recovery_scan_is_windowed_capped_per_tick_and_advances_a_shared_watermark(
     monkeypatch,
 ):
-    import culture_rules.node.checks_settle as module
+    import culture_rules.extensions.github.checks_settle as module
 
     monkeypatch.setattr(module, "RECOVERY_BATCH", 2)
     store, lister, clock, settler = make(("a", "completed"))
@@ -653,7 +653,7 @@ def test_recovery_store_error_holds_the_watermark_and_the_next_tick_recovers(mon
 
 
 def settler_mark():
-    from culture_rules.node.checks_settle import RECOVERY_COLLECTION
+    from culture_rules.extensions.github.checks_settle import RECOVERY_COLLECTION
 
     return RECOVERY_COLLECTION
 
@@ -762,7 +762,7 @@ class NoSecret:
 
 
 def _node_settler(store, host, secrets, transport, clock, **kw):
-    from culture_rules.node.checks_settle import AppSuiteLister
+    from culture_rules.extensions.github.checks_settle import AppSuiteLister
 
     lister = AppSuiteLister(store, host=host, transport=transport, secrets=secrets, **kw)
     return ChecksSettler(
@@ -855,7 +855,7 @@ def test_node_wires_the_settler_to_its_own_machine():
     _arm_pending(store, clock)
     node = Node(store, "thor", clock=clock, resolve_secret=NoSecret())
     clock.now = T0 + timedelta(seconds=61)
-    assert node.settler.tick() == 0
+    assert node.listeners["github.checks_settle"].settler.tick() == 0
     assert settled(store) == []
     assert not store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}").get("polls")
 
@@ -908,7 +908,7 @@ def test_app_lister_list_suites_is_bounded_like_get_pull():
     import pytest
 
     pytest.importorskip("cryptography")
-    from culture_rules.node.checks_settle import AppSuiteLister
+    from culture_rules.extensions.github.checks_settle import AppSuiteLister
 
     secrets = SlowSecrets(_pem())
     lister = AppSuiteLister(_lister_store(), transport=_suites_transport, secrets=secrets)
@@ -934,7 +934,7 @@ def test_webhook_on_check_answers_within_its_budget_and_leaves_the_settle_pendin
     import pytest
 
     pytest.importorskip("cryptography")
-    from culture_rules.node.checks_settle import AppSuiteLister, webhook_on_check
+    from culture_rules.extensions.github.checks_settle import AppSuiteLister, webhook_on_check
 
     store = _lister_store()
     store.put_variable("checks_settle_min_s", 0, updated_by="t")
@@ -955,7 +955,7 @@ def test_webhook_settle_defers_to_the_tick_when_the_pr_lookup_times_out():
     """The suites list in time but the PR read does not: the webhook does not emit a
     settled event without the PR facts (the fixer condition would never match it); the
     SHA stays pending for the node tick, whose emit carries them."""
-    from culture_rules.node.checks_settle import webhook_on_check
+    from culture_rules.extensions.github.checks_settle import webhook_on_check
 
     class Lister:
         def list_suites(self, repo, sha, *, timeout_s=None):
@@ -990,7 +990,7 @@ def test_webhook_settle_defers_to_the_tick_when_the_pr_lookup_times_out():
 def test_api_server_wires_the_bounded_webhook_settle(monkeypatch):
     from fastapi import FastAPI
 
-    import culture_rules.node.checks_settle as cs
+    import culture_rules.extensions.github.checks_settle as cs
     from culture_rules.server import app as server_app
 
     seen = {}
@@ -1018,7 +1018,7 @@ def test_api_server_wires_the_bounded_webhook_settle(monkeypatch):
 
 
 def test_tick_listing_failure_before_the_deadline_waits_and_at_it_times_out():
-    from culture_rules.node.checks_settle import DEFAULT_TIMEOUT_S
+    from culture_rules.extensions.github.checks_settle import DEFAULT_TIMEOUT_S
 
     store, lister, clock, settler = make(("a", "in_progress"))
     settler.on_check(check_data())
@@ -1291,7 +1291,7 @@ def _stored_gitguardian_failure(store, settler, seconds):
 
 
 def test_a_late_completion_from_a_server_whose_clock_is_behind_is_still_recovered():
-    from culture_rules.node.checks_settle import LATE_SKEW_MARGIN_S
+    from culture_rules.extensions.github.checks_settle import LATE_SKEW_MARGIN_S
 
     store, settler, _ = _timed_out_with_gitguardian_pending()
     gitguardian_now(settler)
@@ -1360,7 +1360,7 @@ def test_a_node_that_cannot_serve_the_repo_leaves_the_candidate_to_one_that_can(
 
 
 def test_a_candidate_no_node_confirms_is_dropped_after_the_recovery_window():
-    from culture_rules.node.checks_settle import LATE_COLLECTION, RECOVERY_WINDOW_S
+    from culture_rules.extensions.github.checks_settle import LATE_COLLECTION, RECOVERY_WINDOW_S
 
     store, settler, _ = _timed_out_with_gitguardian_pending()
     gitguardian_now(settler)
@@ -1377,7 +1377,7 @@ def test_a_candidate_no_node_confirms_is_dropped_after_the_recovery_window():
 
 
 def test_a_stale_clean_confirmation_never_deletes_a_newer_failures_candidate():
-    from culture_rules.node.checks_settle import LATE_COLLECTION
+    from culture_rules.extensions.github.checks_settle import LATE_COLLECTION
 
     store, a, _ = _timed_out_with_gitguardian_pending()
     gitguardian_now(a)
@@ -1412,7 +1412,7 @@ def test_a_stale_clean_confirmation_never_deletes_a_newer_failures_candidate():
 
 
 def test_a_clean_confirmation_of_an_unchanged_candidate_drops_it():
-    from culture_rules.node.checks_settle import LATE_COLLECTION
+    from culture_rules.extensions.github.checks_settle import LATE_COLLECTION
 
     store, settler, _ = _timed_out_with_gitguardian_pending()
     gitguardian_now(settler, "success")
@@ -1424,7 +1424,7 @@ def test_a_clean_confirmation_of_an_unchanged_candidate_drops_it():
 
 
 def test_a_dropped_and_re_noted_candidate_is_never_deleted_by_a_stale_confirmer():
-    from culture_rules.node.checks_settle import LATE_COLLECTION
+    from culture_rules.extensions.github.checks_settle import LATE_COLLECTION
 
     store, a, _ = _timed_out_with_gitguardian_pending()
     gitguardian_now(a)
@@ -1466,7 +1466,7 @@ def test_a_dropped_and_re_noted_candidate_is_never_deleted_by_a_stale_confirmer(
 def _racing(store, a, *, a_sees, b_sees):
     """A reads ``a_sees`` while, inside that read, node B decides the same candidate on
     ``b_sees``. Returns A's outcome."""
-    from culture_rules.node.checks_settle import LATE_COLLECTION
+    from culture_rules.extensions.github.checks_settle import LATE_COLLECTION
 
     listed = a._suites
 
@@ -1486,7 +1486,7 @@ def _racing(store, a, *, a_sees, b_sees):
 
 
 def test_a_stale_failing_listing_never_emits_after_a_newer_clean_one_dropped_it():
-    from culture_rules.node.checks_settle import LATE_COLLECTION
+    from culture_rules.extensions.github.checks_settle import LATE_COLLECTION
 
     store, a, _ = _timed_out_with_gitguardian_pending()
     gitguardian_now(a)
@@ -1496,7 +1496,7 @@ def test_a_stale_failing_listing_never_emits_after_a_newer_clean_one_dropped_it(
 
 
 def test_a_stale_clean_listing_never_undoes_a_newer_failing_ones_emission():
-    from culture_rules.node.checks_settle import LATE_COLLECTION
+    from culture_rules.extensions.github.checks_settle import LATE_COLLECTION
 
     store, a, _ = _timed_out_with_gitguardian_pending()
     gitguardian_now(a)

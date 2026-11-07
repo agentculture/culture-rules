@@ -4,7 +4,8 @@ import type { ApiError } from "../../api/client";
 import type { Action, Machine, Placement, Rule, Workflow } from "../../api/types";
 import GuidedNotice from "../../components/GuidedNotice";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
-import ActionPicker, { actionProblem, blankAction } from "../../rules/ActionPicker";
+import { useActionCatalogue } from "../../api/actions";
+import ActionPicker, { actionProblem } from "../../rules/ActionPicker";
 import { groupRanking, parsePriority, priorityOf, runsProblem, type GroupMember, type RunsEdit } from "./text";
 
 /** Who a save writes: every entry point's rule (a shared value) or this entry's alone (an override). */
@@ -85,15 +86,18 @@ export function SharedActionForm({
   /** The entry points hold different actions: nothing is written until one is picked. */
   mixed?: boolean;
 }>) {
-  const [action, setAction] = useState<Action>((!mixed && value) || blankAction("noop"));
+  // undefined until touched where there is no single value: the picker shows a blank action
+  const [action, setAction] = useState<Action | undefined>((!mixed && value) || undefined);
+  const { catalogue } = useActionCatalogue();
   const [touched, setTouched] = useState(false);
   const [issue, setIssue] = useState<string | null>(null);
   const submit = () => {
     // A differing or absent value is never replaced by the picker's made-up starting point.
-    if ((mixed || !value) && !touched) return onCancel();
+    // (no action yet means exactly that: untouched, with no single value to keep)
+    if (!action || ((mixed || !value) && !touched)) return onCancel();
     // Like the Rules tab: an untouched action is saved as it was; a changed one must be complete.
     const changed = JSON.stringify(action) !== JSON.stringify(value);
-    const found = changed ? actionProblem(action) : null;
+    const found = changed ? actionProblem(action, catalogue) : null;
     setIssue(found);
     if (found) return;
     onSave(changed ? withoutEmptyName(action) : (value as Action));

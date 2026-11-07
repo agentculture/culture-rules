@@ -1,7 +1,7 @@
 import { useId } from "react";
+import { useActionCatalogue, type ActionCatalogue } from "../api/actions";
 import type { AppSurface } from "../api/actors";
 import {
-  ACTION_KINDS,
   APP_SURFACES,
   CONNECTION_FIELDS,
   DISCORD_COMMAND_TYPES,
@@ -28,6 +28,8 @@ export interface AppConfigFormProps {
    * `commands`, `commands.<i>.<field>`, `commands.<i>.options.<j>.<field>`).
    */
   errors?: FormErrors;
+  /** The action catalogue the "Actions it can perform" list is built from (default: the API's). */
+  catalogue?: ActionCatalogue;
 }
 
 const GRANT_HINT = "A reference to a stored secret, like grant:NAME. The secret itself is never typed here.";
@@ -213,7 +215,49 @@ function DiscordCommands({ value, onChange, errors }: Readonly<DiscordCommandsPr
  * connection (secret-looking keys take `grant:NAME` references only), then
  * what the app declares (events, actions, probes, its own identity).
  */
-export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConfigFormProps>) {
+interface ActionChecksProps {
+  actions: string[];
+  onChange: (actions: string[]) => void;
+}
+
+/** One checkbox per kind in the catalogue, named by the kind and its summary. */
+function ActionChecks({ catalogue, actions, onChange }: Readonly<ActionChecksProps & { catalogue: ActionCatalogue }>) {
+  return (
+    <div className="actor-checks">
+      {catalogue.items.filter((kind) => kind.declarable_by_apps || actions.includes(kind.kind)).map((kind) => {
+        const on = actions.includes(kind.kind);
+        return (
+          <label key={kind.kind} className="actor-check">
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={() => onChange(on ? actions.filter((a) => a !== kind.kind) : [...actions, kind.kind])}
+            />
+            <strong className="mono">{kind.kind}</strong>
+            <span className="muted">{kind.summary}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The same list over the API's catalogue, with a loading and a failed state. */
+function FetchedActionChecks(props: Readonly<ActionChecksProps>) {
+  const { catalogue, failed, retry } = useActionCatalogue();
+  if (catalogue) return <ActionChecks catalogue={catalogue} {...props} />;
+  if (!failed) return <output className="muted">Loading the kinds of action…</output>;
+  return (
+    <>
+      <output className="muted">Could not load the kinds of action the server offers.</output>
+      <button type="button" className="btn" onClick={retry}>
+        Try again
+      </button>
+    </>
+  );
+}
+
+export function AppConfigForm({ value, onChange, errors = {}, catalogue }: Readonly<AppConfigFormProps>) {
   const uid = useId();
   const rows = useRowKeys();
   const eventKeys = rows.keys("events", value.events.length);
@@ -293,24 +337,11 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
 
             <fieldset className="actor-list plain-group" aria-label="Actions">
               <span className="actor-list__title">Actions it can perform</span>
-              <div className="actor-checks">
-                {ACTION_KINDS.map((kind) => {
-                  const on = value.actions.includes(kind.name);
-                  return (
-                    <label key={kind.name} className="actor-check">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        onChange={() =>
-                          set({ actions: on ? value.actions.filter((a) => a !== kind.name) : [...value.actions, kind.name] })
-                        }
-                      />
-                      <strong className="mono">{kind.name}</strong>
-                      <span className="muted">{kind.summary}</span>
-                    </label>
-                  );
-                })}
-              </div>
+              {catalogue ? (
+                <ActionChecks catalogue={catalogue} actions={value.actions} onChange={(actions) => set({ actions })} />
+              ) : (
+                <FetchedActionChecks actions={value.actions} onChange={(actions) => set({ actions })} />
+              )}
             </fieldset>
 
             <fieldset className="actor-list plain-group" aria-label="Probes">

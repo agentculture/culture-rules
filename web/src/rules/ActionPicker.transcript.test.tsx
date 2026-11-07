@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { Actor } from "../api/actors";
 import type { Action } from "../api/types";
 import { ACTORS } from "../fixtures/rules-fixture";
-import ActionPicker, { ACTION_KINDS, actionProblem, actorsFor, blankAction } from "./ActionPicker";
+import { ACTION_CATALOGUE, paramsOf } from "../fixtures/action-catalogue";
+import ActionPicker, { actionProblem, actorsFor, blankAction } from "./ActionPicker";
 
 /* The transcripts-on-the-reader params: llm.complete's excerpt and brief, transcript.render, library.push kind. */
 
@@ -17,10 +18,10 @@ const READER_ACTORS: Actor[] = [
 ];
 
 function Harness() {
-  const [value, setValue] = useState<Action>(blankAction());
+  const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
   return (
     <>
-      <ActionPicker value={value} actors={READER_ACTORS} triggerType="schedule" onChange={setValue} />
+      <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={READER_ACTORS} triggerType="schedule" onChange={setValue} />
       <output data-testid="saved">{JSON.stringify(value)}</output>
     </>
   );
@@ -30,21 +31,21 @@ const saved = () => JSON.parse(screen.getByTestId("saved").textContent ?? "null"
 
 describe("llm.complete on a transcript", () => {
   it("needs content or content_path, not both", () => {
-    expect(actionProblem({ kind: "llm.complete", params: { actor: "cortex" } })).toBe("empty");
-    expect(actionProblem({ kind: "llm.complete", params: { actor: "cortex", content: "text", brief: "notes" } })).toBeNull();
+    expect(actionProblem({ kind: "llm.complete", params: { actor: "cortex" } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "llm.complete", params: { actor: "cortex", content: "text", brief: "notes" } }, ACTION_CATALOGUE)).toBeNull();
     expect(
       actionProblem({
         kind: "llm.complete",
         params: { actor: "cortex", content_path: "/data/t/x.json", content_root: "/data/t", brief: "transcript" },
-      }),
+      }, ACTION_CATALOGUE),
     ).toBeNull();
   });
 
   it("lists the excerpt params and the brief", () => {
-    expect(Object.keys(ACTION_KINDS["llm.complete"].params)).toEqual(
+    expect(Object.keys(paramsOf("llm.complete"))).toEqual(
       expect.arrayContaining(["brief", "content_path", "content_root", "content_max_chars", "not_after"]),
     );
-    expect(ACTION_KINDS["llm.complete"].params.content.required).toBeFalsy();
+    expect(paramsOf("llm.complete").content.required).toBeFalsy();
   });
 });
 
@@ -58,7 +59,7 @@ describe("transcript.render", () => {
   });
 
   it("may narrow by an actor with a transcripts or output root", () => {
-    expect(actorsFor("transcript.render", READER_ACTORS).map((a) => a.id)).toEqual(["stt"]);
+    expect(actorsFor("transcript.render", READER_ACTORS, ACTION_CATALOGUE).map((a) => a.id)).toEqual(["stt"]);
   });
 
   it("saves its path, root and recording time", async () => {
@@ -72,47 +73,47 @@ describe("transcript.render", () => {
       kind: "transcript.render",
       params: { result_path: "/data/t/x.json", root: "/data/t", recorded_at: "2026-10-24T06:05:00Z" },
     });
-    expect(actionProblem(saved())).toBeNull();
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBeNull();
   });
 
   it("needs its required params", () => {
-    expect(actionProblem({ kind: "transcript.render", params: { result_path: "/x" } })).toBe("empty");
+    expect(actionProblem({ kind: "transcript.render", params: { result_path: "/x" } }, ACTION_CATALOGUE)).toBe("empty");
   });
 });
 
 describe("library.push kind", () => {
   it("is required and listed by the library actor, not built in", () => {
-    const kind = ACTION_KINDS["library.push"].params.kind;
+    const kind = paramsOf("library.push").kind;
     expect(kind.required).toBe(true);
-    expect(kind.options).toBeUndefined();
-    expect(kind.optionsFrom).toBe("kinds");
-    expect(ACTION_KINDS["library.push"].params.visibility.optionsFrom).toBe("visibilities");
+    expect(kind.choices).toEqual([]);
+    expect(kind.options_from).toBe("kinds");
+    expect(paramsOf("library.push").visibility.options_from).toBe("visibilities");
   });
 });
 
 describe("the library-item pieces (library items, t7)", () => {
   it("reads llm.complete's brief from the actor, with answer and cache fields", () => {
-    const params = ACTION_KINDS["llm.complete"].params;
-    expect(params.brief.options).toBeUndefined();
-    expect(params.brief.optionsFrom).toBe("briefs");
-    expect(params.brief.required).toBe(true);
-    expect(params.answer.type).toBe("json");
+    const params = paramsOf("llm.complete");
+    expect(params.brief.choices).toEqual([]);
+    expect(params.brief.options_from).toBe("briefs");
+    expect(params.brief.needed).toBe(true);
+    expect(params.answer.widget).toBe("json");
     expect(params.cache.type).toBe("bool");
     expect(params.cache_name.type).toBe("str");
     expect(params.cache_label.type).toBe("str");
   });
 
   it("lets transcript.render write Markdown and audio.transcribe go without a hash", () => {
-    expect(ACTION_KINDS["transcript.render"].params.format.options?.map((o) => o.value)).toEqual([
+    expect(paramsOf("transcript.render").format.choices.map((o) => o.value)).toEqual([
       "epub",
       "md",
     ]);
-    expect(ACTION_KINDS["audio.transcribe"].params.audio_sha256.required).toBeFalsy();
+    expect(paramsOf("audio.transcribe").audio_sha256.required).toBeFalsy();
   });
 
   it("lets library.push pick a format from the actor and replace an item by id", () => {
-    const params = ACTION_KINDS["library.push"].params;
-    expect(params.format.optionsFrom).toBe("formats");
+    const params = paramsOf("library.push");
+    expect(params.format.options_from).toBe("formats");
     expect(params.item_id.type).toBe("int");
   });
 });
@@ -133,7 +134,7 @@ describe("llm.complete's brief names come from the chosen actor", () => {
     const user = userEvent.setup();
     const Wb = () => {
       const [value, setValue] = useState<Action>({ kind: "llm.complete", params: { actor: "writer", content: "x" } });
-      return <ActionPicker value={value} actors={withBriefs} triggerType="schedule" onChange={setValue} />;
+      return <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={withBriefs} triggerType="schedule" onChange={setValue} />;
     };
     render(<Wb />);
     const select = screen.getByLabelText(/brief/i, { selector: "select" });
@@ -153,7 +154,7 @@ describe("editable model options", () => {
       { id: "b", name: "B", kind: "agent", enabled: true, params: { base_url: "http://localhost", briefs: { digest: "Text" } } },
       { id: "c", name: "C", kind: "agent", enabled: true, params: { base_url: "http://localhost" } },
     ];
-    return <><ActionPicker value={value} actors={actors} onChange={setValue} /><output data-testid="saved">{JSON.stringify(value)}</output></>;
+    return <><ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={actors} onChange={setValue} /><output data-testid="saved">{JSON.stringify(value)}</output></>;
   }
 
   it("saves and edits an answer shape as an object, with cache options", async () => {
@@ -167,7 +168,7 @@ describe("editable model options", () => {
     await user.type(screen.getByLabelText("Cache label"), "Notes");
     expect(saved().params).toMatchObject({ answer, cache: true, cache_name: "notes", cache_label: "Notes" });
     fireEvent.change(screen.getByLabelText("Answer"), { target: { value: "{" } });
-    expect(actionProblem(saved())).toBe("invalid_value");
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBe("invalid_value");
     fireEvent.change(screen.getByLabelText("Answer"), { target: { value: JSON.stringify({ shape: { type: "int" } }) } });
     expect(saved().params?.answer).toEqual({ shape: { type: "int" } });
     fireEvent.change(screen.getByLabelText("Answer"), { target: { value: "" } });
@@ -175,7 +176,7 @@ describe("editable model options", () => {
   });
 
   it("requires a brief even when content is present", () => {
-    expect(actionProblem({ kind: "llm.complete", params: { actor: "a", content: "Text" } })).toBe("empty");
+    expect(actionProblem({ kind: "llm.complete", params: { actor: "a", content: "Text" } }, ACTION_CATALOGUE)).toBe("empty");
   });
 
   it("clears unavailable briefs on actor changes without choosing a default", async () => {
@@ -187,6 +188,6 @@ describe("editable model options", () => {
     await user.selectOptions(screen.getByLabelText("Brief"), "digest");
     await user.selectOptions(screen.getByLabelText("Actor"), "c");
     expect(within(screen.getByLabelText("Brief")).getAllByRole("option")).toHaveLength(1);
-    expect(actionProblem(saved())).toBe("empty");
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBe("empty");
   });
 });

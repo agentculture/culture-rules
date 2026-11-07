@@ -11,14 +11,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions import http as http_mod
-from culture_rules.node.actions.attachment_fetch import (
+from culture_rules.extensions.discord.attachment_fetch import (
     ATTACHMENT_FETCH_BUILTIN,
     DEFAULT_ALLOWED_HOSTS,
     MAX_ATTACHMENT_BYTES,
     READ_CHUNK,
     AttachmentFetchPort,
 )
+from culture_rules.extensions.http import port as http_mod
 
 PUBLIC = "162.159.130.233"
 PDF = b"%PDF-1.7\n...pdf bytes...\n%%EOF\n"

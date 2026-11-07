@@ -11,9 +11,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from culture_rules.apps import discord_commands as dc
-from culture_rules.apps import discord_gateway as dg
 from culture_rules.events.hook_sink import event_id_for
+from culture_rules.extensions.discord import commands as dc
+from culture_rules.extensions.discord import gateway as dg
 from culture_rules.model.discord_command_config import DEFAULT_NOT_HERE, definitions
 from culture_rules.store.memory import MemoryStore
 from tests.apps.discord_fakes import eventually, interaction
@@ -310,7 +310,7 @@ def test_an_edit_that_leaves_commands_alone_does_not_reconnect(rig):
 
 
 def test_command_guilds_outside_guild_id_warn_about_command_guild_id(rig, caplog):
-    caplog.set_level(logging.INFO, logger="culture_rules.apps.discord_gateway")
+    caplog.set_level(logging.INFO, logger="culture_rules.extensions.discord.gateway")
     r = rig()
     r.store.put("actors", command_actor(guild=["10"], command_guild="20"))
     r.sup.tick()
@@ -335,7 +335,7 @@ def test_a_changed_definition_hash_resyncs(rig):
 
 
 def test_without_an_application_id_or_guild_no_commands_are_registered(rig, caplog):
-    caplog.set_level(logging.INFO, logger="culture_rules.apps.discord_gateway")
+    caplog.set_level(logging.INFO, logger="culture_rules.extensions.discord.gateway")
     r = rig()
     r.store.put("actors", command_actor(app_id=None))
     r.sup.tick()
@@ -362,7 +362,7 @@ def test_without_an_application_id_or_guild_no_commands_are_registered(rig, capl
 
 
 def test_an_actor_with_no_commands_registers_nothing_and_says_so(rig, caplog):
-    caplog.set_level(logging.INFO, logger="culture_rules.apps.discord_gateway")
+    caplog.set_level(logging.INFO, logger="culture_rules.extensions.discord.gateway")
     r = rig()
     r.store.put("actors", command_actor(commands=None))
     r.sup.tick()

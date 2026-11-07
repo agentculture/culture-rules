@@ -19,7 +19,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules import __version__
-from culture_rules.apps.discord_gateway import GATEWAY_STATE_COLLECTION
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.runs import RUNS_COLLECTION, due_steps
 from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
@@ -33,6 +32,10 @@ from culture_rules.node.chain import CHAIN_NEEDS_REVIEW
 __all__ = ["LAG_DEGRADED_S", "gateways", "health_status", "hook_counts"]
 
 LAG_DEGRADED_S = 30.0
+
+GATEWAY_STATE_COLLECTION = "gateway_state"
+"""The Discord Gateway's state collection, read here by name: core imports no app
+(``tests/test_extension_boundary.py`` pins it to the Discord extension's constant)."""
 
 
 def _parse(text: Any) -> datetime | None:

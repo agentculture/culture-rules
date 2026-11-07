@@ -4,17 +4,18 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { ACTORS, WORKFLOWS } from "../fixtures/rules-fixture";
 import type { Action } from "../api/types";
-import ActionPicker, { ACTION_KINDS, actionProblem, blankAction } from "./ActionPicker";
+import { ACTION_CATALOGUE, paramsOf } from "../fixtures/action-catalogue";
+import ActionPicker, { actionProblem, blankAction } from "./ActionPicker";
 
 function Harness({
   start,
   trigger = "github.pr.opened",
   workflow,
 }: Readonly<{ start?: Action; trigger?: string; workflow?: (typeof WORKFLOWS)[number] }>) {
-  const [value, setValue] = useState<Action>(start ?? blankAction());
+  const [value, setValue] = useState<Action>(start ?? blankAction(ACTION_CATALOGUE));
   return (
     <>
-      <ActionPicker value={value} actors={ACTORS} triggerType={trigger} workflow={workflow} onChange={setValue} />
+      <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={ACTORS} triggerType={trigger} workflow={workflow} onChange={setValue} />
       <output data-testid="saved">{JSON.stringify(value)}</output>
     </>
   );
@@ -35,7 +36,7 @@ describe("kinds offered", () => {
   it("offers http.call once an enabled runner allows a host", () => {
     const actors = structuredClone(ACTORS);
     (actors[2].params as Record<string, unknown>).http = { allow: ["api.example.com"] };
-    render(<ActionPicker value={blankAction()} actors={actors} onChange={() => {}} />);
+    render(<ActionPicker catalogue={ACTION_CATALOGUE} value={blankAction(ACTION_CATALOGUE)} actors={actors} onChange={() => {}} />);
     expect(
       within(screen.getByLabelText("What happens"))
         .getAllByRole("option")
@@ -73,7 +74,7 @@ describe("typed params and mappings", () => {
     const chip = screen.getByTestId("chip-number");
     expect(chip).toHaveTextContent("trigger.data.number");
     expect(screen.queryByRole("textbox", { name: "Number" })).not.toBeInTheDocument();
-    expect(actionProblem(saved())).toBeNull();
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBeNull();
     // un-mapping returns to a literal field
     await user.click(screen.getByRole("button", { name: "Use a fixed value for Number" }));
     expect(screen.getByLabelText("Number")).toBeInTheDocument();
@@ -113,12 +114,12 @@ describe("typed params and mappings", () => {
 
 describe("validation", () => {
   it("names a missing actor or required param by code", () => {
-    expect(actionProblem({ kind: "github.comment", params: {} })).toBe("no_actor_port");
-    expect(actionProblem({ kind: "github.comment", params: { actor: "github-app", repo: "a/b" } })).toBe("empty");
-    expect(actionProblem({ kind: "message", params: { channel: "#x", text: "hi" } })).toBeNull();
-    expect(actionProblem({ kind: "noop" })).toBeNull();
-    expect(actionProblem({ kind: "mesh.message", name: "Notify" })).toBeNull();
-    expect(actionProblem({ kind: "github.comment", params: { actor: "g", repo: "a/b", number: "x1", body: "b" } })).toBe(
+    expect(actionProblem({ kind: "github.comment", params: {} }, ACTION_CATALOGUE)).toBe("no_actor_port");
+    expect(actionProblem({ kind: "github.comment", params: { actor: "github-app", repo: "a/b" } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "message", params: { channel: "#x", text: "hi" } }, ACTION_CATALOGUE)).toBeNull();
+    expect(actionProblem({ kind: "noop" }, ACTION_CATALOGUE)).toBeNull();
+    expect(actionProblem({ kind: "mesh.message", name: "Notify" }, ACTION_CATALOGUE)).toBeNull();
+    expect(actionProblem({ kind: "github.comment", params: { actor: "g", repo: "a/b", number: "x1", body: "b" } }, ACTION_CATALOGUE)).toBe(
       "invalid_value",
     );
   });
@@ -180,10 +181,11 @@ describe("mesh message and Discord message are separate kinds", () => {
     start,
     load,
   }: Readonly<{ start?: Action; load: (id: string) => Promise<typeof TWO> }>) {
-    const [value, setValue] = useState<Action>(start ?? blankAction());
+    const [value, setValue] = useState<Action>(start ?? blankAction(ACTION_CATALOGUE));
     return (
       <>
         <ActionPicker
+        catalogue={ACTION_CATALOGUE}
           value={value}
           actors={[...ACTORS, BOT]}
           triggerType="discord.message.created"
@@ -239,7 +241,7 @@ describe("mesh message and Discord message are separate kinds", () => {
       kind: "discord.message",
       params: { actor: "discord-bot", guild: "10", channel: "101", text: "hello" },
     });
-    expect(actionProblem(saved())).toBeNull();
+    expect(actionProblem(saved(), ACTION_CATALOGUE)).toBeNull();
     // switching server clears a channel that belongs to the old one
     await user.selectOptions(screen.getByLabelText("Server"), "20");
     expect(saved().params).not.toHaveProperty("channel");
@@ -320,19 +322,19 @@ describe("only where its chain ends (d21)", () => {
 
 describe("http.call params", () => {
   it("offers save_to as an optional string", () => {
-    expect(ACTION_KINDS["http.call"].params.save_to).toEqual({ type: "str" });
+    expect(paramsOf("http.call").save_to).toMatchObject({ type: "str", required: false });
   });
 });
 
 describe("github.merge and github.pr", () => {
   it("catalogues github.merge with repo, number and sha required and delete_branch optional", () => {
-    const p = ACTION_KINDS["github.merge"].params;
+    const p = paramsOf("github.merge");
     expect([p.actor, p.repo, p.number, p.sha].every((s) => s.required)).toBe(true);
     expect(p.delete_branch.required).toBeFalsy();
-    expect(actionProblem({ kind: "github.merge", params: { actor: "a", repo: "o/r", number: 1 } })).toBe("empty");
-    expect(actionProblem({ kind: "github.merge", params: { actor: "a", repo: "o/r", number: 1, sha: "abc" } })).toBeNull();
-    const q = ACTION_KINDS["github.pr"].params;
+    expect(actionProblem({ kind: "github.merge", params: { actor: "a", repo: "o/r", number: 1 } }, ACTION_CATALOGUE)).toBe("empty");
+    expect(actionProblem({ kind: "github.merge", params: { actor: "a", repo: "o/r", number: 1, sha: "abc" } }, ACTION_CATALOGUE)).toBeNull();
+    const q = paramsOf("github.pr");
     expect([q.actor, q.repo, q.number].every((s) => s.required)).toBe(true);
-    expect(actionProblem({ kind: "github.pr", params: { actor: "a", repo: "o/r", number: 1 } })).toBeNull();
+    expect(actionProblem({ kind: "github.pr", params: { actor: "a", repo: "o/r", number: 1 } }, ACTION_CATALOGUE)).toBeNull();
   });
 });

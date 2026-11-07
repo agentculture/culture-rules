@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
 from culture_rules.engine.runs import Executor, step_state
+from culture_rules.extensions.discord.react import DiscordReactAction
 from culture_rules.model.action_step import ACTION_BUILTIN
-from culture_rules.node.actions.discord_react import DiscordReactAction
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import Clock, FakeActor, edge, port, rule, step, workflow
 

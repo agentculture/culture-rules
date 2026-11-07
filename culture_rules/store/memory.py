@@ -28,6 +28,7 @@ from culture_rules.model.variable import (
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     EVENTS_COLLECTION,
+    VARIABLE_DELETE_VERB,
     VARIABLES_COLLECTION,
     Change,
     ChangeFeed,
@@ -37,9 +38,14 @@ from culture_rules.store.port import (
     StoreError,
     UpdateResult,
     VariableVersionConflict,
+    VariableWriteHook,
     cursor_id,
     events_query,
+    live_latest_version,
+    variable_tombstone,
+    write_variable_guard,
 )
+from culture_rules.store.retry import run_transaction
 from culture_rules.store.versioning import (
     SchemaVersion,
     matches,
@@ -396,7 +402,7 @@ class MemoryStore:
             "updated_by": version["updated_by"],
             "updated_at": version["updated_at"],
             "description": version.get("description"),
-        }
+        } | ({"deleted": True} if version.get("deleted") else {})
 
     def put_variable(
         self,
@@ -443,8 +449,16 @@ class MemoryStore:
         doc = self._get(None, VARIABLES_COLLECTION, name)
         if doc is None:
             return None
-        versions = doc.get("versions", [])
-        return None if not versions else self._variable_view(doc["name"], versions[-1])
+        latest = live_latest_version(doc.get("versions"))
+        return None if latest is None else self._variable_view(doc["name"], latest)
+
+    def variable_versions(self, name: str) -> list[Document] | None:
+        doc = self._get(None, VARIABLES_COLLECTION, name)
+        if doc is None:
+            return None
+        versions = [v for v in doc.get("versions", []) if isinstance(v, dict)]
+        versions.sort(key=lambda v: v.get("version", 0))
+        return [self._variable_view(doc["name"], v) for v in versions]
 
     def get_variable_version(self, name: str, version: int) -> Document | None:
         doc = self._get(None, VARIABLES_COLLECTION, name)
@@ -458,11 +472,49 @@ class MemoryStore:
     def list_variables(self) -> list[Document]:
         result: list[Document] = []
         for doc in self._find(None, VARIABLES_COLLECTION, None, None):
-            versions = doc.get("versions", [])
-            if versions:
-                result.append(self._variable_view(doc["name"], versions[-1]))
+            latest = live_latest_version(doc.get("versions"))
+            if latest is not None:
+                result.append(self._variable_view(doc["name"], latest))
         result.sort(key=lambda d: d["name"])
         return result
+
+    def delete_variable(
+        self,
+        name: str,
+        *,
+        deleted_by: str,
+        expected_version: int,
+        on_write: VariableWriteHook | None = None,
+    ) -> Document | None:
+        self._validate_variable_name(name)
+        now = self._now()
+
+        def body(tx: Any) -> Document | None:
+            existing = tx.get(VARIABLES_COLLECTION, name)
+            versions: list[Document] = list(existing.get("versions", [])) if existing else []
+            latest = live_latest_version(versions)
+            if latest is None:
+                return None
+            if latest["version"] != expected_version:
+                raise VariableVersionConflict(
+                    f"variable {name!r} is at version {latest['version']}, not {expected_version}"
+                )
+            entry = variable_tombstone(latest, deleted_by, now)
+            result = tx.update_if(
+                VARIABLES_COLLECTION,
+                name,
+                expected={"versions": existing.get("versions")},
+                changes={"name": name, "versions": versions + [entry]},
+            )
+            if not result.won:
+                raise VariableVersionConflict(f"variable {name!r} changed while deleting it")
+            write_variable_guard(tx, name, by=VARIABLE_DELETE_VERB, at=now)
+            after = self._variable_view(name, entry)
+            if on_write is not None:
+                on_write(tx, self._variable_view(name, latest), after)
+            return after
+
+        return run_transaction(self, body)
 
 
 class _TxHandle:

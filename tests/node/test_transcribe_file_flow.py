@@ -22,7 +22,7 @@ import pytest
 
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
-from culture_rules.node.actions.stt import AudioTranscribePort
+from culture_rules.extensions.stt.port import AudioTranscribePort
 from culture_rules.node.actions.transcript_file import result_path
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node

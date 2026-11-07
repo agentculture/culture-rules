@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import type { Actor } from "../api/actors";
 import type { Action } from "../api/types";
 import { ACTORS } from "../fixtures/rules-fixture";
-import ActionPicker, { ACTION_KINDS, actorsFor, blankAction } from "./ActionPicker";
+import { ACTION_CATALOGUE, paramsOf } from "../fixtures/action-catalogue";
+import ActionPicker, { actorsFor, blankAction } from "./ActionPicker";
 
 /* repodocs.sync (culture-rules#124): repos' devague record to the library, through a service actor with a repos_root. */
 
@@ -22,8 +23,8 @@ const REPODOCS_ACTORS: Actor[] = [
 ];
 
 function Harness() {
-  const [value, setValue] = useState<Action>(blankAction());
-  return <ActionPicker value={value} actors={REPODOCS_ACTORS} triggerType="schedule" onChange={setValue} />;
+  const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
+  return <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={REPODOCS_ACTORS} triggerType="schedule" onChange={setValue} />;
 }
 
 describe("repodocs.sync", () => {
@@ -37,11 +38,11 @@ describe("repodocs.sync", () => {
   });
 
   it("offers only enabled service actors with a repos_root", () => {
-    expect(actorsFor("repodocs.sync", REPODOCS_ACTORS).map((a) => a.id)).toEqual(["culture-library-repodocs"]);
+    expect(actorsFor("repodocs.sync", REPODOCS_ACTORS, ACTION_CATALOGUE).map((a) => a.id)).toEqual(["culture-library-repodocs"]);
   });
 
   it("takes only the actor, which is required", () => {
-    expect(Object.keys(ACTION_KINDS["repodocs.sync"].params)).toEqual(["actor"]);
-    expect(ACTION_KINDS["repodocs.sync"].params.actor.required).toBe(true);
+    expect(Object.keys(paramsOf("repodocs.sync"))).toEqual(["actor"]);
+    expect(paramsOf("repodocs.sync").actor.required).toBe(true);
   });
 });
