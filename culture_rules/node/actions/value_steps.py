@@ -93,19 +93,18 @@ def _instant(value: Any) -> datetime:
 def time_add(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
     """The instant moved by the summed duration, in UTC (module doc), else :class:`_Refused`."""
     moment = _instant(_param(input, config, "instant"))
-    total = 0.0
-    given = False
+    amounts: list[tuple[Any, int]] = []
     for unit, factor in _UNITS.items():
         amount = _param(input, config, unit)
         if amount is None:
             continue
         if not _is_number(amount):
             raise _bad(f"{unit} must be a number")
-        total += amount * factor
-        given = True
-    if not given:
+        amounts.append((amount, factor))
+    if not amounts:
         raise _bad("give at least one of seconds, minutes, hours, days")
-    try:
+    try:  # a huge int overflows the float sum, a huge sum the timedelta or the datetime
+        total = sum((float(amount) * factor for amount, factor in amounts), 0.0)
         result = moment.astimezone(UTC) + timedelta(seconds=total)
     except (OverflowError, ValueError):
         raise _bad("the result is outside the supported time range") from None

@@ -5,11 +5,13 @@ variable, a step's output, a model's reply) and needs it parsed and validated be
 steps use it; the rules live in the step's ``shape`` (see :mod:`culture_rules.model.shape`:
 types, bounds, patterns, enums, defaults, unknown-key refusal, line counts).
 
-Inputs (each may instead sit in ``config``; the input wins):
+Config: ``shape`` (required) - the shape spec the parsed value must fit. It is read from the
+step config only, never from an input, so run data cannot replace the rules it is checked
+against (an input named ``shape`` is ignored).
 
-* ``text`` - the JSON text, a string or bytes (UTF-8, at most :data:`MAX_BYTES`). A value that
-  is already a list or an object is taken as decoded and only checked;
-* ``shape`` (required, usually in config) - the shape spec the parsed value must fit.
+Input (it may instead sit in ``config``; the input wins): ``text`` - the JSON text, a string or
+bytes (UTF-8, at most :data:`MAX_BYTES`). A value that is already a list or an object is taken
+as decoded and only checked.
 
 Output ``value``: the parsed value, normalised by the shape (defaults filled, text stripped or
 lower-cased where the shape says so, ignored keys left out).
@@ -70,9 +72,9 @@ def _decode(text: Any) -> Any:
 
 def json_parse(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
     """``{"value": ...}`` for the parsed, shape-checked text (module doc); else _Refused."""
-    spec = _param(input, config, "shape")
+    spec = config.get("shape")  # config only: an input never replaces the rules
     if not isinstance(spec, Mapping):
-        raise _Refused("bad_params", "shape must be a shape spec (an object)")
+        raise _Refused("bad_params", "config.shape must be a shape spec (an object)")
     value = _decode(_param(input, config, "text"))
     try:
         return {"value": validate(value, dict(spec))}

@@ -185,6 +185,14 @@ def test_add_refuses_overflow():
     refused(add({"instant": "9999-12-31T00:00:00Z", "days": 400}))
 
 
+def test_add_refuses_an_int_too_large_for_a_float():
+    refused(add({"instant": "2025-01-01T00:00:00Z", "days": 10**400}))
+
+
+def test_add_refuses_an_infinite_amount():
+    refused(add({"instant": "2025-01-01T00:00:00Z", "seconds": float("inf")}))
+
+
 # ------------------------------------------------------------------ date.local
 
 

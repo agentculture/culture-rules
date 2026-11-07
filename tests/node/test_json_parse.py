@@ -181,9 +181,13 @@ def test_refusal_names_the_failing_path():
     assert "[1].queries" in res.error
 
 
-def test_shape_comes_from_the_input_when_given():
-    res = invoke({"text": "5", "shape": {"type": "int", "max": 9}})
-    assert res.output["value"] == 5
+def test_a_shape_input_alone_is_not_read():
+    failed(invoke({"text": "5", "shape": {"type": "int", "max": 9}}), "bad_params")
+
+
+def test_a_shape_input_cannot_replace_the_configured_shape():
+    res = invoke({"text": "50", "shape": {"type": "int"}}, {"shape": {"type": "int", "max": 9}})
+    failed(res, "shape_invalid")
 
 
 def test_bytes_are_parsed():

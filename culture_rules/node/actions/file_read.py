@@ -7,8 +7,11 @@ Config (the roots can only come from here, never from an input, so a run cannot 
 
 * ``roots`` - a list of absolute directories, or ``root`` - one (required). The file must
   resolve under ANY one of them (this differs from ``transcript.render``, which needs all of
-  its roots). Roots and path are resolved with symlinks followed before the check, so a link
-  inside a root that points outside is refused;
+  its roots); a root that does not exist on this node is skipped while another exists. Roots
+  and path are resolved with symlinks followed before the check, so a link inside a root that
+  points outside is refused, and the file is then read through a descriptor bound to the
+  checked file (:func:`~culture_rules.node.actions._paths.read_under`), so a file swapped for
+  a link after the check is refused too;
 * ``mode`` - ``text`` (the default; UTF-8, undecodable refused) or ``json``;
 * ``fields`` - json mode only: ``{output name: dotted path}`` as ``json.read`` takes (object
   keys only; a missing field is null; any JSON value may be returned);
@@ -23,7 +26,8 @@ document) or, with ``fields``, ``fields`` (the extracted mapping). Nothing is ou
 refused file.
 
 Final (non-retryable) failures, ``<code>: <detail>``: ``bad_params``, ``path_refused``
-(missing, outside every root, not a regular file), ``too_large``, ``not_text``, ``not_json``.
+(missing, outside every root, not a regular file, a NUL byte in the path, swapped after
+the check), ``too_large``, ``not_text``, ``not_json``.
 Standard library only.
 """
 
@@ -32,11 +36,10 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.node.actions._paths import PathProblem, resolve_under
+from culture_rules.node.actions._paths import PathProblem, read_under
 from culture_rules.node.actions.json_read import _fields, _param, _Refused, _walk
 
 __all__ = ["DEFAULT_MAX_BYTES", "FILE_READ_BUILTIN", "HARD_MAX_BYTES", "FileReadPort", "file_read"]
@@ -62,23 +65,6 @@ def _cap(config: Mapping[str, Any]) -> int:
     return cap
 
 
-def _read(path: Path, cap: int) -> bytes:
-    """The file's bytes, at most ``cap``: refused by its stated size before reading, and
-    again if the read finds more (a file that grew after the check, or one whose stated
-    size is not its content, such as ``/proc`` files reporting 0)."""
-    too_large = _Refused("too_large", f"the file is over {cap} bytes")
-    try:
-        if path.stat().st_size > cap:
-            raise too_large
-        with path.open("rb") as handle:
-            data = handle.read(cap + 1)
-    except OSError as exc:
-        raise _Refused("path_refused", "the file cannot be read") from exc
-    if len(data) > cap:
-        raise too_large
-    return data
-
-
 def file_read(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
     """The file's content (module doc), else :class:`_Refused`."""
     mode = config.get("mode", "text")
@@ -91,10 +77,9 @@ def file_read(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, 
     cap = _cap(config)
     roots = _roots(config)
     try:
-        path = resolve_under(_param(input, config, "path"), roots)
+        raw = read_under(_param(input, config, "path"), roots, cap)
     except PathProblem as exc:
         raise _Refused(exc.code, exc.message) from exc
-    raw = _read(path, cap)
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
