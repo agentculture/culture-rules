@@ -105,7 +105,7 @@ def test_an_emoji_filter_belongs_to_reaction_triggers_only():
 
 
 def test_one_emoji_grammar_for_the_filter_and_the_action():
-    from culture_rules.model.discord_filters import emoji_ok
+    from culture_rules.extensions.discord.filters import emoji_ok
 
     assert emoji_ok("📚")
     assert emoji_ok("save:99")

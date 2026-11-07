@@ -24,7 +24,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from culture_rules.model.discord_filters import discord_channels, filter_values
+from culture_rules.extensions import registry
 
 __all__ = [
     "ACTION_WORDS",
@@ -401,8 +401,9 @@ def trigger_text(trigger: Any) -> str:
     params = t.get("params") if isinstance(t.get("params"), Mapping) else {}
     if kind == "event":
         type_ = str(params.get("type") or _TRIGGER_WORDS["event"])
-        if type_.startswith("discord."):
-            return _join(type_, *_discord_filter_words(params))
+        found = registry().trigger_filter(type_)
+        if found is not None and found.describe is not None:
+            return _join(type_, *found.describe(params))
         return type_
     if kind == "schedule":
         tz = params.get("tz") or "UTC"
@@ -416,31 +417,6 @@ def trigger_text(trigger: Any) -> str:
             mode,
         )
     return _TRIGGER_WORDS.get(kind, kind)
-
-
-def _discord_filter_words(params: Mapping[str, Any]) -> list[str]:
-    """``(in channels 1, 2; from alice or role r1; bots too)``: a discord.* trigger's filters,
-    read as engine.matching applies them; nothing when every filter is open."""
-    parts = []
-    channels = discord_channels(params)
-    if channels is not None:
-        parts.append("in channels " + ", ".join(sorted(channels)))
-    emoji = filter_values(params.get("emoji"))
-    if emoji:
-        parts.append("with " + " or ".join(emoji))
-    buttons = filter_values(params.get("custom_id"))
-    if buttons:
-        parts.append("with button " + " or ".join(buttons))
-    commands = filter_values(params.get("command"))
-    if commands:
-        parts.append("for command " + " or ".join(commands))
-    who = [*filter_values(params.get("users"))]
-    who += [f"role {r}" for r in filter_values(params.get("roles"))]
-    if who:
-        parts.append("from " + " or ".join(who))
-    if params.get("include_bots") is True:
-        parts.append("bots too")
-    return [f"({'; '.join(parts)})"] if parts else []
 
 
 # --------------------------------------------------------------------------- rules

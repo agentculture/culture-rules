@@ -44,7 +44,7 @@ from culture_rules.extensions.discord.reply import DiscordReplyAction  # noqa: E
 from culture_rules.extensions.github.checks_settle import SOURCE as SETTLE_SOURCE  # noqa: E402
 from culture_rules.extensions.github.merge import GitHubMergePort  # noqa: E402
 from culture_rules.extensions.github.port import GitHubPrPort  # noqa: E402
-from culture_rules.model.discord_filters import BUTTON_CLICKED  # noqa: E402
+from culture_rules.extensions.discord.filters import BUTTON_CLICKED  # noqa: E402
 from culture_rules.node.daemon import Node, NodeOptions  # noqa: E402
 from culture_rules.node.runner import NoopAction  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402

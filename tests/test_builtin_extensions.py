@@ -148,7 +148,7 @@ def _source_event_types():
     from culture_rules.extensions.discord import gateway as gw
     from culture_rules.extensions.github import hooks as github
     from culture_rules.extensions.jira import hooks as jira
-    from culture_rules.model.discord_filters import BUTTON_CLICKED
+    from culture_rules.extensions.discord.filters import BUTTON_CLICKED
 
     return (
         set(github._TYPES.values())

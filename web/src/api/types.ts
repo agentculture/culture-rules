@@ -41,7 +41,7 @@ export interface Whoami {
 export interface EventTriggerParams {
   type: string;
   include_self?: boolean;
-  /** discord.* events (culture_rules/model/discord_filters.py): channel ids; absent = every channel. */
+  /** discord.* events (culture_rules/extensions/discord/filters.py): channel ids; absent = every channel. */
   channels?: string[];
   /** discord.* events: user ids or usernames. */
   users?: string[];

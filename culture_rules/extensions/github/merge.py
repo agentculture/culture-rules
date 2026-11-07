@@ -104,7 +104,7 @@ from culture_rules.extensions.github.port import (
     repo_refusal,
     source_rule_refusal,
 )
-from culture_rules.model.discord_filters import BUTTON_CLICKED
+from culture_rules.extensions.discord.filters import BUTTON_CLICKED
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError, StoreError
 

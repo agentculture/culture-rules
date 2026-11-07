@@ -13,15 +13,19 @@
 * the contract route ``GET /actors/{id}/discord/targets``
   (:mod:`~culture_rules.extensions.discord.api`).
 
-The ``discord.*`` trigger filters stay core's (:mod:`culture_rules.model.discord_filters`):
-the engine matches and validates them. Registering imports nothing but the kinds' typed
-params; every port, listener and route imports its module when it is built.
+* the ``discord.*`` trigger filters (:mod:`~culture_rules.extensions.discord.filters`): the
+  engine's match, the save-time checks and the describe words.
+
+Registering imports nothing but the kinds' typed params and the filters (standard library,
+called on every Discord event); every port, listener and route imports its module when it is
+built.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from culture_rules.extensions.discord import filters
 from culture_rules.extensions.registry import ApiContext, Extension, Lazy, NodeContext
 from culture_rules.model.action_kinds import INT, REQ_STR, REQ_TEXT, STR, ParamSpec, kind
 
@@ -162,6 +166,9 @@ def register(ext: Extension) -> None:
     ext.builtin("attachment.fetch", Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"))
     for event in EVENT_TYPES:
         ext.event_type(event)
+    ext.trigger_filter(
+        "discord", match=filters.admits, validate=filters.problems, describe=filters.words
+    )
     ext.node_listener("discord.gateway", discord_gateway, long_lived=True)
     ext.node_collections(discord_collections)
     ext.api_routes("discord.targets", discord_targets)

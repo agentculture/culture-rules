@@ -25,7 +25,7 @@ from culture_rules.extensions.github.merge import (  # noqa: E402
     STALE_CLAIM_S,
     GitHubMergePort,
 )
-from culture_rules.model.discord_filters import BUTTON_CLICKED  # noqa: E402
+from culture_rules.extensions.discord.filters import BUTTON_CLICKED  # noqa: E402
 from culture_rules.node.firing import run_id_for  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 

@@ -19,8 +19,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from culture_rules.extensions.registry import Extension, Lazy, NodeContext
+from collections.abc import Mapping
+
+from culture_rules.extensions.registry import Extension, Lazy, NodeContext, Problem
 from culture_rules.model.action_kinds import ADV, REQ_INT, REQ_STR, REQ_TEXT, ParamSpec, kind
+from culture_rules.model.serde import join
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
@@ -140,11 +143,26 @@ def github_collections() -> tuple[str, ...]:
     return (SETTLE_COLLECTION, RECOVERY_COLLECTION, LATE_COLLECTION, ONCE_COLLECTION)
 
 
+def comment_params(params: Mapping[str, Any], path: str) -> list[Problem]:
+    """``github.comment`` keeps no status board since 0.43.0: a ``status`` other than absent
+    or false is refused when saved, as the port refuses it (``bad_input``) when it runs."""
+    if params.get("status") in (None, False):
+        return []
+    return [
+        (
+            join(path, "status"),
+            "action_param_removed",
+            "github.comment has no status comment any more; drop params.status",
+        )
+    ]
+
+
 def register(ext: Extension) -> None:
     """GitHub (as a GitHub App, the ``github`` extra): comment, merge and PR facts, the head
     lookup, ``POST /hooks/github``, the checks settler and their event types."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.params_validator("github.comment", comment_params)
     ext.action_port("github.pr_head", _port("port", "GitHubPrHeadPort"), **_EXTRA)
     ext.action_port("github.comment", _port("port", "GitHubCommentPort"), **_EXTRA)
     ext.action_port("github.pr", _port("port", "GitHubPrPort"), **_EXTRA)
