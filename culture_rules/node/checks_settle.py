@@ -233,18 +233,18 @@ def rearm_settle(
     head_branch: str | None = None,
     now: datetime | None = None,
 ) -> str:
-    """Settle ``repo@sha`` again (round 5): after ``github.push`` refused ``base_changed``
-    the reviewed run is over, but the head is unchanged, so no new head means no new
+    """Settle ``repo@sha`` again (round 5): after a step refused ``base_changed``
+    and the run is over, but the head is unchanged, so no new head means no new
     settle. This moves an emitted settle to ``pending`` in the next generation (a fresh
     minimum window and deadline); the next completion or the node's poll then emits a new
     ``checks_settled`` event carrying the PR's current facts (its new base), so the gate
     and the review run again against it. Bounded by :data:`REARM_LIMIT` (and the rules'
     attempt budget).
 
-    ``cause`` is the refusal's durable identity (the review record the push judged); it is
+    ``cause`` is the refusal's durable identity (the record the refused step judged); it is
     recorded with the generation transition in one compare-and-set, so replaying the same
-    refused push after the re-armed generation settled is a no-op (``replayed``).
-    ``number`` and ``head_branch`` (the PR the push named) are kept on a record the head
+    refusal after the re-armed generation settled is a no-op (``replayed``).
+    ``number`` and ``head_branch`` (the PR the refused step named) are kept on a record the head
     never had, so the emitted event names the PR and fetches its current facts. Returns
     ``rearmed``, ``armed`` (no settle record yet), ``pending`` (already waiting),
     ``replayed`` or ``limit``."""

@@ -130,7 +130,7 @@
           "type": "null"
         }
       ],
-      "description": "Concurrency key template, e.g. pr-fixer:{trigger.data.repository}#{trigger.data.number} (only {trigger.<path>} placeholders). The resolved key is global: every rule whose template resolves to the same string shares one active run and one attempt budget, so use a distinct template (a namespace prefix) to isolate a rule. An active run or pending firing with the same key deduplicates new firings; the newest one fires once the run ends. A key that does not resolve skips the firing (concurrency_key_unresolved). None preserves independent firings.",
+      "description": "Concurrency key template, e.g. pr:{trigger.data.repository}#{trigger.data.number} (only {trigger.<path>} placeholders). The resolved key is global: every rule whose template resolves to the same string shares one active run and one attempt budget, so use a distinct template (a namespace prefix) to isolate a rule. An active run or pending firing with the same key deduplicates new firings; the newest one fires once the run ends. A key that does not resolve skips the firing (concurrency_key_unresolved). None preserves independent firings.",
       "default": null
     },
     "max_attempts": {

@@ -39,16 +39,14 @@ before the first start.
 | `--wheelhouse DIR` | offline install: `--no-index --find-links DIR` |
 | `--events-host HOST`, `--events-port PORT` | optional `EVENTS_BROKER_*` lines in `node.env` |
 | `--python VERSION` | Python for the venv (default 3.12) |
-| `--gate-run-as PREFIX` | the PR fixer gate's run-as prefix, written to `node.env` as `CULTURE_RULES_GATE_RUN_AS`; a prefix starting with `sudo` also makes the unit `NoNewPrivileges=false` (see below); write the executable without quotes or backslashes, so the installer and the gate (which splits the prefix with `shlex`) agree on whether it is sudo |
+| `--gate-run-as PREFIX` | a run-as prefix, written to `node.env` as `CULTURE_RULES_GATE_RUN_AS`; a prefix starting with `sudo` also makes the unit `NoNewPrivileges=false` (see below); write the executable without quotes or backslashes, so the installer and the gate (which splits the prefix with `shlex`) agree on whether it is sudo |
 | `--apply` | actually install |
 
 ## The unit and `NoNewPrivileges`
 
 The unit sets `NoNewPrivileges=true`, so the node and everything it starts
-can never gain privileges. A node that runs the PR fixer's test gate through
-sudo (`--gate-run-as 'sudo -n -u culture-fixer -- ...'`, see
-[`docs/operations/pr-fixer.md`](../../docs/operations/pr-fixer.md) section
-5) cannot keep it: with the kernel's `no_new_privs` flag set, sudo refuses to
+can never gain privileges. A node that runs steps through
+sudo (`--gate-run-as 'sudo -n -u <user> -- ...'`) cannot keep it: with the kernel's `no_new_privs` flag set, sudo refuses to
 run. So a `--gate-run-as` prefix whose first word is `sudo` writes
 `NoNewPrivileges=false`, with a comment saying why. Without the flag, or with
 a prefix that is not sudo, the unit keeps `NoNewPrivileges=true` and

@@ -217,8 +217,8 @@ A failure never echoes a response body, a header value or a secret.
 `spark`. It points at the lobes gateway on spark's loopback with model
 `cortex-spark2` and `grant:LOBES_GATEWAY_API_KEY`, in pool `qwen-spark2` with
 `max_concurrency: 1`, and it carries the briefs the bundle's steps name in
-`params.briefs`. That pool is shared with the PR fixer, so each
-summary waits behind a running fix. The newspaper's summary step sets
+`params.briefs`. Any other step on that actor shares the pool, so each
+summary waits behind a running one. The newspaper's summary step sets
 `config.on_error: "skip"`, so a failed summary leaves that section with its
 results and "Summary unavailable."; see
 [the newspaper setup](../operations/newspaper.md).

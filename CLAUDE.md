@@ -108,7 +108,10 @@ plan. What exists today:
     ignores description and notes);
   - `rules migrate-orphans [--apply]` gives each workflow-less rule its own
     stepless workflow; the rollout order runs both migrations
-    (`docs/operations/rollout.md`).
+    (`docs/operations/rollout.md`);
+  - the wheel ships the release manifest `deploy/release.json` (as
+    `culture_rules/deploy_data/release.json`) and no rule bundle: `rollout seed` and
+    `rollout import` take `--bundle DIR` and exit 1 without it.
 - **Model actors** (spec `docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`,
   setup `docs/operations/model-actors.md`):
   - `actors enrol-models --gateway MACHINE --match GLOB` (repeatable; admin)
