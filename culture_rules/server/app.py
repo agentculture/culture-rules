@@ -70,7 +70,7 @@ from culture_rules.server.service import (
     Variables,
 )
 from culture_rules.store.migrations import backfill_run_ids, disable_typeless_event_rules
-from culture_rules.store.port import StoragePort
+from culture_rules.store.port import VARIABLE_GUARDS_COLLECTION, StoragePort
 
 __all__ = [
     "API_VERSION",
@@ -110,6 +110,7 @@ _ALL_COLLECTIONS = tuple(
             RULE_DECISIONS,
             QUARANTINE_COLLECTION,
             ROLLOUTS_COLLECTION,
+            VARIABLE_GUARDS_COLLECTION,  # written in delete and rule-write transactions
         )
         + events.STREAMABLE
     )
@@ -432,7 +433,8 @@ class VariableDeleteResult(BaseModel):
     )
     not_blocking: list[VariableReferrer] = Field(
         description="rules that reference the variable but are disabled or soft-deleted, so "
-        "do not block the delete; enabled again, each firing is a variable_undefined skip"
+        "do not block the delete; once it is deleted, enabling or restoring one is refused "
+        "(variable_undefined) until the variable is set again"
     )
 
 
@@ -1267,7 +1269,10 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
         """Delete the variable (admin); a dry run (the default) writes nothing. Refused (409
         ``variable_in_use``) while a live, enabled rule references it; disabled and
         soft-deleted referrers are listed, not blocking. Applied, a tombstone version keeps
-        the history and one audit entry names the caller."""
+        the history and one audit entry names the caller. No enabled rule can end up
+        referencing a deleted variable: the delete re-checks referrers in its transaction,
+        and it and every rule write leaving an enabled referrer (create, update, enable,
+        restore, import) write the same per-variable guard, so the store serializes them."""
         return variables.delete(name, dry_run=dry_run, identity=identity)
 
     @app.get(
@@ -1988,7 +1993,7 @@ def _register_kind(
     def restore(id: str, identity: Identity):
         defs.get(kind, id)
         actor_guards.check_restore(store, kind, id)
-        return defs.restore(kind, id, identity, life)  # d7: the node-capability guard
+        return defs.restore(kind, id, identity, life)  # variables defined + d7, guarded
 
     @app.post(
         f"{path}/purge",

@@ -22,7 +22,9 @@ from culture_rules.cli import main  # noqa: E402
 from culture_rules.cli.verbs import REGISTRY  # noqa: E402
 from culture_rules.engine.audit import AUDIT_COLLECTION, MUTATING_VERBS  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
+from culture_rules.server.service import Definitions, Invalid  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
+from culture_rules.store.port import VARIABLE_GUARDS_COLLECTION  # noqa: E402
 from tests.cli.test_nouns_api import store, wire  # noqa: E402, F401
 from tests.server.conftest import rule_body  # noqa: E402
 
@@ -193,3 +195,97 @@ def test_the_verb_is_an_admin_write_with_an_mcp_tool():
     assert verb.mutating is True
     assert verb.role == "admin"
     assert verb.tool_name == "variables_delete"
+
+
+# ------------------------------------------------------------------ the guard (Codex review P1)
+
+
+def _guard(s, name=NAME):
+    return s.get(VARIABLE_GUARDS_COLLECTION, name)
+
+
+def test_enabling_a_disabled_referrer_after_the_delete_is_refused(world):
+    s, client, hdr = world
+    s.put("rules", _rule("off", enabled=False))
+    _delete(client, hdr["admin"], apply=True)
+    r = client.post("/rules/off/enable", headers=hdr["editor"])
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["errors"][0]["code"] == "variable_undefined"
+    assert s.get("rules", "off")["enabled"] is False
+
+
+def test_restoring_an_enabled_referrer_after_the_delete_is_refused(world):
+    s, client, hdr = world
+    assert client.post("/rules", json=_rule("binned"), headers=hdr["editor"]).status_code == 201
+    assert client.delete("/rules/binned", headers=hdr["editor"]).status_code == 200
+    _delete(client, hdr["admin"], apply=True)
+    r = client.post("/rules/binned/restore", headers=hdr["editor"])
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["errors"][0]["code"] == "variable_undefined"
+    assert s.get("rules", "binned")["deleted_at"]
+
+
+def test_an_update_adding_a_reference_to_a_deleted_variable_is_refused(world):
+    s, client, hdr = world
+    plain = rule_body("plain")
+    assert client.post("/rules", json=plain, headers=hdr["editor"]).status_code == 201
+    _delete(client, hdr["admin"], apply=True)
+    r = client.put("/rules/plain", json=_rule("plain"), headers=hdr["editor"])
+    assert r.status_code == 422, r.text
+    assert "variable_undefined" in r.text
+    assert s.get("rules", "plain")["condition"] == plain["condition"]
+
+
+def test_disabling_a_referrer_of_a_deleted_variable_is_never_refused(world):
+    s, client, hdr = world
+    _delete(client, hdr["admin"], apply=True)
+    s.put("rules", _rule("stale"))  # an enabled referrer written behind the verbs' back
+    r = client.post("/rules/stale/disable", headers=hdr["editor"])
+    assert r.status_code == 200, r.text
+    assert s.get("rules", "stale")["enabled"] is False
+    assert _guard(s)["by"] == "variables.delete"  # disabling writes no guard
+
+
+def test_enabling_a_referrer_writes_the_variable_guard(world):
+    s, client, hdr = world
+    s.put("rules", _rule("off", enabled=False))
+    assert client.post("/rules/off/enable", headers=hdr["editor"]).status_code == 200
+    assert _guard(s)["by"] == "definitions.set_enabled"
+
+
+def test_saving_an_enabled_referrer_writes_the_variable_guard(world):
+    s, client, hdr = world
+    assert client.post("/rules", json=_rule("on"), headers=hdr["editor"]).status_code == 201
+    assert _guard(s)["by"] == "definitions.create"
+
+
+def test_saving_a_disabled_referrer_writes_no_guard(world):
+    s, client, hdr = world
+    off = _rule("off", enabled=False)
+    assert client.post("/rules", json=off, headers=hdr["editor"]).status_code == 201
+    assert _guard(s) is None
+
+
+def test_restoring_an_enabled_referrer_writes_the_variable_guard(world):
+    s, client, hdr = world
+    assert client.post("/rules", json=_rule("binned"), headers=hdr["editor"]).status_code == 201
+    assert client.delete("/rules/binned", headers=hdr["editor"]).status_code == 200
+    assert client.post("/rules/binned/restore", headers=hdr["editor"]).status_code == 200
+    assert _guard(s)["by"] == "lifecycle.restore"
+
+
+def test_importing_an_enabled_referrer_writes_the_variable_guard(world):
+    s, _client, _hdr = world
+    files = {"rules/imp.json": json.dumps(_rule("imp"))}
+    Definitions(s).import_files(files, "editor", apply=True)
+    assert _guard(s)["by"] == "definitions.import"
+
+
+def test_importing_a_referrer_of_a_deleted_variable_is_refused(world):
+    s, client, hdr = world
+    _delete(client, hdr["admin"], apply=True)
+    files = {"rules/imp.json": json.dumps(_rule("imp"))}
+    with pytest.raises(Invalid) as exc:
+        Definitions(s).import_files(files, "editor", apply=True)
+    assert exc.value.errors[0]["code"] == "variable_undefined"
+    assert s.get("rules", "imp") is None

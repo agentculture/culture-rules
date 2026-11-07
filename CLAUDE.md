@@ -398,7 +398,11 @@ Settled constraints that shape the architecture:
   disabled and soft-deleted referrers are listed in `not_blocking`). Applied,
   it appends a tombstone version (`deleted: true`) and one audit entry
   (`variables.delete`) in one transaction; `variables history` keeps every
-  version, and the variable then reads as undefined.
+  version, and the variable then reads as undefined. A per-variable guard
+  document (`variable_guards`), written by the delete and by every rule write
+  that leaves an enabled referrer (create, update, enable, restore, import),
+  serializes them: no enabled rule can end up referencing a deleted variable,
+  and enabling or restoring a referrer of one is refused (`variable_undefined`).
 - **The `culture-rules` CLI is a thin layer** over the HTTP API (except
   `node run`, which is the engine and uses the store directly). Writes are
   **dry-run by default**, `--apply` commits them, and every verb takes

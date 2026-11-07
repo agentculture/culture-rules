@@ -79,6 +79,17 @@ CURSOR_COLLECTION = "_cursors"
 VARIABLES_COLLECTION = "variables"
 """Collection holding shared variables (``put_variable`` and friends)."""
 
+VARIABLE_GUARDS_COLLECTION = "variable_guards"
+"""One document per shared variable name (id = the name), a concurrency guard only: a
+variable delete writes it in its transaction, and so does every rule write that leaves an
+enabled rule referencing the variable (save, enable, restore, import). Two transactions that
+write the same document are serialized by the store (on MongoDB a write conflict aborts one
+and its retry re-reads committed state), so a delete and such a rule write can never both
+commit past each other's check. See :func:`write_variable_guard`."""
+
+VARIABLE_DELETE_VERB = "variables.delete"
+"""The ``by`` of the guard document a variable delete writes."""
+
 EVENTS_COLLECTION = "events"
 """Collection holding every stored event envelope (see :mod:`culture_rules.events.ingest`)."""
 
@@ -130,6 +141,13 @@ class VariableVersionConflict(StoreError):
 VariableWriteHook = Callable[["StoreOps", Document, Document], None]
 """``on_write(tx, before, after)``: called inside a variable delete's transaction with the
 live version it retires and the tombstone it writes (e.g. to write the audit entry)."""
+
+
+def write_variable_guard(ops: StoreOps, name: str, *, by: str, at: str) -> None:
+    """Replace variable ``name``'s guard document (:data:`VARIABLE_GUARDS_COLLECTION`) through
+    ``ops``, a transaction's handle: ``{id: name, at, by}`` (``by`` the verb, ``at`` an
+    ISO-8601 time). Its content is a record only; the write itself is the guard."""
+    ops.put(VARIABLE_GUARDS_COLLECTION, {"id": name, "at": at, "by": by})
 
 
 def variable_tombstone(latest: Mapping[str, Any], deleted_by: str, now: Any) -> Document:
@@ -347,7 +365,11 @@ class StoragePort(StoreOps, Protocol):
 
         A compare-and-set on the version: :class:`VariableVersionConflict` when the latest
         version is not ``expected_version``. ``None`` (nothing written) when the variable
-        does not exist or is already deleted. ``on_write`` runs inside the same transaction.
+        does not exist or is already deleted. The same transaction writes the variable's
+        guard document (:func:`write_variable_guard`, ``by`` ``variables.delete``), and
+        ``on_write`` runs inside it too: raising there (e.g. an enabled referrer found
+        through the transaction) writes nothing at all, guard included. A transient
+        conflict re-runs the whole body, ``on_write`` included.
         A later :meth:`put_variable` defines it again as the next version.
         """
 

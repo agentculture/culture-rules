@@ -452,10 +452,18 @@ _VARIABLES_DELETE_NOTE = """
 as a dry run (`DELETE /variables/{name}?dry_run=true`), so the dry run shows the same refusal:
 409 `variable_in_use` (exit 1) naming each live, enabled rule whose condition or workflow
 inputs reference the variable. A disabled or soft-deleted rule does not block the delete; the
-answer lists it in `not_blocking`. Enabling or restoring such a rule later is not refused,
-but each firing fails closed (a `variable_undefined` skip on the rule's history) and saving
-it is refused (`variable_undefined`) until the variable is set again. An unknown or already
-deleted name is 404 (exit 1).
+answer lists it in `not_blocking`. Once the variable is deleted, enabling such a rule,
+restoring it enabled, saving or importing it enabled is refused (`variable_undefined`) until
+the variable is set again; disabling is never refused. An unknown or already deleted name is
+404 (exit 1).
+
+No enabled rule can end up referencing a deleted variable through these verbs (rule create,
+update, enable, restore, import and this delete), even when they race: an applied delete
+checks the referrers again inside its transaction and writes the variable's guard document
+(`variable_guards`), and every rule write that leaves an enabled rule referencing the
+variable checks it is defined and writes the same guard in its own transaction. The store
+serializes the two; the one that loses re-runs against what the other committed and is
+refused.
 
 Applied, the variable gets a tombstone version (`deleted: true`, value null, `updated_by` the
 caller) and one audit entry (`variables.delete`), in one transaction; nothing is erased.

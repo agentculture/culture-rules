@@ -126,7 +126,10 @@ On disk today:
   `variables_delete`) is a dry run unless applied, refused with 409 `variable_in_use` while
   a live, enabled rule references the variable (disabled and soft-deleted referrers are
   listed in `not_blocking`); applied, it appends a tombstone version and one audit entry,
-  and `variables history` keeps every version.
+  and `variables history` keeps every version. A per-variable guard document
+  (`variable_guards`), written by the delete and by every rule write that leaves an enabled
+  referrer, serializes them: no enabled rule can end up referencing a deleted variable, and
+  enabling or restoring a referrer of one is refused (`variable_undefined`).
 - State between runs (guide `docs/operations/keysets.md`): `keyset.filter` and
   `keyset.add` keep named key sets for a configured window (one document per key, TTL
   index, config-only rules); admin verbs `keysets list|show|clear`.
