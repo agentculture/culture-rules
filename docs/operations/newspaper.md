@@ -258,7 +258,7 @@ Each section is an object. Its keys:
 | `must` / `must_not` | no | terms a result's title or snippet must contain or must not contain (case-insensitive) |
 | `freshness` | no | `pd`, `pw`, `pm` or `py` (Brave's day, week, month or year); default any age |
 | `count` | no | results kept, 1 to 20 (default 5) |
-| `site_include` / `site_exclude` | no | hostnames; a hostname also matches its subdomains |
+| `site_include` / `site_exclude` | no | hostnames; a hostname also matches its subdomains. A result is checked by the host a browser opens: a link with a backslash, userinfo, a percent-escape or non-ASCII letters in its host part, or port 0, is dropped (write internationalised names in their `xn--` form) |
 
 Any other key is refused. An example value:
 

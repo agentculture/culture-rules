@@ -35,7 +35,10 @@ Input ``section`` (one section, normalised or raw: it is validated the same way,
 ``section``; inside the per-section ``for_each`` loop it arrives as the implicit ``item``
 port, read when ``section`` is absent; the derived ``query`` key is ignored) and ``results``
 (search.web's list). Output ``results``: :func:`filter_results` -
-only ``http``/``https`` URLs, deduplicated by URL (first wins), the must/must-not terms and
+only ``http``/``https`` URLs whose host is the one a browser opens (no backslash,
+userinfo, percent-escape or non-ASCII letters in the authority, a numeric port from 1; a
+trailing dot ignored: :func:`~culture_rules.node.actions._urls.browser_host`), deduplicated by
+URL (first wins), the must/must-not terms and
 the site lists applied, capped at the section's ``count``. The workflow runs it in the
 per-section loop, between ``search.web`` and ``llm.complete``, so the model sees only what
 the issue may show.

@@ -49,11 +49,9 @@ library only.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
-from urllib.parse import SplitResult, urlsplit
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.model.action_step import ENGINE_CONFIG_KEYS
@@ -66,23 +64,13 @@ from culture_rules.model.condition import (
     prepare,
     walk_path,
 )
+from culture_rules.node.actions._urls import browser_host
 
 __all__ = ["LIST_FILTER_BUILTIN", "ListFilterPort", "MAX_LIST_ITEMS", "list_filter"]
 
 LIST_FILTER_BUILTIN = "list.filter"
 #: The longest list the step takes (bounds the work of one run).
 MAX_LIST_ITEMS = 1_000
-_SCHEMES = ("http", "https")
-#: Control characters, lone surrogates and non-characters (whitespace is ``_SPACE``'s).
-_CONTROL = re.compile(r"[\x00-\x1f\x7f\ud800-\udfff\ufffe\uffff]")
-_SPACE = re.compile(r"\s")
-#: A host a browser opens as written: ASCII letters, digits, ``-``, ``_``, ``.`` only.
-_PLAIN_HOST = re.compile(r"[a-z0-9_.-]+", re.ASCII)
-#: The characters of an IPv6 address as ``urlsplit`` reports it (brackets removed); one
-#: character class, so the match is linear (it must also hold a colon, checked apart).
-_IPV6_CHARS = re.compile(r"[0-9a-f:.]+", re.ASCII)
-#: Authority characters on which ``urlsplit`` and a browser may disagree about the host.
-_AMBIGUOUS_AUTHORITY = ("@", "%")
 _SCALARS = (str, int, float)
 _CONFIG_KEYS = (
     "items",
@@ -125,37 +113,6 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _numeric_port(parts: SplitResult) -> bool:
-    """No port, or a port that is a number (``.port`` raises on anything else)."""
-    try:
-        return parts.port is None or parts.port >= 0
-    except ValueError:
-        return False
-
-
-def _http_host(url: Any) -> str | None:
-    """The lower-cased host of an ``http``/``https`` URL, else None (module doc, rule 1):
-    only when ``urlsplit``'s host is the host a browser would open."""
-    if not isinstance(url, str) or not url or "\\" in url:
-        return None
-    if _CONTROL.search(url) or _SPACE.search(url):
-        return None
-    try:
-        parts = urlsplit(url)
-        host = parts.hostname
-    except ValueError:
-        return None
-    if parts.scheme not in _SCHEMES or not host or not _numeric_port(parts):
-        return None
-    if not parts.netloc.isascii():
-        return None
-    if any(mark in parts.netloc for mark in _AMBIGUOUS_AUTHORITY):
-        return None
-    if _PLAIN_HOST.fullmatch(host) or (":" in host and _IPV6_CHARS.fullmatch(host)):
-        return host
-    return None
-
-
 class _Rules:
     """The validated config of one run."""
 
@@ -192,7 +149,7 @@ class _Rules:
         return limit
 
     def host(self, item: Any) -> str | None:
-        return _http_host(walk_path(item, self.host_from) if self.host_from else None)
+        return browser_host(walk_path(item, self.host_from) if self.host_from else None)
 
     def seen_key(self, item: Any) -> Any:
         """The value ``dedupe_by`` compares, or ``MISSING`` when the item has none."""

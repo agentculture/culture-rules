@@ -65,7 +65,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date as Date
 from typing import Any
-from urllib.parse import urlsplit
 
 from culture_rules.node.actions._epub import (
     ENCODING,
@@ -81,6 +80,7 @@ from culture_rules.node.actions._epub import (
     opf,
     pack,
 )
+from culture_rules.node.actions._urls import browser_host
 
 __all__ = [
     "DEFAULT_TITLE",
@@ -144,16 +144,10 @@ def _clean(value: Any, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + _ELLIPSIS
 
 
-def http_host(url: Any) -> str | None:
-    """The lower-cased host of an ``http``/``https`` URL, else None (no whitespace allowed)."""
-    if not isinstance(url, str) or not url or INVALID_XML.search(url) or re.search(r"\s", url):
-        return None
-    try:
-        parts = urlsplit(url)
-        host = parts.hostname
-    except ValueError:
-        return None
-    return host if parts.scheme in ("http", "https") and host else None
+http_host = browser_host
+"""The host of a link a browser would open, else None
+(:func:`~culture_rules.node.actions._urls.browser_host`; it also refuses every character XML
+forbids)."""
 
 
 def _format(text: str) -> str:

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.1] - 2026-11-07
+
+### Fixed
+
+- The newspaper link check (extensions/newspaper/render.py http_host) reads the host a browser opens: a backslash, userinfo (user@host), a percent-escape or non-ASCII letters in the authority, or a non-numeric port leaves a link with no host, so `http://evil.com\@good.com/x` no longer passes a `good.com` site allowlist while readers open evil.com. The rule list.filter got in 0.45.0 moves to core (node/actions/_urls.py browser_host) and both use it. One trailing dot is the same host (so `evil.com.` cannot slip past a site list), a backslash only counts in the authority, port 0 has no host, and a Unicode (non-ASCII) host is dropped rather than converted: the standard library's IDNA 2003 codec would map `ß` to `ss`; its `xn--` form is kept
+
 ## [0.45.0] - 2026-11-07
 
 ### Added
