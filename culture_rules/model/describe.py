@@ -62,33 +62,6 @@ CONDITION_WORDS_CAP = 120
 #: its own ``if``, so a caller that otherwise writes ``If <words>:`` tests for it first.
 CONDITION_FALLBACK = "if its condition holds"
 
-#: Core's built-in ``code`` steps (``config.builtin``): a gloss appended after the name, or a
-#: replacement name. ``action`` is handled separately (it reads as its action kind). An
-#: extension's built-in brings its own (``ext.builtin(..., phrase=...)``); :data:`BUILTIN_WORDS`
-#: reads both.
-_CORE_BUILTIN_WORDS: dict[str, str] = {
-    "select": "select: the outputs of the path that ran (one source for the next step)",
-    "json.read": "json.read: named fields from a JSON file under its root",
-    "checklist.merge": "checklist.merge: add new items, keep ids and done marks",
-    "checklist.set": "checklist.set: mark one item done or not, if newer",
-    "checklist.render": "checklist.render: the list as Markdown, with its revision",
-    "checklist.bind": "checklist.bind: record the pushed library item and revision",
-    "markdown.render": "markdown.render: fields as one Markdown page, the same bytes each time",
-    "markdown.from_html": "markdown.from_html: HTML as Markdown, whole and in chunks",
-    "document.sections": (
-        "document.sections: a document split at a heading, as headings, links and excerpts"
-    ),
-    "run.read": "run.read: a step's outputs from the run that started this one",
-    "cursor.advance": "cursor.advance: move a stored cursor on, only from the value read",
-    "keyset.filter": "keyset.filter: drop the items whose key a named set already holds",
-    "keyset.add": "keyset.add: remember the items' keys in a named set for a window",
-    "text.number": "text.number: number items into text using a template and separator",
-    "text.replace_refs": "text.replace_refs: swap each reference in a text for its item's text",
-    "text.validate": (
-        "text.validate: check text against configured rules, returning a verdict and reasons"
-    ),
-}
-
 _TO_CHANNEL = (("channel", "to {}"),)
 
 #: Core's action kinds: which literal params are worth a word, as ``(param, template)``. A
@@ -123,28 +96,19 @@ class _ActionWords(Mapping[str, tuple[tuple[Any, ...], ...]]):
 
 
 class _BuiltinWords(Mapping[str, str]):
-    """Per built-in, its gloss: core's, then the registered phrases (read live)."""
-
-    def _all(self) -> dict[str, str]:
-        registered = registry().builtin_phrases()
-        return {
-            **_CORE_BUILTIN_WORDS,
-            **{k: v for k, v in registered.items() if k not in _CORE_BUILTIN_WORDS},
-        }
-
-    def __contains__(self, name: object) -> bool:
-        return name in _CORE_BUILTIN_WORDS or name in registry().builtin_phrases()
+    """Per built-in ``code`` step (``config.builtin``), its gloss: the phrase it registered
+    with (``ext.builtin(..., phrase=...)``, core's and the extensions'), read live. A gloss is
+    appended after the name or replaces it; ``action`` is handled separately (it reads as its
+    action kind)."""
 
     def __getitem__(self, name: str) -> str:
-        if name in _CORE_BUILTIN_WORDS:
-            return _CORE_BUILTIN_WORDS[name]
         return registry().builtin_phrases()[name]
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._all())
+        return iter(registry().builtin_phrases())
 
     def __len__(self) -> int:
-        return len(self._all())
+        return len(registry().builtin_phrases())
 
 
 ACTION_WORDS: Mapping[str, tuple[tuple[Any, ...], ...]] = _ActionWords()
