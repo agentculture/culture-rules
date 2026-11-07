@@ -271,3 +271,219 @@ def test_a_catalogue_view_stays_live_across_uninstall_and_install():
     reg.uninstall("one")
     reg.install("two", lambda ext: ext.action_kind(kind("two.ping", "Ping two")))
     assert list(view) == ["two.ping"]
+
+
+# --------------------------------------------------------------------------- d9 seams
+
+
+def check_status(params, path):
+    return [(f"{path}.status", "acme_status", "no status")] if params.get("status") else []
+
+
+def admits_all(params, data, own):
+    del params, data, own
+    return True
+
+
+def admits_none(params, data, own):
+    del params, data, own
+    return False
+
+
+def no_problems(params, path):
+    del params, path
+    return []
+
+
+def filter_words(params):
+    return [f"({params.get('room')})"] if params.get("room") else []
+
+
+def guard_words(params):
+    del params
+    return ["(guarded)"]
+
+
+def health_rooms(store, now):
+    return [store, now]
+
+
+def reserve_acme(envelope):
+    return "acme is reserved" if envelope.get("type") == "acme.secret" else None
+
+
+ROLES = (("GET", "/actors/{actor_id}/acme/targets", "viewer"),)
+
+
+def acme_d9(ext):
+    ext.params_validator("acme.ping", check_status)
+    ext.trigger_filter("acme", match=admits_all, validate=no_problems, describe=filter_words)
+    ext.action_phrases("acme.ping", words=(("room", "in {}"),), after=guard_words)
+    ext.builtin("acme.tally", router_factory, phrase="acme.tally: count the things")
+    ext.health_section("rooms", health_rooms, empty=list)
+    ext.event_reservation("acme.secret", reserve_acme)
+    ext.api_routes("acme.targets", mount_routes, roles=ROLES)
+
+
+def test_the_d9_seams_register_and_read_back():
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    assert reg.params_validator("acme.ping") is check_status
+    assert reg.trigger_filter("acme.room.joined").describe is filter_words
+    assert reg.action_phrases("acme.ping").words == (("room", "in {}"),)
+    assert reg.builtin_phrases() == {"acme.tally": "acme.tally: count the things"}
+    assert [(s.name, s.empty()) for s in reg.health_sections()] == [("rooms", [])]
+    assert [r.check for r in reg.event_reservations()] == [reserve_acme]
+    assert reg.route_role("GET", "/actors/a1/acme/targets") == "viewer"
+
+
+def test_a_params_validator_follows_the_kinds_aliases():
+    reg = Registry()
+    reg.install("acme", acme)
+    reg.install("checks", lambda ext: ext.params_validator("acme.ping", check_status))
+    assert reg.params_validator("acme.legacy_ping") is check_status
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    ["acme", "acmex.room.joined", "other.acme.joined", "", "Acme.room.joined"],
+)
+def test_a_trigger_filter_covers_only_its_namespace(event_type):
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    assert reg.trigger_filter(event_type) is None
+
+
+def test_a_trigger_filter_covers_every_type_in_its_namespace():
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    assert reg.trigger_filter("acme.x").match is admits_all
+
+
+def test_trigger_filters_are_listed_in_registration_order():
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    reg.install("beta", lambda ext: ext.trigger_filter("beta", match=admits_none))
+    assert [f.namespace for f in reg.trigger_filters()] == ["acme", "beta"]
+
+
+def test_a_route_role_matches_only_its_method_and_path():
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    assert reg.route_role("POST", "/actors/a1/acme/targets") is None
+
+
+def test_a_route_role_matches_one_segment_per_placeholder():
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    assert reg.route_role("GET", "/actors/a/b/acme/targets") is None
+
+
+def test_health_sections_and_reservations_keep_registration_order():
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    reg.install(
+        "beta",
+        lambda ext: (
+            ext.health_section("beta", health_rooms),
+            ext.event_reservation("beta.secret", reserve_acme),
+        ),
+    )
+    assert [s.name for s in reg.health_sections()] == ["rooms", "beta"]
+    assert [r.name for r in reg.event_reservations()] == ["acme.secret", "beta.secret"]
+
+
+def test_a_health_sections_empty_value_defaults_to_none():
+    reg = Registry()
+    reg.install("beta", lambda ext: ext.health_section("beta", health_rooms))
+    assert reg.health_sections()[0].empty() is None
+
+
+def test_installing_the_d9_seams_twice_is_a_no_op():
+    reg = Registry()
+    reg.install("acme", lambda ext: (acme_d9(ext), acme_d9(ext)))
+    assert len(reg.health_sections()) == 1
+
+
+@pytest.mark.parametrize(
+    "register",
+    [
+        lambda ext: ext.params_validator("acme.ping", no_problems),
+        lambda ext: ext.trigger_filter("acme", match=admits_none),
+        lambda ext: ext.action_phrases("acme.ping", words=()),
+        lambda ext: ext.builtin("acme.tally", router_factory, phrase="another"),
+        lambda ext: ext.health_section("rooms", health_rooms, empty=dict),
+        lambda ext: ext.event_reservation("acme.secret", lambda envelope: None),
+    ],
+    ids=["validator", "filter", "phrases", "builtin-phrase", "health", "reservation"],
+)
+def test_a_conflicting_d9_entry_is_refused(register):
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    with pytest.raises(ExtensionError, match="already registered by extension 'acme'"):
+        reg.install("rival", register)
+
+
+@pytest.mark.parametrize(
+    "register",
+    [
+        lambda ext: ext.params_validator("", check_status),
+        lambda ext: ext.params_validator("acme.ping", "not callable"),
+        lambda ext: ext.trigger_filter("acme.room", match=admits_all),
+        lambda ext: ext.trigger_filter("Acme", match=admits_all),
+        lambda ext: ext.trigger_filter("acme", match=None),
+        lambda ext: ext.action_phrases("acme.ping", words=(("room",),)),
+        lambda ext: ext.action_phrases("acme.ping", words=(("room", 3),)),
+        lambda ext: ext.health_section("status", health_rooms),
+        lambda ext: ext.health_section("rooms", "not callable"),
+        lambda ext: ext.event_reservation("", reserve_acme),
+        lambda ext: ext.api_routes("a", mount_routes, roles=(("GET", "/x", "owner"),)),
+        lambda ext: ext.api_routes("a", mount_routes, roles=(("FETCH", "/x", "viewer"),)),
+        lambda ext: ext.api_routes("a", mount_routes, roles=(("GET", "x", "viewer"),)),
+    ],
+    ids=[
+        "validator-empty-kind",
+        "validator-not-callable",
+        "filter-dotted-namespace",
+        "filter-uppercase-namespace",
+        "filter-no-match",
+        "phrases-no-template",
+        "phrases-template-not-text",
+        "health-core-section",
+        "health-not-callable",
+        "reservation-empty-name",
+        "role-unknown",
+        "role-bad-method",
+        "role-relative-path",
+    ],
+)
+def test_a_malformed_d9_registration_is_refused(register):
+    reg = Registry()
+    with pytest.raises(ExtensionError):
+        reg.install("bad", register)
+
+
+def test_uninstall_removes_the_d9_entries():
+    reg = Registry()
+    reg.install("acme", acme_d9)
+    reg.uninstall("acme")
+    assert reg.params_validator("acme.ping") is None
+    assert reg.trigger_filter("acme.room.joined") is None
+    assert reg.action_phrases("acme.ping") is None
+    assert reg.builtin_phrases() == {}
+    assert reg.health_sections() == ()
+    assert reg.event_reservations() == ()
+    assert reg.route_role("GET", "/actors/a1/acme/targets") is None
+
+
+def test_a_refused_install_rolls_the_d9_entries_back():
+    reg = Registry()
+    reg.install("acme", acme_d9)
+
+    def half(ext):
+        ext.health_section("beta", health_rooms)
+        ext.params_validator("acme.ping", no_problems)  # conflicts: the install rolls back
+
+    with pytest.raises(ExtensionError):
+        reg.install("rival", half)
+    assert [s.name for s in reg.health_sections()] == ["rooms"]
