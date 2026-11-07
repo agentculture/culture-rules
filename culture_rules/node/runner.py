@@ -14,15 +14,13 @@ Production wiring done by :func:`run_node`:
   ``CULTURE_RULES_REPORT_CHANNEL`` (unset: no reporter) through the agent mesh
   (``culture channel message``) when ``culture`` is on PATH, else to the log.
 * **Logs** - :func:`~culture_rules.ops.logs.configure_logging` with the node's host.
-* **Built-in code steps** - a ``code`` step with no actor runs the built-in named by its
-  ``config.builtin`` (:class:`BuiltinCodePort`), among them ``select``,
-  ``newspaper.sections``, ``newspaper.filter``, ``newspaper.render`` and ``newspaper.issue``
-  (#53, the daily newspaper, :mod:`culture_rules.node.actions.newspaper`), ``keyset.filter``
-  and ``keyset.add`` (named sets of keys remembered for a window,
-  :mod:`culture_rules.node.actions.keyset`), ``text.number``
-  (:mod:`culture_rules.node.actions.text_steps`), ``text.replace_refs``
-  (:mod:`culture_rules.node.actions.text_refs`), ``text.validate``
-  (:mod:`culture_rules.node.actions.text_validate`) and ``action`` (d12), which never
+* **Ports** - :func:`default_ports` serves every action port and built-in code step the
+  extension registry holds (:mod:`culture_rules.extensions`; the built-in apps' are in
+  :mod:`culture_rules.extensions.builtin`).
+* **Built-in code steps** - a ``code`` step with no actor runs the registered built-in named
+  by its ``config.builtin`` (:class:`BuiltinCodePort`), among them ``select``,
+  ``keyset.filter``, ``keyset.add``, ``text.number``, ``text.replace_refs``,
+  ``text.validate`` and the ``newspaper.*`` steps; ``action`` (d12) is reserved and never
   reaches this port: the executor routes a ``builtin: action`` step exactly like a rule's
   terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
@@ -43,6 +41,7 @@ from culture_rules.engine.reports import RunReporter
 from culture_rules.events.emit import Emitter, engine_app_source
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.events.source import EventFabricError, EventSource
+from culture_rules.extensions import registry
 from culture_rules.model.action_step import ACTION_BUILTIN
 from culture_rules.node.mesh import MeshPoster
 from culture_rules.ops.logs import configure_logging
@@ -244,170 +243,29 @@ class BuiltinCodePort:
 
 
 def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
-    """Action ports for every catalogued kind (stored actors are wired by the router).
+    """Action ports for every registered kind (stored actors are wired by the router).
 
-    A port whose extra is missing (the ``github.*`` kinds need ``cryptography``) is replaced
-    by one that fails ``extra_missing``. Detection uses ``find_spec``: nothing is imported.
-    ``code`` serves actor-less code steps through :class:`BuiltinCodePort`.
-    ``action:audio.transcribe`` (:class:`~culture_rules.node.actions.stt.AudioTranscribePort`)
-    sends an audio file under the actor's ``audio_root`` to its OpenAI-compatible STT endpoint,
-    split into windows with ffmpeg on this host, and writes the transcript under
-    ``output_root``; it needs ``ffmpeg``/``ffprobe`` on PATH only when it runs.
-    ``action:transcript.render`` (``node.actions.transcript_render.TranscriptRenderPort``)
-    renders one transcript under the transcripts root, with its summary, as an EPUB (stdlib).
-    ``action:decider.assess`` (``node.actions.decider.DeciderAssessPort``) asks the mesh's
-    decider for probabilities over a step's questions (``/v1/systemone``, stdlib).
-    ``action:repodocs.sync`` (``node.actions.repodocs.RepodocsSyncPort``) pushes every top-level
-    repo's devague record into the library its actor describes (git + stdlib HTTP, #124).
+    Read from the extension registry (:func:`culture_rules.extensions.registry`): each
+    registered action port serves ``action:<kind>`` and the kind's legacy aliases (one
+    instance), and ``code`` serves actor-less code steps through :class:`BuiltinCodePort`
+    with every registered built-in. A port whose extra is missing (the ``github.*`` kinds
+    need ``cryptography``) is replaced by one that fails ``extra_missing``; detection uses
+    ``find_spec``, so nothing is imported. The built-in apps' ports are listed in
+    :mod:`culture_rules.extensions.builtin`.
     """
     del host
-    from culture_rules.node.actions import checklist  # noqa: PLC0415
-    from culture_rules.node.actions.attachment_fetch import (  # noqa: PLC0415
-        ATTACHMENT_FETCH_BUILTIN,
-        AttachmentFetchPort,
-    )
-    from culture_rules.node.actions.cursor import (  # noqa: PLC0415
-        CURSOR_ADVANCE_BUILTIN,
-        CursorAdvancePort,
-    )
-    from culture_rules.node.actions.decider import DeciderAssessPort  # noqa: PLC0415
-    from culture_rules.node.actions.discord_react import DiscordReactAction  # noqa: PLC0415
-    from culture_rules.node.actions.discord_read import DiscordReadAction  # noqa: PLC0415
-    from culture_rules.node.actions.discord_reply import DiscordReplyAction  # noqa: PLC0415
-    from culture_rules.node.actions.discord_sweep import DiscordSweepAction  # noqa: PLC0415
-    from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
-    from culture_rules.node.actions.github import (  # noqa: PLC0415
-        GitHubCommentPort,
-        GitHubPrHeadPort,
-        GitHubPrPort,
-    )
-    from culture_rules.node.actions.github_merge import GitHubMergePort  # noqa: PLC0415
-    from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
-    from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
-    from culture_rules.node.actions.json_read import (  # noqa: PLC0415
-        JSON_READ_BUILTIN,
-        JsonReadPort,
-    )
-    from culture_rules.node.actions.keyset import (  # noqa: PLC0415
-        KEYSET_ADD_BUILTIN,
-        KEYSET_FILTER_BUILTIN,
-        KeysetAddPort,
-        KeysetFilterPort,
-    )
-    from culture_rules.node.actions.library import LibraryPushPort  # noqa: PLC0415
-    from culture_rules.node.actions.llm import LlmCompletePort  # noqa: PLC0415
-    from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
-    from culture_rules.node.actions.markdown_html import (  # noqa: PLC0415
-        FROM_HTML_BUILTIN,
-        MarkdownFromHtmlPort,
-    )
-    from culture_rules.node.actions.markdown_render import (  # noqa: PLC0415
-        MARKDOWN_RENDER_BUILTIN,
-        MarkdownRenderPort,
-    )
-    from culture_rules.node.actions.message import (  # noqa: PLC0415
-        DiscordMessageAction,
-        MessageAction,
-    )
-    from culture_rules.node.actions.newspaper import (  # noqa: PLC0415
-        FILTER_BUILTIN,
-        ISSUE_BUILTIN,
-        RENDER_BUILTIN,
-        SECTIONS_BUILTIN,
-        NewspaperFilterPort,
-        NewspaperIssuePort,
-        NewspaperRenderPort,
-        NewspaperSectionsPort,
-    )
-    from culture_rules.node.actions.repodocs import RepodocsSyncPort  # noqa: PLC0415
-    from culture_rules.node.actions.run_read import RUN_READ_BUILTIN, RunReadPort  # noqa: PLC0415
-    from culture_rules.node.actions.search import SearchWebPort  # noqa: PLC0415
-    from culture_rules.node.actions.sections import (  # noqa: PLC0415
-        SECTIONS_BUILTIN as DOCUMENT_SECTIONS_BUILTIN,
-    )
-    from culture_rules.node.actions.sections import DocumentSectionsPort  # noqa: PLC0415
-    from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort  # noqa: PLC0415
-    from culture_rules.node.actions.stt import AudioTranscribePort  # noqa: PLC0415
-    from culture_rules.node.actions.text_refs import (  # noqa: PLC0415
-        TEXT_REPLACE_REFS_BUILTIN,
-        TextReplaceRefsPort,
-    )
-    from culture_rules.node.actions.text_steps import (  # noqa: PLC0415
-        TEXT_NUMBER_BUILTIN,
-        TextNumberPort,
-    )
-    from culture_rules.node.actions.text_validate import (  # noqa: PLC0415
-        TEXT_VALIDATE_BUILTIN,
-        TextValidatePort,
-    )
-    from culture_rules.node.actions.transcript_render import (  # noqa: PLC0415
-        TranscriptRenderPort,
-    )
-
-    message = MessageAction(store)
-    has_github = importlib.util.find_spec("cryptography") is not None
-    github: Any = GitHubCommentPort(store) if has_github else MissingExtraPort("github")
-    merge: Any = GitHubMergePort(store) if has_github else MissingExtraPort("github")
-    pr_read: Any = GitHubPrPort(store) if has_github else MissingExtraPort("github")
-    head: Any = GitHubPrHeadPort(store) if has_github else MissingExtraPort("github")
-    return {
-        "action:noop": NoopAction(),
-        "action:github.pr_head": head,  # not a rule action: the wait guard's head lookup
-        "action:message": message,
-        "action:mesh.message": message,  # legacy alias of message
-        "action:discord.message": DiscordMessageAction(store),
-        "action:discord.read": DiscordReadAction(store),  # one message in full + attachments
-        "action:discord.react": DiscordReactAction(store),  # the bot's reaction on a message
-        "action:discord.reply": DiscordReplyAction(store),  # a command's private answer
-        "action:discord.sweep": DiscordSweepAction(store),  # a channel since its cursor
-        "action:github.comment": github,
-        "action:github.pr": pr_read,  # the PR's facts, read only
-        "action:github.merge": merge,  # the one merge: a click carrying the button's one-time code
-        "action:jira.comment": JiraCommentPort(store),
-        "action:email.send": EmailSendPort(store),  # #53: Resend
-        "action:search.web": SearchWebPort(store),  # #53: Brave
-        "action:llm.complete": LlmCompletePort(store),  # #53: OpenAI-compatible, no tools
-        "action:library.push": LibraryPushPort(
-            store
-        ),  # #53, #86: upload to the actor's library (+ queue)
-        "action:audio.transcribe": AudioTranscribePort(store),  # file-in STT, split by ffmpeg
-        "action:transcript.render": TranscriptRenderPort(store),  # one transcript as an EPUB
-        "action:decider.assess": DeciderAssessPort(store),  # the mesh decider: probabilities
-        "action:repodocs.sync": RepodocsSyncPort(store),  # #124: repos' devague record -> library
-        "action:http.call": HttpCallPort(store),
-        "action:machine.command": MachineCommandPort(store),
-        "code": BuiltinCodePort(
-            {
-                SECTIONS_BUILTIN: NewspaperSectionsPort(),  # #53: the daily newspaper
-                FILTER_BUILTIN: NewspaperFilterPort(),
-                RENDER_BUILTIN: NewspaperRenderPort(),
-                ISSUE_BUILTIN: NewspaperIssuePort(store),  # one issue per local date
-                SELECT_BUILTIN: SelectPort(),  # first available source
-                JSON_READ_BUILTIN: JsonReadPort(),  # named fields from a JSON file under a root
-                MARKDOWN_RENDER_BUILTIN: MarkdownRenderPort(),  # fields as one Markdown page
-                FROM_HTML_BUILTIN: MarkdownFromHtmlPort(),  # HTML as Markdown, in chunks
-                DOCUMENT_SECTIONS_BUILTIN: DocumentSectionsPort(),  # a document split at a heading
-                RUN_READ_BUILTIN: RunReadPort(store),  # a step's outputs from an earlier run
-                ATTACHMENT_FETCH_BUILTIN: AttachmentFetchPort(),  # pdf/epub/md to files (d7, d10)
-                CURSOR_ADVANCE_BUILTIN: CursorAdvancePort(store),  # compare-and-set a cursor
-                KEYSET_FILTER_BUILTIN: KeysetFilterPort(store),  # drop items whose key was seen
-                KEYSET_ADD_BUILTIN: KeysetAddPort(store),  # remember items' keys for a window
-                TEXT_NUMBER_BUILTIN: TextNumberPort(),  # numbered lines from items
-                TEXT_REPLACE_REFS_BUILTIN: TextReplaceRefsPort(),  # swap refs for items' text
-                TEXT_VALIDATE_BUILTIN: TextValidatePort(),  # check a text against rules
-                checklist.MERGE_BUILTIN: checklist.ChecklistMergePort(
-                    store
-                ),  # stored lists, stable ids
-                checklist.SET_BUILTIN: checklist.ChecklistSetPort(store),  # a newer flip wins
-                checklist.RENDER_BUILTIN: checklist.ChecklistRenderPort(
-                    store
-                ),  # Markdown + revision
-                checklist.BIND_BUILTIN: checklist.ChecklistBindPort(
-                    store
-                ),  # pushed item + revision
-            }
-        ),
-    }
+    reg = registry()
+    ports: dict[str, Any] = {}
+    for entry in reg.action_ports():
+        port: Any
+        if entry.needs_module and importlib.util.find_spec(entry.needs_module) is None:
+            port = MissingExtraPort(entry.extra or entry.needs_module)
+        else:
+            port = entry.factory(store)
+        for name in (entry.kind, *reg.aliases(entry.kind)):
+            ports.setdefault(f"action:{name}", port)
+    ports["code"] = BuiltinCodePort({b.name: b.factory(store) for b in reg.builtins()})
+    return ports
 
 
 def run_node(host: str | None = None, *, once: bool = False, idle: float = 1.0) -> dict[str, Any]:

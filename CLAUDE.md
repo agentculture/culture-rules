@@ -354,6 +354,15 @@ Settled constraints that shape the architecture:
   own, with **zero third-party runtime dependencies**. Everything third-party
   sits behind an optional extra and is imported lazily: `server`, `store`,
   `mcp`, `events`, `yaml`, `backup`, `agent`.
+- **Apps plug in through one registry**, `culture_rules/extensions`
+  (stdlib only): an extension's `register(ext)` adds action kinds (their
+  `ParamSpec`s), action ports, built-in code steps, event types, webhook
+  routes (`POST /hooks/...`) and node listeners. `ACTION_KINDS`,
+  `default_ports`, the API's webhook routes and the node's listeners read
+  `registry()`; the built-in apps register in
+  `culture_rules/extensions/builtin.py`, every factory imported lazily.
+  The app modules themselves still live under `apps/`, `node/` and
+  `server/hooks/`.
 - **The `culture-rules` CLI is a thin layer** over the HTTP API (except
   `node run`, which is the engine and uses the store directly). Writes are
   **dry-run by default**, `--apply` commits them, and every verb takes

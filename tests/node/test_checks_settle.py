@@ -855,7 +855,7 @@ def test_node_wires_the_settler_to_its_own_machine():
     _arm_pending(store, clock)
     node = Node(store, "thor", clock=clock, resolve_secret=NoSecret())
     clock.now = T0 + timedelta(seconds=61)
-    assert node.settler.tick() == 0
+    assert node.listeners["github.checks_settle"].settler.tick() == 0
     assert settled(store) == []
     assert not store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}").get("polls")
 

@@ -51,17 +51,22 @@ has a device queue (culture-rules#86).
 ``repodocs.sync`` pushes the devague record (specs, plans, deliveries, designs, ``.devague``) of
 every top-level repo under its service actor's ``repos_root`` to the library the actor
 describes (culture-rules#124); everything but the actor is the actor's params.
-Standard-library only.
+
+Which kinds exist is the extension registry's (:mod:`culture_rules.extensions`):
+:data:`ACTION_KINDS` is a live view over it, and the kinds above are
+:data:`BUILTIN_KINDS`, registered by the built-in apps. Standard-library only.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from culture_rules.extensions import registry
 from culture_rules.model.refs import REF_KEY, is_reference, structured_form
 
-__all__ = ["ACTION_KINDS", "ActionKind", "ParamSpec", "param_type_ok"]
+__all__ = ["ACTION_KINDS", "BUILTIN_KINDS", "ActionKind", "ParamSpec", "param_type_ok"]
 
 
 @dataclass(frozen=True)
@@ -290,17 +295,35 @@ _KINDS = (
     ),
 )
 
-ACTION_KINDS: dict[str, ActionKind] = {k.name: k for k in _KINDS}
+BUILTIN_KINDS: dict[str, ActionKind] = {k.name: k for k in _KINDS}
+"""The built-in kinds' typed params, by name; the built-in extensions register them
+(:mod:`culture_rules.extensions.builtin`), each with the app it belongs to."""
 
-#: Legacy names accepted as aliases of a catalogued kind (web editor placeholder).
-_ALIASES = {"mesh.message": "message"}
-#: ``message`` is lenient: channel/text are not enforced so the legacy placeholder passes.
-_LENIENT = frozenset({"message"})
+
+class _Catalogue(Mapping[str, ActionKind]):
+    """The registered kinds, read live from :func:`culture_rules.extensions.registry`."""
+
+    def __getitem__(self, name: str) -> ActionKind:
+        return registry().action_kinds()[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(tuple(registry().action_kinds()))
+
+    def __len__(self) -> int:
+        return len(registry().action_kinds())
+
+    def __repr__(self) -> str:
+        return f"ACTION_KINDS({list(self)!r})"
+
+
+ACTION_KINDS: Mapping[str, ActionKind] = _Catalogue()
+"""Every registered action kind, ``name -> ActionKind`` in registration order (a live view
+over the extension registry; the built-in apps register theirs on first use)."""
 
 
 def resolve_kind(kind: str) -> ActionKind | None:
     """The catalogue entry for ``kind`` (aliases resolved), or ``None`` if unknown."""
-    return ACTION_KINDS.get(_ALIASES.get(kind, kind))
+    return registry().resolve_kind(kind)
 
 
 def _is_dynamic(value: Any) -> bool:
@@ -326,5 +349,6 @@ def param_type_ok(spec: ParamSpec, value: Any) -> bool:
 
 
 def is_lenient(kind: str) -> bool:
-    """Whether the kind's required params are not enforced (legacy-tolerant kinds)."""
-    return _ALIASES.get(kind, kind) in _LENIENT
+    """Whether the kind's required params are not enforced (legacy-tolerant kinds: ``message``
+    and its alias ``mesh.message``, so the legacy placeholder passes)."""
+    return registry().is_lenient(kind)

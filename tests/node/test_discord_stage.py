@@ -63,7 +63,7 @@ class Mesh:
     def close(self) -> None:
         for n in self.nodes.values():
             n.close()
-            assert not n.gateways.threads_alive()
+            assert not n.listeners["discord.gateway"].supervisor.threads_alive()
 
 
 @pytest.fixture
@@ -162,7 +162,7 @@ def test_run_closes_the_gateway_on_exit(mesh):
     a = m.nodes["spark"]
     a.run(idle=0.0, max_cycles=1)
     assert m.hub.live_now() == []
-    assert not a.gateways.threads_alive()
+    assert not a.listeners["discord.gateway"].supervisor.threads_alive()
     assert m.holder() is None
 
 
@@ -245,7 +245,7 @@ def test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing():
         _two_bots_flow(node, base, events, post)
     finally:
         node.close()
-        assert not node.gateways.threads_alive()
+        assert not node.listeners["discord.gateway"].supervisor.threads_alive()
 
 
 def _two_bots_flow(node, base, events, post) -> None:
