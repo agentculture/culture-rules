@@ -434,7 +434,7 @@ class Node:
             self._stage(report, self._expire_holds, report)
             for name, listener in self.listeners.items():
                 if name not in self._quiet:
-                    self._stage(report, listener.tick, report)
+                    self._stage(report, listener.tick, report, name=name)
             for consumer in self.firing.consumers:
                 self._stage(report, self._poll, consumer, report)
             self._stage(report, self._start_fired, report)
@@ -445,13 +445,18 @@ class Node:
                 self._stage(report, self._report, report)
         return report
 
-    def _stage(self, report: CycleReport, fn: Callable[..., Any], *args: Any) -> None:
+    def _stage(
+        self, report: CycleReport, fn: Callable[..., Any], *args: Any, name: str | None = None
+    ) -> None:
+        """Run one stage; a failure is recorded and logged under ``name`` (a listener's
+        registry name), else the stage function's own name, and the cycle goes on."""
         try:
             fn(*args)
         except Exception as exc:  # noqa: BLE001 - a node keeps going; recorded and retried
             self.errors.append(exc)
-            report.errors.append(f"{type(exc).__name__}: {exc}")
-            log.warning("node %s stage %s failed: %s", self.host, fn.__name__, exc)
+            prefix = f"{name}: " if name else ""  # a listener's failure says which listener
+            report.errors.append(f"{prefix}{type(exc).__name__}: {exc}")
+            log.warning("node %s stage %s failed: %s", self.host, name or fn.__name__, exc)
 
     def _beat_if_due(self, report: CycleReport) -> None:
         now = self._clock()

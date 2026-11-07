@@ -171,3 +171,28 @@ def test_the_node_ticks_and_closes_the_fake_listener(fake):
 
 def test_the_node_creates_the_fake_collections(fake):
     assert COLLECTION in node_collections()
+
+
+class _FailingListener:
+    def __init__(self, ctx):
+        del ctx
+
+    def tick(self, report):
+        raise RuntimeError("boom")
+
+
+@pytest.fixture
+def failing():
+    registry().install("failing", lambda ext: ext.node_listener("failing.poller", _FailingListener))
+    yield
+    registry().uninstall("failing")
+
+
+def test_a_failing_listener_is_reported_by_its_name(failing):
+    beats = HeartbeatOptions(
+        probe=lambda: ProbeResult(tools={}), load_reader=dict, engine_version="test"
+    )
+    node = Node(MemoryStore(), "spark", heartbeat_options=beats)
+    report = node.run_once()
+    node.close()
+    assert "failing.poller: RuntimeError: boom" in report.errors

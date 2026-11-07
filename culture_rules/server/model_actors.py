@@ -193,6 +193,12 @@ class RepointRequest(BaseModel):
     expected_revision: int | None = Field(
         default=None, description="the workflow revision read; missing or stale is 409"
     )
+    force: bool | None = Field(
+        default=None,
+        deprecated=True,
+        description="ignored: accepted from clients before 0.44.0, which always send it; "
+        "no workflow is pinned, so nothing is ever forced",
+    )
     dry_run: bool = Field(True, description="true = plan only, write nothing")
 
 

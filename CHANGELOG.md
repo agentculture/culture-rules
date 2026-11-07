@@ -21,7 +21,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Removed the dead workflow-trust path: `trusted.pinned_digest`, `workflows repoint-actor`'s `workflow_trusted` 409 and `--force` (now refused by the CLI; a `force` field is a 422), and the editor's "Move anyway" phase. The workflow and actor digests and the github-app pin remain
+- Removed the dead workflow-trust path: `trusted.pinned_digest`, `workflows repoint-actor`'s `workflow_trusted` 409 and `--force` (the CLI refuses the flag; the API still accepts and ignores a `force` field, which clients before 0.44.0 always send), and the editor's "Move anyway" phase. The workflow and actor digests and the github-app pin remain
 
 ## [0.43.0] - 2026-11-07
 

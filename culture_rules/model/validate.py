@@ -54,7 +54,7 @@ from culture_rules.model.refs import (
 )
 from culture_rules.model.rule import TRIGGER_KINDS, Rule, Trigger, WorkflowRef
 from culture_rules.model.variable import VALID_VARIABLE_NAME_RE
-from culture_rules.model.variable_refs import condition_variable_refs
+from culture_rules.model.variable_refs import condition_variable_refs, rule_field
 from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
 
 __all__ = [
@@ -140,10 +140,6 @@ def validate(obj: Any, *, stored: bool = False) -> list[ValidationError]:
     return errors
 
 
-def _rule_part(obj: Any, name: str) -> Any:
-    return obj.get(name) if isinstance(obj, Mapping) else getattr(obj, name, None)
-
-
 def variable_ref_errors(
     rule: Rule | Mapping[str, Any], defined: Collection[str]
 ) -> list[ValidationError]:
@@ -156,7 +152,7 @@ def variable_ref_errors(
     and a stored one is refused at enable and restore with the same errors.
     """
     errors: Errors = []
-    missing = sorted(condition_variable_refs(_rule_part(rule, "condition")) - set(defined))
+    missing = sorted(condition_variable_refs(rule_field(rule, "condition")) - set(defined))
     if missing:
         names = ", ".join(repr(n) for n in missing)
         _err(
@@ -165,7 +161,7 @@ def variable_ref_errors(
             "variable_undefined",
             f"the condition references undefined shared variable(s): {names}",
         )
-    inputs = _rule_part(_rule_part(rule, "workflow"), "inputs")
+    inputs = rule_field(rule_field(rule, "workflow"), "inputs")
     for input_name, mapping in sorted(inputs.items() if isinstance(inputs, Mapping) else ()):
         name = var_name(mapping)
         if name is not None and name not in defined:

@@ -125,12 +125,32 @@ const enabled = (a: Actor) => a.enabled !== false;
 const commandsOf = (a?: Actor) => (a?.params as RunnerActorParams | undefined)?.commands ?? {};
 
 /** A param of an actor holds something: a non-empty string or list (a dotted path reads nested objects). */
-function actorHas(a: Actor, path: string): boolean {
+function actorParam(a: Actor, path: string): unknown {
   let at: unknown = a.params;
   for (const key of path.split(".")) {
     at = isJsonObject(at) ? at[key] : undefined;
   }
-  return typeof at === "string" ? at !== "" : Array.isArray(at) && at.length > 0;
+  return at;
+}
+
+/** An actor clause's `has`/`has_any`: a non-empty string, list or mapping. */
+function actorHas(a: Actor, path: string): boolean {
+  const at = actorParam(a, path);
+  if (typeof at === "string") return at !== "";
+  if (Array.isArray(at)) return at.length > 0;
+  return isJsonObject(at) && Object.keys(at).length > 0;
+}
+
+/**
+ * A param's `needs_actor_param`: the actor provides that value. Any string counts (an empty
+ * `queue_path` still means a queue, as before), a list or mapping counts when non-empty.
+ */
+function actorProvides(a: Actor, path: string): boolean {
+  const at = actorParam(a, path);
+  if (at === undefined || at === null) return false;
+  if (Array.isArray(at)) return at.length > 0;
+  if (isJsonObject(at)) return Object.keys(at).length > 0;
+  return true;
 }
 
 function matches(a: Actor, kind: string, c: ActorClause): boolean {
@@ -155,6 +175,11 @@ export function actorsFor(kind: string, actors: Actor[], catalogue?: ActionCatal
 
 /** Kinds whose server and channel are picked from what the bot can see (a `discord_channel` param). */
 const hasTargetPicker = (spec: ActionKindSpec | undefined) => !!spec?.params.some((p) => p.widget === "discord_channel");
+
+/** On an actor change, the channel params (widget `discord_channel`) cleared by their own
+ * names: the new bot may not see the old bot's channel. A kind with none clears nothing. */
+export const clearedTargets = (spec: ActionKindSpec | undefined): Record<string, undefined> =>
+  Object.fromEntries((spec?.params ?? []).filter((p) => p.widget === "discord_channel").map((p) => [p.name, undefined]));
 
 /** A kind that needs no actor is always offered; every other needs one enabled actor that supports it. */
 const offered = (spec: ActionKindSpec, actors: Actor[], catalogue: ActionCatalogue) =>
@@ -690,7 +715,7 @@ const clearedWithActor = (spec: ActionKindSpec): Record<string, undefined> =>
 
 /** A param the chosen actor makes moot: it is shown only when the actor has `needs_actor_param` set. */
 function hiddenForActor(p: ActionParam, actor: Actor | undefined): boolean {
-  return !!p.needs_actor_param && !!actor && !actorHas(actor, p.needs_actor_param);
+  return !!p.needs_actor_param && !!actor && !actorProvides(actor, p.needs_actor_param);
 }
 
 /**
@@ -709,7 +734,7 @@ function actorCarryOver(
     if (p.options_from) {
       out[p.name] = actorChoices(actor, p.options_from).some((cc) => cc.value === params[p.name]) ? params[p.name] : undefined;
     } else if (p.needs_actor_param) {
-      out[p.name] = actor && actorHas(actor, p.needs_actor_param) ? params[p.name] : undefined;
+      out[p.name] = actor && actorProvides(actor, p.needs_actor_param) ? params[p.name] : undefined;
     }
   }
   return out;
@@ -1121,7 +1146,7 @@ function Picker({
                 ...params,
                 actor: e.target.value || undefined,
                 ...clearedWithActor(spec),
-                channel: hasTargetPicker(spec) ? undefined : params.channel,
+                ...clearedTargets(spec),
                 ...actorCarryOver(spec, params, actors.find((a) => a.id === e.target.value)),
               })
             }

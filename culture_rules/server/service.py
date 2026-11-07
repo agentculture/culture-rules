@@ -219,7 +219,6 @@ class _RuleRef:
 
     def __init__(self, rule_id: str, doc: Mapping[str, Any]) -> None:
         self.id = rule_id
-        self.doc = doc
         self.condition = doc.get("condition")
         self.workflow = doc.get("workflow")
 
@@ -516,11 +515,11 @@ class Definitions:
         (``variable_undefined``) or an online node lacks variable support
         (``variables_unsupported_nodes``, d7), then write each referenced variable's guard
         (:func:`_guard_variables`)."""
-        errors = [e.to_dict() for e in variable_ref_errors(ref.doc, defined_variables(tx))]
+        errors = [e.to_dict() for e in variable_ref_errors(ref, defined_variables(tx))]
         errors += _old_node_errors([ref], nodes_without_variables(tx, self._clock()))
         if errors:
             raise Invalid(refusal, errors)
-        _guard_variables(tx, ref.doc, verb=verb, at=self._clock().isoformat())
+        _guard_variables(tx, ref, verb=verb, at=self._clock().isoformat())
 
     @mutating_verb("definitions.migrate_notes", "Move workflow and step descriptions to notes")
     def migrate_notes(self, identity: str, *, apply: bool = False) -> list[dict[str, Any]]:
@@ -1018,13 +1017,11 @@ class Variables:
         raise Conflict(f"variables/{name}: too many concurrent writers, try again")
 
     def history(self, name: str) -> list[Document]:
-        """Every version, oldest first (the store is append-only, so versions are 1..latest).
-        A deleted variable keeps its history: the last version is the delete's tombstone
+        """Every stored version, oldest first, in one store read (gaps kept as stored). A
+        deleted variable keeps its history: the last version is the delete's tombstone
         (``deleted`` true, value null, ``updated_by`` the admin who deleted it)."""
         self._checked(name)
-        out: list[Document] = []
-        while (doc := self._store.get_variable_version(name, len(out) + 1)) is not None:
-            out.append(doc)
+        out = self._store.variable_versions(name)
         if not out:
             raise NotFound(f"variables/{name} does not exist")
         return out

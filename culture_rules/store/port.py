@@ -348,6 +348,10 @@ class StoragePort(StoreOps, Protocol):
     def get_variable_version(self, name: str, version: int) -> Document | None:
         """Return a specific version document for variable ``name``, or ``None``."""
 
+    def variable_versions(self, name: str) -> list[Document] | None:
+        """Every stored version of variable ``name`` in one read, oldest first (a delete's
+        tombstone included, gaps kept as they are), or ``None`` when it was never stored."""
+
     def list_variables(self) -> list[Document]:
         """Return every variable's latest version document, ordered by name."""
 

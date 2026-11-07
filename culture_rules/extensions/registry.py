@@ -301,12 +301,12 @@ class Registry:
             for table in self._tables.values():
                 for key in [k for k, e in table.items() if e.extension == name]:
                     del table[key]
-            self._aliases = {
-                alias: kind
-                for alias, kind in self._aliases.items()
-                if kind in self._tables["kinds"]
-            }
-            self._catalogue = {k: e.kind for k, e in self._tables["kinds"].items()}
+            # refilled in place, never rebound: a view from action_kinds() stays live
+            kept = {a: k for a, k in self._aliases.items() if k in self._tables["kinds"]}
+            self._aliases.clear()
+            self._aliases.update(kept)
+            self._catalogue.clear()
+            self._catalogue.update({k: e.kind for k, e in self._tables["kinds"].items()})
 
     def installed(self) -> tuple[str, ...]:
         """The installed extensions, in install order."""

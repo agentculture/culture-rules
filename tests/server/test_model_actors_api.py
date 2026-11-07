@@ -610,9 +610,17 @@ def test_repoint_has_no_trust_seam(store):
     assert "trusted_digest" not in r.json()
 
 
-def test_repoint_refuses_a_force_field(store):
+@pytest.mark.parametrize("force", [False, True])
+def test_repoint_from_an_older_client_sending_force_still_works(store, force):
+    """Clients before 0.44.0 always send ``force``; it is accepted and has no effect."""
     client = seeded(store)
-    r = repoint(client, force=True)
+    r = repoint(client, dry_run=False, force=force)
+    assert r.status_code == 200, r.text
+
+
+def test_repoint_still_refuses_an_unknown_field(store):
+    client = seeded(store)
+    r = repoint(client, bogus=True)
     assert r.status_code == 422, r.text
     assert store.get("workflows", "news")["revision"] == 1
 

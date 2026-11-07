@@ -6,7 +6,7 @@ import type { ActionCatalogue, ActionKindSpec, ActionParam } from "../api/action
 import type { Action } from "../api/types";
 import { ACTION_CATALOGUE } from "../fixtures/action-catalogue";
 import { ACTORS } from "../fixtures/rules-fixture";
-import ActionPicker, { blankAction, viewOf } from "./ActionPicker";
+import ActionPicker, { blankAction, clearedTargets, viewOf } from "./ActionPicker";
 
 /* d11: the editor keeps no per-kind shims; the blank action, a legacy form and the command
  * widgets all come from what the catalogue serves. */
@@ -114,5 +114,16 @@ describe("the command widgets", () => {
     render(<Harness catalogue={WITH_RUN} start={start} />);
     await user.selectOptions(screen.getByLabelText("Task"), "gpu-temp");
     expect(saved().params).toEqual({ actor: "ci-runner", task: "gpu-temp" });
+  });
+});
+
+describe("an actor change clears the channel params by their served widget", () => {
+  it("clears a discord_channel param whatever it is named", () => {
+    const post = spec("acme.post", [param("actor"), param("target", { widget: "discord_channel" })]);
+    expect(clearedTargets(post)).toEqual({ target: undefined });
+  });
+
+  it("clears nothing, and adds no channel key, for a kind with no channel param", () => {
+    expect(clearedTargets(RUN)).toEqual({});
   });
 });

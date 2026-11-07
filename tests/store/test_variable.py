@@ -217,6 +217,20 @@ class VariableContract:
         assert store.get_variable_version("gone", 1)["value"] == ["a"]
         assert store.get_variable_version("gone", 2)["deleted"] is True
 
+    def test_variable_versions_lists_every_version_oldest_first(self, store):
+        store.put_variable("v", 1, updated_by="me")
+        store.put_variable("v", 2, updated_by="me")
+        store.delete_variable("v", deleted_by="root", expected_version=2)
+        assert [d["version"] for d in store.variable_versions("v")] == [1, 2, 3]
+
+    def test_variable_versions_ends_with_the_tombstone(self, store):
+        store.put_variable("v", 1, updated_by="me")
+        store.delete_variable("v", deleted_by="root", expected_version=1)
+        assert store.variable_versions("v")[-1]["deleted"] is True
+
+    def test_variable_versions_of_a_missing_variable_is_none(self, store):
+        assert store.variable_versions("ghost") is None
+
     def test_a_live_version_carries_no_deleted_flag(self, store):
         store.put_variable("live", 1, updated_by="me")
         assert "deleted" not in store.get_variable("live")

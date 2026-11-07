@@ -452,6 +452,14 @@ class MemoryStore:
         latest = live_latest_version(doc.get("versions"))
         return None if latest is None else self._variable_view(doc["name"], latest)
 
+    def variable_versions(self, name: str) -> list[Document] | None:
+        doc = self._get(None, VARIABLES_COLLECTION, name)
+        if doc is None:
+            return None
+        versions = [v for v in doc.get("versions", []) if isinstance(v, dict)]
+        versions.sort(key=lambda v: v.get("version", 0))
+        return [self._variable_view(doc["name"], v) for v in versions]
+
     def get_variable_version(self, name: str, version: int) -> Document | None:
         doc = self._get(None, VARIABLES_COLLECTION, name)
         if doc is None:

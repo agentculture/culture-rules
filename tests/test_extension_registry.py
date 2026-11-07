@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from culture_rules.extensions import ApiContext, ExtensionError, Lazy, Registry
-from culture_rules.model.action_kinds import ActionKind, ParamSpec
+from culture_rules.model.action_kinds import ActionKind, ParamSpec, kind
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -260,3 +260,14 @@ def test_the_registry_and_its_built_ins_load_with_no_third_party_module():
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def test_a_catalogue_view_stays_live_across_uninstall_and_install():
+    """action_kinds() is a live view: it drops an uninstalled extension's kind and sees a
+    kind installed after the view was taken (the dict is refilled, never replaced)."""
+    reg = Registry()
+    view = reg.action_kinds()
+    reg.install("one", lambda ext: ext.action_kind(kind("one.ping", "Ping one")))
+    reg.uninstall("one")
+    reg.install("two", lambda ext: ext.action_kind(kind("two.ping", "Ping two")))
+    assert list(view) == ["two.ping"]

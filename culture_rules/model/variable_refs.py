@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from culture_rules.model.refs import var_name
+
 __all__ = ["condition_variable_refs", "rule_variable_refs"]
 
 
@@ -30,15 +32,17 @@ def condition_variable_refs(tree: Any) -> set[str]:
     return found
 
 
-def _field(obj: Any, name: str) -> Any:
+def rule_field(obj: Any, name: str) -> Any:
+    """``name`` of a rule part, whether a model (attribute) or a stored document (key)."""
     return obj.get(name) if isinstance(obj, Mapping) else getattr(obj, name, None)
 
 
 def rule_variable_refs(rule: Any) -> set[str]:
     """Every variable a rule (model or document) references in its condition or inputs."""
-    found = condition_variable_refs(_field(rule, "condition"))
-    inputs = _field(_field(rule, "workflow"), "inputs") or {}
+    found = condition_variable_refs(rule_field(rule, "condition"))
+    inputs = rule_field(rule_field(rule, "workflow"), "inputs") or {}
     for value in inputs.values() if isinstance(inputs, Mapping) else ():
-        if isinstance(value, Mapping) and isinstance(value.get("$var"), str):
-            found.add(value["$var"])
+        name = var_name(value)  # the same reading the save check uses (one-key ``$var``)
+        if name is not None:
+            found.add(name)
     return found

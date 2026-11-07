@@ -1880,6 +1880,19 @@
             "description": "the workflow revision read; missing or stale is 409",
             "title": "Expected Revision"
           },
+          "force": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "deprecated": true,
+            "description": "ignored: accepted from clients before 0.44.0, which always send it; no workflow is pinned, so nothing is ever forced",
+            "title": "Force"
+          },
           "from": {
             "description": "the actor steps name today",
             "minLength": 1,

@@ -22,7 +22,7 @@ from culture_rules.cli import main  # noqa: E402
 from culture_rules.cli.verbs import REGISTRY  # noqa: E402
 from culture_rules.engine.audit import AUDIT_COLLECTION, MUTATING_VERBS  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
-from culture_rules.server.service import Definitions, Invalid  # noqa: E402
+from culture_rules.server.service import Definitions, Invalid, Variables  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 from culture_rules.store.port import VARIABLE_GUARDS_COLLECTION  # noqa: E402
 from tests.cli.test_nouns_api import store, wire  # noqa: E402, F401
@@ -290,3 +290,21 @@ def test_importing_a_referrer_of_a_deleted_variable_is_refused(world):
         defs.import_files(files, "editor", apply=True)
     assert exc.value.errors[0]["code"] == "variable_undefined"
     assert s.get("rules", "imp") is None
+
+
+def test_history_keeps_every_stored_version_across_a_gap():
+    """A stored document with a hole in its versions (migrated or imported) keeps every
+    version it has; history neither stops at the hole nor answers 404."""
+    gappy_store = MemoryStore()
+    gappy_store.put(
+        "variables",
+        {
+            "id": "gappy",
+            "name": "gappy",
+            "versions": [
+                {"version": 2, "value": "b", "updated_by": "me", "updated_at": "t2"},
+                {"version": 4, "value": "d", "updated_by": "me", "updated_at": "t4"},
+            ],
+        },
+    )
+    assert [d["version"] for d in Variables(gappy_store).history("gappy")] == [2, 4]
