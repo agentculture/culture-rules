@@ -99,6 +99,22 @@ def test_each_building_block_is_served_with_ports(world, name):
     assert item["outputs"]
 
 
+@pytest.mark.parametrize(
+    "name", ["json.parse", "text.join", "time.add", "date.local", "file.read", "list.filter"]
+)
+def test_no_building_block_input_is_required(world, name):
+    """Each input may sit in config instead (Qodo #6): a required port the editor pre-fills
+    would fail input_missing when the value is only in config."""
+    assert [i["name"] for i in _item(world, name)["inputs"] if i["required"]] == []
+
+
+def test_json_parse_text_takes_any_value(world):
+    """A decoded list or object wired into text must not fail input_type_mismatch."""
+    assert _item(world, "json.parse")["inputs"] == [
+        {"name": "text", "type": "any", "required": False}
+    ]
+
+
 def test_markdown_render_keeps_the_editors_short_label(world):
     assert (
         _item(world, "markdown.render")["label"] == "markdown.render: fields as one Markdown page"

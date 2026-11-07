@@ -439,12 +439,7 @@ export const BUILTINS_DATA: unknown = {
       "inputs": [
         {
           "name": "text",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "shape",
-          "type": "object",
+          "type": "any",
           "required": false
         }
       ],
@@ -463,7 +458,7 @@ export const BUILTINS_DATA: unknown = {
         {
           "name": "items",
           "type": "array",
-          "required": true
+          "required": false
         },
         {
           "name": "separator",
@@ -491,7 +486,7 @@ export const BUILTINS_DATA: unknown = {
         {
           "name": "instant",
           "type": "string",
-          "required": true
+          "required": false
         },
         {
           "name": "seconds",
@@ -529,7 +524,7 @@ export const BUILTINS_DATA: unknown = {
         {
           "name": "instant",
           "type": "string",
-          "required": true
+          "required": false
         },
         {
           "name": "tz",
@@ -562,7 +557,7 @@ export const BUILTINS_DATA: unknown = {
         {
           "name": "path",
           "type": "string",
-          "required": true
+          "required": false
         }
       ],
       "outputs": [
@@ -595,7 +590,7 @@ export const BUILTINS_DATA: unknown = {
         {
           "name": "items",
           "type": "array",
-          "required": true
+          "required": false
         },
         {
           "name": "limit",

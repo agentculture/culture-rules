@@ -339,27 +339,62 @@ function BuiltinSelect({
   );
 }
 
+/**
+ * The Built-in select while the catalogue is loading or failed: the step's saved builtin stays
+ * shown (and can be cleared), so a code step never hides which built-in it runs.
+ */
+function SavedBuiltinSelect({
+  value,
+  onPick,
+  describedBy,
+}: Readonly<{ value: string; onPick: (name: string, spec: BuiltinSpec | undefined) => void; describedBy: string }>) {
+  return (
+    <select aria-label="Built-in" aria-describedby={describedBy} value={value} onChange={(e) => onPick(e.target.value, undefined)}>
+      <option value="">None</option>
+      {value ? <option value={value}>{value}</option> : null}
+    </select>
+  );
+}
+
 /** The Built-in select over the API's catalogue (`GET /steps/builtins`), loading or failed until it is there. */
 function FetchedBuiltinSelect(props: Readonly<{ value: string; onPick: (name: string, spec: BuiltinSpec | undefined) => void }>) {
   const { catalogue, failed, retry } = useBuiltinCatalogue();
   if (catalogue) return <BuiltinSelect catalogue={catalogue} {...props} />;
+  const hintId = "wf-builtin-catalogue-hint";
   return (
     <div className="wf-field">
       <span>Built-in</span>
+      <SavedBuiltinSelect value={props.value} onPick={props.onPick} describedBy={hintId} />
       {failed ? (
         <>
-          <output className="wf-field__hint">Could not load the built-ins the server offers.</output>
+          <output id={hintId} className="wf-field__hint">
+            Could not load the built-ins the server offers.
+          </output>
           <button type="button" className="wf-button wf-button--small" onClick={retry}>
             Try again
           </button>
         </>
       ) : (
-        <output className="wf-field__hint" aria-live="polite">
+        <output id={hintId} className="wf-field__hint" aria-live="polite">
           Loading the built-ins…
         </output>
       )}
     </div>
   );
+}
+
+/** A code step's Built-in field: over the catalogue the caller passed, else the fetched one. */
+function CodeBuiltinField({
+  builtins,
+  value,
+  onPick,
+}: Readonly<{
+  builtins: BuiltinCatalogue | undefined;
+  value: string;
+  onPick: (name: string, spec: BuiltinSpec | undefined) => void;
+}>) {
+  if (builtins) return <BuiltinSelect catalogue={builtins} value={value} onPick={onPick} />;
+  return <FetchedBuiltinSelect value={value} onPick={onPick} />;
 }
 
 /**
@@ -540,13 +575,7 @@ export function StepEditor({
             </select>
           </label>
         </div>
-        {step.kind === "code" ? (
-          builtins ? (
-            <BuiltinSelect catalogue={builtins} value={builtinName} onPick={pickBuiltin} />
-          ) : (
-            <FetchedBuiltinSelect value={builtinName} onPick={pickBuiltin} />
-          )
-        ) : null}
+        {step.kind === "code" ? <CodeBuiltinField builtins={builtins} value={builtinName} onPick={pickBuiltin} /> : null}
         <label className="wf-field">
           <span>One-line description</span>
           <textarea

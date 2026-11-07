@@ -187,7 +187,7 @@ describe("markdown.from_html built-in", () => {
 
 describe("the building blocks", () => {
   it.each([
-    ["json.parse", ["text", "shape"], ["value"]],
+    ["json.parse", ["text"], ["value"]],
     ["text.join", ["items", "separator"], ["text", "count"]],
     ["time.add", ["instant", "seconds", "minutes", "hours", "days"], ["instant"]],
     ["date.local", ["instant", "tz", "format"], ["text", "local"]],
@@ -265,7 +265,7 @@ describe("the fetched catalogue", () => {
     resetBuiltinCatalogue();
     setup({ id: "t", kind: "code" }, null);
     expect(screen.getByText("Loading the built-ins…")).toBeInTheDocument();
-    await screen.findByLabelText("Built-in");
+    await screen.findByRole("option", { name: /^list\.filter: / });
     expect(asked).toEqual(["/api/steps/builtins"]);
   });
 
@@ -280,6 +280,34 @@ describe("the fetched catalogue", () => {
     setup({ id: "t", kind: "code" }, null);
     await screen.findByText("Could not load the built-ins the server offers.");
     await user.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByLabelText("Built-in")).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /^list\.filter: / })).toBeInTheDocument();
+  });
+
+  const failing = () => Promise.resolve(new Response("{}", { status: 500 }));
+  const pending = () => new Promise<Response>(() => {});
+
+  it("shows the step's saved builtin while it is loading", () => {
+    vi.stubGlobal("fetch", pending);
+    resetBuiltinCatalogue();
+    setup({ id: "t", kind: "code", config: { builtin: "list.filter" } }, null);
+    expect(screen.getByLabelText("Built-in")).toHaveValue("list.filter");
+  });
+
+  it("shows the step's saved builtin when it cannot be loaded", async () => {
+    vi.stubGlobal("fetch", failing);
+    resetBuiltinCatalogue();
+    setup({ id: "t", kind: "code", config: { builtin: "list.filter" } }, null);
+    await screen.findByText("Could not load the built-ins the server offers.");
+    expect(screen.getByLabelText("Built-in")).toHaveValue("list.filter");
+  });
+
+  it("lets None clear the saved builtin when it cannot be loaded", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", failing);
+    resetBuiltinCatalogue();
+    const last = setup({ id: "t", kind: "code", config: { builtin: "list.filter", x: 1 } }, null);
+    await screen.findByText("Could not load the built-ins the server offers.");
+    await user.selectOptions(screen.getByLabelText("Built-in"), "");
+    expect(last().config).toEqual({ x: 1 });
   });
 });

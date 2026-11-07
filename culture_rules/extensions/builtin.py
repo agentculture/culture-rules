@@ -237,19 +237,23 @@ def _register_core_builtins(ext: Extension) -> None:
 
 
 def _register_building_blocks(ext: Extension) -> None:
-    """The generic value, file and list steps (no app, no flow: every rule is step config)."""
+    """The generic value, file and list steps (no app, no flow: every rule is step config).
+
+    Every input of theirs may instead sit in the step config, so none is a required port: a
+    required port the editor pre-fills would fail ``input_missing`` when the value is in config.
+    """
     ext.builtin(
         "json.parse",
         _plain_port("json_parse", "JsonParsePort"),
         phrase="json.parse: JSON text parsed and checked against a configured shape",
-        inputs=(_req("text"), _opt("shape", "object")),
+        inputs=(_opt("text", "any"),),  # text or an already-decoded value; shape is config
         outputs=(_req("value", "any"),),
     )
     ext.builtin(
         "text.join",
         _plain_port("value_steps", "TextJoinPort"),
         phrase="text.join: a list of values joined into one text with a separator",
-        inputs=(_req("items", "array"), _opt("separator")),
+        inputs=(_opt("items", "array"), _opt("separator")),
         outputs=(_req("text"), _req("count", "integer")),
     )
     ext.builtin(
@@ -257,7 +261,7 @@ def _register_building_blocks(ext: Extension) -> None:
         _plain_port("value_steps", "TimeAddPort"),
         phrase="time.add: an instant moved on by a duration",
         inputs=(
-            _req("instant"),
+            _opt("instant"),
             _opt("seconds", "number"),
             _opt("minutes", "number"),
             _opt("hours", "number"),
@@ -269,14 +273,14 @@ def _register_building_blocks(ext: Extension) -> None:
         "date.local",
         _plain_port("value_steps", "DateLocalPort"),
         phrase="date.local: an instant written as local time in a time zone",
-        inputs=(_req("instant"), _opt("tz"), _opt("format")),
+        inputs=(_opt("instant"), _opt("tz"), _opt("format")),
         outputs=(_req("text"), _req("local")),
     )
     ext.builtin(
         "file.read",
         _plain_port("file_read", "FileReadPort"),
         phrase="file.read: a file's text or JSON, read only under configured roots",
-        inputs=(_req("path"),),
+        inputs=(_opt("path"),),
         outputs=(
             _req("bytes", "integer"),
             _opt("content"),
@@ -288,7 +292,7 @@ def _register_building_blocks(ext: Extension) -> None:
         "list.filter",
         _plain_port("list_filter", "ListFilterPort"),
         phrase="list.filter: the items that pass configured rules, up to a limit",
-        inputs=(_req("items", "array"), _opt("limit", "integer")),
+        inputs=(_opt("items", "array"), _opt("limit", "integer")),
         outputs=(
             _req("items", "array"),
             _req("count", "integer"),
