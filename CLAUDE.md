@@ -388,6 +388,14 @@ Settled constraints that shape the architecture:
   builds from it (`web/src/api/actions.ts`) and keeps no table of kinds; the
   web tests' snapshot is `web/src/fixtures/action-kinds.data.ts`
   (`python3 scripts/export-action-kinds.py --write`).
+- **A variable can be deleted** (admin): `DELETE /variables/{name}`, CLI
+  `variables delete NAME [--apply]`, MCP tool `variables_delete`. It is a dry
+  run unless applied and is refused with 409 `variable_in_use` while a live,
+  enabled rule references the variable (rules are the whole reference graph;
+  disabled and soft-deleted referrers are listed in `not_blocking`). Applied,
+  it appends a tombstone version (`deleted: true`) and one audit entry
+  (`variables.delete`) in one transaction; `variables history` keeps every
+  version, and the variable then reads as undefined.
 - **The `culture-rules` CLI is a thin layer** over the HTTP API (except
   `node run`, which is the engine and uses the store directly). Writes are
   **dry-run by default**, `--apply` commits them, and every verb takes

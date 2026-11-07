@@ -11,8 +11,10 @@ from datetime import datetime
 
 import pytest
 
+from culture_rules.engine.variables import defined_variables, variable_values
 from culture_rules.model.variable import VALID_VARIABLE_NAME_RE
 from culture_rules.store.memory import MemoryStore
+from culture_rules.store.port import VariableVersionConflict
 
 # ----------------------------------------------------------------------- helpers
 
@@ -196,3 +198,65 @@ class VariableContract:
         """Name with a trailing newline must be rejected (regression test)."""
         with pytest.raises(ValueError, match="invalid variable name"):
             store.put_variable("a\n", 1, updated_by="me")
+
+    # ---------------------------------------------------------- delete (a tombstone version)
+
+    def test_delete_appends_a_tombstone_and_hides_the_variable(self, store):
+        store.put_variable("gone", ["a"], updated_by="me", description="d")
+        store.put_variable("kept", 1, updated_by="me")
+        doc = store.delete_variable("gone", deleted_by="root", expected_version=1)
+        assert doc["version"] == 2
+        assert doc["deleted"] is True
+        assert doc["updated_by"] == "root"
+        assert store.get_variable("gone") is None
+        assert [v["name"] for v in store.list_variables()] == ["kept"]
+
+    def test_delete_keeps_every_version_readable(self, store):
+        store.put_variable("gone", ["a"], updated_by="me")
+        store.delete_variable("gone", deleted_by="root", expected_version=1)
+        assert store.get_variable_version("gone", 1)["value"] == ["a"]
+        assert store.get_variable_version("gone", 2)["deleted"] is True
+
+    def test_a_live_version_carries_no_deleted_flag(self, store):
+        store.put_variable("live", 1, updated_by="me")
+        assert "deleted" not in store.get_variable("live")
+
+    def test_delete_of_a_missing_or_deleted_variable_returns_none(self, store):
+        assert store.delete_variable("ghost", deleted_by="root", expected_version=1) is None
+        store.put_variable("gone", 1, updated_by="me")
+        store.delete_variable("gone", deleted_by="root", expected_version=1)
+        assert store.delete_variable("gone", deleted_by="root", expected_version=2) is None
+
+    def test_delete_is_a_compare_and_set_on_the_version(self, store):
+        store.put_variable("cas", 1, updated_by="me")
+        store.put_variable("cas", 2, updated_by="me")
+        with pytest.raises(VariableVersionConflict):
+            store.delete_variable("cas", deleted_by="root", expected_version=1)
+        assert store.get_variable("cas")["value"] == 2
+
+    def test_delete_calls_on_write_inside_its_transaction(self, store):
+        store.put_variable("gone", 7, updated_by="me")
+        seen = []
+
+        def on_write(ops, before, after):
+            ops.insert("audit_probe", {"id": "p", "before": before["version"]})
+            seen.append((before["value"], after["version"]))
+
+        store.delete_variable("gone", deleted_by="root", expected_version=1, on_write=on_write)
+        # a transient conflict re-runs the whole transaction, hook included; one commit lands
+        assert seen[-1] == (7, 2)
+        assert store.get("audit_probe", "p")["before"] == 1
+
+    def test_a_put_after_delete_continues_the_versions(self, store):
+        store.put_variable("back", 1, updated_by="me")
+        store.delete_variable("back", deleted_by="root", expected_version=1)
+        doc = store.put_variable("back", 3, updated_by="me")
+        assert doc["version"] == 3
+        assert store.get_variable("back")["value"] == 3
+
+    def test_the_engine_reads_a_deleted_variable_as_undefined(self, store):
+        store.put_variable("gone", ["a"], updated_by="me")
+        store.put_variable("kept", 1, updated_by="me")
+        store.delete_variable("gone", deleted_by="root", expected_version=1)
+        assert variable_values(store, ["gone", "kept"]) == {"kept": 1}
+        assert defined_variables(store) == {"kept"}

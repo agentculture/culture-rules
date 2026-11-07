@@ -2,7 +2,9 @@
 
 Reads are viewer; ``set``, ``add`` and ``remove`` need the admin role and append a version
 naming the caller. ``add`` / ``remove`` edit one item of a list variable atomically (the server
-retries a compare-and-set on the version), so two callers adding at once both land.
+retries a compare-and-set on the version), so two callers adding at once both land. ``delete``
+(admin) is planned by the server even as a dry run, so it shows the refusal while an enabled
+rule references the variable; applied, the history stays (the last version is a tombstone).
 """
 
 from __future__ import annotations
@@ -15,11 +17,12 @@ from typing import Any
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
 from culture_rules.cli._errors import EXIT_USER_ERROR, CliError
-from culture_rules.cli._nounlib import sections_overview, seg, write
+from culture_rules.cli._nounlib import new_route, sections_overview, seg, write
 from culture_rules.cli.registry import Context, Param, Verb
 
 NOUN = "variables"
 _ROOT = "/variables"
+DELETE_SINCE = "0.44.0"  # the release that serves DELETE /variables/{name}
 SUMMARY = "Variables are shared values (a JSON scalar or flat list) rules read."
 NAME = Param(
     "name", help="variable name (a-z, 0-9, _; starts with a letter)", required=True, positional=True
@@ -140,6 +143,30 @@ def _remove(ctx: Context, name: str, item: str, json_item: bool = False) -> dict
     return _edit(ctx, "remove", name, item, json_item)
 
 
+def _delete(ctx: Context, name: str) -> dict[str, Any]:
+    """Delete a variable; without ``--apply`` the server plans it (``dry_run=true``)."""
+    query = {"dry_run": "false" if ctx.apply else "true"}
+    path = f"{_ROOT}/{seg(name)}"
+    result = new_route(ctx, DELETE_SINCE, lambda: ctx.client.request("DELETE", path, query=query))
+    head = (
+        f"deleted {name}: version {result.get('deleted_version')} is its tombstone"
+        if ctx.apply
+        else f"dry-run: delete {name} (version {result.get('version')}); "
+        "re-run with --apply to commit"
+    )
+    lines = [head]
+    for r in result.get("not_blocking") or ():
+        state = "soft-deleted" if r.get("deleted") else "disabled"
+        lines.append(f"  not blocking: rules/{r.get('id')} ({state})")
+    return {
+        "verb": "variables delete",
+        "applied": ctx.apply,
+        "dry_run": not ctx.apply,
+        "result": result,
+        "lines": lines,
+    }
+
+
 ITEM = Param(
     "item",
     help=(
@@ -186,6 +213,15 @@ VERBS: list[Verb] = [
         "Remove an item from a list variable atomically; no new version if absent (admin)",
         _remove,
         (NAME, ITEM, JSON_ITEM),
+        True,
+        "admin",
+    ),
+    Verb(
+        NOUN,
+        "delete",
+        "Delete a variable no enabled rule references; dry-run unless --apply (admin)",
+        _delete,
+        (NAME,),
         True,
         "admin",
     ),

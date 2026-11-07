@@ -2455,6 +2455,45 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VariableDeleteResult": {
+        "properties": {
+          "deleted_version": {
+            "description": "the tombstone version: written when applied, planned on a dry run",
+            "title": "Deleted Version",
+            "type": "integer"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "not_blocking": {
+            "description": "rules that reference the variable but are disabled or soft-deleted, so do not block the delete; enabled again, each firing is a variable_undefined skip",
+            "items": {
+              "$ref": "#/components/schemas/VariableReferrer"
+            },
+            "title": "Not Blocking",
+            "type": "array"
+          },
+          "version": {
+            "description": "the live version the delete retires",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "dry_run",
+          "version",
+          "deleted_version",
+          "not_blocking"
+        ],
+        "title": "VariableDeleteResult",
+        "type": "object"
+      },
       "VariableItem": {
         "properties": {
           "item": {
@@ -2466,6 +2505,41 @@
           "item"
         ],
         "title": "VariableItem",
+        "type": "object"
+      },
+      "VariableReferrer": {
+        "properties": {
+          "deleted": {
+            "description": "true = the rule is soft-deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "enabled",
+          "deleted"
+        ],
+        "title": "VariableReferrer",
         "type": "object"
       },
       "VariableWrite": {
@@ -8431,6 +8505,105 @@
       }
     },
     "/variables/{name}": {
+      "delete": {
+        "description": "Delete the variable (admin); a dry run (the default) writes nothing. Refused (409\n``variable_in_use``) while a live, enabled rule references it; disabled and\nsoft-deleted referrers are listed, not blocking. Applied, a tombstone version keeps\nthe history and one audit entry names the caller.",
+        "operationId": "delete_variable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariableDeleteResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Delete Variable",
+        "tags": [
+          "variables"
+        ]
+      },
       "get": {
         "operationId": "get_variable",
         "parameters": [
@@ -8595,7 +8768,7 @@
     },
     "/variables/{name}/history": {
       "get": {
-        "description": "Every version of the variable, oldest first.",
+        "description": "Every version of the variable, oldest first; after a delete, the last is its\ntombstone (``deleted`` true).",
         "operationId": "variable_history",
         "parameters": [
           {

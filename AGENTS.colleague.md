@@ -175,6 +175,12 @@ registry's action kinds with their typed params (`GET /actions/kinds`, viewer; C
 kinds`, MCP tool `actions_kinds`), and the editor's action picker is built from it, so an
 extension's kind needs no editor change.
 
+**Deleting a variable.** `variables delete NAME [--apply]` (admin; `DELETE
+/variables/{name}`, MCP tool `variables_delete`) is a dry run unless applied and is refused
+with 409 `variable_in_use` while a live, enabled rule references the variable (disabled and
+soft-deleted referrers are listed in `not_blocking`). Applied, it appends a tombstone
+version and one audit entry (`variables.delete`); `variables history` keeps every version.
+
 **State between runs** (guide `docs/operations/keysets.md`). Generic named key sets:
 `keyset.filter` drops the items whose normalised key a set already holds, `keyset.add`
 remembers items' keys for `window_days` (insert-if-absent, `max_keys` cap); the set name,
