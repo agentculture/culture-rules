@@ -285,7 +285,8 @@ def test_importing_a_referrer_of_a_deleted_variable_is_refused(world):
     s, client, hdr = world
     _delete(client, hdr["admin"], apply=True)
     files = {"rules/imp.json": json.dumps(_rule("imp"))}
+    defs = Definitions(s)
     with pytest.raises(Invalid) as exc:
-        Definitions(s).import_files(files, "editor", apply=True)
+        defs.import_files(files, "editor", apply=True)
     assert exc.value.errors[0]["code"] == "variable_undefined"
     assert s.get("rules", "imp") is None

@@ -165,4 +165,5 @@ def test_the_event_types_are_the_ones_the_apps_emit():
 @pytest.mark.parametrize("name", ["github", "discord", "jira"])
 def test_each_apps_event_types_are_registered_by_that_app(name):
     owned = {t for t, e in registry().event_types().items() if e.extension == name}
-    assert owned and all(t.startswith(f"{name}.") for t in owned)
+    assert owned
+    assert all(t.startswith(f"{name}.") for t in owned)

@@ -249,9 +249,7 @@ class Node:
         heartbeat_options: HeartbeatOptions | None = None,
         reporter: RunReporter | None = None,
         on_evaluated: Callable[[str, str], None] | None = None,
-        discord_gateway: Any = None,
         resolve_secret: Callable[[str], str] | None = None,
-        gateway_options: Any = None,
         options: NodeOptions | None = None,
         listener_options: Mapping[str, Any] | None = None,
     ) -> None:
@@ -294,18 +292,15 @@ class Node:
             if event_source is not None
             else None
         )
-        # ``discord_gateway``/``gateway_options`` are the discord.gateway listener's options
+        # listener_options are handed to every listener factory; the discord.gateway listener
+        # reads ``discord_gateway`` (a gateway supervisor stand-in) and ``gateway_options``
         context = NodeContext(
             store=store,
             host=host,
             identity=self.executor.identity,
             clock=self._clock,
             resolve_secret=resolve_secret,
-            options={
-                "discord_gateway": discord_gateway,
-                "gateway_options": gateway_options,
-                **(listener_options or {}),
-            },
+            options=dict(listener_options or {}),
         )
         entries = registry().node_listeners()
         # the registered node listeners, name -> listener, in tick order

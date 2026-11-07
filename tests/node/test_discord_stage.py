@@ -48,9 +48,13 @@ class Mesh:
             actors={"*": FakeActor()},
             clock=self.clock,
             heartbeat_options=BEATS,
-            discord_gateway=FakeGateway(self.hub, host),
             resolve_secret=partial(secrets.resolve, runner=self.grant),
-            gateway_options=GatewayOptions(ttl=TTL, keeper=None, backoff=0.01, max_backoff=0.02),
+            listener_options={
+                "discord_gateway": FakeGateway(self.hub, host),
+                "gateway_options": GatewayOptions(
+                    ttl=TTL, keeper=None, backoff=0.01, max_backoff=0.02
+                ),
+            },
         )
 
     def holder(self):
@@ -219,9 +223,11 @@ def test_two_discord_actors_two_leases_two_events_and_no_cross_bot_firing():
         actors={"*": FakeActor()},
         clock=clock,
         heartbeat_options=BEATS,
-        discord_gateway=_BotGateways(hubs, "spark"),
         resolve_secret=partial(secrets.resolve, runner=lambda name: f"{name}:{salt}"),
-        gateway_options=GatewayOptions(ttl=TTL, keeper=None, backoff=0.01, max_backoff=0.02),
+        listener_options={
+            "discord_gateway": _BotGateways(hubs, "spark"),
+            "gateway_options": GatewayOptions(ttl=TTL, keeper=None, backoff=0.01, max_backoff=0.02),
+        },
     )
 
     def events():

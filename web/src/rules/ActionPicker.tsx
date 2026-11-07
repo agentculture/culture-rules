@@ -81,7 +81,7 @@ function typeOk(p: ActionParam, value: unknown): boolean {
 export function blankAction(catalogue: ActionCatalogue, kind?: string, name?: string): Action {
   const spec = kind === undefined ? catalogue.items[0] : kindOf(catalogue, kind);
   const chosen = kind ?? spec?.kind ?? "";
-  const base: Action = spec && spec.params.length === 0 ? { kind: chosen } : { kind: chosen, params: {} };
+  const base: Action = spec?.params.length === 0 ? { kind: chosen } : { kind: chosen, params: {} };
   return name ? { ...base, name } : base;
 }
 

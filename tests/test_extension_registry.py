@@ -167,8 +167,9 @@ def test_uninstall_removes_everything_the_extension_registered():
     ],
 )
 def test_a_malformed_registration_is_refused(register):
+    reg = Registry()
     with pytest.raises(ExtensionError):
-        Registry().install("bad", register)
+        reg.install("bad", register)
 
 
 def test_lenient_is_per_kind_and_follows_aliases():

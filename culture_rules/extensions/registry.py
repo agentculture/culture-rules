@@ -334,7 +334,7 @@ class Registry:
             if name in self._aliases or len(set(names)) != len(names):
                 raise ExtensionError(f"action kind {name!r} is already registered as an alias")
             self._add("kinds", name, entry, "action kind")
-            self._aliases.update({alias: name for alias in entry.aliases})
+            self._aliases.update(dict.fromkeys(entry.aliases, name))
             self._catalogue[name] = entry.kind
 
     # ------------------------------------------------------------------ reading
