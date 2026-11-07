@@ -29,6 +29,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
+from culture_rules.extensions import registry
+
 SCHEMA_VERSION = "1"
 MAX_EVENT_HOPS = 8
 """The deepest derived event a rule may fire on: an event whose :func:`event_hops` exceeds
@@ -82,23 +84,6 @@ QUEUE_SOURCE = f"{INTERNAL_SOURCE_PREFIX}queue"
 """The queue namespace (#35, d29: ``rules.queue.*``, ids ``queue_*``): engine-written only,
 straight into the store; its types and ids stay reserved at external ingest like the run
 events'."""
-CHECKS_SETTLED_TYPE = "github.pr.checks_settled"
-CHECKS_LATE_TYPE = "github.pr.checks_failed_late"
-PR_CONFLICTING_TYPE = "github.pr.conflicting"
-SETTLE_TYPES = frozenset((CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE))
-SETTLE_TYPE_NAMES = (CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE)
-"""The checks settler's event types (:mod:`culture_rules.extensions.github.checks_settle`) and
-``github.pr.conflicting`` (d31): written only by the engine, from its internal sources;
-reserved at external ingest (d25)."""
-REACTION_ADDED_TYPE = "github.reaction.added"
-REACTION_ID_PREFIX = "reaction_"
-"""Reaction events (d34): GitHub sends no webhook for reactions, so only the engine may write
-these; the type and the id prefix are reserved at external ingest, so no copy can squat
-them."""
-SETTLED_ID_PREFIX = "settled_"
-LATE_ID_PREFIX = "late_"
-CONFLICT_ID_PREFIX = "conflict_"
-SETTLE_ID_PREFIXES = (SETTLED_ID_PREFIX, LATE_ID_PREFIX, CONFLICT_ID_PREFIX)
 TRIGGER_EVENT_KINDS = frozenset(("schedule", "probe"))
 """Kinds and types of the events the scheduler and the probe stage write straight into the
 store (:mod:`culture_rules.node.schedule`, :mod:`culture_rules.node.probe_trigger`)."""
@@ -106,7 +91,6 @@ TRIGGER_EVENT_KIND_NAMES = ("schedule", "probe")
 TRIGGER_EVENT_SOURCES = ("culture-rules/schedule", "culture-rules/probe")
 TRIGGER_ID_PREFIXES = ("schedule/", "probe/")
 """Their sources and deterministic id prefixes; all reserved at external ingest."""
-"""The settler's deterministic event id prefixes; reserved so no copy can squat them (d25)."""
 
 
 def is_stored_document(doc: Mapping[str, Any]) -> bool:
@@ -154,10 +138,9 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     """Why ``envelope`` may not enter the store from the bus or a webhook, or ``None``.
 
     The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the queue's
-    (ids ``queue_*``, types ``rules.queue.*``, #35), the checks settler's
-    namespace (types :data:`SETTLE_TYPES`, ids ``settled_*`` /
-    ``late_*`` / ``conflict_*``, d25, d31), the reaction namespace (type
-    :data:`REACTION_ADDED_TYPE`, ids ``reaction_*``, d34), the
+    (ids ``queue_*``, types ``rules.queue.*``, #35), the namespaces extensions reserve
+    (:meth:`~culture_rules.extensions.Extension.event_reservation`, checked in registration
+    order: e.g. the GitHub extension's checks settle and reaction watch), the
     schedule and probe namespace (kind or type ``schedule`` / ``probe``, sources
     :data:`TRIGGER_EVENT_SOURCES`, ids ``schedule/*`` / ``probe/*``) and the internal
     sources are written only by the engine itself (deviation d21): a copy from outside
@@ -180,15 +163,23 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     eid, kind, source = envelope.get("id"), envelope.get("type"), envelope.get("source")
     return (
         _engine_reserved(eid, kind, source)
-        or _settle_reserved(eid, kind)
+        or _extension_reserved(envelope)
         or _trigger_reserved(envelope)
     )
 
 
+def _extension_reserved(envelope: Mapping[str, Any]) -> str | None:
+    """The first reason a registered event reservation gives, or ``None``."""
+    for entry in registry().event_reservations():
+        reason = entry.check(envelope)
+        if reason is not None:
+            return reason
+    return None
+
+
 def _engine_reserved(eid: Any, kind: Any, source: Any) -> str | None:
-    """The run-event, queue, internal-source and reaction-watch namespaces
-    (:func:`reserved_reason`); ``None`` when ``eid``, ``kind`` and ``source`` are outside
-    them."""
+    """The run-event, queue and internal-source namespaces (:func:`reserved_reason`);
+    ``None`` when ``eid``, ``kind`` and ``source`` are outside them."""
     if isinstance(eid, str) and eid.startswith(RUN_EVENT_ID_PREFIX):
         return f"id prefix {RUN_EVENT_ID_PREFIX} is reserved for the engine's run events"
     if isinstance(kind, str) and kind.startswith(RUN_EVENT_TYPE_PREFIX):
@@ -199,10 +190,6 @@ def _engine_reserved(eid: Any, kind: Any, source: Any) -> str | None:
         return f"id prefix {QUEUE_EVENT_ID_PREFIX} is reserved for the engine's queue"
     if isinstance(source, str) and source.startswith(INTERNAL_SOURCE_PREFIX):
         return f"source {INTERNAL_SOURCE_PREFIX}* is reserved for the engine"
-    if kind == REACTION_ADDED_TYPE:
-        return f"type {REACTION_ADDED_TYPE} is reserved for the engine's reaction watch"
-    if isinstance(eid, str) and eid.startswith(REACTION_ID_PREFIX):
-        return f"id prefix {REACTION_ID_PREFIX} is reserved for the engine's reaction watch"
     return None
 
 
@@ -282,15 +269,6 @@ def _malformed_field(envelope: Mapping[str, Any]) -> str | None:
     for field in CHECKED_FIELDS:
         if field in envelope and not (isinstance(envelope[field], str) and envelope[field]):
             return field
-    return None
-
-
-def _settle_reserved(eid: Any, kind: Any) -> str | None:
-    """Why an id or type in the checks settler's namespace is refused (d25), or ``None``."""
-    if kind in SETTLE_TYPE_NAMES:
-        return f"type {kind} is reserved for the engine's checks settle"
-    if isinstance(eid, str) and eid.startswith(SETTLE_ID_PREFIXES):
-        return "id prefixes settled_, late_ and conflict_ are reserved for the engine"
     return None
 
 

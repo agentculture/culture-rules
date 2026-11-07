@@ -8,6 +8,8 @@
 * ``POST /hooks/github`` (:mod:`~culture_rules.extensions.github.hooks`) and the checks
   settler (:mod:`~culture_rules.extensions.github.checks_settle`, a node listener and the
   webhook's settle-on-check), their event types and collections;
+* the event types and id prefixes only the engine writes, reserved at external ingest
+  (:mod:`~culture_rules.extensions.github.events`);
 * :mod:`~culture_rules.extensions.github.public_text`, untrusted text made inert for a public
   comment.
 
@@ -20,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from culture_rules.extensions.github import events
 from culture_rules.extensions.registry import Extension, Lazy, NodeContext, Problem
 from culture_rules.model.action_kinds import ADV, REQ_INT, REQ_STR, REQ_TEXT, ParamSpec, kind
 from culture_rules.model.serde import join
@@ -73,7 +76,7 @@ EVENT_TYPES = (
     "github.review_comment.created",
     "github.checks.suite_completed",
     "github.checks.workflow_completed",
-    "github.pr.checks_settled",
+    events.CHECKS_SETTLED_TYPE,
 )
 
 _EXTRA = {"needs_module": "cryptography", "extra": "github"}
@@ -182,6 +185,8 @@ def register(ext: Extension) -> None:
     ext.action_port("github.merge", _port("merge", "GitHubMergePort"), **_EXTRA)
     for event in EVENT_TYPES:
         ext.event_type(event)
+    ext.event_reservation("github.reaction", events.reaction_reserved)
+    ext.event_reservation("github.settle", events.settle_reserved)
     ext.webhook_route("/hooks/github", github_router)
     ext.node_listener("github.checks_settle", github_checks_settle)
     ext.node_collections(github_collections)
