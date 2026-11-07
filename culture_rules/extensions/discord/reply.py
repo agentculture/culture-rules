@@ -29,9 +29,9 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from culture_rules.apps.discord_commands import BUTTON_INTERACTION, interaction_token
-from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.extensions.discord.commands import BUTTON_INTERACTION, interaction_token
+from culture_rules.extensions.discord.rest import DiscordClient, DiscordError, Transport
 
 __all__ = ["DiscordReplyAction"]
 

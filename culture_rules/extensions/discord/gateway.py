@@ -6,7 +6,7 @@ Added reactions are raised from the raw event as ``discord.reaction.added`` (del
 ``actor:message:user:emoji``) and sunk only when the actor declares that type too; they go
 through the same channel selection as messages.
 An actor that declares ``discord.command.invoked`` also gets the ``/save`` and ``Save to
-library`` guild commands (:mod:`culture_rules.apps.discord_commands`), registered by the lease
+library`` guild commands (:mod:`culture_rules.extensions.discord.commands`), registered by the lease
 holder through a discord.py ``CommandTree`` (synced only when the definition hash changes, so
 a reconnect does not sync again). An invocation is acknowledged with an ephemeral deferral
 first, then its token is kept apart (``discord_interactions``, keyed by the event id) and the
@@ -18,7 +18,7 @@ An actor that declares ``discord.button.clicked`` turns a click on a button of a
 sees every click) into that event (:func:`button_data`, delivery id
 ``actor:interaction:<interaction id>``), its token kept apart the same way
 (``kind: button``). The event's ``data.value`` is the value the bot's own ``discord.message``
-stored for that button (:mod:`culture_rules.apps.discord_buttons`, one read by
+stored for that button (:mod:`culture_rules.extensions.discord.buttons`, one read by
 ``<actor>:<custom_id>`` inside the hand-over, so inside the acknowledgement window), or
 ``None``; a clicker cannot supply or change it. The click is acknowledged inside Discord's
 3 s: an admitted one with ``UPDATE_MESSAGE``, its message re-rendered with every button
@@ -100,9 +100,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from culture_rules.actors import secrets
-from culture_rules.apps import discord_buttons as buttons_mod
-from culture_rules.apps import discord_commands as commands_mod
-from culture_rules.apps.discord_rest import guild_ids
 from culture_rules.engine.leasekeeper import JOIN_TIMEOUT_S, KeeperFactory, LeaseKeeper
 from culture_rules.engine.matching import trigger_matches
 from culture_rules.engine.named_lease import NamedLease
@@ -115,6 +112,9 @@ from culture_rules.events.hook_sink import (
     event_id_for,
     sink,
 )
+from culture_rules.extensions.discord import buttons as buttons_mod
+from culture_rules.extensions.discord import commands as commands_mod
+from culture_rules.extensions.discord.rest import guild_ids
 from culture_rules.model.discord_command_config import command_problems, definitions, not_here
 from culture_rules.model.discord_filters import BUTTON_CLICKED, discord_channels, filter_values
 from culture_rules.model.rule import Rule, Trigger
@@ -142,7 +142,7 @@ __all__ = [
     "sync_commands",
 ]
 
-log = logging.getLogger("culture_rules.apps.discord_gateway")
+log = logging.getLogger("culture_rules.extensions.discord.gateway")
 
 ACTORS_COLLECTION = "actors"
 RULES_COLLECTION = "rules"
@@ -201,7 +201,7 @@ class Gateway(Protocol):
         ``message_id``, ``channel_id``, ``guild_id``, ``user_id``, ``username``,
         ``user_roles``, ``bot``) to it and acknowledge the click by what it answers (``True``:
         the message's buttons disabled; ``False``: :data:`BUTTON_NOT_HERE`; ``None``:
-        :data:`~culture_rules.apps.discord_commands.NOT_SAVED`), within Discord's 3 s. Raise
+        :data:`~culture_rules.extensions.discord.commands.NOT_SAVED`), within Discord's 3 s. Raise
         (or return) when the connection is lost for good; the supervisor reconnects."""
 
 

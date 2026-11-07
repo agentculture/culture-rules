@@ -119,56 +119,6 @@ _KINDS = (
         text=REQ_STR,
     ),
     kind(
-        "discord.message",
-        "Post a message on Discord through a Discord app actor",
-        actor=REQ_STR,
-        guild=STR,
-        channel=REQ_STR,
-        text=REQ_STR,
-        buttons=ParamSpec("list"),
-        thread_name=STR,  # set: channel is a forum and the text starts a post titled so
-        tags=ParamSpec("list"),  # forum tag names, with thread_name only
-    ),
-    kind(
-        "discord.read",
-        "Read one Discord message in full (text and attachments) through a Discord app actor",
-        actor=REQ_STR,
-        guild=STR,  # fills the message url when given
-        channel=REQ_STR,
-        message=REQ_STR,
-    ),
-    kind(
-        "discord.react",
-        "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
-        " app actor, and take back the bot's own earlier reactions (remove)",
-        any_of=(("emoji", "remove"),),
-        actor=REQ_STR,
-        guild=STR,
-        channel=REQ_STR,
-        message=REQ_STR,
-        emoji=STR,
-        remove=ParamSpec("list"),
-    ),
-    kind(
-        "discord.reply",
-        "Answer a Discord slash or message command privately through a Discord app actor",
-        actor=REQ_STR,
-        event_id=REQ_STR,
-        text=REQ_STR,
-    ),
-    kind(
-        "discord.sweep",
-        "Read a Discord channel's messages newer than a stored cursor through a Discord app"
-        " actor",
-        actor=REQ_STR,
-        guild=STR,
-        channel=REQ_STR,
-        cursor_key=REQ_STR,
-        limit=INT,
-        include_bots=ParamSpec("bool"),
-        backfill=ParamSpec("bool"),
-    ),
-    kind(
         "github.comment",
         "Comment on a GitHub issue or PR",
         actor=REQ_STR,

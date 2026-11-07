@@ -10,10 +10,10 @@ from functools import partial
 import pytest
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_gateway import GatewayOptions
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
+from culture_rules.extensions.discord.gateway import GatewayOptions
 from culture_rules.machines.probe import ProbeResult
 from culture_rules.node.daemon import HeartbeatOptions, Node
 from culture_rules.node.firing import run_id_for

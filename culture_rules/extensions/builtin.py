@@ -22,6 +22,7 @@ from typing import Any
 
 from culture_rules.extensions import (
     decider,
+    discord,
     email,
     http,
     jira,
@@ -40,6 +41,7 @@ from culture_rules.model.action_kinds import BUILTIN_KINDS
 __all__ = ["BUILTIN_EXTENSIONS", "install_builtins"]
 
 _ACTIONS = "culture_rules.node.actions."
+_DISCORD_MESSAGE = "culture_rules.extensions.discord.message"
 _GITHUB_EXTRA = {"needs_module": "cryptography", "extra": "github"}
 
 
@@ -67,7 +69,9 @@ def register_core(ext: Extension) -> None:
     _kinds(ext, "noop")
     ext.action_kind(BUILTIN_KINDS["message"], aliases=("mesh.message",), lenient=True)
     ext.action_port("noop", Lazy("culture_rules.node.runner", "NoopAction"))
-    ext.action_port("message", _store_port("message", "MessageAction"))
+    # the message port posts to Discord when it names an actor, so it is the Discord
+    # extension's module; the kind (and its legacy alias) stay core's
+    ext.action_port("message", Lazy(_DISCORD_MESSAGE, "MessageAction", store=True))
     ext.builtin("select", _plain_port("select", "SelectPort"))
     ext.builtin("json.read", _plain_port("json_read", "JsonReadPort"))
     ext.builtin("markdown.render", _plain_port("markdown_render", "MarkdownRenderPort"))
@@ -84,69 +88,6 @@ def register_core(ext: Extension) -> None:
     ext.builtin("checklist.set", _store_port("checklist", "ChecklistSetPort"))
     ext.builtin("checklist.render", _store_port("checklist", "ChecklistRenderPort"))
     ext.builtin("checklist.bind", _store_port("checklist", "ChecklistBindPort"))
-
-
-# --------------------------------------------------------------------------- discord
-
-
-class _GatewayListener:
-    """The Discord Gateway supervisor as a node listener: names it listens for go on the
-    cycle report; closing stops the threads and releases the leases."""
-
-    def __init__(self, supervisor: Any) -> None:
-        self.supervisor = supervisor
-
-    def tick(self, report: Any) -> None:
-        report.listening += self.supervisor.tick()
-
-    def close(self) -> None:
-        self.supervisor.shutdown()
-
-
-def discord_gateway(ctx: NodeContext) -> _GatewayListener:
-    """The ``discord.gateway`` listener (``options``: ``discord_gateway``,
-    ``gateway_options``)."""
-    from culture_rules.apps.discord_gateway import GatewaySupervisor  # noqa: PLC0415
-
-    return _GatewayListener(
-        GatewaySupervisor(
-            ctx.store,
-            ctx.identity,
-            gateway=ctx.options.get("discord_gateway"),
-            resolve_secret=ctx.resolve_secret,
-            clock=ctx.clock,
-            options=ctx.options.get("gateway_options"),
-            host=ctx.host,
-        )
-    )
-
-
-def discord_collections() -> tuple[str, ...]:
-    from culture_rules.apps.discord_gateway import GATEWAY_STATE_COLLECTION  # noqa: PLC0415
-
-    return (GATEWAY_STATE_COLLECTION,)
-
-
-def register_discord(ext: Extension) -> None:
-    """Discord: the message/read/react/reply/sweep kinds, ``attachment.fetch``, the Gateway
-    listener and its four event types."""
-    _kinds(ext, "discord.message", "discord.read", "discord.react", "discord.reply")
-    _kinds(ext, "discord.sweep")
-    ext.action_port("discord.message", _store_port("message", "DiscordMessageAction"))
-    ext.action_port("discord.read", _store_port("discord_read", "DiscordReadAction"))
-    ext.action_port("discord.react", _store_port("discord_react", "DiscordReactAction"))
-    ext.action_port("discord.reply", _store_port("discord_reply", "DiscordReplyAction"))
-    ext.action_port("discord.sweep", _store_port("discord_sweep", "DiscordSweepAction"))
-    ext.builtin("attachment.fetch", _plain_port("attachment_fetch", "AttachmentFetchPort"))
-    for event in (
-        "discord.message.created",
-        "discord.reaction.added",
-        "discord.command.invoked",
-        "discord.button.clicked",
-    ):
-        ext.event_type(event)
-    ext.node_listener("discord.gateway", discord_gateway, long_lived=True)
-    ext.node_collections(discord_collections)
 
 
 # --------------------------------------------------------------------------- github
@@ -246,7 +187,7 @@ def register_github(ext: Extension) -> None:
 
 BUILTIN_EXTENSIONS: tuple[tuple[str, Callable[[Extension], None]], ...] = (
     ("core", register_core),
-    ("discord", register_discord),
+    ("discord", discord.register),
     ("github", register_github),
     ("jira", jira.register),
     ("http", http.register),

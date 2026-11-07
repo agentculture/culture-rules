@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from culture_rules.engine.actorport import FAILED, InvocationContext
-from culture_rules.node.actions.message import MessageAction
+from culture_rules.extensions.discord.message import MessageAction
 from culture_rules.store.memory import MemoryStore
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -153,7 +153,7 @@ def test_a_single_channel_string_allow_list_is_one_channel():
 
 
 def test_discord_message_kind_posts_through_the_named_actor():
-    from culture_rules.node.actions.message import DiscordMessageAction
+    from culture_rules.extensions.discord.message import DiscordMessageAction
 
     t = FakeTransport()
     port = DiscordMessageAction(
@@ -170,7 +170,7 @@ def test_discord_message_kind_posts_through_the_named_actor():
 
 
 def test_discord_message_kind_without_an_actor_never_falls_back_to_the_mesh():
-    from culture_rules.node.actions.message import DiscordMessageAction
+    from culture_rules.extensions.discord.message import DiscordMessageAction
 
     calls = []
     port = DiscordMessageAction(
@@ -186,7 +186,7 @@ def test_discord_message_kind_without_an_actor_never_falls_back_to_the_mesh():
 
 
 def _discord_kind(t, secrets_seen=None):
-    from culture_rules.node.actions.message import DiscordMessageAction
+    from culture_rules.extensions.discord.message import DiscordMessageAction
 
     def resolve(ref):
         if secrets_seen is not None:
@@ -269,7 +269,7 @@ def _valued_port(t, secrets_seen=None):
 
 
 def _stored(store):
-    from culture_rules.apps.discord_buttons import BUTTONS_COLLECTION
+    from culture_rules.extensions.discord.buttons import BUTTONS_COLLECTION
 
     return store.find(BUTTONS_COLLECTION)
 
@@ -409,7 +409,7 @@ def test_bad_values_are_refused_before_any_secret_or_post():
 
 
 def test_the_port_ensures_the_buttons_ttl_index_once():
-    from culture_rules.apps.discord_buttons import (
+    from culture_rules.extensions.discord.buttons import (
         BUTTONS_COLLECTION,
         BUTTONS_TTL_INDEX,
         CODES_COLLECTION,
@@ -426,7 +426,7 @@ def test_the_port_ensures_the_buttons_ttl_index_once():
 
 
 def test_a_coded_button_posts_with_a_stored_code():
-    from culture_rules.apps.discord_buttons import CODES_COLLECTION
+    from culture_rules.extensions.discord.buttons import CODES_COLLECTION
 
     port, store = _valued_port(FakeTransport())
     res = _send(port, buttons=[_btn(custom_id="merge", value=VALUE, code=True)])
@@ -436,7 +436,7 @@ def test_a_coded_button_posts_with_a_stored_code():
 
 
 def test_a_refused_post_forgets_the_code_too():
-    from culture_rules.apps.discord_buttons import CODES_COLLECTION
+    from culture_rules.extensions.discord.buttons import CODES_COLLECTION
 
     port, store = _valued_port(FakeTransport(status=403, body={}))
     _send(port, buttons=[_btn(custom_id="merge", value=VALUE, code=True)])

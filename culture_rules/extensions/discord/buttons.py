@@ -60,7 +60,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from culture_rules.apps.discord_rest import MAX_CUSTOM_ID, button_components
+from culture_rules.extensions.discord.rest import MAX_CUSTOM_ID, button_components
 
 __all__ = [
     "BUTTONS_COLLECTION",
@@ -147,7 +147,7 @@ def prepare_buttons(
     """Validate ``buttons`` and give each valued one its posted id.
 
     Returns the components to post (see
-    :func:`~culture_rules.apps.discord_rest.button_components`, without any ``value`` or
+    :func:`~culture_rules.extensions.discord.rest.button_components`, without any ``value`` or
     ``code``) and ``(posted custom_id, value, wants a code)`` for each valued button, in button
     order. Raises ``ValueError`` for anything refused, before any store or network call."""
     button_components(buttons)  # label, style, custom_id, count, uniqueness

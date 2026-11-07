@@ -4,12 +4,11 @@
 token (``connection.bot_token``, a ``grant:NAME`` reference resolved at call time). The input
 is ``channel`` and ``message`` (numeric ids) and an optional ``guild`` (the gateway event's
 ``data.guild_id``), which only fills the jump ``url``. ``connection.channels`` restricts the
-channels the same way :class:`~culture_rules.node.actions.message.MessageAction` does: unset or
-empty means every channel. ``connection.guild_id`` (one id or a list) restricts the guilds as
-the gateway does: the channel's guild is looked up first and a channel elsewhere is refused
-(that lookup also fills the ``url`` when no ``guild`` is given). The token is never logged or
-echoed in errors.
-"""
+channels the same way :class:`~culture_rules.extensions.discord.message.MessageAction` does:
+unset or empty means every channel. ``connection.guild_id`` (one id or a list) restricts the guilds
+as the gateway does: the channel's guild is looked up first and a channel elsewhere is refused (that
+lookup also fills the ``url`` when no ``guild`` is given). The token is never logged or echoed in
+errors."""
 
 from __future__ import annotations
 
@@ -19,10 +18,10 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport, guild_ids
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.extensions.discord.message import ACTORS_COLLECTION
+from culture_rules.extensions.discord.rest import DiscordClient, DiscordError, Transport, guild_ids
 from culture_rules.model.discord_filters import filter_values
-from culture_rules.node.actions.message import ACTORS_COLLECTION
 
 __all__ = ["DiscordReadAction"]
 

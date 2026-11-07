@@ -11,7 +11,7 @@ the next run reads the same messages again::
     advance: cursor.advance  key=cursor_key, expected=cursor, value=next_cursor
 
 ``params.actor`` is an app actor with surface ``discord``, resolved as
-:class:`~culture_rules.node.actions.discord_read.DiscordReadAction` does: its own bot token
+:class:`~culture_rules.extensions.discord.read.DiscordReadAction` does: its own bot token
 (``connection.bot_token``), its ``connection.channels`` allow-list and its
 ``connection.guild_id`` guild restriction (the channel's guild is looked up first and a channel
 elsewhere is refused; that lookup also fills ``guild_id`` and the jump ``url``).
@@ -57,10 +57,10 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_rest import DiscordClient, DiscordError, guild_ids
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.extensions.discord.read import DiscordReadAction, _fail, _nonempty
+from culture_rules.extensions.discord.rest import DiscordClient, DiscordError, guild_ids
 from culture_rules.node.actions.cursor import read_cursor
-from culture_rules.node.actions.discord_read import DiscordReadAction, _fail, _nonempty
 
 __all__ = ["DEFAULT_LIMIT", "MAX_LIMIT", "SWEEP_KIND", "DiscordSweepAction"]
 

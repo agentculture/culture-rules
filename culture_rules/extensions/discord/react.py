@@ -13,7 +13,7 @@ failing the step, since the new mark is already placed; a 429 or 5xx still fails
 retryably. The output is ``emoji`` (what was added, or None), ``removed``, ``not_removed``
 and ``reacted`` (whether a reaction was added).
 ``connection.channels`` restricts the channels as
-:class:`~culture_rules.node.actions.discord_read.DiscordReadAction` does (unset or empty means
+:class:`~culture_rules.extensions.discord.read.DiscordReadAction` does (unset or empty means
 every channel), and ``connection.guild_id`` (one id or a list) confines it to those servers:
 the channel's server is looked up first and a channel elsewhere is refused. A 429 is waited
 out by :class:`DiscordClient`. Reacting twice with the same emoji changes nothing, so the
@@ -29,10 +29,10 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.actors import secrets
-from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transport, guild_ids
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.extensions.discord.read import DiscordReadAction, _fail, _nonempty
+from culture_rules.extensions.discord.rest import DiscordClient, DiscordError, Transport, guild_ids
 from culture_rules.model.discord_filters import VARIATION_SELECTOR, emoji_ok, filter_values
-from culture_rules.node.actions.discord_read import DiscordReadAction, _fail, _nonempty
 
 __all__ = ["DiscordReactAction"]
 

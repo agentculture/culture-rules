@@ -30,7 +30,7 @@ store, so a refusal reads no secret and makes no network call:
    * its source rule is still live and enabled, read now (``rule_disabled``,
      :func:`~culture_rules.node.actions.github.source_rule_refusal`);
    * the clicked button's one-time code (deviation d3,
-     :func:`~culture_rules.apps.discord_buttons.use_code`): the **stored** click event's
+     :func:`~culture_rules.extensions.discord.buttons.use_code`): the **stored** click event's
      ``data.code`` (the gateway copies it from ``discord_buttons``, never from the click;
      never read from the run's inputs or params) must be issued (``code_not_found``), belong
      to the clicked ``custom_id`` and hold ``repo``, ``number`` and ``sha`` equal to this
@@ -40,7 +40,7 @@ store, so a refusal reads no secret and makes no network call:
      the workflow posting the button is pinned: both are configuration. It is checked
      last, so a refusal of any other check leaves the code unused; and a later failure
      that merged nothing (the App's secret, the PR read, ``pr_not_open``, ``head_moved``,
-     a merge GitHub refused) hands it back (:func:`~culture_rules.apps.discord_buttons.
+     a merge GitHub refused) hands it back (:func:`~culture_rules.extensions.discord.buttons.
      release_code`), so the same button can be clicked again once the cause is fixed. A
      failure whose outcome is unknown keeps its claim (below), and the code stays used. A
      store failure here is ``store_unavailable``, retryable;
@@ -91,10 +91,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors import trusted
-from culture_rules.apps import discord_buttons as buttons_mod
 from culture_rules.apps.github import GitHubApp, GitHubError
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import ADHOC_RULE_PREFIX, RUNS_COLLECTION
+from culture_rules.extensions.discord import buttons as buttons_mod
 from culture_rules.model.discord_filters import BUTTON_CLICKED
 from culture_rules.node.actions.github import (
     ACTOR_NOT_FOUND,
@@ -185,7 +185,7 @@ def code_refusal(
     store: Any, envelope: Mapping[str, Any], run_id: str, value: Mapping[str, Any], now: datetime
 ) -> str | None:
     """Use up the stored click ``envelope``'s one-time code for ``value`` (``{repo, number,
-    sha}``), or say why not (:func:`~culture_rules.apps.discord_buttons.use_code`)."""
+    sha}``), or say why not (:func:`~culture_rules.extensions.discord.buttons.use_code`)."""
     data = envelope.get("data")
     data = data if isinstance(data, Mapping) else {}
     return buttons_mod.use_code(

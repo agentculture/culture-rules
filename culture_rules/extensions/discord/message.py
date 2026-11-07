@@ -11,12 +11,12 @@ token and the message text are never logged or echoed in errors.
 
 ``buttons`` put one row of buttons under a Discord message. A button with a ``value`` (a JSON
 object) is posted as ``<custom_id>:<token>`` and its value is kept in ``discord_buttons``
-before the post (:mod:`culture_rules.apps.discord_buttons`), so the click's event carries it as
-``data.value``; only this port writes it, a clicker cannot. Each stored button also records
+before the post (:mod:`culture_rules.extensions.discord.buttons`), so the click's event carries
+it as ``data.value``; only this port writes it, a clicker cannot. Each stored button also records
 who posted it, ``posted_by: {run_id, workflow_id}`` (the invoking run and its workflow id,
 read from ``runs``; ``workflow_id`` is ``None`` when the run cannot be read), which the click
 event carries as ``data.posted_by`` (deviation d2). A post Discord definitively refused
-(a 4xx but 429, :attr:`~culture_rules.apps.discord_rest.DiscordError.refused`) deletes the
+(a 4xx but 429, :attr:`~culture_rules.extensions.discord.rest.DiscordError.refused`) deletes the
 kept values; after a timeout, a 5xx, a 429 or a lost connection the message may be up, so they
 stay (the TTL index deletes them). With buttons the output is
 ``{"message_id", "custom_ids"}`` (the posted ids, in button order).
@@ -50,10 +50,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors import secrets
-from culture_rules.apps import discord_buttons as buttons_mod
-from culture_rules.apps.discord_rest import MAX_CONTENT, DiscordClient, DiscordError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import RUNS_COLLECTION
+from culture_rules.extensions.discord import buttons as buttons_mod
+from culture_rules.extensions.discord.rest import (
+    MAX_CONTENT,
+    DiscordClient,
+    DiscordError,
+    Transport,
+)
 from culture_rules.node.mesh import MeshPoster
 
 __all__ = ["ACTORS_COLLECTION", "DiscordMessageAction", "MessageAction"]

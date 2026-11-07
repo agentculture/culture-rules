@@ -4,7 +4,7 @@ Which commands a bot offers is configuration (discord-surfaces d12): a Discord `
 that declares ``discord.command.invoked`` in ``params.events`` registers the commands its
 ``params.commands`` lists (:mod:`culture_rules.model.discord_command_config`), as **guild**
 commands (they appear at once; global ones can take an hour), through the node holding its
-gateway lease (:mod:`culture_rules.apps.discord_gateway`). No command is built in.
+gateway lease (:mod:`culture_rules.extensions.discord.gateway`). No command is built in.
 
 They need ``connection.application_id`` (the bot's application id, a literal) and
 ``connection.guild_id`` (one id or a list); without either, or without commands, nothing is
@@ -59,7 +59,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from culture_rules.apps.discord_rest import guild_ids
+from culture_rules.extensions.discord.rest import guild_ids
 
 __all__ = [
     "BUTTON_INTERACTION",

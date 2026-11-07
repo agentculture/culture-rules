@@ -17,8 +17,8 @@ from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
 
 from culture_rules.actors import trusted  # noqa: E402
-from culture_rules.apps import discord_buttons as db  # noqa: E402
 from culture_rules.engine.actorport import InvocationContext  # noqa: E402
+from culture_rules.extensions.discord import buttons as db  # noqa: E402
 from culture_rules.model.discord_filters import BUTTON_CLICKED  # noqa: E402
 from culture_rules.node.actions.github_merge import (  # noqa: E402
     MAX_RESENDS,

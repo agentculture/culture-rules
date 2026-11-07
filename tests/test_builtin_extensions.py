@@ -66,9 +66,9 @@ def test_the_alias_shares_its_kinds_port():
 
 
 def _builtin_classes():
+    from culture_rules.extensions.discord import attachment_fetch
     from culture_rules.extensions.newspaper import port as newspaper
     from culture_rules.node.actions import (
-        attachment_fetch,
         checklist,
         cursor,
         json_read,
@@ -124,7 +124,7 @@ def test_the_node_listeners_are_the_discord_gateway_and_the_checks_settler():
 
 
 def test_the_node_collections_include_every_app_collection():
-    from culture_rules.apps.discord_gateway import GATEWAY_STATE_COLLECTION
+    from culture_rules.extensions.discord.gateway import GATEWAY_STATE_COLLECTION
     from culture_rules.node.actions.github import ONCE_COLLECTION
     from culture_rules.node.checks_settle import (
         LATE_COLLECTION,
@@ -144,8 +144,8 @@ def test_the_node_collections_include_every_app_collection():
 
 
 def _source_event_types():
-    from culture_rules.apps import discord_gateway as gw
     from culture_rules.events.emit import CHECKS_SETTLED_TYPE
+    from culture_rules.extensions.discord import gateway as gw
     from culture_rules.extensions.jira import hooks as jira
     from culture_rules.model.discord_filters import BUTTON_CLICKED
     from culture_rules.server.hooks import github
