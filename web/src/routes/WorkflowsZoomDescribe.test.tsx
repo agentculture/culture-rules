@@ -8,12 +8,12 @@ import { getAgentState, resetAgentState } from "../agent-state/store";
 import { MACHINES, WHOAMI } from "../fixtures/rules-fixture";
 import { mockFetch, type Routes as ApiRoutes } from "../test/mockApi";
 import { DOMMatrixStub, MeasuringResizeObserver, useMeasuredLayout } from "../test/reactFlow";
-import { ACTORS, REVIEW_PR, WORKFLOW_DOCS, WORKFLOW_RULES } from "../workflows/fixture";
+import { ACTORS, SUMMARIZE_DOCUMENT, WORKFLOW_DOCS, WORKFLOW_RULES } from "../workflows/fixture";
 import type { Description } from "../api/types";
 
-/** What `GET /workflows/review-pr/describe` answers in these tests. */
+/** What `GET /workflows/summarize-document/describe` answers in these tests. */
 const DESCRIBED: Description = {
-  id: "review-pr",
+  id: "summarize-document",
   kind: "workflow",
   lines: ["1 fetch — code on spark", "2 loop — retry up to 3×:", "  2.1 agent — reviewer (agent)"],
   entries: [
@@ -29,17 +29,17 @@ function routes(overrides: ApiRoutes = {}): ApiRoutes {
     "/api/rules": { body: { items: WORKFLOW_RULES } },
     "/api/machines": { body: { items: MACHINES } },
     "/api/workflows": { body: { items: WORKFLOW_DOCS } },
-    "/api/workflows/review-pr": { body: REVIEW_PR },
+    "/api/workflows/summarize-document": { body: SUMMARIZE_DOCUMENT },
     "/api/actors": { body: { items: ACTORS } },
     "/api/runs": { body: { items: [] } },
-    "/api/workflows/review-pr/describe": { body: DESCRIBED },
+    "/api/workflows/summarize-document/describe": { body: DESCRIBED },
     ...overrides,
   };
 }
 
 function renderWorkflows() {
   return render(
-    <MemoryRouter initialEntries={["/workflows?id=review-pr"]}>
+    <MemoryRouter initialEntries={["/workflows?id=summarize-document"]}>
       <Routes>
         <Route path="/workflows" element={<Workflows />} />
       </Routes>
@@ -50,7 +50,7 @@ function renderWorkflows() {
 useMeasuredLayout();
 
 async function loaded() {
-  await screen.findByRole("heading", { level: 1, name: "Review PR" });
+  await screen.findByRole("heading", { level: 1, name: "Summarize document" });
   await waitFor(() => expect(getAgentState().status).toBe("ready"));
   // React Flow keeps step nodes out of the accessibility tree until measured: wait for one,
   // or a busy full-suite run races the queries below.
@@ -191,10 +191,10 @@ describe("Workflows: zoom and the (i) description (d19)", () => {
     renderWorkflows();
     await loaded();
     const about = within(document.querySelector(".wf-head") as HTMLElement).getByRole("button", {
-      name: "About Review PR",
+      name: "About Summarize document",
     });
     await userEvent.click(about);
-    const panel = screen.getByRole("dialog", { name: "About Review PR" });
+    const panel = screen.getByRole("dialog", { name: "About Summarize document" });
     expect((await within(panel).findByTestId("about-lines")).textContent).toBe(DESCRIBED.lines.join("\n"));
     expect(within(panel).queryByText("The saved version.")).toBeNull();
     // the inline block is gone: the description lives behind the button
@@ -211,7 +211,7 @@ describe("Workflows: zoom and the (i) description (d19)", () => {
     // opening the panel first raced it
     await waitFor(() => expect(toggle.getAttribute("aria-checked")).not.toBe(before));
     const head = document.querySelector(".wf-head") as HTMLElement;
-    await userEvent.click(within(head).getByRole("button", { name: "About Review PR" }));
+    await userEvent.click(within(head).getByRole("button", { name: "About Summarize document" }));
     expect(await screen.findByText("The saved version.", undefined, { timeout: 5000 })).toBeInTheDocument();
   });
 });

@@ -17,7 +17,7 @@ async function agentState(page: Page) {
 
 async function open(
   page: Page,
-  { roles, gone = [], path = "/workflows?id=review-pr" }: { roles?: string[]; gone?: WorkflowDef[]; path?: string } = {},
+  { roles, gone = [], path = "/workflows?id=summarize-document" }: { roles?: string[]; gone?: WorkflowDef[]; path?: string } = {},
 ) {
   // The canvas scenarios drive the Detailed (steps) view; a workflow opens in Simple by default.
   await withView(page);
@@ -45,7 +45,7 @@ test.describe("Workflows: Run form", () => {
   test("Run opens a typed form; submitting POSTs typed inputs, overlays the run and shows its outputs", async ({ page }) => {
     const calls = await open(page);
     await page.getByRole("button", { name: "Run", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Run Review PR" });
+    const dialog = page.getByRole("dialog", { name: "Run Summarize document" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByLabel(/^pr/)).toBeFocused();
     await noSeriousAxe(page, "run form");
@@ -53,7 +53,7 @@ test.describe("Workflows: Run form", () => {
     // A required field is refused client-side before anything is sent.
     await dialog.getByRole("button", { name: "Run", exact: true }).click();
     await expect(dialog.getByText("Required").first()).toBeVisible();
-    expect(calls.some((c) => c.path === "/api/workflows/review-pr/run")).toBe(false);
+    expect(calls.some((c) => c.path === "/api/workflows/summarize-document/run")).toBe(false);
     await noSeriousAxe(page, "run form with errors");
 
     await dialog.getByLabel(/^pr/).fill("42");
@@ -61,7 +61,7 @@ test.describe("Workflows: Run form", () => {
     await dialog.getByRole("button", { name: "Run", exact: true }).click();
 
     await expect(dialog).toHaveCount(0);
-    const post = calls.find((c) => c.method === "POST" && c.path === "/api/workflows/review-pr/run");
+    const post = calls.find((c) => c.method === "POST" && c.path === "/api/workflows/summarize-document/run");
     expect(post?.body).toEqual({ inputs: { pr: 42, repo: "acme/app" } });
     expect(typeof (post?.body as { inputs: { pr: unknown } }).inputs.pr).toBe("number");
 
@@ -78,9 +78,9 @@ test.describe("Workflows: Run form", () => {
   test("Escape closes the form without sending", async ({ page }) => {
     const calls = await open(page);
     await page.getByRole("button", { name: "Run", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Run Review PR" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Run Summarize document" })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "Run Review PR" })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Run Summarize document" })).toHaveCount(0);
     expect(calls.some((c) => c.path.endsWith("/run"))).toBe(false);
   });
 });

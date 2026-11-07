@@ -66,8 +66,8 @@ test.describe("live editor updates (h61 / c80)", () => {
         rule_id: "build-and-publish",
         event_id: "evt_7",
         reason: "superseded_by",
-        by: ["review-on-approve"],
-        message: "superseded by review-on-approve",
+        by: ["summarize-on-request"],
+        message: "superseded by summarize-on-request",
         at: new Date(api.now - 30 * 60_000).toISOString(),
         host: "spark",
       },
@@ -80,7 +80,7 @@ test.describe("live editor updates (h61 / c80)", () => {
     await card.getByRole("button", { name: "History of Build and publish" }).click();
     const runs = card.getByRole("list", { name: "Last runs" });
     const skip = runs.locator('[data-decision="superseded_by"]');
-    await expect(skip).toContainText("superseded by Review on approve");
+    await expect(skip).toContainText("superseded by Summarize on request");
     await expect(skip).toContainText("skipped");
     // The runs read from the same GET /rules/{id}/history, newest first.
     await expect(runs.locator("[data-run-status]")).toHaveCount(4);

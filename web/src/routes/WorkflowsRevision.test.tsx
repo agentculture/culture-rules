@@ -8,7 +8,7 @@ import { resetAgentState } from "../agent-state/store";
 import { createFakeApi, fetchFor, type FakeApi } from "../rules/fake-api";
 import { DOMMatrixStub, MeasuringResizeObserver } from "../test/reactFlow";
 import { VIEW_MODE_KEY } from "../workflows/views/mode";
-import { REVIEW_PR } from "../workflows/fixture";
+import { SUMMARIZE_DOCUMENT } from "../workflows/fixture";
 
 /**
  * t16: a save sends the revision it read (`expected_revision`); two tabs open on revision 3, the
@@ -19,14 +19,14 @@ const CHANGED = "This workflow changed since you opened it";
 
 function seeded(): FakeApi {
   const api = createFakeApi();
-  api.workflows = [{ ...structuredClone(REVIEW_PR), revision: 3 }];
+  api.workflows = [{ ...structuredClone(SUMMARIZE_DOCUMENT), revision: 3 }];
   return api;
 }
 
-/** One browser tab: the Workflows page on review-pr. */
+/** One browser tab: the Workflows page on summarize-document. */
 function openTab() {
   const view = render(
-    <MemoryRouter initialEntries={["/workflows?id=review-pr"]}>
+    <MemoryRouter initialEntries={["/workflows?id=summarize-document"]}>
       <Routes>
         <Route path="/workflows" element={<Workflows />} />
       </Routes>
@@ -98,7 +98,7 @@ describe("Workflows page: saves carry the revision read", () => {
     await rename(two, "Tab two again");
     await userTwo.click(two.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.workflows[0]).toMatchObject({ name: "Tab two again", revision: 5 }));
-    expect((await getWorkflowDef("review-pr")).revision).toBe(5);
+    expect((await getWorkflowDef("summarize-document")).revision).toBe(5);
   });
 });
 

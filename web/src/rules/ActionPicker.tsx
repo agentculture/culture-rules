@@ -96,30 +96,6 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     label: "Read a GitHub PR",
     params: { actor: RS, repo: RS, number: RI },
   },
-  "github.push": {
-    label: "Push a fix to a GitHub PR",
-    params: {
-      actor: RS,
-      repo: RS,
-      number: RI,
-      head_branch: RS,
-      expected_head_sha: RS,
-      commit_sha: RS,
-      source: RS,
-    },
-  },
-  "github.review_reply": {
-    label: "Reply in a GitHub review thread",
-    params: {
-      actor: RS,
-      repo: RS,
-      number: RI,
-      comment_id: RI,
-      body: RS,
-      thread_id: S,
-      resolve: { type: "bool" },
-    },
-  },
   "jira.comment": { label: "Comment on Jira", params: { actor: RS, issue: RS, body: RS } },
   "http.call": {
     label: "Call an HTTP endpoint",
@@ -215,7 +191,6 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
 
 /** Checkbox labels that read better than the param name. */
 const BOOL_LABELS: Record<string, string> = {
-  resolve: "Resolve the thread",
   cache: "Keep the first answer for this file",
 };
 

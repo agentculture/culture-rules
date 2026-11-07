@@ -42,8 +42,8 @@ describe("When: the workflow's entry points", () => {
       "Entry point: Trusted review",
       "Entry point: Review asked for changes",
     ]);
-    // the continuation that starts review-commit belongs to review-commit, not here
-    expect(screen.queryByRole("group", { name: "Entry point: Review the fix" })).not.toBeInTheDocument();
+    // the continuation that starts validate-document belongs to validate-document, not here
+    expect(screen.queryByRole("group", { name: "Entry point: Validate the document" })).not.toBeInTheDocument();
 
     expect(within(entry("Checks settled, not green")).getByRole("switch", { name: "Checks settled, not green enabled" }))
       .toHaveAttribute("aria-checked", "true");
@@ -54,7 +54,7 @@ describe("When: the workflow's entry points", () => {
 
     const continuation = entry("Review asked for changes");
     expect(continuation).toHaveTextContent("continuation");
-    expect(continuation).toHaveTextContent("from review-commit");
+    expect(continuation).toHaveTextContent("from validate-document");
     expect(entry("Trusted PR comment")).toHaveTextContent("github.comment.created");
   });
 
@@ -71,7 +71,7 @@ describe("When: the workflow's entry points", () => {
     expect(within(rows).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "head_repo=base_repo",
       "draft=false",
-      "repositoryinvars.fixer_repos",
+      "repositoryinvars.document_repos",
       "conclusion≠\"success\"",
     ]);
     expect(within(first).getByRole("switch", { name: "Counts toward the attempt budget" }))
@@ -87,7 +87,7 @@ describe("When: the workflow's entry points", () => {
     renderEditors();
     const refix = await openEntry(user, "Review asked for changes");
     expect(within(refix).getByRole("button", { name: "Collapse Review asked for changes" })).toBeInTheDocument();
-    expect(within(refix).getByLabelText("Continues from")).toHaveValue("review-commit");
+    expect(within(refix).getByLabelText("Continues from")).toHaveValue("validate-document");
     const rows = within(refix).getByRole("list", { name: "Only if all of" });
     expect(within(rows).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "outputs.review=\"request_changes\"",
@@ -158,14 +158,14 @@ const BUILD_AND_PUBLISH = {
   workflow: { id: "build-image", inputs: { commit: "trigger.data.sha", repo: "trigger.data.repo" } },
   action: { kind: "http.call", name: "Publish", params: { tag: "workflow.outputs.image" } },
   placement: { machine: "thor" },
-  must_after: ["review-on-approve"],
+  must_after: ["summarize-on-request"],
   enabled: true,
 };
 const RULES_TAB = {
   editForm: [["PUT", "/rules/build-and-publish", {
     ...BUILD_AND_PUBLISH,
     name: "Ship it",
-    trigger: { kind: "event", params: { type: "github.push" } },
+    trigger: { kind: "event", params: { type: "github.pr.closed" } },
     action: { kind: "noop", name: "PublishHold" },
     placement: { machine: "spark2" },
   }]],
@@ -176,7 +176,7 @@ const RULES_TAB = {
     action: { kind: "code.run", name: "Train" },
     placement: { machine: "thor" },
     enabled: true,
-    workflow: { id: "review-pr", inputs: {} },
+    workflow: { id: "summarize-document", inputs: {} },
     condition: { op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } },
   }]],
   relate: [["PUT", "/rules/build-and-publish", { ...BUILD_AND_PUBLISH, may_after: ["train-batch"] }]],
@@ -216,7 +216,7 @@ describe("the same rule document the Rules tab saved", () => {
       await user.clear(within(form).getByLabelText("Name"));
       await user.type(within(form).getByLabelText("Name"), "Ship it");
       await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
-      await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+      await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.closed");
       await user.selectOptions(within(form).getByLabelText("What happens"), "noop");
       await user.type(within(form).getByLabelText("Action label"), "Hold");
       await user.selectOptions(within(form).getByLabelText("Placement"), "spark2");
@@ -229,9 +229,9 @@ describe("the same rule document the Rules tab saved", () => {
 
   it("adding a condition", async () => {
     const setup = (fake: FakeApi) => {
-      fake.rules.find((r) => r.id === "train-batch")!.workflow = { id: "review-pr", inputs: {} };
+      fake.rules.find((r) => r.id === "train-batch")!.workflow = { id: "summarize-document", inputs: {} };
     };
-    const [rules, simple] = await putBodies(RULES_TAB.addCondition, "train-batch", "review-pr", async (user, scope) => {
+    const [rules, simple] = await putBodies(RULES_TAB.addCondition, "train-batch", "summarize-document", async (user, scope) => {
       const stage = within(scope).queryByRole("button", { name: "Add stage" });
       if (stage) await user.click(stage);
       await user.click(screen.getByRole("button", { name: "Add condition" }));
@@ -255,7 +255,7 @@ describe("the same rule document the Rules tab saved", () => {
 
   it("removing a relationship", async () => {
     const [rules, simple] = await putBodies(RULES_TAB.unrelate, SELECTED_RULE_ID, "build-image", async (user, scope) => {
-      await user.click(within(scope).getByRole("button", { name: "Remove: must run after Review on approve" }));
+      await user.click(within(scope).getByRole("button", { name: "Remove: must run after Summarize on request" }));
     });
     expect(rules).toHaveLength(1);
     expect(simple).toEqual(rules);
@@ -282,7 +282,7 @@ describe("one entry point, one rule", () => {
     await user.type(within(form).getByLabelText("Name"), "Checks went red");
     await user.click(within(form).getByRole("button", { name: "Save" }));
     expect(await findEntry("Checks went red")).toBeInTheDocument();
-    expect(writes().map((c) => `${c.method} ${c.path}`)).toEqual(["PUT /rules/pr-fixer-checks"]);
+    expect(writes().map((c) => `${c.method} ${c.path}`)).toEqual(["PUT /rules/document-chain-checks"]);
     expect(writes()[0].body).toEqual({ ...FOLD_RULES[0], name: "Checks went red" });
   });
 
@@ -293,10 +293,10 @@ describe("one entry point, one rule", () => {
     const sw = within(comment).getByRole("switch", { name: "Trusted PR comment enabled" });
     await user.click(sw);
     await waitFor(() => expect(sw).toHaveAttribute("aria-checked", "false"));
-    expect(writes().map((c) => `${c.method} ${c.path}`)).toEqual(["POST /rules/pr-fixer-comment/disable"]);
+    expect(writes().map((c) => `${c.method} ${c.path}`)).toEqual(["POST /rules/document-chain-comment/disable"]);
     expect(entry("Trusted PR comment")).toHaveAttribute("data-enabled", "false");
     expect(entry("Trusted PR comment")).toHaveTextContent("disabled");
-    expect(api.rules.filter((r) => r.enabled === false).map((r) => r.id)).toEqual(["pr-fixer-comment", "pr-fixer-review"]);
+    expect(api.rules.filter((r) => r.enabled === false).map((r) => r.id)).toEqual(["document-chain-comment", "document-chain-review"]);
   });
 
   it("the attempt-budget switch writes that entry's rule only", async () => {
@@ -304,17 +304,17 @@ describe("one entry point, one rule", () => {
     renderEditors();
     const first = await findEntry("Checks settled, not green");
     await user.click(within(first).getByRole("switch", { name: "Counts toward the attempt budget" }));
-    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
+    await waitFor(() => expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(1));
     expect(writes()).toHaveLength(1);
     // validate.py: a rule outside the budget keeps its run key and may not set max_attempts
-    expect(sent("PUT", "/rules/pr-fixer-checks")[0].body).toEqual({ ...FOLD_RULES[0], counts_toward_budget: false, max_attempts: null });
+    expect(sent("PUT", "/rules/document-chain-checks")[0].body).toEqual({ ...FOLD_RULES[0], counts_toward_budget: false, max_attempts: null });
     await waitFor(() => expect(within(entry("Checks settled, not green")).getByRole("switch", { name: "Counts toward the attempt budget" }))
       .toHaveAttribute("aria-checked", "false"));
   });
 
   it("the attempt-budget switch cannot opt out a rule with no run key", async () => {
     const user = userEvent.setup();
-    renderEditors({ workflowId: "publish-fix" });
+    renderEditors({ workflowId: "publish-document" });
     const any = await openEntry(user, "Any run failed");
     const sw = within(any).getByRole("switch", { name: "Counts toward the attempt budget" });
     expect(sw).toHaveAttribute("aria-disabled", "true");
@@ -336,7 +336,7 @@ describe("one entry point, one rule", () => {
     expect(await findEntry("PR opened")).toBeInTheDocument();
     const post = sent("POST", "/rules");
     expect(post).toHaveLength(1);
-    expect(post[0].body).toMatchObject({ id: "pr-opened", workflow: { id: "pr-fix", inputs: {} } });
+    expect(post[0].body).toMatchObject({ id: "pr-opened", workflow: { id: "prepare-document", inputs: {} } });
   });
 });
 
@@ -349,13 +349,13 @@ describe("history, describe and stop runs per entry point", () => {
     await user.click(within(first).getByRole("button", { name: "History of Checks settled, not green" }));
     const history = await within(first).findByRole("list", { name: "Last runs" });
     await waitFor(() => expect(history).toHaveTextContent("No runs yet"));
-    expect(sent("GET", "/rules/pr-fixer-checks/history")).toHaveLength(1);
+    expect(sent("GET", "/rules/document-chain-checks/history")).toHaveLength(1);
   });
 
   it("history lists runs and skips", async () => {
     const user = userEvent.setup();
     api.decisions.push({
-      rule_id: "pr-fixer-comment", event_id: "e1", reason: "superseded_by", by: ["pr-fixer-checks"],
+      rule_id: "document-chain-comment", event_id: "e1", reason: "superseded_by", by: ["document-chain-checks"],
       message: "", at: new Date(NOW - 5 * 60_000).toISOString(), host: "spark",
     });
     renderEditors();
@@ -372,11 +372,11 @@ describe("history, describe and stop runs per entry point", () => {
     await user.click(within(first).getByRole("button", { name: "About Checks settled, not green" }));
     const panel = within(first).getByRole("dialog", { name: "About Checks settled, not green" });
     await waitFor(() => expect(panel).toHaveTextContent("When github.pr.checks_settled"));
-    expect(sent("GET", "/rules/pr-fixer-checks/describe")).toHaveLength(1);
+    expect(sent("GET", "/rules/document-chain-checks/describe")).toHaveLength(1);
   });
 
   it("disabling with runs going offers to stop them, through POST /rules/{id}/stop-runs", async () => {
-    withActiveRuns(api, "pr-fixer-checks", 2);
+    withActiveRuns(api, "document-chain-checks", 2);
     const user = userEvent.setup();
     renderEditors();
     const first = await findEntry("Checks settled, not green");
@@ -384,8 +384,8 @@ describe("history, describe and stop runs per entry point", () => {
     expect(await screen.findByText(/Stop 2 current runs\?/, {}, { timeout: 800 })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^Approve/ }));
     expect(await screen.findByText("Stopped 2 runs of Checks settled, not green.")).toBeInTheDocument();
-    expect(sent("POST", "/rules/pr-fixer-checks/stop-runs")).toEqual([
-      { method: "POST", path: "/rules/pr-fixer-checks/stop-runs", body: { apply: true } },
+    expect(sent("POST", "/rules/document-chain-checks/stop-runs")).toEqual([
+      { method: "POST", path: "/rules/document-chain-checks/stop-runs", body: { apply: true } },
     ]);
   });
 });
@@ -397,17 +397,17 @@ describe("a continuation's predecessor", () => {
     const refix = await openEntry(user, "Review asked for changes");
     const picker = within(refix).getByLabelText("Continues from");
     const options = within(picker).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
-    expect(options).toEqual(["review-commit", "publish-fix"]);
-    await user.selectOptions(picker, "publish-fix");
-    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-refix")).toHaveLength(1));
+    expect(options).toEqual(["validate-document", "publish-document"]);
+    await user.selectOptions(picker, "publish-document");
+    await waitFor(() => expect(sent("PUT", "/rules/document-chain-refix")).toHaveLength(1));
     expect(writes()).toHaveLength(1);
-    const body = sent("PUT", "/rules/pr-fixer-refix")[0].body as Rule;
+    const body = sent("PUT", "/rules/document-chain-refix")[0].body as Rule;
     expect(body).toEqual({
       ...FOLD_RULES[3],
       condition: {
         op: "and",
         args: [
-          { op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "publish-fix" } },
+          { op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "publish-document" } },
           { op: "compare", cmp: "==", left: { field: "data.outputs.review" }, right: { literal: "request_changes" } },
         ],
       },
@@ -419,14 +419,14 @@ describe("a continuation's predecessor", () => {
 describe("deleting entry points", () => {
   it("deleting the last entry point of a stepless workflow offers to delete the workflow too", async () => {
     const user = userEvent.setup();
-    renderEditors({ workflowId: "review-commit", def: FOLD_WORKFLOWS[1] });
-    const only = await findEntry("Review the fix");
-    await user.click(within(only).getByRole("button", { name: "Delete Review the fix" }));
-    await waitFor(() => expect(screen.queryByRole("group", { name: "Entry point: Review the fix" })).not.toBeInTheDocument());
-    expect(sent("DELETE", "/rules/pr-fixer-review-commit")).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "Delete the workflow Review the fix too" }));
-    await waitFor(() => expect(sent("DELETE", "/workflows/review-commit")).toHaveLength(1));
-    expect(await screen.findByText("Deleted the workflow Review the fix.")).toBeInTheDocument();
+    renderEditors({ workflowId: "validate-document", def: FOLD_WORKFLOWS[1] });
+    const only = await findEntry("Validate the document");
+    await user.click(within(only).getByRole("button", { name: "Delete Validate the document" }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Entry point: Validate the document" })).not.toBeInTheDocument());
+    expect(sent("DELETE", "/rules/document-chain-validate-document")).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Delete the workflow Validate the document too" }));
+    await waitFor(() => expect(sent("DELETE", "/workflows/validate-document")).toHaveLength(1));
+    expect(await screen.findByText("Deleted the workflow Validate the document.")).toBeInTheDocument();
   });
 
   it("never offers to delete a workflow with steps, or one that still has entry points; undo restores the rule", async () => {
@@ -438,19 +438,19 @@ describe("deleting entry points", () => {
     expect(screen.queryByRole("button", { name: /Delete the workflow/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(await findEntry("Checks settled, not green")).toBeInTheDocument();
-    expect(sent("POST", "/rules/pr-fixer-checks/restore")).toHaveLength(1);
+    expect(sent("POST", "/rules/document-chain-checks/restore")).toHaveLength(1);
   });
 
   it("never offers to delete a workflow whose last entry point went while it has steps", async () => {
     const user = userEvent.setup();
     const withSteps = { ...FOLD_WORKFLOWS[1], steps: [{ id: "look", name: "Look", kind: "ai" }] } as typeof FOLD_WORKFLOWS[1];
-    renderEditors({ workflowId: "review-commit", def: withSteps });
-    const only = await findEntry("Review the fix");
-    await user.click(within(only).getByRole("button", { name: "Delete Review the fix" }));
-    expect(await screen.findByText("Deleted Review the fix")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("group", { name: "Entry point: Review the fix" })).not.toBeInTheDocument());
+    renderEditors({ workflowId: "validate-document", def: withSteps });
+    const only = await findEntry("Validate the document");
+    await user.click(within(only).getByRole("button", { name: "Delete Validate the document" }));
+    expect(await screen.findByText("Deleted Validate the document")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Entry point: Validate the document" })).not.toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /Delete the workflow/ })).not.toBeInTheDocument();
-    expect(sent("DELETE", "/workflows/review-commit")).toHaveLength(0);
+    expect(sent("DELETE", "/workflows/validate-document")).toHaveLength(0);
   });
 });
 
@@ -461,9 +461,9 @@ describe("review follow-up: conditions", () => {
     renderEditors();
     const first = await findEntry("Checks settled, not green");
     await user.click(within(first).getByRole("button", { name: "Remove condition draft = false" }));
-    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
+    await waitFor(() => expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(1));
     const guard = (FOLD_RULES[0].condition as { args: Condition[] }).args;
-    expect((sent("PUT", "/rules/pr-fixer-checks")[0].body as Rule).condition).toEqual({ op: "and", args: [guard[0], guard[2], guard[3]] });
+    expect((sent("PUT", "/rules/document-chain-checks")[0].body as Rule).condition).toEqual({ op: "and", args: [guard[0], guard[2], guard[3]] });
 
     await waitFor(() => expect(within(entry("Checks settled, not green")).getAllByRole("listitem").length).toBeGreaterThan(0));
     await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Add condition" }));
@@ -471,12 +471,12 @@ describe("review follow-up: conditions", () => {
     await user.type(within(form).getByLabelText("Variable"), "branch");
     await user.type(within(form).getByLabelText("Value"), "main");
     await user.click(within(form).getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(2));
-    expect((sent("PUT", "/rules/pr-fixer-checks")[1].body as Rule).condition).toEqual({
+    await waitFor(() => expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(2));
+    expect((sent("PUT", "/rules/document-chain-checks")[1].body as Rule).condition).toEqual({
       op: "and",
       args: [guard[0], guard[2], guard[3], { op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } }],
     });
-    expect(writes().every((c) => c.path === "/rules/pr-fixer-checks")).toBe(true);
+    expect(writes().every((c) => c.path === "/rules/document-chain-checks")).toBe(true);
   });
 
   it("a continuation's own terms are editable; its data.workflow_id term is never a removable row", async () => {
@@ -485,21 +485,21 @@ describe("review follow-up: conditions", () => {
     const refix = await openEntry(user, "Review asked for changes");
     expect(within(refix).queryByRole("button", { name: /Remove condition workflow_id/ })).not.toBeInTheDocument();
     await user.click(within(refix).getByRole("button", { name: 'Remove condition outputs.review = "request_changes"' }));
-    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-refix")).toHaveLength(1));
-    expect((sent("PUT", "/rules/pr-fixer-refix")[0].body as Rule).condition).toEqual({
-      op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "review-commit" },
+    await waitFor(() => expect(sent("PUT", "/rules/document-chain-refix")).toHaveLength(1));
+    expect((sent("PUT", "/rules/document-chain-refix")[0].body as Rule).condition).toEqual({
+      op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "validate-document" },
     });
-    // still linked from review-commit
-    await waitFor(() => expect(within(entry("Review asked for changes")).getByLabelText("Continues from")).toHaveValue("review-commit"));
+    // still linked from validate-document
+    await waitFor(() => expect(within(entry("Review asked for changes")).getByLabelText("Continues from")).toHaveValue("validate-document"));
   });
 
   it("a shared condition is edited once for every entry point and keeps each continuation's predecessor term (c32)", async () => {
     use(foldApi((rules) => {
-      const publish = rules.find((r) => r.id === "pr-fixer-publish")!;
+      const publish = rules.find((r) => r.id === "document-chain-publish")!;
       rules.splice(rules.findIndex((r) => r.id === "any-failure"), 1, { ...structuredClone(publish), id: "publish-2", name: "Publish again" });
     }));
     const user = userEvent.setup();
-    renderEditors({ workflowId: "publish-fix" });
+    renderEditors({ workflowId: "publish-document" });
     await findEntry("Publish when approved");
     const shared = screen.getByRole("group", { name: "Shared by every entry point" });
     const rows = within(shared).getByRole("list", { name: "Every entry point only if all of" });
@@ -513,7 +513,7 @@ describe("review follow-up: conditions", () => {
     await waitFor(() => expect(writes()).toHaveLength(2));
     for (const put of writes()) {
       const args = ((put.body as Rule).condition as { args: Condition[] }).args;
-      expect(args[0]).toEqual({ op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "review-commit" } });
+      expect(args[0]).toEqual({ op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "validate-document" } });
       expect(args).toHaveLength(3);
     }
 
@@ -525,7 +525,7 @@ describe("review follow-up: conditions", () => {
     for (const put of writes().slice(2)) {
       const args = ((put.body as Rule).condition as { args: Condition[] }).args;
       expect(args).toEqual([
-        { op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "review-commit" } },
+        { op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "validate-document" } },
         { op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } },
       ]);
     }
@@ -611,7 +611,7 @@ describe("full-pass review follow-up", () => {
 
   it("an empty failure action is not invented: an untouched save writes nothing", async () => {
     const user = userEvent.setup();
-    renderEditors({ workflowId: "publish-fix" });
+    renderEditors({ workflowId: "publish-document" });
     await findEntry("Publish when approved");
     await user.click(within(then("On failure")).getByRole("button", { name: "Edit on failure" }));
     await user.click(within(screen.getByRole("form", { name: "On failure" })).getByRole("button", { name: "Save for every entry point" }));
@@ -639,11 +639,11 @@ describe("full-pass review follow-up", () => {
 
   it("condition results read as rows; a term already there is not added twice, and a no-op is not reported as saved", async () => {
     use(foldApi((rules) => {
-      const publish = rules.find((r) => r.id === "pr-fixer-publish")!;
+      const publish = rules.find((r) => r.id === "document-chain-publish")!;
       rules.splice(rules.findIndex((r) => r.id === "any-failure"), 1, { ...structuredClone(publish), id: "publish-2", name: "Publish again" });
     }));
     const user = userEvent.setup();
-    renderEditors({ workflowId: "publish-fix" });
+    renderEditors({ workflowId: "publish-document" });
     await findEntry("Publish again");
     // Publish again gains the term meanwhile, so it is skipped; applying to it as it is now changes nothing
     const other = api.rules.find((r) => r.id === "publish-2")!;
@@ -659,7 +659,7 @@ describe("full-pass review follow-up", () => {
     expect(results).toHaveAttribute("aria-live", "polite");
     const row = await within(results).findByText("Publish again");
     await waitFor(() => expect(row.closest("li")).toHaveAttribute("data-status", "skipped-changed"));
-    expect(row.closest("li")).toHaveTextContent('workflow_id = "review-commit"');
+    expect(row.closest("li")).toHaveTextContent('workflow_id = "validate-document"');
     expect(row.closest("li")).not.toHaveTextContent('"op"');
     await user.click(within(results).getByRole("button", { name: "Apply to Publish again as it is now" }));
     await waitFor(() => expect(row.closest("li")).toHaveAttribute("data-status", "unchanged"));
@@ -677,7 +677,7 @@ describe("full-pass review follow-up", () => {
     await user.type(within(form).getByLabelText("Variable"), "branch");
     await user.type(within(form).getByLabelText("Value"), "main");
     await user.click(within(form).getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
+    await waitFor(() => expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(1));
     await waitFor(() => expect(within(entry("Checks settled, not green")).getByRole("list", { name: "Only if all of" })).toHaveTextContent("vars.branch"));
     await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Add condition" }));
     const again = screen.getByRole("form", { name: "Add condition" });
@@ -685,7 +685,7 @@ describe("full-pass review follow-up", () => {
     await user.type(within(again).getByLabelText("Value"), "main");
     await user.click(within(again).getByRole("button", { name: "Add" }));
     await waitFor(() => expect(screen.queryByRole("form", { name: "Add condition" })).not.toBeInTheDocument());
-    expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1);
+    expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(1);
   });
 
   it("focus returns after removing a condition row; + Entry point says it is expanded", async () => {
@@ -702,12 +702,12 @@ describe("full-pass review follow-up", () => {
   });
 
   it("a different workflow starts fresh: its own first entry open, no earlier baselines", async () => {
-    api.failNext["PUT /rules/pr-fixer-comment"] = failure;
+    api.failNext["PUT /rules/document-chain-comment"] = failure;
     const user = userEvent.setup();
-    const view = renderEditors({ workflowId: "pr-fix" });
+    const view = renderEditors({ workflowId: "prepare-document" });
     await editRunKey(user, "pr:{trigger.data.number}");
     await screen.findByRole("region", { name: "Save results" });
-    view.rerender(<MemoryRouter><EntryEditors workflow={defFor("publish-fix")} /></MemoryRouter>);
+    view.rerender(<MemoryRouter><EntryEditors workflow={defFor("publish-document")} /></MemoryRouter>);
     const first = await findEntry("Publish when approved");
     expect(within(first).getByRole("button", { name: "Collapse Publish when approved" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Save results" })).not.toBeInTheDocument();
@@ -715,9 +715,9 @@ describe("full-pass review follow-up", () => {
 
   // The same flow, with the first entry point still opening on its own.
   it("a different workflow shows its own first entry open", async () => {
-    const view = renderEditors({ workflowId: "pr-fix" });
+    const view = renderEditors({ workflowId: "prepare-document" });
     await findEntry("Checks settled, not green");
-    view.rerender(<MemoryRouter><EntryEditors workflow={defFor("publish-fix")} /></MemoryRouter>);
+    view.rerender(<MemoryRouter><EntryEditors workflow={defFor("publish-document")} /></MemoryRouter>);
     const first = await findEntry("Publish when approved");
     expect(within(first).getByRole("button", { name: "Collapse Publish when approved" })).toBeInTheDocument();
   });
@@ -737,21 +737,21 @@ describe("re-review: unchanged after the re-read, delete only an unused workflow
     const row = await within(results).findByText("Trusted PR comment");
     await waitFor(() => expect(row.closest("li")).toHaveAttribute("data-status", "skipped-changed"));
     expect(within(results).getByRole("button", { name: "Apply to Trusted PR comment as it is now" })).toBeInTheDocument();
-    expect(sent("PUT", "/rules/pr-fixer-comment")).toHaveLength(0);
-    expect(sent("GET", "/rules/pr-fixer-comment")).toHaveLength(1);
+    expect(sent("PUT", "/rules/document-chain-comment")).toHaveLength(0);
+    expect(sent("GET", "/rules/document-chain-comment")).toHaveLength(1);
   });
 
   it("Delete the workflow too re-reads the rules and keeps a workflow a rule still uses", async () => {
     const user = userEvent.setup();
-    renderEditors({ workflowId: "review-commit", def: FOLD_WORKFLOWS[1] });
-    const only = await findEntry("Review the fix");
-    await user.click(within(only).getByRole("button", { name: "Delete Review the fix" }));
-    await waitFor(() => expect(screen.queryByRole("group", { name: "Entry point: Review the fix" })).not.toBeInTheDocument());
-    // another editor points a rule at review-commit meanwhile
-    api.rules.push({ ...structuredClone(FOLD_RULES[7]), id: "late", name: "Late", workflow: { id: "review-commit" } });
-    await user.click(screen.getByRole("button", { name: "Delete the workflow Review the fix too" }));
-    expect(await screen.findByText(/Kept the workflow Review the fix: Late still uses it/)).toBeInTheDocument();
-    expect(sent("DELETE", "/workflows/review-commit")).toHaveLength(0);
+    renderEditors({ workflowId: "validate-document", def: FOLD_WORKFLOWS[1] });
+    const only = await findEntry("Validate the document");
+    await user.click(within(only).getByRole("button", { name: "Delete Validate the document" }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Entry point: Validate the document" })).not.toBeInTheDocument());
+    // another editor points a rule at validate-document meanwhile
+    api.rules.push({ ...structuredClone(FOLD_RULES[7]), id: "late", name: "Late", workflow: { id: "validate-document" } });
+    await user.click(screen.getByRole("button", { name: "Delete the workflow Validate the document too" }));
+    expect(await screen.findByText(/Kept the workflow Validate the document: Late still uses it/)).toBeInTheDocument();
+    expect(sent("DELETE", "/workflows/validate-document")).toHaveLength(0);
   });
 });
 
@@ -770,13 +770,13 @@ describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per
     renderEditors();
     const first = await findEntry("Checks settled, not green");
     await user.click(within(first).getByRole("button", { name: "Edit Checks settled, not green" }));
-    elsewhere(["pr-fixer-checks"], { action: newer });
+    elsewhere(["document-chain-checks"], { action: newer });
     await user.click(within(screen.getByRole("form", { name: "Edit rule" })).getByRole("button", { name: "Save" }));
     const alert = await within(entry("Checks settled, not green")).findByRole("alert");
     expect(alert).toHaveTextContent("changed since you opened it");
     expect(alert).toHaveTextContent("action");
-    expect(sent("GET", "/rules/pr-fixer-checks")).toHaveLength(1);
-    expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(0);
+    expect(sent("GET", "/rules/document-chain-checks")).toHaveLength(1);
+    expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(0);
     expect(api.rules[0].action).toEqual(newer);
 
     await user.click(within(alert).getByRole("button", { name: "Reload the form from the stored rule" }));
@@ -785,15 +785,15 @@ describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per
     await user.clear(within(form).getByLabelText("Name"));
     await user.type(within(form).getByLabelText("Name"), "Checks went red");
     await user.click(within(form).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
-    expect(sent("PUT", "/rules/pr-fixer-checks")[0].body).toMatchObject({ name: "Checks went red", action: newer });
+    await waitFor(() => expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(1));
+    expect(sent("PUT", "/rules/document-chain-checks")[0].body).toMatchObject({ name: "Checks went red", action: newer });
   });
 
   it("removing a condition term, adding one and relating re-read first and never overwrite a newer rule", async () => {
     const user = userEvent.setup();
     renderEditors();
     const first = await findEntry("Checks settled, not green");
-    elsewhere(["pr-fixer-checks"], { max_attempts: 8 });
+    elsewhere(["document-chain-checks"], { max_attempts: 8 });
 
     await user.click(within(first).getByRole("button", { name: "Remove condition draft = false" }));
     expect(await within(entry("Checks settled, not green")).findByRole("alert")).toHaveTextContent("changed since you opened it");
@@ -806,9 +806,9 @@ describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per
 
     const order = within(entry("Checks settled, not green")).queryByLabelText("Add may run after");
     if (!order) await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: /Run order/ }));
-    await user.selectOptions(within(entry("Checks settled, not green")).getByLabelText("Add may run after"), "pr-fixer-comment");
-    await waitFor(() => expect(sent("GET", "/rules/pr-fixer-checks").length).toBeGreaterThanOrEqual(3));
-    expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(0);
+    await user.selectOptions(within(entry("Checks settled, not green")).getByLabelText("Add may run after"), "document-chain-comment");
+    await waitFor(() => expect(sent("GET", "/rules/document-chain-checks").length).toBeGreaterThanOrEqual(3));
+    expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(0);
     expect((api.rules[0] as Rule & { max_attempts?: number }).max_attempts).toBe(8);
   });
 
@@ -817,13 +817,13 @@ describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per
     renderEditors();
     const first = await findEntry("Checks settled, not green");
     await user.click(within(first).getByRole("button", { name: "Add condition" }));
-    elsewhere(["pr-fixer-checks"], { condition: { op: "compare", cmp: "==", left: { field: "data.draft" }, right: { literal: false } } });
+    elsewhere(["document-chain-checks"], { condition: { op: "compare", cmp: "==", left: { field: "data.draft" }, right: { literal: false } } });
     const form = screen.getByRole("form", { name: "Add condition" });
     await user.type(within(form).getByLabelText("Variable"), "branch");
     await user.type(within(form).getByLabelText("Value"), "main");
     await user.click(within(form).getByRole("button", { name: "Add" }));
     expect(await within(entry("Checks settled, not green")).findByRole("alert")).toHaveTextContent("changed since you opened it");
-    expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(0);
+    expect(sent("PUT", "/rules/document-chain-checks")).toHaveLength(0);
     expect(api.rules[0].condition).toEqual({ op: "compare", cmp: "==", left: { field: "data.draft" }, right: { literal: false } });
   });
 
@@ -833,7 +833,7 @@ describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per
     renderEditors({ live: feed });
     await findEntry("Checks settled, not green");
     await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
-    await concurrent(feed, ["pr-fixer-checks", "pr-fixer-comment", "pr-fixer-review", "pr-fixer-refix"], { max_attempts: 9 }, "2026-10-09T14:00:00Z");
+    await concurrent(feed, ["document-chain-checks", "document-chain-comment", "document-chain-review", "document-chain-refix"], { max_attempts: 9 }, "2026-10-09T14:00:00Z");
     await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
     expect(within(screen.getByRole("form", { name: "Runs" })).getByLabelText("Attempts per key")).toHaveValue("9");
   });
@@ -844,7 +844,7 @@ describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per
     renderEditors({ live: feed });
     const first = await findEntry("Checks settled, not green");
     await user.click(within(first).getByRole("button", { name: "On failure for Checks settled, not green" }));
-    await concurrent(feed, ["pr-fixer-checks"], { max_attempts: 9 }, "2026-10-09T14:00:00Z");
+    await concurrent(feed, ["document-chain-checks"], { max_attempts: 9 }, "2026-10-09T14:00:00Z");
     await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Runs for Checks settled, not green" }));
     expect(within(screen.getByRole("form", { name: "Runs for Checks settled, not green" })).getByLabelText("Attempts per key")).toHaveValue("9");
   });
@@ -883,13 +883,13 @@ describe("creating rules once the Rules tab is gone", () => {
 // remounting; Detailed's entry editors do the same (t23).
 describe("fold-fixA: the view follows the asked-for entry", () => {
   it("opens the newly asked entry point without remounting", async () => {
-    api.failNext["PUT /rules/pr-fixer-comment"] = failure;
+    api.failNext["PUT /rules/document-chain-comment"] = failure;
     const user = userEvent.setup();
-    const view = renderEditors({ entry: "pr-fixer-checks" });
+    const view = renderEditors({ entry: "document-chain-checks" });
     await findEntry("Checks settled, not green");
     await editRunKey(user, "pr:{trigger.data.number}");
     await screen.findByRole("region", { name: "Save results" });
-    view.rerender(<MemoryRouter><EntryEditors workflow={defFor("pr-fix")} entry="pr-fixer-comment" /></MemoryRouter>);
+    view.rerender(<MemoryRouter><EntryEditors workflow={defFor("prepare-document")} entry="document-chain-comment" /></MemoryRouter>);
     await waitFor(() => expect(within(entry("Trusted PR comment")).getByRole("button", { name: "Collapse Trusted PR comment" })).toBeInTheDocument());
     expect(within(entry("Checks settled, not green")).getByRole("button", { name: "Expand Checks settled, not green" })).toBeInTheDocument();
     // same instance: the save results are still there

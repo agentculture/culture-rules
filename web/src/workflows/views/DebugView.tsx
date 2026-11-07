@@ -1,7 +1,7 @@
 /**
  * The Debug view (canvas WF-Variables, WF-Variables-Port): every input and
  * output port of a workflow as a row — name, type, and the reference it reads
- * (`← steps.fetch-diff.outputs.diff`) — in cards laid out in columns by data
+ * (`← steps.fetch-text.outputs.diff`) — in cards laid out in columns by data
  * depth, `in` first and `out` last, loop bodies inside their loop's card.
  *
  * Its own layout, not React Flow: it is read, not edited. Each port is a

@@ -265,7 +265,7 @@ describe("Actors board: model actors (t10)", () => {
       const newspaper = await within(usedBy).findByRole("link", { name: "newspaper" });
       expect(newspaper).toHaveAttribute("href", "/workflows?id=newspaper");
       expect(within(usedBy).getByText("summarise, edition.body[write]")).toBeInTheDocument();
-      expect(within(usedBy).getByRole("link", { name: "review-pr" })).toHaveAttribute("href", "/workflows?id=review-pr");
+      expect(within(usedBy).getByRole("link", { name: "summarize-document" })).toHaveAttribute("href", "/workflows?id=summarize-document");
       expect(within(usedBy).getByRole("link", { name: "nightly-news" })).toHaveAttribute("href", "/rules/nightly-news");
       // Move is for a workflow's steps; a rule's placement is changed on its workflow.
       expect(within(usedBy).getAllByRole("button", { name: /^Move / })).toHaveLength(2);
@@ -394,7 +394,7 @@ describe("Actors board: model actors (t10)", () => {
       const refusal = await within(row("Claude Code")).findByRole("alert");
       expect(refusal).toHaveTextContent("Claude Code is still used by");
       expect(within(refusal).getByRole("link", { name: "newspaper" })).toHaveAttribute("href", "/workflows?id=newspaper");
-      expect(within(refusal).getByRole("link", { name: "review-pr" })).toHaveAttribute("href", "/workflows?id=review-pr");
+      expect(within(refusal).getByRole("link", { name: "summarize-document" })).toHaveAttribute("href", "/workflows?id=summarize-document");
       expect(within(refusal).getByRole("link", { name: "nightly-news" })).toHaveAttribute("href", "/rules/nightly-news");
       expect(within(row("Claude Code")).getByRole("switch")).toHaveAttribute("aria-checked", "true");
 

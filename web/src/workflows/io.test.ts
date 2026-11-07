@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkflowDef } from "../api/workflows";
-import { REVIEW_PR } from "./fixture";
+import { SUMMARIZE_DOCUMENT } from "./fixture";
 import {
   addInput,
   addOutput,
@@ -20,10 +20,10 @@ import {
 } from "./io";
 
 const WITH_VARS: WorkflowDef = {
-  ...REVIEW_PR,
+  ...SUMMARIZE_DOCUMENT,
   variables: [{ name: "attempts", type: "integer", default: 0 }],
   outputs: [
-    ...(REVIEW_PR.outputs ?? []),
+    ...(SUMMARIZE_DOCUMENT.outputs ?? []),
     { name: "tries", type: "integer", source: "vars.attempts" },
     { name: "which", type: "string", source: "inputs.repo" },
   ],
@@ -43,7 +43,7 @@ describe("io names", () => {
 
 describe("workflow inputs", () => {
   it("adds a fresh, uniquely named input", () => {
-    const { workflow, name } = addInput(REVIEW_PR);
+    const { workflow, name } = addInput(SUMMARIZE_DOCUMENT);
     expect(name).toBe("input1");
     expect(workflow.inputs!.at(-1)).toEqual({ name: "input1", type: "any" });
     expect(addInput(workflow).name).toBe("input2");
@@ -55,7 +55,7 @@ describe("workflow inputs", () => {
     const fromRepo = next.edges!.filter((e) => e.source === "inputs").map((e) => e.source_port);
     expect(fromRepo).toEqual(["pr", "repository", "repository"]);
     expect(sourceOf(next, "which")).toBe("inputs.repository");
-    expect(REVIEW_PR.inputs!.map((p) => p.name)).toEqual(["pr", "repo"]); // never mutated
+    expect(SUMMARIZE_DOCUMENT.inputs!.map((p) => p.name)).toEqual(["pr", "repo"]); // never mutated
   });
 
   it("removing an input drops its wires and unsets output sources that read it", () => {
@@ -77,17 +77,17 @@ describe("workflow inputs", () => {
 
 describe("workflow outputs", () => {
   it("adds, renames and removes outputs", () => {
-    const { workflow, name } = addOutput(REVIEW_PR);
+    const { workflow, name } = addOutput(SUMMARIZE_DOCUMENT);
     expect(name).toBe("output1");
     expect(workflow.outputs!.at(-1)).toEqual({ name: "output1", type: "any", source: null });
-    const renamed = renameOutput(REVIEW_PR, "verdict", "result");
+    const renamed = renameOutput(SUMMARIZE_DOCUMENT, "verdict", "result");
     expect(renamed.outputs![0]).toEqual({ name: "result", type: "string", source: "steps.decide.outputs.verdict" });
-    expect(removeOutput(REVIEW_PR, "owner").outputs!.map((o) => o.name)).toEqual(["verdict"]);
+    expect(removeOutput(SUMMARIZE_DOCUMENT, "owner").outputs!.map((o) => o.name)).toEqual(["verdict"]);
   });
 
   it("a type change unsets a source that no longer fits", () => {
-    expect(sourceOf(patchOutput(REVIEW_PR, "verdict", { type: "boolean" }), "verdict")).toBeNull();
-    expect(sourceOf(patchOutput(REVIEW_PR, "verdict", { type: "any" }), "verdict")).toBe(
+    expect(sourceOf(patchOutput(SUMMARIZE_DOCUMENT, "verdict", { type: "boolean" }), "verdict")).toBeNull();
+    expect(sourceOf(patchOutput(SUMMARIZE_DOCUMENT, "verdict", { type: "any" }), "verdict")).toBe(
       "steps.decide.outputs.verdict",
     );
   });
@@ -115,7 +115,7 @@ describe("workflow outputs", () => {
 
 describe("workflow variables", () => {
   it("adds, retypes and sets defaults", () => {
-    const { workflow, name } = addVariable(REVIEW_PR);
+    const { workflow, name } = addVariable(SUMMARIZE_DOCUMENT);
     expect(name).toBe("var1");
     expect(workflow.variables).toEqual([{ name: "var1", type: "any" }]);
     const typed = patchVariable(workflow, "var1", { type: "object", default: { a: 1 } });

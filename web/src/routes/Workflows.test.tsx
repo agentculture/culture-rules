@@ -19,7 +19,7 @@ import {
   IMPORT_FILE_NAME,
   IMPORT_FILE_TEXT,
   REPOS,
-  REVIEW_PR,
+  SUMMARIZE_DOCUMENT,
   RUN_7,
   STARTED_RUN,
   WORKFLOW_DOCS,
@@ -31,7 +31,7 @@ import {
 const NOW = Date.parse("2026-10-03T12:00:00Z");
 
 const describeBody = (start: string) => ({
-  id: "review-pr",
+  id: "summarize-document",
   kind: "workflow",
   lines: [],
   entries: [],
@@ -44,8 +44,8 @@ function routes(overrides: ApiRoutes = {}): ApiRoutes {
     "/api/rules": { body: { items: WORKFLOW_RULES } },
     "/api/machines": { body: { items: MACHINES } },
     "/api/workflows": { body: { items: WORKFLOW_DOCS } },
-    "/api/workflows/review-pr": { body: REVIEW_PR },
-    "/api/workflows/review-pr/describe": { body: describeBody("It starts when github.pull_request_review arrives.") },
+    "/api/workflows/summarize-document": { body: SUMMARIZE_DOCUMENT },
+    "/api/workflows/summarize-document/describe": { body: describeBody("It starts when github.pull_request_review arrives.") },
     "/api/actors": { body: { items: ACTORS } },
     "/api/runs": { body: { items: workflowRunsFor(NOW) } },
     "/api/runs/run-7": { body: RUN_7 },
@@ -63,7 +63,7 @@ function Where() {
   return null;
 }
 
-function renderWorkflows(path = "/workflows?id=review-pr") {
+function renderWorkflows(path = "/workflows?id=summarize-document") {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
@@ -93,7 +93,7 @@ useMeasuredLayout();
 const card = (name: string) => screen.getByRole("group", { name });
 
 async function loaded() {
-  await screen.findByRole("heading", { level: 1, name: "Review PR" });
+  await screen.findByRole("heading", { level: 1, name: "Summarize document" });
   await waitFor(() => expect(getAgentState().status).toBe("ready"));
 }
 
@@ -123,7 +123,7 @@ describe("Workflows board (Chosen — Workflows)", () => {
     renderWorkflows();
     expect(await screen.findByRole("alert")).toHaveTextContent("unexpected error");
     await waitFor(() => expect(getAgentState().status).toBe("ready"));
-    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Summarize document" })).toBeInTheDocument();
   });
 
   it("heads the board with the workflow name, version and the io controls", async () => {
@@ -142,7 +142,7 @@ describe("Workflows board (Chosen — Workflows)", () => {
     renderWorkflows();
     await loaded();
     await waitFor(() => expect(card("Review")).toBeInTheDocument());
-    for (const name of ["Inputs", "Fetch diff", "Run tests", "Decide", "Outputs"]) {
+    for (const name of ["Inputs", "Fetch text", "Check text", "Decide", "Outputs"]) {
       expect(card(name)).toBeInTheDocument();
     }
     const review = card("Review");
@@ -175,8 +175,8 @@ describe("Workflows board (Chosen — Workflows)", () => {
     );
     expect(workflowsState()?.dirty).toBe(true);
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(methodCalls(fetchMock, "PUT", "/api/workflows/review-pr")).toHaveLength(1));
-    const body = JSON.parse(methodCalls(fetchMock, "PUT", "/api/workflows/review-pr")[0][1]!.body as string);
+    await waitFor(() => expect(methodCalls(fetchMock, "PUT", "/api/workflows/summarize-document")).toHaveLength(1));
+    const body = JSON.parse(methodCalls(fetchMock, "PUT", "/api/workflows/summarize-document")[0][1]!.body as string);
     expect(body.steps.find((s: { id: string }) => s.id === "review").enabled).toBe(false);
     expect(body).not.toHaveProperty("deleted_at");
   });
@@ -194,11 +194,11 @@ describe("Workflows board (Chosen — Workflows)", () => {
     await user.click(chip);
     const dialog = await screen.findByRole("dialog", { name: "Placement of Review" });
     await user.click(within(dialog).getByRole("radio", { name: "Via an actor" }));
-    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Actor" }), "claude-reviewer");
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Actor" }), "claude-summarizer");
     await user.click(within(dialog).getByRole("button", { name: "Apply" }));
-    expect(await screen.findByRole("button", { name: "via claude-reviewer" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "via claude-summarizer" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "via claude-reviewer" }));
+    await user.click(screen.getByRole("button", { name: "via claude-summarizer" }));
     const again = await screen.findByRole("dialog", { name: "Placement of Review" });
     await user.click(within(again).getByRole("radio", { name: "Needs capabilities" }));
     const req = within(again).getByRole("textbox", { name: "Capabilities" });
@@ -213,10 +213,10 @@ describe("Workflows board (Chosen — Workflows)", () => {
     const user = userEvent.setup();
     renderWorkflows();
     await loaded();
-    await waitFor(() => expect(card("Run tests")).toBeInTheDocument());
-    fireEvent.click(within(card("Run tests")).getByText("Run tests"));
-    await user.click(await screen.findByRole("button", { name: "Delete Run tests" }));
-    await waitFor(() => expect(screen.queryByRole("group", { name: "Run tests" })).toBeNull());
+    await waitFor(() => expect(card("Check text")).toBeInTheDocument());
+    fireEvent.click(within(card("Check text")).getByText("Check text"));
+    await user.click(await screen.findByRole("button", { name: "Delete Check text" }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Check text" })).toBeNull());
     await user.click(screen.getByRole("button", { name: "Add step" }));
     await waitFor(() => expect(workflowsState()?.steps).toContain("step-1"));
   });
@@ -231,8 +231,8 @@ describe("Workflows board (Chosen — Workflows)", () => {
     const editor = await screen.findByRole("dialog", { name: "Edit Decide" });
     const wire = within(editor).getByRole("combobox", { name: "passed comes from" });
     const options = within(wire).getAllByRole("option").map((o) => o.textContent);
-    expect(options).toContain("Run tests · passed");
-    expect(options).not.toContain("Fetch diff · diff");
+    expect(options).toContain("Check text · passed");
+    expect(options).not.toContain("Fetch text · diff");
     await user.selectOptions(within(editor).getByRole("combobox", { name: "Type of input passed" }), "string");
     await user.click(within(editor).getByRole("button", { name: "Done" }));
     expect(card("Decide").querySelector('[data-port="in:passed"]')).toHaveAttribute("data-port-type", "string");
@@ -334,14 +334,14 @@ describe("Workflows board (Chosen — Workflows)", () => {
   });
 
   it("a run lights each step with its host and outcome from GET /runs/{id}", async () => {
-    renderWorkflows("/workflows?id=review-pr&run=run-7");
+    renderWorkflows("/workflows?id=summarize-document&run=run-7");
     await loaded();
     await waitFor(() => expect(methodCalls(fetchMock, "GET", "/api/runs/run-7")).toHaveLength(1));
     await waitFor(() => expect(card("Decide")).toHaveAttribute("data-run-status", "failed"));
     expect(card("Decide")).toHaveTextContent(/failed on spark/);
     expect(card("Review")).toHaveAttribute("data-run-status", "succeeded");
     expect(card("Review")).toHaveTextContent(/succeeded on thor/);
-    expect(card("Run tests")).toHaveTextContent(/succeeded on spark2/);
+    expect(card("Check text")).toHaveTextContent(/succeeded on spark2/);
     await waitFor(() => expect(workflowsState()?.run).toEqual({ id: "run-7", status: "failed" }));
   });
 
@@ -351,7 +351,7 @@ describe("Workflows board (Chosen — Workflows)", () => {
     const DONE = { ...STARTED_RUN, status: "succeeded", finished_at: "2026-10-03T12:01:00Z", outputs: { verdict: "approve", owner: { name: "ori" } } };
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).split("?")[0];
-      const direct = path === "/api/workflows/review-pr/run" && init?.method === "POST";
+      const direct = path === "/api/workflows/summarize-document/run" && init?.method === "POST";
       if (path === "/api/runs/run-8") polls += 1;
       const body = direct ? STARTED_RUN : path === "/api/runs/run-8" ? (polls > 1 ? DONE : STARTED_RUN) : (base[path]?.body ?? {});
       return new Response(JSON.stringify(body), {
@@ -367,12 +367,12 @@ describe("Workflows board (Chosen — Workflows)", () => {
     await user.click(runButton);
     await user.type(await screen.findByLabelText(/^pr/), "42");
     await user.type(screen.getByLabelText(/^repo/), "agentculture/x");
-    await user.click(within(screen.getByRole("dialog", { name: "Run Review PR" })).getByRole("button", { name: "Run" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Run Summarize document" })).getByRole("button", { name: "Run" }));
     await waitFor(() => expect(where).toContain("run=run-8"));
-    const post = methodCalls(fetchMock, "POST", "/api/workflows/review-pr/run");
+    const post = methodCalls(fetchMock, "POST", "/api/workflows/summarize-document/run");
     expect(JSON.parse(post[0][1]!.body as string)).toEqual({ inputs: { pr: 42, repo: "agentculture/x" } });
     expect(methodCalls(fetchMock, "POST", "/api/runs")).toHaveLength(0);
-    await waitFor(() => expect(card("Fetch diff")).toHaveAttribute("data-run-status", "running"));
+    await waitFor(() => expect(card("Fetch text")).toHaveAttribute("data-run-status", "running"));
     const outputs = await screen.findByRole("region", { name: "Run outputs" }, { timeout: 5000 });
     expect(within(outputs).getByText("approve")).toBeInTheDocument();
     expect(within(outputs).getByText("owner")).toBeInTheDocument();
@@ -393,8 +393,8 @@ describe("Workflows board (Chosen — Workflows)", () => {
     expect(getAgentState().tab).toBe("workflows");
     expect(workflowsState()).toMatchObject({
       count: 2,
-      selected: "review-pr",
-      steps: ["fetch-diff", "run-tests", "review", "decide"],
+      selected: "summarize-document",
+      steps: ["fetch-text", "check-text", "review", "decide"],
       dirty: false,
       run: null,
     });
@@ -402,8 +402,8 @@ describe("Workflows board (Chosen — Workflows)", () => {
     expect(screen.queryByRole("combobox", { name: "Workflow" })).toBeNull();
     const list = screen.getByRole("navigation", { name: "Workflows" });
     // The compact pane: one name-only row per stored workflow.
-    expect([...list.querySelectorAll("a")].map((a) => a.textContent).sort()).toEqual(["Build image", "Review PR"]);
-    expect(within(list).getByRole("link", { name: "Review PR" })).toHaveAttribute("aria-current", "page");
+    expect([...list.querySelectorAll("a")].map((a) => a.textContent).sort()).toEqual(["Build image", "Summarize document"]);
+    expect(within(list).getByRole("link", { name: "Summarize document" })).toHaveAttribute("aria-current", "page");
     await user.click(within(list).getByRole("link", { name: "Build image" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Build image" })).toBeInTheDocument();
     expect(where).toBe("/workflows?id=build-image");
@@ -413,7 +413,7 @@ describe("Workflows board (Chosen — Workflows)", () => {
 
   it("opening a row drops the overlaid run from the query", async () => {
     const user = userEvent.setup();
-    renderWorkflows("/workflows?id=review-pr&run=run-7");
+    renderWorkflows("/workflows?id=summarize-document&run=run-7");
     await loaded();
     const list = screen.getByRole("navigation", { name: "Workflows" });
     await user.click(within(list).getByRole("link", { name: "Build image" }));
@@ -469,12 +469,12 @@ describe("Workflows tab live updates (h61 / c80)", () => {
     renderWorkflows();
     await loaded();
     expect(await screen.findByText("It starts when github.pull_request_review arrives.")).toBeInTheDocument();
-    api["/api/workflows/review-pr/describe"] = { body: describeBody("It starts when two things arrive.") };
+    api["/api/workflows/summarize-document/describe"] = { body: describeBody("It starts when two things arrive.") };
     api["/api/rules"] = {
       body: {
         items: [
           ...WORKFLOW_RULES,
-          { ...WORKFLOW_RULES[0], id: "late-reviewer", name: "Late reviewer", workflow: { id: "review-pr" } },
+          { ...WORKFLOW_RULES[0], id: "late-reviewer", name: "Late reviewer", workflow: { id: "summarize-document" } },
         ],
       },
     };
@@ -483,7 +483,7 @@ describe("Workflows tab live updates (h61 / c80)", () => {
   });
 
   it("a runs change re-reads the overlaid run, so the overlay follows it", async () => {
-    renderWorkflows("/workflows?id=review-pr&run=run-7");
+    renderWorkflows("/workflows?id=summarize-document&run=run-7");
     await loaded();
     await waitFor(() => expect(card("Decide")).toHaveAttribute("data-run-status", "failed"));
     api["/api/runs/run-7"] = {
@@ -505,11 +505,11 @@ describe("Workflows tab live updates (h61 / c80)", () => {
     await loaded();
     api["/api/workflows"] = {
       body: {
-        items: WORKFLOW_DOCS.map((w) => (w.id === "review-pr" ? { ...w, name: "Review PR, renamed" } : w)),
+        items: WORKFLOW_DOCS.map((w) => (w.id === "summarize-document" ? { ...w, name: "Summarize document, renamed" } : w)),
       },
     };
-    await emit("workflows", "review-pr");
-    expect(await screen.findByRole("heading", { level: 1, name: "Review PR, renamed" })).toBeInTheDocument();
+    await emit("workflows", "summarize-document");
+    expect(await screen.findByRole("heading", { level: 1, name: "Summarize document, renamed" })).toBeInTheDocument();
   });
 });
 
@@ -530,7 +530,7 @@ describe("Workflows: the in / out nodes and the empty canvas (t41)", () => {
   });
 
   const putBody = () => {
-    const puts = methodCalls(fetchMock, "PUT", "/api/workflows/review-pr");
+    const puts = methodCalls(fetchMock, "PUT", "/api/workflows/summarize-document");
     return JSON.parse(puts[puts.length - 1][1]!.body as string);
   };
 
@@ -629,7 +629,7 @@ describe("Workflows: the in / out nodes and the empty canvas (t41)", () => {
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(methodCalls(fetchMock, "PUT", "/api/workflows/review-pr")).toHaveLength(1));
+    await waitFor(() => expect(methodCalls(fetchMock, "PUT", "/api/workflows/summarize-document")).toHaveLength(1));
     const body = putBody();
     expect(body.inputs).toEqual([
       { name: "pr", type: "integer" },

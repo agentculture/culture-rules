@@ -141,7 +141,7 @@ describe("NewRule: creating rules once the Rules tab is gone", () => {
     await waitFor(() => expect(sent("GET", "/workflows")).toHaveLength(1));
     await user.type(within(form).getByLabelText("Name"), "Push seen");
     await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
-    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.closed");
     await user.click(within(form).getByRole("button", { name: "Create rule" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("push-seen"));
     expect(writes().map((c) => `${c.method} ${c.path}`)).toEqual(["POST /rules", "POST /workflows", "PUT /rules/push-seen"]);
@@ -159,7 +159,7 @@ describe("NewRule: creating rules once the Rules tab is gone", () => {
     const form = await screen.findByRole("form", { name: "New rule" });
     await user.type(within(form).getByLabelText("Name"), "Push seen");
     await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
-    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.closed");
     await user.click(within(form).getByRole("button", { name: "Create rule" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("push-seen was created but Push seen does not use it");
@@ -187,7 +187,7 @@ describe("NewRule: re-review follow-up", () => {
     await waitFor(() => expect(sent("GET", "/workflows")).toHaveLength(1));
     await user.type(within(form).getByLabelText("Name"), "Push seen");
     await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
-    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.closed");
     const create = within(form).getByRole("button", { name: "Create rule" });
     await user.click(create);
     await waitFor(() => expect(create).toBeDisabled());
@@ -211,7 +211,7 @@ describe("NewRule: full-pass review follow-up", () => {
     const form = await screen.findByRole("form", { name: "New rule" });
     await user.type(within(form).getByLabelText("Name"), "Push seen");
     await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
-    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.closed");
     await user.click(within(form).getByRole("button", { name: "Create rule" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("refused");

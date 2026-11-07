@@ -113,8 +113,8 @@ test.describe("Workflows tab: New workflow", () => {
   });
 
   test("with a workflow selected, the list's New button creates and switches to the new one", async ({ page }) => {
-    const calls = await open(page, WORKFLOW_DOCS, "/workflows?id=review-pr");
-    await expect(page.getByRole("heading", { level: 1, name: "Review PR" })).toBeVisible();
+    const calls = await open(page, WORKFLOW_DOCS, "/workflows?id=build-image");
+    await expect(page.getByRole("heading", { level: 1, name: "Build image" })).toBeVisible();
     // The design board's head stays one row at 1280px beside the list: title, (i), rename, delete, io
     // group. Since d19's (i) the row is full there, so Run may wrap under it (it is checked separately).
     const middle = async (name: string, role: "heading" | "button" | "switch") => {
@@ -123,7 +123,7 @@ test.describe("Workflows tab: New workflow", () => {
       const box = (await page.getByRole(role, query).first().boundingBox())!;
       return box.y + box.height / 2;
     };
-    const row = await middle("Review PR", "heading");
+    const row = await middle("Build image", "heading");
     for (const [name, role] of [
       ["Rename workflow", "button"],
       ["Delete workflow", "button"],
@@ -133,8 +133,8 @@ test.describe("Workflows tab: New workflow", () => {
       expect(Math.abs((await middle(name, role)) - row)).toBeLessThan(12);
     }
     // The enable switch is in the open workflow's head (d13), on the title's row.
-    await expect(page.locator(".wf-head").getByRole("switch", { name: "Review PR enabled" })).toHaveCount(1);
-    expect(Math.abs((await middle("Review PR enabled", "switch")) - row)).toBeLessThan(12);
+    await expect(page.locator(".wf-head").getByRole("switch", { name: "Build image enabled" })).toHaveCount(1);
+    expect(Math.abs((await middle("Build image enabled", "switch")) - row)).toBeLessThan(12);
     await paneNew(page).click();
     await expect(page.getByRole("heading", { level: 1, name: "New workflow" })).toBeVisible();
     await nameForm(page).getByRole("textbox", { name: "Name" }).fill("Ship release");
@@ -215,10 +215,10 @@ test.describe("Workflows tab: rename, enable / disable and delete", () => {
       "POST /api/workflows/nightly-report/restore",
     ]);
 
-    await paneLinks(page).filter({ hasText: "Review PR" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Review PR" })).toBeVisible();
+    await paneLinks(page).filter({ hasText: "Summarize document" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Summarize document" })).toBeVisible();
     await page.getByRole("button", { name: "Delete workflow" }).click();
-    await expect(page.getByRole("alert")).toContainText("workflows/review-pr is used by a rule");
-    await expect(page.getByRole("heading", { level: 1, name: "Review PR" })).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText("workflows/summarize-document is used by a rule");
+    await expect(page.getByRole("heading", { level: 1, name: "Summarize document" })).toBeVisible();
   });
 });

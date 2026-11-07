@@ -251,8 +251,8 @@ describe("Workflows tab: New workflow with a workflow selected", () => {
   it("the list's New button switches to the new workflow, which joins the list", async () => {
     const user = userEvent.setup();
     fakeApi(WORKFLOW_DOCS);
-    renderWorkflows("/workflows?id=review-pr");
-    expect(await screen.findByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
+    renderWorkflows("/workflows?id=summarize-document");
+    expect(await screen.findByRole("heading", { level: 1, name: "Summarize document" })).toBeInTheDocument();
     await ready();
     expect(screen.queryByRole("region", { name: "No workflows yet" })).toBeNull();
     await user.click(listNew());
@@ -261,31 +261,31 @@ describe("Workflows tab: New workflow with a workflow selected", () => {
     expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
     // No row is current while naming (as Rules while its "New rule" form is open).
     expect(within(list()).queryByRole("link", { current: "page" })).toBeNull();
-    await user.type(within(nameForm()).getByRole("textbox", { name: "Name" }), "Review PR{Enter}");
-    // "review-pr" is taken: the slug moves on.
-    await waitFor(() => expect(where).toBe("/workflows?id=review-pr-2"));
-    expect(await screen.findByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
+    await user.type(within(nameForm()).getByRole("textbox", { name: "Name" }), "Summarize document{Enter}");
+    // "summarize-document" is taken: the slug moves on.
+    await waitFor(() => expect(where).toBe("/workflows?id=summarize-document-2"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Summarize document" })).toBeInTheDocument();
     // The folded list orders workflows by chain, so compare as a set.
-    expect(rowNames().sort()).toEqual(["Build image", "Review PR", "Review PR"]);
-    expect(within(list()).getByRole("link", { current: "page" })).toHaveAttribute("href", "/workflows?id=review-pr-2");
-    await waitFor(() => expect(workflowsState()).toMatchObject({ count: 3, selected: "review-pr-2", steps: [] }));
+    expect(rowNames().sort()).toEqual(["Build image", "Summarize document", "Summarize document"]);
+    expect(within(list()).getByRole("link", { current: "page" })).toHaveAttribute("href", "/workflows?id=summarize-document-2");
+    await waitFor(() => expect(workflowsState()).toMatchObject({ count: 3, selected: "summarize-document-2", steps: [] }));
   });
 
   it("Cancel returns to the selected workflow", async () => {
     const user = userEvent.setup();
     fakeApi(WORKFLOW_DOCS);
-    renderWorkflows("/workflows?id=review-pr");
+    renderWorkflows("/workflows?id=summarize-document");
     await ready();
     await user.click(listNew());
     await user.click(within(nameForm()).getByRole("button", { name: "Cancel" }));
-    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Summarize document" })).toBeInTheDocument();
     expect(listNew()).toHaveFocus();
   });
 
   it("opening a row from the list closes the name form", async () => {
     const user = userEvent.setup();
     const api = fakeApi(WORKFLOW_DOCS);
-    renderWorkflows("/workflows?id=review-pr");
+    renderWorkflows("/workflows?id=summarize-document");
     await ready();
     await user.click(listNew());
     expect(nameForm()).toBeInTheDocument();
@@ -398,12 +398,12 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
   it("deleting a workflow a rule still uses names the conflict and keeps it", async () => {
     const user = userEvent.setup();
     fakeApi(WORKFLOW_DOCS);
-    renderWorkflows("/workflows?id=review-pr");
-    await screen.findByRole("heading", { level: 1, name: "Review PR" });
+    renderWorkflows("/workflows?id=summarize-document");
+    await screen.findByRole("heading", { level: 1, name: "Summarize document" });
     await ready();
     await user.click(screen.getByRole("button", { name: "Delete workflow" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("workflows/review-pr is used by a rule");
-    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("workflows/summarize-document is used by a rule");
+    expect(screen.getByRole("heading", { level: 1, name: "Summarize document" })).toBeInTheDocument();
   });
 
   it("deleting the last workflow lands on the empty state", async () => {
@@ -451,76 +451,8 @@ describe("Workflows toggle in flight (#7)", () => {
   });
 });
 
-describe("Saving a trusted workflow asks first (c32, d6)", () => {
-  it("Save on a trusted workflow warns, sends nothing until confirmed, then saves", async () => {
-    const user = userEvent.setup();
-    const trusted = { ...WORKFLOW_DOCS.find((w) => w.id === "build-image")!, id: "pr-fix", name: "PR fix" };
-    const api = fakeApi([trusted]);
-    renderWorkflows("/workflows?id=pr-fix");
-    await screen.findByRole("heading", { level: 1, name: "PR fix" });
-    await ready();
-    await user.click(screen.getByRole("button", { name: "Rename workflow" }));
-    const field = within(screen.getByRole("form", { name: "Rename workflow" })).getByRole("textbox", { name: "Name" });
-    await user.clear(field);
-    await user.type(field, "PR fix, edited{Enter}");
-    // Closing the rename form gives focus back to Rename on the next frame: let it land first.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Rename workflow" })).toHaveFocus());
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    const ask = screen.getByRole("group", { name: "Save a trusted workflow?" });
-    expect(ask).toHaveTextContent(/will not review or push/i);
-    await waitFor(() => expect(within(ask).getByRole("button", { name: "Keep editing" })).toHaveFocus());
-    expect(api.writes()).toHaveLength(0);
-    await user.click(within(ask).getByRole("button", { name: "Keep editing" }));
-    expect(screen.queryByRole("group", { name: "Save a trusted workflow?" })).toBeNull();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toHaveFocus());
-    expect(api.writes()).toHaveLength(0);
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    await user.click(screen.getByRole("button", { name: "Save anyway" }));
-    await waitFor(() => expect(api.writes()).toHaveLength(1));
-    expect(api.writes()[0]).toMatchObject({ method: "PUT", body: { id: "pr-fix", name: "PR fix, edited" } });
-    expect(screen.queryByRole("group", { name: "Save a trusted workflow?" })).toBeNull();
-    // Save goes away once saved; focus lands on Run, not the page body.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toHaveFocus());
-  });
-
-  it("Escape closes the question without saving; the question explains itself to a screen reader", async () => {
-    const user = userEvent.setup();
-    const trusted = { ...WORKFLOW_DOCS.find((w) => w.id === "build-image")!, id: "review-commit", name: "Review commit" };
-    const api = fakeApi([trusted]);
-    renderWorkflows("/workflows?id=review-commit");
-    await screen.findByRole("heading", { level: 1, name: "Review commit" });
-    await ready();
-    await user.click(screen.getByRole("button", { name: "Rename workflow" }));
-    await user.type(within(screen.getByRole("form", { name: "Rename workflow" })).getByRole("textbox", { name: "Name" }), "!{Enter}");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Rename workflow" })).toHaveFocus());
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    const ask = screen.getByRole("group", { name: "Save a trusted workflow?" });
-    expect(ask).toHaveAccessibleDescription(/will not review or push/);
-    await waitFor(() => expect(within(ask).getByRole("button", { name: "Keep editing" })).toHaveFocus());
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("group", { name: "Save a trusted workflow?" })).toBeNull();
-    expect(api.writes()).toHaveLength(0);
-  });
-
-  it("opening another workflow closes the question: it never names or saves the wrong draft", async () => {
-    const user = userEvent.setup();
-    const trusted = { ...WORKFLOW_DOCS.find((w) => w.id === "build-image")!, id: "pr-fix", name: "PR fix" };
-    const api = fakeApi([trusted, ...WORKFLOW_DOCS]);
-    renderWorkflows("/workflows?id=pr-fix");
-    await screen.findByRole("heading", { level: 1, name: "PR fix" });
-    await ready();
-    await user.click(screen.getByRole("button", { name: "Rename workflow" }));
-    await user.type(within(screen.getByRole("form", { name: "Rename workflow" })).getByRole("textbox", { name: "Name" }), "!{Enter}");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Rename workflow" })).toHaveFocus());
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(screen.getByRole("group", { name: "Save a trusted workflow?" })).toBeInTheDocument();
-    await user.click(rowLink("Review PR"));
-    expect(await screen.findByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Save a trusted workflow?" })).toBeNull();
-    expect(api.writes()).toHaveLength(0);
-  });
-
-  it("an untrusted workflow saves at once, with no question", async () => {
+describe("Saving a workflow", () => {
+  it("a workflow saves at once, with no question", async () => {
     const user = userEvent.setup();
     const api = fakeApi(WORKFLOW_DOCS);
     renderWorkflows("/workflows?id=build-image");
