@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-06T19:36:25Z",
-  "updated": "2026-11-07T09:42:41Z",
+  "updated": "2026-11-07T18:44:42Z",
   "claims": [
     {
       "id": "c1",
@@ -730,6 +730,17 @@
       "skipped_check": "",
       "refs": [
         "d8"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l11",
+      "code": "control-absent",
+      "what": "R2a closing agent smoke-tested the new CLI verb without a test transport, sending one read-only GET to the configured live API URL (401, nothing changed), outside its worktree scope",
+      "skipped_check": "use a test transport for CLI smoke tests",
+      "refs": [
+        "t18"
       ],
       "origin": "llm",
       "status": "proposed"
