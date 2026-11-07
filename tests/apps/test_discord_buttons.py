@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from culture_rules.apps import discord_buttons as db
+from culture_rules.extensions.discord import buttons as db
 from culture_rules.store.memory import MemoryStore
 
 NOW = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)

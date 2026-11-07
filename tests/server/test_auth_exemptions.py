@@ -29,9 +29,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from culture_rules.auth.resolve import LAN, AuthSettings  # noqa: E402
 from culture_rules.events.ingest import EVENTS_COLLECTION  # noqa: E402
+from culture_rules.extensions.github import hooks as gh  # noqa: E402
 from culture_rules.server import serve as serve_mod  # noqa: E402
 from culture_rules.server.app import HOOK_PATHS, create_app  # noqa: E402
-from culture_rules.server.hooks import github as gh  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 
 EXEMPT = {("POST", "/hooks/github"), ("POST", "/hooks/jira")}

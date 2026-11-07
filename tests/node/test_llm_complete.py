@@ -12,7 +12,7 @@ import pytest
 
 from culture_rules.actors.limits import USAGE_COLLECTION, pool_doc_id
 from culture_rules.engine.actorport import BLOCKED, COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions.llm import (
+from culture_rules.extensions.llm.port import (
     DEFAULT_MAX_TOKENS,
     MAX_TOKENS_CAP,
     LlmCompletePort,
@@ -678,22 +678,22 @@ def test_a_new_key_after_not_after_is_still_refused():
 
 @pytest.mark.parametrize("api_key", ["grant:", "grant:-bad", "grant:KEY\n"])
 def test_a_malformed_grant_reference_is_refused(api_key):
+    from culture_rules.extensions.llm.port import check_llm_actor
     from culture_rules.model.actor import Actor
-    from culture_rules.node.actions.llm import check_llm_actor
 
     actor = Actor.from_dict(_actor(api_key=api_key))
     assert check_llm_actor(actor) == "params.api_key must be a 'grant:<NAME>' reference"
 
 
 def test_a_well_formed_grant_reference_is_accepted():
+    from culture_rules.extensions.llm.port import check_llm_actor
     from culture_rules.model.actor import Actor
-    from culture_rules.node.actions.llm import check_llm_actor
 
     assert check_llm_actor(Actor.from_dict(_actor(api_key=LLM_GRANT))) is None
 
 
 def _fill_ledger(monkeypatch, keys):
-    from culture_rules.node.actions import llm as llm_mod
+    from culture_rules.extensions.llm import port as llm_mod
 
     monkeypatch.setattr(llm_mod, "LEDGER_SIZE", 2)
     port, transport = _port()

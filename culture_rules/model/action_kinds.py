@@ -53,8 +53,10 @@ every top-level repo under its service actor's ``repos_root`` to the library the
 describes (culture-rules#124); everything but the actor is the actor's params.
 
 Which kinds exist is the extension registry's (:mod:`culture_rules.extensions`):
-:data:`ACTION_KINDS` is a live view over it, and the kinds above are
-:data:`BUILTIN_KINDS`, registered by the built-in apps. Standard-library only.
+:data:`ACTION_KINDS` is a live view over it. Each kind above is defined by the extension
+that registers it (``KINDS`` in its package under :mod:`culture_rules.extensions`; ``noop``
+and ``message`` in :mod:`culture_rules.extensions.builtin`, which also gathers them as
+``BUILTIN_KINDS``), built with :func:`kind`. Standard-library only.
 """
 
 from __future__ import annotations
@@ -68,10 +70,17 @@ from culture_rules.model.refs import REF_KEY, is_reference, structured_form
 
 __all__ = [
     "ACTION_KINDS",
-    "BUILTIN_KINDS",
+    "ADV",
+    "INT",
+    "REQ_INT",
+    "REQ_STR",
+    "REQ_TEXT",
+    "STR",
+    "TEXT",
     "ActionKind",
     "ParamSpec",
     "describe_kinds",
+    "kind",
     "param_type_ok",
 ]
 
@@ -124,7 +133,7 @@ class ActionKind:
     actorless: bool = False
 
 
-def _k(
+def kind(
     name: str,
     summary: str,
     /,
@@ -135,296 +144,17 @@ def _k(
     actorless: bool = False,
     **params: ParamSpec,
 ) -> ActionKind:
+    """An :class:`ActionKind` from keyword params (what the apps' ``KINDS`` are built with)."""
     return ActionKind(name, params, summary, any_of, label, actors, actorless)
 
 
-_S = ParamSpec("str")
-_RS = ParamSpec("str", True)
-_I = ParamSpec("int")
-_ADV = ParamSpec("str", advanced=True)
-_RI = ParamSpec("int", True)
-_TEXT = ParamSpec("str", widget="multiline")
-_RTEXT = ParamSpec("str", True, widget="multiline")
-_CHANNEL = ParamSpec("str", True, widget="discord_channel")
-_GUILD = ParamSpec("str", widget="discord_guild")
-_AGENT_ENDPOINT = ({"kinds": ["agent"], "has": ["base_url"]},)
-
-_KINDS = (
-    _k("noop", "Do nothing (placeholder, tests)", label="Do nothing", actorless=True),
-    _k(
-        "message",
-        "Send a message on the Culture mesh",
-        label="Send a message on the mesh",
-        actorless=True,
-        actor=ParamSpec("str", widget="hidden"),  # legacy: a Discord app actor here still posts
-        channel=_RS,
-        text=_RTEXT,
-    ),
-    _k(
-        "discord.message",
-        "Post a message on Discord through a Discord app actor",
-        label="Post a message on Discord",
-        actor=_RS,
-        guild=_GUILD,
-        channel=_CHANNEL,
-        text=_RTEXT,
-        buttons=ParamSpec("list", widget="buttons"),
-        thread_name=_S,  # set: channel is a forum and the text starts a post titled so
-        tags=ParamSpec("list"),  # forum tag names, with thread_name only
-    ),
-    _k(
-        "discord.read",
-        "Read one Discord message in full (text and attachments) through a Discord app actor",
-        label="Read a Discord message in full",
-        actor=_RS,
-        guild=_GUILD,  # fills the message url when given
-        channel=_CHANNEL,
-        message=_RS,
-    ),
-    _k(
-        "discord.react",
-        "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
-        " app actor, and take back the bot's own earlier reactions (remove)",
-        label="React to a Discord message",
-        any_of=(("emoji", "remove"),),
-        actor=_RS,
-        guild=_GUILD,
-        channel=_CHANNEL,
-        message=_RS,
-        emoji=_S,
-        remove=ParamSpec("list"),
-    ),
-    _k(
-        "discord.reply",
-        "Answer a Discord slash or message command privately through a Discord app actor",
-        label="Answer a Discord command privately",
-        actor=_RS,
-        event_id=_RS,
-        text=_RTEXT,
-    ),
-    _k(
-        "discord.sweep",
-        "Read a Discord channel's messages newer than a stored cursor through a Discord app"
-        " actor",
-        label="Read a Discord channel since the last run",
-        actor=_RS,
-        guild=_GUILD,
-        channel=_CHANNEL,
-        cursor_key=_RS,
-        limit=_I,
-        include_bots=ParamSpec("bool"),
-        backfill=ParamSpec("bool"),
-    ),
-    _k(
-        "github.comment",
-        "Comment on a GitHub issue or PR",
-        label="Comment on GitHub",
-        actor=_RS,
-        repo=_RS,
-        number=_RI,
-        body=_RTEXT,
-        once_key=_ADV,  # d25: post at most once per (repo, PR, key), durably
-    ),
-    _k(
-        "github.merge",
-        "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
-        label="Merge a GitHub PR",
-        actor=_RS,
-        repo=_RS,
-        number=_RI,
-        sha=_RS,
-        delete_branch=ParamSpec("bool"),
-    ),
-    _k(
-        "github.pr",
-        "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
-        " as the GitHub App",
-        label="Read a GitHub PR",
-        actor=_RS,
-        repo=_RS,
-        number=_RI,
-    ),
-    _k(
-        "jira.comment",
-        "Comment on a Jira issue",
-        label="Comment on Jira",
-        actor=_RS,
-        issue=_RS,
-        body=_RTEXT,
-    ),
-    _k(
-        "http.call",
-        "Call an HTTP endpoint",
-        label="Call an HTTP endpoint",
-        actors=({"declares_action": True}, {"has": ["http.allow"]}),
-        actor=_RS,
-        method=ParamSpec(
-            "str",
-            True,
-            choices=tuple((m, m) for m in ("GET", "POST", "PUT", "PATCH", "DELETE")),
-            choose="Choose a method…",
-        ),
-        url=_RS,
-        headers=ParamSpec("dict"),
-        body=ParamSpec("any"),
-        save_to=_S,  # an absolute dir the actor's http.save_roots lists: stream the body there
-    ),
-    _k(
-        "machine.command",
-        "Run a command on a machine actor",
-        label="Run a command on a machine",
-        actors=({"kinds": ["runner"]},),
-        actor=_RS,
-        command=ParamSpec("str", True, widget="command"),
-        args=ParamSpec("dict", widget="command_args"),
-    ),
-    _k(
-        "email.send",
-        "Send an email through an email app actor (Resend)",
-        label="Send an email",
-        actors=({"kinds": ["app"], "surface": "email"},),
-        actor=_RS,
-        to=ParamSpec("list", True),  # each must be on the actor's recipient allowlist
-        subject=_RS,
-        html=_TEXT,  # at least one of html/text: the port checks it
-        text=_TEXT,
-        idempotency_key=_ADV,  # replaces the engine's per-run key (a durable, per-date key)
-        sender=_ADV,  # replaces the actor's from address; must be at the actor's domain
-        not_after=_ADV,  # ISO-8601: at or past it the send fails email_window_passed, no request
-    ),
-    _k(
-        "search.web",
-        "Search the web through a search app actor (Brave)",
-        label="Search the web",
-        actors=({"kinds": ["app"], "surface": "search"},),
-        actor=_RS,
-        query=_RS,
-        count=_I,
-        freshness=ParamSpec(
-            "str",
-            choices=(
-                ("pd", "Past day"),
-                ("pw", "Past week"),
-                ("pm", "Past month"),
-                ("py", "Past year"),
-            ),
-            choose="Any time",
-        ),
-        country=_S,
-        lang=_S,
-    ),
-    _k(
-        "llm.complete",
-        "Complete an actor's brief with an OpenAI-compatible model on an agent actor (no tools)",
-        label="Summarise with a language model",
-        any_of=(("content", "content_path"),),
-        actors=_AGENT_ENDPOINT,
-        actor=_RS,
-        brief=ParamSpec(
-            "str",
-            needed=True,
-            options_from="briefs",
-            choose="Choose one of the actor's briefs…",
-        ),  # a name in the actor's params.briefs; required at run time, no default
-        answer=ParamSpec("dict", widget="json"),  # {shape: <culture_rules.model.shape spec>}
-        content=ParamSpec("any", widget="multiline"),  # or content_path (d2): one of the two
-        content_path=_S,  # a schema-1 transcript file; needs content_root (checked at run time)
-        content_root=_S,
-        content_max_chars=_I,
-        max_tokens=_I,
-        temperature=ParamSpec("any", widget="number"),
-        not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
-        cache=ParamSpec(
-            "bool", label="Keep the first answer for this file"
-        ),  # answer + content_path: keep the first valid answer
-        cache_name=_S,  # the cache file stem (answer.<name>.<sha16>.json), default "recording"
-        cache_label=_S,  # the cache document's brief label, default "recording"
-    ),
-    _k(
-        "decider.assess",
-        "Ask the mesh's decider for probabilities over the options a step defines (no text)",
-        label="Ask the decider",
-        actors=_AGENT_ENDPOINT,
-        actor=_RS,
-        state=_RTEXT,
-        questions=ParamSpec(
-            "dict", True, widget="json"
-        ),  # {key: {type: choice|noul|score, instructions, criteria}}
-        not_after=_S,  # ISO-8601: past it the work fails decider_deadline instead of queueing
-    ),
-    _k(
-        "audio.transcribe",
-        "Transcribe an audio file with a speech-to-text endpoint on an agent actor",
-        label="Transcribe an audio file",
-        actors=_AGENT_ENDPOINT,
-        actor=_RS,
-        audio_path=_RS,
-        audio_sha256=_S,  # optional: without it the port hashes the file itself
-        output_dir=_RS,
-        language=_S,
-        model=_S,
-    ),
-    _k(
-        "transcript.render",
-        "Render one transcript and its summary as an EPUB or Markdown (right to left for Hebrew)",
-        label="Make a book or Markdown from a transcript",
-        actors=({"has_any": ["transcripts_root", "output_root"]},),
-        actorless=True,
-        actor=_S,  # optional: its transcripts_root/output_root is a second boundary
-        result_path=_RS,
-        root=_RS,  # the transcripts root: result_path must resolve under it
-        recorded_at=_RS,  # ISO-8601 with a zone; dated in Asia/Jerusalem
-        language=_S,
-        summary=ParamSpec("any"),  # llm.complete's output: {text} or a string, or none
-        format=ParamSpec(
-            "str",
-            choices=(("epub", "EPUB book"), ("md", "Markdown")),
-            choose="EPUB book (default)",
-        ),  # epub (default) or md: summary, key facts, then the transcript
-    ),
-    _k(
-        "library.push",
-        "Upload a file to a library, or replace one by id (and queue it on a device queue)",
-        label="Send a book to a library",
-        any_of=(("content_base64", "content_path"),),
-        actors=({"not_kinds": ["agent", "app"], "has": ["base_url"]},),
-        actor=_RS,
-        content_base64=_S,  # or content_path + content_root (d7): one of the two is required
-        content_path=_S,  # a file under content_root on the node; its bytes never enter run state
-        content_root=ParamSpec(
-            "str",
-            options_from="content_roots",
-            choose="Choose one of the library's content roots…",
-        ),
-        title=_RS,
-        kind=ParamSpec(
-            "str", True, options_from="kinds", choose="Choose a kind…"
-        ),  # one of the actor's params.kinds
-        visibility=ParamSpec(
-            "str",
-            options_from="visibilities",
-            choose="The library's default",
-            needs_actor_param="visibilities",
-        ),  # one of the actor's params.visibilities
-        format=ParamSpec(
-            "str", options_from="formats", choose="EPUB (default)"
-        ),  # one of the actor's params.formats; epub when unset
-        item_id=_I,  # replace this item through the actor's replace_path
-        author=_S,
-        device_id=ParamSpec("str", needs_actor_param="queue_path"),  # only with a queue_path
-    ),
-    _k(
-        "repodocs.sync",
-        "Push every repo's specs, plans, deliveries, designs and .devague files to the library",
-        label="Push repo documents to the library",
-        actors=({"kinds": ["service"], "has": ["repos_root"]},),
-        actor=_RS,  # a service actor: base_url, api_key, repos_root, state_path, limits
-    ),
-)
-
-BUILTIN_KINDS: dict[str, ActionKind] = {k.name: k for k in _KINDS}
-"""The built-in kinds' typed params, by name; the built-in extensions register them
-(:mod:`culture_rules.extensions.builtin`), each with the app it belongs to."""
+STR = ParamSpec("str")
+REQ_STR = ParamSpec("str", True)
+INT = ParamSpec("int")
+REQ_INT = ParamSpec("int", True)
+TEXT = ParamSpec("str", widget="multiline")
+REQ_TEXT = ParamSpec("str", True, widget="multiline")
+ADV = ParamSpec("str", advanced=True)
 
 
 class _Catalogue(Mapping[str, ActionKind]):

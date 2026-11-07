@@ -14,7 +14,7 @@ import re
 
 import pytest
 
-from culture_rules.apps.public_text import (
+from culture_rules.extensions.github.public_text import (
     NOTE_CAP,
     WITHHELD,
     clean_note,

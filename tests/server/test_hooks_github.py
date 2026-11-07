@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from culture_rules.events.ingest import EVENTS_COLLECTION
-from culture_rules.server.hooks import github as gh
+from culture_rules.extensions.github import hooks as gh
 from culture_rules.store.memory import MemoryStore
 
 REF = "grant:GH_HOOK"
@@ -878,7 +878,7 @@ def test_plain_issue_comment_is_not_looked_up():
 
 
 def test_failed_lookup_stores_comment_unenriched_and_later_events_flow():
-    from culture_rules.apps.github import GitHubError
+    from culture_rules.extensions.github.client import GitHubError
 
     s = make()
     pulls = Pulls(fail=GitHubError("network_error", retryable=True))
@@ -1055,7 +1055,7 @@ def test_failed_arm_is_recovered_by_the_settle_tick_without_any_redelivery(monke
     never redelivers it, and the settled event still fires exactly once."""
     from datetime import UTC, datetime, timedelta
 
-    from culture_rules.node.checks_settle import (
+    from culture_rules.extensions.github.checks_settle import (
         RECOVERY_GRACE_S,
         SETTLE_COLLECTION,
         SETTLED_TYPE,

@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
-from culture_rules.node.actions import repodocs as repodocs_mod
-from culture_rules.node.actions.repodocs import MAX_BYTES, RepodocsSyncPort, spec_slug
+from culture_rules.extensions.repodocs import port as repodocs_mod
+from culture_rules.extensions.repodocs.port import MAX_BYTES, RepodocsSyncPort, spec_slug
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.memory import MemoryStore
 
@@ -1140,7 +1140,7 @@ def test_yaml_comment_and_item_scans_match_the_old_patterns():
     """The linear scans that replaced two backtracking regexes keep their behaviour."""
     import re
 
-    from culture_rules.node.actions import repodocs as rd
+    from culture_rules.extensions.repodocs import port as rd
 
     for text in ["lib", "lib # note", "lib\t# note", "a#b", "#only", "  x  ", "", "x #"]:
         assert rd._strip_comment(text) == re.split(r"\s+#", text, maxsplit=1)[0].strip()

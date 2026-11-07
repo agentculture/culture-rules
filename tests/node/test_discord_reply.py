@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
-from culture_rules.apps.discord_commands import INTERACTIONS_COLLECTION
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
 from culture_rules.engine.runs import Executor, step_state
+from culture_rules.extensions.discord.commands import INTERACTIONS_COLLECTION
+from culture_rules.extensions.discord.reply import DiscordReplyAction
 from culture_rules.model.action_step import ACTION_BUILTIN
-from culture_rules.node.actions.discord_reply import DiscordReplyAction
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import Clock, FakeActor, edge, port, rule, step, workflow
 

@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from culture_rules.actors.model_rule import ENDPOINT_KINDS
+from culture_rules.extensions.decider.port import DeciderAssessPort
 from culture_rules.io.exchange import import_bundle, read_bundle
 from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.model.describe import ACTION_WORDS
-from culture_rules.node.actions.decider import DeciderAssessPort
 from culture_rules.node.runner import default_ports
 from culture_rules.store.memory import MemoryStore
 

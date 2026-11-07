@@ -14,9 +14,9 @@ pytest.importorskip("httpx")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from culture_rules.apps.jira import JiraError  # noqa: E402
 from culture_rules.events.ingest import EVENTS_COLLECTION  # noqa: E402
-from culture_rules.server.hooks.jira import handle, router  # noqa: E402
+from culture_rules.extensions.jira.client import JiraError  # noqa: E402
+from culture_rules.extensions.jira.hooks import handle, router  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 
 SECRET = "hmac-" + "secret-value-123"

@@ -8,7 +8,7 @@ import urllib.parse
 from datetime import UTC, datetime
 
 from culture_rules.engine.actorport import InvocationContext
-from culture_rules.node.actions.search import SearchWebPort
+from culture_rules.extensions.search.port import SearchWebPort
 from culture_rules.store.memory import MemoryStore
 
 FAKE_KEY = "brave" + "-" + "FAKEKEY0123456789abcdef"

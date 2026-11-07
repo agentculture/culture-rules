@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from culture_rules.extensions.discord.read import DiscordReadAction
 from culture_rules.model.action_kinds import ACTION_KINDS
 from culture_rules.model.describe import ACTION_WORDS, BUILTIN_WORDS, action_text
-from culture_rules.node.actions.discord_read import DiscordReadAction
 from culture_rules.node.actions.markdown_render import MARKDOWN_RENDER_BUILTIN, MarkdownRenderPort
 from culture_rules.node.runner import default_ports
 from culture_rules.store.memory import MemoryStore
@@ -56,7 +56,7 @@ def test_discord_react_is_a_catalogued_action_kind():
 
 
 def test_discord_react_and_attachment_fetch_have_words():
-    from culture_rules.node.actions.attachment_fetch import ATTACHMENT_FETCH_BUILTIN
+    from culture_rules.extensions.discord.attachment_fetch import ATTACHMENT_FETCH_BUILTIN
 
     assert ATTACHMENT_FETCH_BUILTIN in BUILTIN_WORDS
     words = action_text(
@@ -67,11 +67,11 @@ def test_discord_react_and_attachment_fetch_have_words():
 
 
 def test_the_node_registers_discord_react_and_attachment_fetch():
-    from culture_rules.node.actions.attachment_fetch import (
+    from culture_rules.extensions.discord.attachment_fetch import (
         ATTACHMENT_FETCH_BUILTIN,
         AttachmentFetchPort,
     )
-    from culture_rules.node.actions.discord_react import DiscordReactAction
+    from culture_rules.extensions.discord.react import DiscordReactAction
 
     ports = default_ports(MemoryStore(), "spark")
     assert isinstance(ports["action:discord.react"], DiscordReactAction)
@@ -102,9 +102,9 @@ def test_discord_reply_sweep_and_cursor_advance_have_words():
 
 
 def test_the_node_registers_discord_reply_sweep_and_cursor_advance():
+    from culture_rules.extensions.discord.reply import DiscordReplyAction
+    from culture_rules.extensions.discord.sweep import DiscordSweepAction
     from culture_rules.node.actions.cursor import CURSOR_ADVANCE_BUILTIN, CursorAdvancePort
-    from culture_rules.node.actions.discord_reply import DiscordReplyAction
-    from culture_rules.node.actions.discord_sweep import DiscordSweepAction
 
     ports = default_ports(MemoryStore(), "spark")
     assert isinstance(ports["action:discord.reply"], DiscordReplyAction)

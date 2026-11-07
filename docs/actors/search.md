@@ -74,7 +74,7 @@ The `search.web` action takes:
 | `lang` | no | the search language, such as `en` or `pt-br` |
 
 The parameters are checked before the key is read. The call goes only to
-Brave: the URL is a constant in `culture_rules/apps/brave.py`, with no
+Brave: the URL is a constant in `culture_rules/extensions/search/brave.py`, with no
 base-URL override.
 
 The output is `{results, query, count}`. Each result is

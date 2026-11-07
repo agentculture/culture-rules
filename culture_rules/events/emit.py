@@ -87,7 +87,7 @@ CHECKS_LATE_TYPE = "github.pr.checks_failed_late"
 PR_CONFLICTING_TYPE = "github.pr.conflicting"
 SETTLE_TYPES = frozenset((CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE))
 SETTLE_TYPE_NAMES = (CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE)
-"""The checks settler's event types (:mod:`culture_rules.node.checks_settle`) and
+"""The checks settler's event types (:mod:`culture_rules.extensions.github.checks_settle`) and
 ``github.pr.conflicting`` (d31): written only by the engine, from its internal sources;
 reserved at external ingest (d25)."""
 REACTION_ADDED_TYPE = "github.reaction.added"

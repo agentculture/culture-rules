@@ -7,7 +7,7 @@ import urllib.error
 
 import pytest
 
-from culture_rules.apps.discord_rest import (
+from culture_rules.extensions.discord.rest import (
     MAX_CONTENT,
     DiscordClient,
     DiscordError,

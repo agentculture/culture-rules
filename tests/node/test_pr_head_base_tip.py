@@ -49,7 +49,7 @@ class BranchFake(Fake):
 
 
 def port_with(pem, fake):  # noqa: F811
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     store = MemoryStore()
     store.put("actors", actor_doc())

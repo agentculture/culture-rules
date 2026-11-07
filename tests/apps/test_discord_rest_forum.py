@@ -8,7 +8,7 @@ import urllib.error
 
 import pytest
 
-from culture_rules.apps.discord_rest import DiscordClient, DiscordError
+from culture_rules.extensions.discord.rest import DiscordClient, DiscordError
 
 TOKEN = "tok-SECRET-123"
 

@@ -8,7 +8,7 @@ import logging
 
 import pytest
 
-from culture_rules.apps.jira import JiraClient, JiraError
+from culture_rules.extensions.jira.client import JiraClient, JiraError
 
 FAKE_TOKEN = "atl" + "-" + "FAKEAPITOKEN0123456789"
 
