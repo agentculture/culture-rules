@@ -21,7 +21,6 @@ checked before reading), ``not_json``, ``not_scalar``. Standard library only.
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Mapping
 from datetime import datetime
@@ -29,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.node.actions._paths import PathProblem, resolve_under
 
 __all__ = ["JSON_READ_BUILTIN", "JsonReadPort", "MAX_BYTES"]
 
@@ -62,23 +62,6 @@ def _fields(value: Any) -> dict[str, list[str]]:
     return out
 
 
-def _resolve(path_value: Any, root_value: Any) -> Path:
-    if not isinstance(root_value, str) or not os.path.isabs(root_value):
-        raise _Refused(_BAD_PARAMS, "root must be an absolute directory")
-    if not isinstance(path_value, str) or not path_value:
-        raise _Refused(_BAD_PARAMS, "path must be a non-empty string")
-    try:
-        root = Path(root_value).resolve(strict=True)
-        path = (root / path_value).resolve(strict=True)  # an absolute path_value wins
-    except (OSError, RuntimeError) as exc:
-        raise _Refused(_PATH_REFUSED, "the file or its root does not exist") from exc
-    if not path.is_relative_to(root):
-        raise _Refused(_PATH_REFUSED, "the file is not under the root")
-    if not path.is_file():
-        raise _Refused(_PATH_REFUSED, "the path is not a file")
-    return path
-
-
 def _load(path: Path) -> Any:
     try:
         if path.stat().st_size > MAX_BYTES:
@@ -100,7 +83,10 @@ def _walk(doc: Any, parts: list[str]) -> Any:
 def json_read(input: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
     """The named fields of the JSON file (module doc), else :class:`_Refused`."""
     fields = _fields(_param(input, config, "fields"))
-    path = _resolve(_param(input, config, "path"), _param(input, config, "root"))
+    try:
+        path = resolve_under(_param(input, config, "path"), [_param(input, config, "root")])
+    except PathProblem as exc:
+        raise _Refused(exc.code, exc.message) from exc
     doc = _load(path)
     out: dict[str, Any] = {}
     for name, parts in fields.items():
