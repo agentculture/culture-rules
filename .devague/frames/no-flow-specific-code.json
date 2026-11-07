@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-06T19:36:25Z",
-  "updated": "2026-11-07T08:23:22Z",
+  "updated": "2026-11-07T08:39:56Z",
   "claims": [
     {
       "id": "c1",
@@ -706,6 +706,17 @@
       "code": "assumption-for-measurement",
       "what": "t9 agent assumed other e2e fixture route files either need no /actions/kinds or tolerate a 404, without checking which",
       "skipped_check": "",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "control-absent",
+      "what": "t9 agent handed back the rules/boundary merge uncommitted, before the full suite and web checks, and without reviewing its regex-rewritten KINDS blocks",
+      "skipped_check": "full suite, web checks, KINDS review before handback",
       "refs": [
         "t9"
       ],
