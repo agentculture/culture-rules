@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from culture_rules.extensions import ExtensionError, Lazy, Registry
+from culture_rules.extensions import ApiContext, ExtensionError, Lazy, Registry
 from culture_rules.model.action_kinds import ActionKind, ParamSpec
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -184,6 +184,40 @@ def test_node_collections_come_from_providers_in_order():
     reg = Registry()
     reg.install("acme", lambda ext: ext.node_collections(lambda: ("acme_a", "acme_b")))
     assert reg.node_collections() == ("acme_a", "acme_b")
+
+
+def mount_routes(app, ctx):
+    app.append((ctx.store, ctx.options.get("transport")))
+
+
+def mount_other(app, ctx):
+    app.append(ctx)
+
+
+def test_api_routes_mount_in_registration_order_with_their_context():
+    reg = Registry()
+    reg.install("acme", lambda ext: ext.api_routes("acme.targets", mount_routes))
+    reg.install("beta", lambda ext: ext.api_routes("beta.targets", mount_other))
+    assert [(e.name, e.extension) for e in reg.api_routes()] == [
+        ("acme.targets", "acme"),
+        ("beta.targets", "beta"),
+    ]
+    mounted: list = []
+    ctx = ApiContext("store", options={"transport": "fake"})
+    for entry in reg.api_routes():
+        entry.mount(mounted, ctx)
+    assert mounted == [("store", "fake"), ctx]
+
+
+def test_api_routes_follow_the_registration_rules():
+    reg = Registry()
+    reg.install("acme", lambda ext: ext.api_routes("acme.targets", mount_routes))
+    with pytest.raises(ExtensionError, match="already registered by extension 'acme'"):
+        reg.install("beta", lambda ext: ext.api_routes("acme.targets", mount_other))
+    with pytest.raises(ExtensionError, match="non-empty string"):
+        reg.install("gamma", lambda ext: ext.api_routes("", mount_other))
+    reg.uninstall("acme")
+    assert reg.api_routes() == ()
 
 
 def test_lazy_imports_its_module_only_when_called():

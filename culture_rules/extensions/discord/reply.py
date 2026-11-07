@@ -1,7 +1,7 @@
 """The ``discord.reply`` action: an ephemeral reply to a Discord command or button click.
 
 A slash or context command is acknowledged with a deferred, ephemeral "thinking" response
-(see ``apps/discord_commands.py``). This action replaces that response with ``text`` by
+(see ``extensions/discord/commands.py``). This action replaces that response with ``text`` by
 editing ``@original`` of the interaction webhook, so only the invoking user sees it and no
 second message is left behind. The interaction token is read from the store by the id of
 the ``discord.command.invoked`` event (never from the event) and authorises the call: no bot

@@ -8,7 +8,7 @@ git. The push contract is culture-library's `docs/api/repodocs.md`.
 ## What it pushes
 
 Every 15 minutes, one run of the action kind `repodocs.sync`
-(`culture_rules/node/actions/repodocs.py`) walks the directories directly
+(`culture_rules/extensions/repodocs/port.py`) walks the directories directly
 under `~/git` on spark. A directory is a repo when its `.git` is a real
 directory. It skips `.worktrees.*` and `*-worktrees` directories, symlinks
 and linked worktrees (whose `.git` is a file).
