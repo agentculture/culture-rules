@@ -192,7 +192,18 @@ def _operand(o: Any) -> str:
         return f"vars.{value}"
     if kind == "literal":
         return _literal(value)
+    if kind == "item":
+        return _item_operand(value, "item", "item.{}")
     return "?"
+
+
+def _item_operand(path: Any, whole: str, part: str) -> str:
+    """An ``{"item": path}`` operand: ``whole`` for ``"."`` (the item itself), else ``part``
+    filled with the path's last segment."""
+    if path == ".":
+        return whole
+    last = str(path).rsplit(".", 1)[-1]
+    return part.format(last) if last else "?"
 
 
 def condition_text(node: Any, *, nested: bool = False) -> str:
@@ -219,6 +230,21 @@ def condition_text(node: Any, *, nested: bool = False) -> str:
         return f"{_operand(node.get('value'))} ∈ {_operand(node.get('items'))}"
     if op == "matches":
         return f"{_operand(node.get('value'))} matches /{node.get('pattern', '')}/"
+    return _text_item_ops(op, node, nested)
+
+
+def _text_item_ops(op: Any, node: Mapping[str, Any], nested: bool) -> str:
+    """``contains``, ``host_suffix`` and ``any``/``all`` in symbols: ``title contains bug``,
+    ``host in domain example.com``, ``any of links: item.host in domain example.com`` (an
+    unknown op reads as itself)."""
+    if op == "contains":
+        return f"{_operand(node.get('value'))} contains {_operand(node.get('needle'))}"
+    if op == "host_suffix":
+        return f"{_operand(node.get('value'))} in domain {_operand(node.get('suffix'))}"
+    if op in ("any", "all"):
+        items = _operand(node.get("items"))
+        text = f"{op} of {items}: {condition_text(node.get('where'), nested=True)}"
+        return f"({text})" if nested else text
     return str(op) if op else "?"
 
 
@@ -226,18 +252,27 @@ def condition_text(node: Any, *, nested: bool = False) -> str:
 EMPTY_WORD = "empty"
 
 
+def _words_subject(o: Any) -> str:
+    """An operand in words where it is the subject: the current item of an ``any``/``all``
+    reads ``it`` (itself) or ``its <field>``; anything else as in symbols."""
+    if isinstance(o, Mapping) and len(o) == 1 and "item" in o:
+        return _item_operand(o["item"], "it", "its {}")
+    return _operand(o)
+
+
 def _words_operand(o: Any) -> str:
-    """An operand in words: the empty string reads :data:`EMPTY_WORD`."""
+    """An operand in words: the empty string reads :data:`EMPTY_WORD`; the current item of an
+    ``any``/``all`` reads ``it`` (itself) or ``its <field>``."""
     if isinstance(o, Mapping) and o.get("literal") == "" and len(o) == 1:
         return EMPTY_WORD
-    return _operand(o)
+    return _words_subject(o)
 
 
 def _words_in(value: Any, items: Any) -> str:
     """``x is one of a, b``; a literal list reads bare, not braced. One holding the empty
     string says it first (d13): ``x is empty``, ``x is empty or a``, ``x is empty or one of
     a, b``."""
-    subject = _operand(value)
+    subject = _words_subject(value)
     if not (isinstance(items, Mapping) and isinstance(items.get("literal"), list)):
         return f"{subject} is one of {_operand(items)}"
     values = items["literal"]
@@ -254,7 +289,7 @@ def _words_not(arg: Any) -> str:
     """``not`` in words: ``x is not set`` for ``not exists``, else ``it is not the case
     that ...`` (see :func:`_negated` for why nothing else folds)."""
     if isinstance(arg, Mapping) and arg.get("op") == "exists":  # the same truth, by definition
-        return f"{_operand(arg.get('arg'))} is not set"
+        return f"{_words_subject(arg.get('arg'))} is not set"
     return f"it is not the case that {_words(arg, nested=True)}"
 
 
@@ -273,11 +308,28 @@ def _words(node: Any, *, nested: bool = False) -> str:
     if op == "not":
         return _words_not(node.get("arg"))
     if op == "exists":
-        return f"{_operand(node.get('arg'))} is set"
+        return f"{_words_subject(node.get('arg'))} is set"
     if op == "in":
         return _words_in(node.get("value"), node.get("items"))
     if op == "matches":
-        return f"{_operand(node.get('value'))} matches /{node.get('pattern', '')}/"
+        return f"{_words_subject(node.get('value'))} matches /{node.get('pattern', '')}/"
+    return _words_item_ops(op, node, nested)
+
+
+def _words_item_ops(op: Any, node: Mapping[str, Any], nested: bool) -> str:
+    """``contains``, ``host_suffix`` and ``any``/``all`` in words (an unknown op reads as
+    itself)."""
+    if op == "contains":
+        needle = _words_operand(node.get("needle"))
+        return f"{_words_subject(node.get('value'))} contains {needle}"
+    if op == "host_suffix":
+        suffix = _words_operand(node.get("suffix"))
+        return f"{_words_subject(node.get('value'))} is in the domain {suffix}"
+    if op in ("any", "all"):
+        which = "at least one" if op == "any" else "every one"
+        items = _words_subject(node.get("items"))
+        text = f"for {which} of {items}, {_words(node.get('where'), nested=True)}"
+        return f"({text})" if nested else text
     return str(op) if op else "?"
 
 
@@ -286,12 +338,14 @@ def condition_words(node: Any) -> str:
 
     The sibling of :func:`condition_text` (which keeps its symbols): the same operands, the
     operators spelled out (``is``, ``is not``, ``is one of``, ``is set`` / ``is not set``,
-    ``matches``, ``and`` / ``or``); the empty string reads ``empty`` (d13: ``agent is
-    empty``, and in a list it is said first, ``agent is empty or cortex-spark``, ``agent is
-    empty or one of a, b``). ``not`` is written out in full, for the reason given at
-    :func:`_negated`. A rendering longer than ``CONDITION_WORDS_CAP`` is not shown: the
-    function itself returns ``CONDITION_FALLBACK`` (``if its condition holds``, which already
-    starts with ``if``). An unknown or malformed node reads as ``?``, never raises.
+    ``matches``, ``contains``, ``is in the domain``, ``for at least one of`` / ``for every
+    one of`` with the current item as ``its <field>`` or ``it``, ``and`` / ``or``). The empty
+    string reads ``empty`` (d13: ``agent is empty``, and in a list it is said first, ``agent
+    is empty or cortex-spark``, ``agent is empty or one of a, b``). ``not`` is written out in
+    full, for the reason given at :func:`_negated`. A rendering longer than
+    ``CONDITION_WORDS_CAP`` is not shown: the function itself returns ``CONDITION_FALLBACK``
+    (``if its condition holds``, which already starts with ``if``). An unknown or malformed
+    node reads as ``?``, never raises.
     """
     text = _words(node)
     return CONDITION_FALLBACK if len(text) > CONDITION_WORDS_CAP else text
