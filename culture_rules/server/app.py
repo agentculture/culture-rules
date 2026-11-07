@@ -45,6 +45,7 @@ from culture_rules.engine.runs import (
     is_paused,
 )
 from culture_rules.events.ingest import QUARANTINE_COLLECTION, ensure_quarantine_ttl
+from culture_rules.extensions import WebhookRouteEntry, registry
 from culture_rules.model import describe
 from culture_rules.model.paragraph import workflow_paragraph
 from culture_rules.ops.health import health_status
@@ -80,11 +81,13 @@ __all__ = [
     "current_principal",
 ]
 
-# The only requests that skip principal resolution: ``POST`` to exactly these paths (the
-# webhook receivers, authenticated by their own signature/token check). Exact string match on
-# the decoded *and* raw path, so a prefix, a trailing slash, a case or percent-encoding
+# The only requests that skip principal resolution: ``POST`` to exactly the registered webhook
+# paths (the receivers, authenticated by their own signature/token check). Exact string match
+# on the decoded *and* raw path, so a prefix, a trailing slash, a case or percent-encoding
 # variant, or the ``/api`` alias never matches. Nothing else is public - not even ``/health``.
-HOOK_PATHS = frozenset({"/hooks/github", "/hooks/jira"})
+# ``create_app`` exempts the routes it mounts from the extension registry; HOOK_PATHS is the
+# built-in apps' set (``/hooks/github``, ``/hooks/jira``).
+HOOK_PATHS = frozenset(route.path for route in registry().webhook_routes())
 BRIDGE_CALLBACK_RE = agent.BRIDGE_CALLBACK_RE
 """The one other exemption: ``POST`` to a bridge callback path,
 ``/bridge-invocations/bri_<24 hex>/events`` (full match, same raw-path and ``/api`` rules).
@@ -795,7 +798,9 @@ def create_app(
         },
     )
     _install_errors(app)
-    _install_auth(app, resolver, humans.HumanSignIn(store, audit))
+    routes = registry().webhook_routes()
+    hook_paths = frozenset(route.path for route in routes)
+    _install_auth(app, resolver, humans.HumanSignIn(store, audit), hook_paths)
     # Registration order is route-matching and schema order: /machines/status (ops) must
     # come before the definition routes so /machines/{id} cannot shadow it.
     _register_auth_routes(app, tokens)
@@ -811,7 +816,7 @@ def create_app(
     _register_exchange(app, store, defs, targets)
     _register_asks(app, store, answer_ask)
     _register_stream(app, store)
-    _register_hooks(app, store)
+    _register_hooks(app, store, routes)
     _register_bridge_callbacks(app, store)
     _register_discord_targets(app, store, resolve_secret, discord_transport)
     _register_model_actors(app, store, defs, resolve_secret, models_transport)
@@ -821,13 +826,18 @@ def create_app(
     return app
 
 
-def _install_auth(app: FastAPI, resolver: Resolver, sign_in: humans.HumanSignIn) -> None:
+def _install_auth(
+    app: FastAPI,
+    resolver: Resolver,
+    sign_in: humans.HumanSignIn,
+    hook_paths: frozenset[str] = HOOK_PATHS,
+) -> None:
     from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
 
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
         """Resolve the principal and check the route's role before routing (any handler)."""
-        if _hook_exempt(request):
+        if _hook_exempt(request, hook_paths):
             request.state.principal = None  # the hook handler authenticates the delivery
             return await call_next(request)
         try:
@@ -844,41 +854,33 @@ def _install_auth(app: FastAPI, resolver: Resolver, sign_in: humans.HumanSignIn)
         return await call_next(request)
 
 
-def _hook_exempt(request: Request) -> bool:
-    """``POST`` to an exact :data:`HOOK_PATHS` entry or a :data:`BRIDGE_CALLBACK_RE` path, as
-    sent (not via ``/api``, not encoded)."""
+def _hook_exempt(request: Request, hook_paths: frozenset[str] = HOOK_PATHS) -> bool:
+    """``POST`` to an exact ``hook_paths`` entry (the mounted webhook routes) or a
+    :data:`BRIDGE_CALLBACK_RE` path, as sent (not via ``/api``, not encoded)."""
     if request.method != "POST":
         return False
     scope = request.scope
     path = scope.get("path", "")
     if scope.get(static._FLAG):  # /api alias
         return False
-    if path not in HOOK_PATHS and BRIDGE_CALLBACK_RE.fullmatch(path) is None:
+    if path not in hook_paths and BRIDGE_CALLBACK_RE.fullmatch(path) is None:
         return False
     raw = scope.get("raw_path")
     return raw is None or raw == path.encode("ascii")
 
 
-def _register_hooks(app: FastAPI, store: StoragePort) -> None:
-    """``POST /hooks/github`` and ``POST /hooks/jira``: public, signature-authenticated.
+def _register_hooks(
+    app: FastAPI, store: StoragePort, routes: Sequence[WebhookRouteEntry] | None = None
+) -> None:
+    """The registered webhook routes (``POST /hooks/github`` and ``POST /hooks/jira`` from
+    the built-in apps): public, signature-authenticated, mounted in registration order.
 
     Kept out of the OpenAPI contract (``include_in_schema=False``): they are called by
     GitHub/Jira, not by the CLI, MCP or web clients the contract types, and the contract's
     global 401/403 envelope and credential schemes do not apply to them.
     """
-    from culture_rules.node import checks_settle  # noqa: PLC0415
-    from culture_rules.server.hooks import github, jira  # noqa: PLC0415
-
-    lister = checks_settle.AppSuiteLister(store)
-    # Every GitHub read on the delivery path is bounded (suites, PR read and secret resolve
-    # within one budget); past it the SHA stays armed and the node's tick settles it.
-    on_check = checks_settle.webhook_on_check(store, lister)
-
-    def pull(repo: str, number: int) -> Any:  # read-only, bounded PR lookup for PR comments
-        return lister.get_pull(repo, number, timeout_s=github.PULL_LOOKUP_TIMEOUT_S)
-
-    app.include_router(github.router(store, on_check=on_check, pull=pull), include_in_schema=False)
-    app.include_router(jira.router(store), include_in_schema=False)
+    for route in registry().webhook_routes() if routes is None else routes:
+        app.include_router(route.factory(store), include_in_schema=False)
 
 
 class BridgeEventAck(BaseModel):

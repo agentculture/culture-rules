@@ -38,6 +38,9 @@ code, services, robots, …). It is built and on disk:
 - a Python library, `culture_rules`, holding the model and the engine with
   persisted run state (MongoDB), plus the engine node daemon
   (`culture-rules node run`);
+- one extension registry, `culture_rules/extensions`, through which apps add
+  action kinds, ports, built-in steps, event types, webhook routes and node
+  listeners (the built-in apps register in `extensions/builtin.py`);
 - a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `machines`,
   `runs`, `rollout`, `serve`, `node`, `mcp`), an HTTP API with its contract pinned in
   `api/openapi.json`, and an MCP server exposing the same verbs as tools;
