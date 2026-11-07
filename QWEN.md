@@ -59,8 +59,7 @@ On disk today:
   allowlist; the grant is resolved only after it passes), `actors references
   ID` lists what names an actor, `actors disable ID [--force]` is refused with
   `actor_in_use` while an enabled workflow or rule uses it, and `workflows
-  repoint-actor WF --from A --to B` moves a workflow (`--force` is for a pinned
-  one; none is pinned today). The model rule: one enabled endpoint actor (one with
+  repoint-actor WF --from A --to B` moves a workflow. The model rule: one enabled endpoint actor (one with
   `params.base_url`) per model (409 `model_taken`, and again at run time in
   `llm.complete`); mesh agents without `base_url` are outside it. The verbs
   are MCP tools, the Actors page has Add models, Used by with Move, and
@@ -114,13 +113,20 @@ On disk today:
   are migrated), `workflows describe` returning the description and a
   paragraph from one phrase table (`culture_rules/model/paragraph.py`, no
   AI), a server-owned workflow `revision` checked on save, v1 and v2 workflow
-  digests (no workflow is pinned today), and `rules migrate-orphans [--apply]`. The wheel ships `release.json`
+  digests (nothing pins a workflow), and `rules migrate-orphans [--apply]`. The wheel ships `release.json`
   (`culture_rules/deploy_data`) and no rule bundle: `rollout seed` and `rollout import`
   take `--bundle DIR` (exit 1 without it).
 - The API serves the action catalogue (guide `docs/operations/action-catalogue.md`):
   `GET /actions/kinds` (viewer), CLI `actions kinds`, MCP tool `actions_kinds`; the editor's
   action picker is built from it and keeps no table of kinds, so an extension's kind needs
-  no editor change.
+  no editor change. No per-kind shim either: the Actors tab offers the kinds marked
+  `declarable_by_apps`, a legacy form is shown through `shown_as`, and the command widgets
+  pair through `args_for`.
+- `variables delete NAME [--apply]` (admin; `DELETE /variables/{name}`, MCP tool
+  `variables_delete`) is a dry run unless applied, refused with 409 `variable_in_use` while
+  a live, enabled rule references the variable (disabled and soft-deleted referrers are
+  listed in `not_blocking`); applied, it appends a tombstone version and one audit entry,
+  and `variables history` keeps every version.
 - State between runs (guide `docs/operations/keysets.md`): `keyset.filter` and
   `keyset.add` keep named key sets for a configured window (one document per key, TTL
   index, config-only rules); admin verbs `keysets list|show|clear`.

@@ -2,17 +2,59 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
+import type { ActionCatalogue, ActionKindSpec } from "../api/actions";
 import { ACTION_CATALOGUE } from "../fixtures/action-catalogue";
 import { AppConfigForm } from "./AppConfigForm";
 import { appDraftFrom, appParamsFrom, emptyAppDraft, httpDraftFrom, httpParamsFrom, validateApp, validateHttp, type AppDraft, type FormErrors } from "./app-config";
 
 let latest: AppDraft = emptyAppDraft();
 
-function Harness({ initial = emptyAppDraft(), errors }: Readonly<{ initial?: AppDraft; errors?: FormErrors }>) {
+function Harness({
+  initial = emptyAppDraft(),
+  errors,
+  catalogue = ACTION_CATALOGUE,
+}: Readonly<{ initial?: AppDraft; errors?: FormErrors; catalogue?: ActionCatalogue }>) {
   const [draft, setDraft] = useState(initial);
   latest = draft;
-  return <AppConfigForm value={draft} onChange={setDraft} errors={errors} catalogue={ACTION_CATALOGUE} />;
+  return <AppConfigForm value={draft} onChange={setDraft} errors={errors} catalogue={catalogue} />;
 }
+
+/* The built-in kinds an app actor may declare (declarable_by_apps), in catalogue order. */
+const DECLARABLE = [
+  "discord.message",
+  "discord.read",
+  "discord.react",
+  "discord.reply",
+  "discord.sweep",
+  "github.comment",
+  "github.merge",
+  "github.pr",
+  "jira.comment",
+  "http.call",
+  "email.send",
+  "search.web",
+];
+
+/* An extension's kind no app may declare (a computation, say). */
+const COMPUTE: ActionKindSpec = {
+  kind: "acme.compute",
+  label: "Compute",
+  summary: "Compute something",
+  lenient: false,
+  aliases: [],
+  params: [],
+  any_of: [],
+  actors: [{ declares_action: true }],
+  actorless: false,
+  declarable_by_apps: false,
+  shown_as: null,
+};
+const WITH_FAKES: ActionCatalogue = { items: [...ACTION_CATALOGUE.items, COMPUTE] };
+
+const actionToggles = () =>
+  within(screen.getByRole("group", { name: "Actions" }))
+    .getAllByRole("checkbox")
+    .map((box) => box.closest("label")?.querySelector("strong")?.textContent);
 
 const NO_SAVE = { allow: "", headers: [], saveRoots: "", saveMaxBytes: "" };
 
@@ -66,26 +108,26 @@ describe("AppConfigForm", () => {
     expect(latest.events).toEqual(["github.pr.opened"]);
   });
 
-  it("offers the catalogued action kinds as toggles", async () => {
+  it("offers the kinds an app actor may declare as toggles", async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ ...emptyAppDraft(), surface: "github" }} />);
-    for (const kind of [
-      "noop",
-      "message",
-      "discord.message",
-      "github.comment",
-      "jira.comment",
-      "http.call",
-      "machine.command",
-      "email.send",
-      "search.web",
-      "llm.complete",
-      "library.push",
-    ]) {
-      expect(screen.getByRole("checkbox", { name: new RegExp(`^${kind.replace(".", "\\.")}`) })).toBeInTheDocument();
-    }
+    expect(actionToggles()).toEqual(DECLARABLE);
     await user.click(screen.getByRole("checkbox", { name: /^github\.comment/ }));
     expect(latest.actions).toEqual(["github.comment"]);
+  });
+
+  it("does not offer a kind no app may declare", () => {
+    render(<Harness initial={{ ...emptyAppDraft(), surface: "github" }} catalogue={WITH_FAKES} />);
+    expect(actionToggles()).not.toContain("acme.compute");
+  });
+
+  it("keeps showing a kind the actor already lists, so it can be taken off", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ ...emptyAppDraft(), surface: "github", actions: ["acme.compute"] }} catalogue={WITH_FAKES} />);
+    const box = screen.getByRole("checkbox", { name: /^acme\.compute/ });
+    expect(box).toBeChecked();
+    await user.click(box);
+    expect(latest.actions).toEqual([]);
   });
 
   it("edits probes and the self identity", async () => {
@@ -295,6 +337,7 @@ describe("the actions an app can declare come from the catalogue", () => {
     label: "Ping",
     summary: "Ping Acme through its service",
     aliases: [],
+    declarable_by_apps: true,
   };
   const WITH_ACME = { items: [...ACTION_CATALOGUE.items, extension] };
 

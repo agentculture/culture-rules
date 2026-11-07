@@ -15,7 +15,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": true
+      "actorless": true,
+      "declarable_by_apps": false,
+      "shown_as": null
     },
     {
       "kind": "message",
@@ -37,7 +39,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "channel",
@@ -50,7 +53,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "text",
@@ -63,7 +67,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -72,7 +77,12 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": true
+      "actorless": true,
+      "declarable_by_apps": false,
+      "shown_as": {
+        "when_param": "actor",
+        "kind": "discord.message"
+      }
     },
     {
       "kind": "discord.message",
@@ -92,7 +102,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "guild",
@@ -105,7 +116,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "channel",
@@ -118,7 +130,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "text",
@@ -131,7 +144,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "buttons",
@@ -144,7 +158,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "thread_name",
@@ -157,7 +172,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "tags",
@@ -170,7 +186,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -179,7 +196,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "discord.read",
@@ -199,7 +218,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "guild",
@@ -212,7 +232,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "channel",
@@ -225,7 +246,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "message",
@@ -238,7 +260,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -247,7 +270,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "discord.react",
@@ -267,7 +292,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "guild",
@@ -280,7 +306,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "channel",
@@ -293,7 +320,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "message",
@@ -306,7 +334,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "emoji",
@@ -319,7 +348,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "remove",
@@ -332,7 +362,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [
@@ -346,7 +377,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "discord.reply",
@@ -366,7 +399,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "event_id",
@@ -379,7 +413,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "text",
@@ -392,7 +427,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -401,7 +437,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "discord.sweep",
@@ -421,7 +459,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "guild",
@@ -434,7 +473,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "channel",
@@ -447,7 +487,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "cursor_key",
@@ -460,7 +501,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "limit",
@@ -473,7 +515,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "include_bots",
@@ -486,7 +529,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "backfill",
@@ -499,7 +543,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -508,7 +553,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "github.comment",
@@ -528,7 +575,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "repo",
@@ -541,7 +589,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "number",
@@ -554,7 +603,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "body",
@@ -567,7 +617,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "once_key",
@@ -580,7 +631,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": true
+          "advanced": true,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -589,7 +641,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "github.merge",
@@ -609,7 +663,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "repo",
@@ -622,7 +677,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "number",
@@ -635,7 +691,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "sha",
@@ -648,7 +705,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "delete_branch",
@@ -661,7 +719,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -670,7 +729,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "github.pr",
@@ -690,7 +751,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "repo",
@@ -703,7 +765,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "number",
@@ -716,7 +779,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -725,7 +789,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "jira.comment",
@@ -745,7 +811,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "issue",
@@ -758,7 +825,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "body",
@@ -771,7 +839,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -780,7 +849,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "declares_action": true
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "http.call",
@@ -800,7 +871,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "method",
@@ -834,7 +906,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "Choose a method…",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "url",
@@ -847,7 +920,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "headers",
@@ -860,7 +934,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "body",
@@ -873,7 +948,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "save_to",
@@ -886,7 +962,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -900,7 +977,9 @@ export const ACTION_KINDS_DATA: unknown = {
           ]
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "machine.command",
@@ -920,7 +999,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "command",
@@ -933,7 +1013,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "args",
@@ -946,7 +1027,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": "command"
         }
       ],
       "any_of": [],
@@ -957,7 +1039,9 @@ export const ACTION_KINDS_DATA: unknown = {
           ]
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": false,
+      "shown_as": null
     },
     {
       "kind": "email.send",
@@ -977,7 +1061,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "to",
@@ -990,7 +1075,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "subject",
@@ -1003,7 +1089,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "html",
@@ -1016,7 +1103,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "text",
@@ -1029,7 +1117,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "idempotency_key",
@@ -1042,7 +1131,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": true
+          "advanced": true,
+          "args_for": ""
         },
         {
           "name": "sender",
@@ -1055,7 +1145,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": true
+          "advanced": true,
+          "args_for": ""
         },
         {
           "name": "not_after",
@@ -1068,7 +1159,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": true
+          "advanced": true,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -1080,7 +1172,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "surface": "email"
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "search.web",
@@ -1100,7 +1194,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "query",
@@ -1113,7 +1208,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "count",
@@ -1126,7 +1222,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "freshness",
@@ -1156,7 +1253,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "Any time",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "country",
@@ -1169,7 +1267,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "lang",
@@ -1182,7 +1281,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -1194,7 +1294,9 @@ export const ACTION_KINDS_DATA: unknown = {
           "surface": "search"
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
     },
     {
       "kind": "llm.complete",
@@ -1214,7 +1316,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "brief",
@@ -1227,7 +1330,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "Choose one of the actor's briefs…",
           "needs_actor_param": "",
           "needed": true,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "answer",
@@ -1240,7 +1344,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "content",
@@ -1253,7 +1358,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "content_path",
@@ -1266,7 +1372,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "content_root",
@@ -1279,7 +1386,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "content_max_chars",
@@ -1292,7 +1400,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "max_tokens",
@@ -1305,7 +1414,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "temperature",
@@ -1318,7 +1428,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "not_after",
@@ -1331,7 +1442,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "cache",
@@ -1344,7 +1456,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "cache_name",
@@ -1357,7 +1470,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "cache_label",
@@ -1370,7 +1484,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [
@@ -1389,7 +1504,9 @@ export const ACTION_KINDS_DATA: unknown = {
           ]
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": false,
+      "shown_as": null
     },
     {
       "kind": "decider.assess",
@@ -1409,7 +1526,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "state",
@@ -1422,7 +1540,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "questions",
@@ -1435,7 +1554,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "not_after",
@@ -1448,7 +1568,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -1462,7 +1583,9 @@ export const ACTION_KINDS_DATA: unknown = {
           ]
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": false,
+      "shown_as": null
     },
     {
       "kind": "audio.transcribe",
@@ -1482,7 +1605,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "audio_path",
@@ -1495,7 +1619,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "audio_sha256",
@@ -1508,7 +1633,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "output_dir",
@@ -1521,7 +1647,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "language",
@@ -1534,7 +1661,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "model",
@@ -1547,7 +1675,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -1561,7 +1690,9 @@ export const ACTION_KINDS_DATA: unknown = {
           ]
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": false,
+      "shown_as": null
     },
     {
       "kind": "transcript.render",
@@ -1581,7 +1712,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "result_path",
@@ -1594,7 +1726,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "root",
@@ -1607,7 +1740,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "recorded_at",
@@ -1620,7 +1754,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "language",
@@ -1633,7 +1768,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "summary",
@@ -1646,7 +1782,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "format",
@@ -1668,7 +1805,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "EPUB book (default)",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -1680,7 +1818,9 @@ export const ACTION_KINDS_DATA: unknown = {
           ]
         }
       ],
-      "actorless": true
+      "actorless": true,
+      "declarable_by_apps": false,
+      "shown_as": null
     },
     {
       "kind": "library.push",
@@ -1700,7 +1840,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "content_base64",
@@ -1713,7 +1854,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "content_path",
@@ -1726,7 +1868,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "content_root",
@@ -1739,7 +1882,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "Choose one of the library's content roots…",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "title",
@@ -1752,7 +1896,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "kind",
@@ -1765,7 +1910,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "Choose a kind…",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "visibility",
@@ -1778,7 +1924,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "The library's default",
           "needs_actor_param": "visibilities",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "format",
@@ -1791,7 +1938,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "EPUB (default)",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "item_id",
@@ -1804,7 +1952,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "author",
@@ -1817,7 +1966,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         },
         {
           "name": "device_id",
@@ -1830,7 +1980,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "queue_path",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [
@@ -1850,7 +2001,9 @@ export const ACTION_KINDS_DATA: unknown = {
           ]
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": false,
+      "shown_as": null
     },
     {
       "kind": "repodocs.sync",
@@ -1870,7 +2023,8 @@ export const ACTION_KINDS_DATA: unknown = {
           "choose": "",
           "needs_actor_param": "",
           "needed": false,
-          "advanced": false
+          "advanced": false,
+          "args_for": ""
         }
       ],
       "any_of": [],
@@ -1884,7 +2038,9 @@ export const ACTION_KINDS_DATA: unknown = {
           ]
         }
       ],
-      "actorless": false
+      "actorless": false,
+      "declarable_by_apps": false,
+      "shown_as": null
     }
   ]
 };

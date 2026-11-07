@@ -18,7 +18,7 @@ const READER_ACTORS: Actor[] = [
 ];
 
 function Harness() {
-  const [value, setValue] = useState<Action>(blankAction());
+  const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
   return (
     <>
       <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={READER_ACTORS} triggerType="schedule" onChange={setValue} />

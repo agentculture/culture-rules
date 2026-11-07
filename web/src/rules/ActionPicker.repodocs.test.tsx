@@ -23,7 +23,7 @@ const REPODOCS_ACTORS: Actor[] = [
 ];
 
 function Harness() {
-  const [value, setValue] = useState<Action>(blankAction());
+  const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
   return <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={REPODOCS_ACTORS} triggerType="schedule" onChange={setValue} />;
 }
 

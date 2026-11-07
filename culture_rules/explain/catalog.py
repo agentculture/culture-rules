@@ -246,7 +246,8 @@ _NOUN_BLURBS = {
         "Variables are shared values (a scalar or a flat list) that rule conditions and workflow "
         "inputs read; every change appends a version naming who made it, and only an admin may "
         "write. `add` / `remove` change one item of a list atomically (concurrent adds all "
-        "land; a no-op writes no version)."
+        "land; a no-op writes no version). `delete` (admin) retires a variable no enabled rule "
+        "references; it is a dry run unless `--apply`, and the history stays."
     ),
     "keysets": (
         "Keysets are named sets of keys, each remembered for a window, that steps add to and "
@@ -429,11 +430,10 @@ and whether each is enabled. Read-only.
 each workflow and rule) while an enabled workflow or rule uses the actor; `--force` goes
 ahead anyway. The dry-run shows the enabled referrers as `in_use`.
 
-`workflows repoint-actor ID --from A --to B [--expected-revision N] [--force]` points every
+`workflows repoint-actor ID --from A --to B [--expected-revision N]` points every
 action step that names `A` at `B` (a step placed on `A` is only warned about). Without
 `--expected-revision` the CLI reads the workflow's current revision first and sends it; a
-stale one is 409 `revision_conflict` (exit 1). A trusted workflow is refused
-(`workflow_trusted`) unless `--force`, which drops its trust. `B` must be able to run the
+stale one is 409 `revision_conflict` (exit 1). `B` must be able to run the
 steps: the same kind as `A` (an `app` on the same surface), and an endpoint actor when `A`
 is one or a step is an endpoint kind (`llm.complete`, `audio.transcribe`,
 `decider.assess`; `target_kind_mismatch` otherwise). The dry-run lists
@@ -447,7 +447,25 @@ Against an API older than 0.22.0 these routes do not exist and the verbs exit 2 
 "server too old: needs culture-rules >= 0.22.0".
 """
 
+_VARIABLES_DELETE_NOTE = """
+`variables delete NAME [--apply]` (admin) deletes a shared variable. The server plans it even
+as a dry run (`DELETE /variables/{name}?dry_run=true`), so the dry run shows the same refusal:
+409 `variable_in_use` (exit 1) naming each live, enabled rule whose condition or workflow
+inputs reference the variable. A disabled or soft-deleted rule does not block the delete; the
+answer lists it in `not_blocking`. Enabling or restoring such a rule later is not refused,
+but each firing fails closed (a `variable_undefined` skip on the rule's history) and saving
+it is refused (`variable_undefined`) until the variable is set again. An unknown or already
+deleted name is 404 (exit 1).
+
+Applied, the variable gets a tombstone version (`deleted: true`, value null, `updated_by` the
+caller) and one audit entry (`variables.delete`), in one transaction; nothing is erased.
+`variables get` and `list` no longer show it and rules read it as undefined, while `variables
+history NAME` still lists every version, the tombstone last. `variables set NAME` defines it
+again as the next version. Against an API older than 0.44.0 the verb exits 2.
+"""
+
 _VERB_NOTES = {
+    ("variables", "delete"): _VARIABLES_DELETE_NOTE,
     ("actors", "enrol-models"): _MODEL_ACTORS_NOTE,
     ("actors", "references"): _MODEL_ACTORS_NOTE,
     ("actors", "disable"): _MODEL_ACTORS_NOTE,

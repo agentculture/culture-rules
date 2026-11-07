@@ -224,7 +224,7 @@ interface ActionChecksProps {
 function ActionChecks({ catalogue, actions, onChange }: Readonly<ActionChecksProps & { catalogue: ActionCatalogue }>) {
   return (
     <div className="actor-checks">
-      {catalogue.items.map((kind) => {
+      {catalogue.items.filter((kind) => kind.declarable_by_apps || actions.includes(kind.kind)).map((kind) => {
         const on = actions.includes(kind.kind);
         return (
           <label key={kind.kind} className="actor-check">

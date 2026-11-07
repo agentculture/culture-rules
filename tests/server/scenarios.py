@@ -121,3 +121,13 @@ def _clear_keyset(life: Any, store: Any) -> Callable[[], Any]:
 
 
 SERVER_AUDIT_SCENARIOS["keysets.clear"] = _clear_keyset
+
+
+def _delete_variable(life: Any, store: Any) -> Callable[[], Any]:
+    from culture_rules.server.service import Variables  # noqa: PLC0415
+
+    store.put_variable("retired", ["a"], updated_by="seed")
+    return lambda: Variables(store).delete("retired", dry_run=False, identity="alice")
+
+
+SERVER_AUDIT_SCENARIOS["variables.delete"] = _delete_variable

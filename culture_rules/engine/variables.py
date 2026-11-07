@@ -31,7 +31,7 @@ from culture_rules.machines.heartbeat import (
     HEARTBEAT_INTERVAL_S,
     online_machines,
 )
-from culture_rules.store.port import VARIABLES_COLLECTION, StoreOps
+from culture_rules.store.port import VARIABLES_COLLECTION, StoreOps, live_latest_version
 
 __all__ = [
     "NODE_CAPABILITIES",
@@ -48,10 +48,9 @@ NODE_CAPABILITIES: tuple[str, ...] = (VARIABLES_CAPABILITY,)
 
 
 def _latest(doc: Any) -> dict[str, Any] | None:
-    versions = doc.get("versions") if isinstance(doc, dict) else None
-    if not isinstance(versions, list) or not versions or not isinstance(versions[-1], dict):
-        return None
-    return versions[-1]
+    """The latest live version; ``None`` with no versions or after a delete's tombstone."""
+    latest = live_latest_version(doc.get("versions") if isinstance(doc, dict) else None)
+    return dict(latest) if latest is not None else None
 
 
 def variable_values(ops: StoreOps, names: Iterable[str]) -> dict[str, Any]:

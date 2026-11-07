@@ -39,7 +39,12 @@ from culture_rules.model.variable import validate_variable_name
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 from culture_rules.store import revision as rev
-from culture_rules.store.port import Document, StoragePort, VariableVersionConflict
+from culture_rules.store.port import (
+    VARIABLES_COLLECTION,
+    Document,
+    StoragePort,
+    VariableVersionConflict,
+)
 from culture_rules.store.retry import run_transaction
 
 __all__ = [
@@ -884,14 +889,16 @@ def _check_item(value: list, item: Any, *, add: bool) -> None:
 
 
 class Variables:
-    """Shared variables behind the API: reads, an append-only write, history and referrers.
+    """Shared variables behind the API: reads, an append-only write, history, referrers and a
+    delete (a tombstone version, audited).
 
     Authorization (admin-only writes) is the route matrix's job; this class records whichever
     identity it is handed as ``updated_by``.
     """
 
-    def __init__(self, store: StoragePort) -> None:
+    def __init__(self, store: StoragePort, audit: AuditLog | None = None) -> None:
         self._store = store
+        self._audit = audit or AuditLog()
 
     @staticmethod
     def _checked(name: str) -> str:
@@ -969,20 +976,102 @@ class Variables:
         raise Conflict(f"variables/{name}: too many concurrent writers, try again")
 
     def history(self, name: str) -> list[Document]:
-        """Every version, oldest first (the store is append-only, so versions are 1..latest)."""
-        latest = self.get(name)["version"]
-        out = [self._store.get_variable_version(name, n) for n in range(1, latest + 1)]
-        return [v for v in out if v is not None]
+        """Every version, oldest first (the store is append-only, so versions are 1..latest).
+        A deleted variable keeps its history: the last version is the delete's tombstone
+        (``deleted`` true, value null, ``updated_by`` the admin who deleted it)."""
+        self._checked(name)
+        out: list[Document] = []
+        while (doc := self._store.get_variable_version(name, len(out) + 1)) is not None:
+            out.append(doc)
+        if not out:
+            raise NotFound(f"variables/{name} does not exist")
+        return out
 
     def refs(self, name: str) -> list[Document]:
         """Live rules whose condition or workflow inputs reference ``name``, by id."""
-        self._checked(name)
-        docs = [d for d in self._store.find("rules") if _is_live(d)]
-        hits = [d for d in docs if name in rule_variable_refs(d)]
         return [
-            {"id": d.get("id"), "name": d.get("name"), "enabled": d.get("enabled", True)}
+            {k: r[k] for k in ("id", "name", "enabled")}
+            for r in self._referrers(name)
+            if not r["deleted"]
+        ]
+
+    def _referrers(self, name: str) -> list[Document]:
+        """Every rule, soft-deleted ones included, whose condition or workflow inputs
+        reference ``name``, by id. Workflows hold no shared-variable references (their
+        ``vars.<n>`` are workflow-local), so rules are the whole reference graph."""
+        self._checked(name)
+        hits = [d for d in self._store.find("rules") if name in rule_variable_refs(d)]
+        return [
+            {
+                "id": d.get("id"),
+                "name": d.get("name"),
+                "enabled": d.get("enabled", True),
+                "deleted": not _is_live(d),
+            }
             for d in sorted(hits, key=lambda d: str(d.get("id")))
         ]
+
+    @mutating_verb("variables.delete", "Delete a shared variable (dry run unless applied)")
+    def delete(
+        self, name: str, *, dry_run: bool = True, identity: str | None = None
+    ) -> dict[str, Any]:
+        """Delete variable ``name`` (admin): ``{name, dry_run, version, deleted_version,
+        not_blocking}``.
+
+        Refused (409 ``variable_in_use``, a dry run too) while a live, enabled rule references
+        it. A disabled or soft-deleted referrer does not block it and is listed in
+        ``not_blocking``: enabling or restoring one later is not refused, but each firing
+        fails closed (``variable_undefined``) and a save of it is refused. Applied, the store
+        appends a tombstone version (the history stays) and exactly one audit entry in the
+        same transaction; a dry run writes nothing.
+        """
+        current = self.get(name)
+        referrers = self._referrers(name)
+        blocking = [r for r in referrers if r["enabled"] and not r["deleted"]]
+        if blocking:
+            ids = ", ".join(f"rules/{r['id']}" for r in blocking)
+            raise Conflict(
+                f"variable_in_use: variables/{name} is referenced by enabled {ids}; "
+                "disable those rules or remove the reference first",
+                [
+                    {"path": f"rules/{r['id']}", "code": "variable_in_use", "message": name}
+                    for r in blocking
+                ],
+                code="variable_in_use",
+            )
+        version = current["version"]
+        deleted_version = version + 1
+        if not dry_run:
+            deleted_version = self._apply_delete(require_identity(identity), name, version)
+        return {
+            "name": name,
+            "dry_run": dry_run,
+            "version": version,
+            "deleted_version": deleted_version,
+            "not_blocking": [r for r in referrers if r not in blocking],
+        }
+
+    def _apply_delete(self, principal: str, name: str, version: int) -> int:
+        def audit(tx: Any, before: Document, after: Document) -> None:
+            self._audit.write(
+                tx,
+                identity=principal,
+                verb="variables.delete",
+                collection=VARIABLES_COLLECTION,
+                target_id=name,
+                before={"version": before["version"], "value": before["value"]},
+                after={"version": after["version"], "deleted": True},
+            )
+
+        try:
+            doc = self._store.delete_variable(
+                name, deleted_by=principal, expected_version=version, on_write=audit
+            )
+        except VariableVersionConflict:
+            raise Conflict(f"variables/{name} changed while deleting it; read it and retry")
+        if doc is None:
+            raise NotFound(f"variables/{name} does not exist")
+        return int(doc["version"])
 
 
 def _iso(value: Any) -> Any:

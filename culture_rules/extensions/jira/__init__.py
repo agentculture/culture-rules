@@ -18,6 +18,7 @@ KINDS = (
         "jira.comment",
         "Comment on a Jira issue",
         label="Comment on Jira",
+        declarable_by_apps=True,
         actor=REQ_STR,
         issue=REQ_STR,
         body=REQ_TEXT,

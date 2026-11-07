@@ -416,6 +416,26 @@ class VariableItem(BaseModel):
     item: Any = Field(description="a JSON scalar of the list's item type")
 
 
+class VariableReferrer(BaseModel):
+    id: str
+    name: str | None = None
+    enabled: bool
+    deleted: bool = Field(description="true = the rule is soft-deleted")
+
+
+class VariableDeleteResult(BaseModel):
+    name: str
+    dry_run: bool
+    version: int = Field(description="the live version the delete retires")
+    deleted_version: int = Field(
+        description="the tombstone version: written when applied, planned on a dry run"
+    )
+    not_blocking: list[VariableReferrer] = Field(
+        description="rules that reference the variable but are disabled or soft-deleted, so "
+        "do not block the delete; enabled again, each firing is a variable_undefined skip"
+    )
+
+
 class ActionChoice(BaseModel):
     value: str
     label: str
@@ -435,12 +455,20 @@ class ActionParam(BaseModel):
         description="the chosen actor's params key that lists (or, as a mapping, names) the values"
     )
     choose: str = Field(description="the prompt of the empty choice")
+    args_for: str = Field(
+        description="on a command_args param: the sibling command param it holds arguments for"
+    )
     needs_actor_param: str = Field(description="shown only when the chosen actor has it set")
     advanced: bool = Field(description="rarely set: an editor keeps it behind a fold")
     needed: bool = Field(
         description="not required of a stored step (the port refuses it at run time) "
         "but an editor asks for it"
     )
+
+
+class ActionShownAs(BaseModel):
+    when_param: str
+    kind: str
 
 
 class ActionKindItem(BaseModel):
@@ -456,6 +484,13 @@ class ActionKindItem(BaseModel):
         "not_kinds, surface, declares_action, has, has_any"
     )
     actorless: bool = Field(description="offered even when no enabled actor can perform it")
+    declarable_by_apps: bool = Field(
+        description="an app actor may list it in params.actions (the Actors tab offers it)"
+    )
+    shown_as: ActionShownAs | None = Field(
+        description="a stored action of this kind that sets when_param is shown, and saved, as "
+        "kind (a legacy form another kind took over); null for most kinds"
+    )
 
 
 class ActionKindList(BaseModel):
@@ -853,7 +888,7 @@ def create_app(
     _register_auth_routes(app, tokens)
     _register_ops(app, store, node)
     _register_migrations(app, store, defs)
-    _register_variables(app, Variables(store))
+    _register_variables(app, Variables(store, audit))
     _register_actions(app)
     _register_keysets(app, Keysets(store, audit=audit))
     _register_rollouts(app, Rollouts(store, audit))
@@ -1221,6 +1256,20 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
         """Remove an item from a list variable (admin); absent means no new version."""
         return variables.remove_item(name, body.item, identity)
 
+    @app.delete(
+        "/variables/{name}",
+        tags=["variables"],
+        operation_id="delete_variable",
+        response_model=VariableDeleteResult,
+        responses={404: ERRORS[404], 409: ERRORS[409], 422: ERRORS[422]},
+    )
+    def delete_variable(name: str, identity: Identity, dry_run: bool = True):
+        """Delete the variable (admin); a dry run (the default) writes nothing. Refused (409
+        ``variable_in_use``) while a live, enabled rule references it; disabled and
+        soft-deleted referrers are listed, not blocking. Applied, a tombstone version keeps
+        the history and one audit entry names the caller."""
+        return variables.delete(name, dry_run=dry_run, identity=identity)
+
     @app.get(
         "/variables/{name}/history",
         response_model=ItemList,
@@ -1229,7 +1278,8 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
         responses={404: ERRORS[404], 422: ERRORS[422]},
     )
     def variable_history(name: str):
-        """Every version of the variable, oldest first."""
+        """Every version of the variable, oldest first; after a delete, the last is its
+        tombstone (``deleted`` true)."""
         return {"items": variables.history(name)}
 
     @app.get(

@@ -12,7 +12,7 @@ function Harness({
   trigger = "github.pr.opened",
   workflow,
 }: Readonly<{ start?: Action; trigger?: string; workflow?: (typeof WORKFLOWS)[number] }>) {
-  const [value, setValue] = useState<Action>(start ?? blankAction());
+  const [value, setValue] = useState<Action>(start ?? blankAction(ACTION_CATALOGUE));
   return (
     <>
       <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={ACTORS} triggerType={trigger} workflow={workflow} onChange={setValue} />
@@ -36,7 +36,7 @@ describe("kinds offered", () => {
   it("offers http.call once an enabled runner allows a host", () => {
     const actors = structuredClone(ACTORS);
     (actors[2].params as Record<string, unknown>).http = { allow: ["api.example.com"] };
-    render(<ActionPicker catalogue={ACTION_CATALOGUE} value={blankAction()} actors={actors} onChange={() => {}} />);
+    render(<ActionPicker catalogue={ACTION_CATALOGUE} value={blankAction(ACTION_CATALOGUE)} actors={actors} onChange={() => {}} />);
     expect(
       within(screen.getByLabelText("What happens"))
         .getAllByRole("option")
@@ -181,7 +181,7 @@ describe("mesh message and Discord message are separate kinds", () => {
     start,
     load,
   }: Readonly<{ start?: Action; load: (id: string) => Promise<typeof TWO> }>) {
-    const [value, setValue] = useState<Action>(start ?? blankAction());
+    const [value, setValue] = useState<Action>(start ?? blankAction(ACTION_CATALOGUE));
     return (
       <>
         <ActionPicker

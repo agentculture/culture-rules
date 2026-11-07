@@ -29,6 +29,7 @@ KINDS = (
         "github.comment",
         "Comment on a GitHub issue or PR",
         label="Comment on GitHub",
+        declarable_by_apps=True,
         actor=REQ_STR,
         repo=REQ_STR,
         number=REQ_INT,
@@ -39,6 +40,7 @@ KINDS = (
         "github.merge",
         "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
         label="Merge a GitHub PR",
+        declarable_by_apps=True,
         actor=REQ_STR,
         repo=REQ_STR,
         number=REQ_INT,
@@ -50,6 +52,7 @@ KINDS = (
         "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
         " as the GitHub App",
         label="Read a GitHub PR",
+        declarable_by_apps=True,
         actor=REQ_STR,
         repo=REQ_STR,
         number=REQ_INT,

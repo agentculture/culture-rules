@@ -98,7 +98,8 @@ class ParamSpec:
     ``needs_actor_param`` (shown only when the chosen actor has that param set) and ``needed``
     (not required of a stored step, which the port refuses at run time, but an editor asks
     for it) and ``advanced`` (rarely set: an editor keeps it behind a "More settings" fold, open
-    when the step already sets it).
+    when the step already sets it) and ``args_for`` (on a ``command_args`` param: the sibling
+    ``command`` param whose chosen command's declared arguments this mapping holds).
     """
 
     type: str
@@ -111,6 +112,7 @@ class ParamSpec:
     needs_actor_param: str = ""
     needed: bool = False
     advanced: bool = False
+    args_for: str = ""
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,11 @@ class ActionKind:
     actors: tuple[dict[str, Any], ...] = ()
     #: offered even when no enabled actor can perform it (it needs none)
     actorless: bool = False
+    #: an ``app`` actor may list it in ``params.actions`` (the Actors tab offers it)
+    declarable_by_apps: bool = False
+    #: ``(param, kind)``: a stored action of this kind that sets ``param`` is shown, and saved,
+    #: as ``kind`` by an editor (a legacy form another kind took over)
+    shown_as: tuple[str, str] | None = None
 
 
 def kind(
@@ -142,10 +149,14 @@ def kind(
     any_of: tuple[tuple[str, ...], ...] = (),
     actors: tuple[dict[str, Any], ...] = (),
     actorless: bool = False,
+    declarable_by_apps: bool = False,
+    shown_as: tuple[str, str] | None = None,
     **params: ParamSpec,
 ) -> ActionKind:
     """An :class:`ActionKind` from keyword params (what the apps' ``KINDS`` are built with)."""
-    return ActionKind(name, params, summary, any_of, label, actors, actorless)
+    return ActionKind(
+        name, params, summary, any_of, label, actors, actorless, declarable_by_apps, shown_as
+    )
 
 
 STR = ParamSpec("str")
@@ -224,6 +235,7 @@ def _describe_param(name: str, spec: ParamSpec) -> dict[str, Any]:
         "needs_actor_param": spec.needs_actor_param,
         "needed": spec.needed,
         "advanced": spec.advanced,
+        "args_for": spec.args_for,
     }
 
 
@@ -233,7 +245,8 @@ def describe_kinds() -> list[dict[str, Any]]:
     Each item: ``kind``, ``label`` (the summary when none), ``summary``, ``lenient``,
     ``aliases``, ``params`` (in order, with the editor hints of :class:`ParamSpec`), ``any_of``,
     ``actors`` (the actor clauses of :class:`ActionKind`; an app actor declaring the kind when
-    the kind names none) and ``actorless``. Built from the registry, never from a list here.
+    the kind names none), ``actorless``, ``declarable_by_apps`` and ``shown_as``
+    (``{when_param, kind}`` or null). Built from the registry, never from a list here.
     """
     reg = registry()
     return [
@@ -247,6 +260,12 @@ def describe_kinds() -> list[dict[str, Any]]:
             "any_of": [list(group) for group in kind.any_of],
             "actors": [dict(c) for c in kind.actors] or [{"declares_action": True}],
             "actorless": kind.actorless,
+            "declarable_by_apps": kind.declarable_by_apps,
+            "shown_as": (
+                {"when_param": kind.shown_as[0], "kind": kind.shown_as[1]}
+                if kind.shown_as
+                else None
+            ),
         }
         for name, kind in reg.action_kinds().items()
     ]

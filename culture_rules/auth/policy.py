@@ -9,7 +9,8 @@
   asks;
 - admin: purge, the data migrations (typeless, notes, run ids), service tokens,
   engine/machine containment (pause/resume/drain/undrain), and writing a shared variable
-  (``PUT /variables/{name}``, via the fail-closed default); variable reads are viewer;
+  (``PUT /variables/{name}``) or deleting one (``DELETE /variables/{name}``, dry run
+  included), both via the fail-closed default; variable reads are viewer;
   writing a rollout document (``PUT /rollouts/{id}``, ``POST /rollouts/{id}/steps/{name}``
   and ``POST /rollouts/{id}/snapshot``, also via the default) is admin too, and rollout reads
   are viewer; enrolling a gateway's models (``POST /actors/enrol-models``) is admin via the

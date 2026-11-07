@@ -86,7 +86,7 @@ migrated. `culture-rules workflows describe` (and `GET
 from one phrase table (`culture_rules/model/paragraph.py`, no AI), with the
 rule sentences and the Then side. Workflow saves carry a server-owned
 `revision` (a stale one gets 409), the v1 and v2 workflow digests remain
-(v2 ignores description and notes; no workflow is pinned today), and `culture-rules rules
+(v2 ignores description and notes; nothing pins a workflow), and `culture-rules rules
 migrate-orphans [--apply]` gives each workflow-less rule its own stepless
 workflow. The wheel ships `release.json` (`culture_rules/deploy_data`) and no rule
 bundle: `rollout seed` and `rollout import` take `--bundle DIR` (exit 1 without it).
@@ -101,7 +101,7 @@ endpoint actor per matched model served by the gateways in the shared variable
 is resolved only after it passes). `actors references ID` lists what names an
 actor, `actors disable ID [--force]` is refused with `actor_in_use` while an
 enabled workflow or rule uses it, and `workflows repoint-actor WF --from A
---to B` moves a workflow (`--force` is for a pinned one; none is pinned today). The model rule: one
+--to B` moves a workflow. The model rule: one
 enabled endpoint actor (one with `params.base_url`) per model (409
 `model_taken`, and again at run time in `llm.complete`); mesh agents without
 `base_url` are outside it. An older server answers exit 2. The newspaper
@@ -173,7 +173,15 @@ with the generic `cursor.advance`; a builtin's `config.with` reads
 **The action catalogue** (guide `docs/operations/action-catalogue.md`). The API serves the
 registry's action kinds with their typed params (`GET /actions/kinds`, viewer; CLI `actions
 kinds`, MCP tool `actions_kinds`), and the editor's action picker is built from it, so an
-extension's kind needs no editor change.
+extension's kind needs no editor change. The editor keeps no per-kind shim: the Actors tab
+offers the kinds marked `declarable_by_apps`, a legacy form is shown through `shown_as`, and
+the command widgets pair through `args_for`.
+
+**Deleting a variable.** `variables delete NAME [--apply]` (admin; `DELETE
+/variables/{name}`, MCP tool `variables_delete`) is a dry run unless applied and is refused
+with 409 `variable_in_use` while a live, enabled rule references the variable (disabled and
+soft-deleted referrers are listed in `not_blocking`). Applied, it appends a tombstone
+version and one audit entry (`variables.delete`); `variables history` keeps every version.
 
 **State between runs** (guide `docs/operations/keysets.md`). Generic named key sets:
 `keyset.filter` drops the items whose normalised key a set already holds, `keyset.add`

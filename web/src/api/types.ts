@@ -484,8 +484,6 @@ export interface RepointRequest {
   to: string;
   /** The workflow revision read; missing or stale is 409 `revision_conflict`. */
   expected_revision: number | null;
-  /** Repoint a trusted workflow anyway (drops trust). */
-  force?: boolean;
   dry_run?: boolean;
 }
 
@@ -502,5 +500,4 @@ export interface RepointResult {
   revision: number;
   digest: string | null;
   digest_v2: string | null;
-  trusted_digest?: string | null;
 }

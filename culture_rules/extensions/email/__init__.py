@@ -17,6 +17,7 @@ KINDS = (
         "email.send",
         "Send an email through an email app actor (Resend)",
         label="Send an email",
+        declarable_by_apps=True,
         actors=({"kinds": ["app"], "surface": "email"},),
         actor=REQ_STR,
         to=ParamSpec("list", True),  # each must be on the actor's recipient allowlist

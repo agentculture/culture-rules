@@ -20,7 +20,7 @@ KINDS = (
         actors=({"kinds": ["runner"]},),
         actor=REQ_STR,
         command=ParamSpec("str", True, widget="command"),
-        args=ParamSpec("dict", widget="command_args"),
+        args=ParamSpec("dict", widget="command_args", args_for="command"),
     ),
 )
 

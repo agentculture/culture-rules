@@ -127,3 +127,55 @@ def test_only_the_params_the_old_editor_hid_are_advanced(world):
         ("email.send", "sender"),
         ("email.send", "not_after"),
     }
+
+
+# ------------------------------------------------------------------ d11: generic editor hints
+
+APP_DECLARABLE = {
+    "discord.message",
+    "discord.read",
+    "discord.react",
+    "discord.reply",
+    "discord.sweep",
+    "github.comment",
+    "github.merge",
+    "github.pr",
+    "jira.comment",
+    "http.call",
+    "email.send",
+    "search.web",
+}
+
+
+def test_the_catalogue_says_which_kinds_an_app_actor_may_declare(world):
+    declarable = {i["kind"] for i in _items(world) if i["declarable_by_apps"]}
+    assert declarable == APP_DECLARABLE
+
+
+def test_a_kind_is_not_declarable_unless_its_extension_says_so(world, fake):
+    assert _items(world)[-1]["declarable_by_apps"] is False
+
+
+def test_an_extension_kind_may_be_declarable(world):
+    spec = ActionKind("acme.notify", {}, "Notify", declarable_by_apps=True)
+    registry().install("notify", lambda ext: ext.action_kind(spec))
+    try:
+        assert _items(world)[-1]["declarable_by_apps"] is True
+    finally:
+        registry().uninstall("notify")
+
+
+def test_a_legacy_message_naming_an_actor_is_shown_as_a_discord_message(world):
+    shown = {i["kind"]: i["shown_as"] for i in _items(world) if i["shown_as"]}
+    assert shown == {"message": {"when_param": "actor", "kind": "discord.message"}}
+
+
+def test_the_command_args_widget_names_its_command_param(world):
+    by_kind = {i["kind"]: i for i in _items(world)}
+    args_for = {
+        (k, p["name"]): p["args_for"]
+        for k, i in by_kind.items()
+        for p in i["params"]
+        if p["args_for"]
+    }
+    assert args_for == {("machine.command", "args"): "command"}

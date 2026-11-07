@@ -127,6 +127,32 @@ class VariableVersionConflict(StoreError):
     else wrote it since it was read. Re-read and retry (a compare-and-set on the version)."""
 
 
+VariableWriteHook = Callable[["StoreOps", Document, Document], None]
+"""``on_write(tx, before, after)``: called inside a variable delete's transaction with the
+live version it retires and the tombstone it writes (e.g. to write the audit entry)."""
+
+
+def variable_tombstone(latest: Mapping[str, Any], deleted_by: str, now: Any) -> Document:
+    """The version a variable delete appends after ``latest``: ``deleted`` true, value null,
+    the description kept. Older nodes read a null value; nothing enabled references it."""
+    return {
+        "version": latest["version"] + 1,
+        "value": None,
+        "updated_by": deleted_by,
+        "updated_at": now,
+        "description": latest.get("description"),
+        "deleted": True,
+    }
+
+
+def live_latest_version(versions: Any) -> Document | None:
+    """The latest stored version of a variable, or ``None`` when it has none or the latest
+    is a delete's tombstone (the variable is then undefined)."""
+    if not isinstance(versions, list) or not versions or not isinstance(versions[-1], Mapping):
+        return None
+    return None if versions[-1].get("deleted") else versions[-1]
+
+
 class SchemaDowngradeError(StoreError):
     """A write would lower an existing document's ``schema_version``."""
 
@@ -306,6 +332,24 @@ class StoragePort(StoreOps, Protocol):
 
     def list_variables(self) -> list[Document]:
         """Return every variable's latest version document, ordered by name."""
+
+    def delete_variable(
+        self,
+        name: str,
+        *,
+        deleted_by: str,
+        expected_version: int,
+        on_write: VariableWriteHook | None = None,
+    ) -> Document | None:
+        """Retire variable ``name``: append a tombstone version (:func:`variable_tombstone`),
+        so every earlier version stays readable through :meth:`get_variable_version` while
+        :meth:`get_variable` and :meth:`list_variables` no longer show it.
+
+        A compare-and-set on the version: :class:`VariableVersionConflict` when the latest
+        version is not ``expected_version``. ``None`` (nothing written) when the variable
+        does not exist or is already deleted. ``on_write`` runs inside the same transaction.
+        A later :meth:`put_variable` defines it again as the next version.
+        """
 
 
 def events_query(

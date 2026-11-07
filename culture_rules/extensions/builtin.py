@@ -54,6 +54,9 @@ CORE_KINDS = (
         "Send a message on the Culture mesh",
         label="Send a message on the mesh",
         actorless=True,
+        # legacy: a message naming a Discord app actor still posts through it (its port), so an
+        # editor shows and saves that stored form as the kind that took it over
+        shown_as=("actor", "discord.message"),
         actor=ParamSpec("str", widget="hidden"),  # legacy: a Discord app actor here still posts
         channel=REQ_STR,
         text=REQ_TEXT,

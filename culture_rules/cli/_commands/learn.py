@@ -93,6 +93,10 @@ The keysets noun (admin only, reads included) shows the named sets of remembered
 keysets list counts each set's live keys, keysets show <name> lists them with first_seen
 and expires_at, and keysets clear <name> [--key K] --apply forgets one key or the set
 (without --apply it only reports how many would go). Needs server >= 0.37.0.
+variables delete <name> --apply (admin) retires a shared variable: refused with
+variable_in_use while an enabled rule references it (disabled or soft-deleted referrers
+are listed, not blocking); the history stays, its last version a tombstone; audited.
+Without --apply the server only plans it. Needs server >= 0.44.0.
 
 Machine-readable output
 -----------------------

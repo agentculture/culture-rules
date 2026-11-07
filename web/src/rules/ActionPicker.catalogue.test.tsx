@@ -22,6 +22,7 @@ const param = (name: string, extra: Partial<ActionKindSpec["params"][number]> = 
   needs_actor_param: "",
   needed: false,
   advanced: false,
+  args_for: "",
   ...extra,
 });
 
@@ -40,6 +41,8 @@ const ACME: ActionKindSpec = {
   any_of: [],
   actors: [{ kinds: ["service"], has: ["base_url"] }],
   actorless: false,
+  declarable_by_apps: false,
+  shown_as: null,
 };
 
 const WITH_ACME: ActionCatalogue = { items: [...ACTION_CATALOGUE.items, ACME] };
@@ -52,7 +55,7 @@ const ACME_ACTOR: Actor = {
 };
 
 function Harness({ start, catalogue }: Readonly<{ start?: Action; catalogue: ActionCatalogue }>) {
-  const [value, setValue] = useState<Action>(start ?? blankAction());
+  const [value, setValue] = useState<Action>(start ?? blankAction(ACTION_CATALOGUE));
   return (
     <>
       <ActionPicker value={value} actors={[ACME_ACTOR]} catalogue={catalogue} onChange={setValue} />
@@ -153,7 +156,7 @@ describe("the catalogue from the API", () => {
   };
 
   function Fetched() {
-    const [value, setValue] = useState<Action>(blankAction());
+    const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
     return <ActionPicker value={value} actors={[ACME_ACTOR]} onChange={setValue} />;
   }
 

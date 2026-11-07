@@ -17,6 +17,7 @@ KINDS = (
         "http.call",
         "Call an HTTP endpoint",
         label="Call an HTTP endpoint",
+        declarable_by_apps=True,
         actors=({"declares_action": True}, {"has": ["http.allow"]}),
         actor=REQ_STR,
         method=ParamSpec(
