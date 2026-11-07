@@ -62,7 +62,7 @@ clock may lag the settler's. The fixed id keeps the late event once. Both settle
 prefixes are reserved at external ingest (:func:`~culture_rules.events.emit.reserved_reason`).
 
 With a ``pull`` seam the event also carries the PR facts of its first PR number
-(:func:`~culture_rules.apps.github.complete_pr_facts`: ``head_repo``, ``base_repo``,
+(:func:`~culture_rules.extensions.github.client.complete_pr_facts`: ``head_repo``, ``base_repo``,
 ``base_branch``, ``base_sha``, ``draft``, ``pr_author``; best-effort, all omitted on failure or
 when any fact is missing or malformed); ``head_sha`` stays the settled SHA and the check's own
 ``head_branch`` wins.
@@ -102,13 +102,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
-from culture_rules.apps.github import (
-    DEFAULT_API_BASE,
-    GitHubApp,
-    GitHubError,
-    Transport,
-    complete_pr_facts,
-)
 from culture_rules.events.emit import (
     CHECKS_LATE_TYPE,
     CHECKS_SETTLED_TYPE,
@@ -117,7 +110,14 @@ from culture_rules.events.emit import (
     derive_envelope,
 )
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
-from culture_rules.node.actions.github import GitHubCommentPort
+from culture_rules.extensions.github.client import (
+    DEFAULT_API_BASE,
+    GitHubApp,
+    GitHubError,
+    Transport,
+    complete_pr_facts,
+)
+from culture_rules.extensions.github.port import GitHubCommentPort
 from culture_rules.store.port import DuplicateKeyError, StoragePort
 from culture_rules.store.retry import run_transaction
 from culture_rules.store.versioning import utc_timestamp

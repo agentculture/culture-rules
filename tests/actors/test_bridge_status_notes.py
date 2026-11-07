@@ -3,9 +3,9 @@
 The cultureagent bridge (0.14.0) sends a ``progress`` callback per described agent event,
 ``{"note": "<kind>: <title>"}``; for a shell tool call the title is the command. An agent
 told to run ``echo "STATUS: <note>"`` therefore reports a note the engine reads out of the
-progress note, cleans (culture_rules.apps.public_text) and keeps - the last few only - on
-the bridge invocation, for the PR's status comment. Runs whose rule writes a status comment
-tell the agent how (a fixed hint appended to its instruction); a locked brief never changes.
+progress note, cleans (culture_rules.extensions.github.public_text) and keeps - the last few
+only - on the bridge invocation, for the PR's status comment. Runs whose rule writes a status
+comment tell the agent how (a fixed hint appended to its instruction); a locked brief never changes.
 """
 
 from __future__ import annotations

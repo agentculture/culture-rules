@@ -19,9 +19,9 @@ import json
 
 import pytest
 
-from culture_rules.apps.github import complete_pr_facts, pr_facts
-from culture_rules.server.hooks import github as gh_hook
-from culture_rules.server.hooks.github import comment_intent
+from culture_rules.extensions.github import hooks as gh_hook
+from culture_rules.extensions.github.client import complete_pr_facts, pr_facts
+from culture_rules.extensions.github.hooks import comment_intent
 from culture_rules.store.memory import MemoryStore
 
 SECRET = "hook-secret"

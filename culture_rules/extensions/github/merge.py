@@ -2,7 +2,7 @@
 
 The only merge in culture-rules, and merging stays a human gate: the port runs a merge only
 in a run an operator's click started, with the clicked button's one-time code. It reuses
-:class:`~culture_rules.node.actions.github.GitHubCommentPort`'s actor resolution (a stored,
+:class:`~culture_rules.extensions.github.port.GitHubCommentPort`'s actor resolution (a stored,
 enabled App actor with ``params.surface == "github"``), its repo allowlist, its per-actor App
 cache and its deadline-bounded resolve (``_app_within``). Params: ``actor``, ``repo``,
 ``number``, ``sha`` (the full head commit the prompt was for) and optional ``delete_branch``
@@ -28,7 +28,7 @@ store, so a refusal reads no secret and makes no network call:
      run, a run started through the API and a run chained from another rule are all
      refused. Which user may click is the click rule's ``users`` filter (configuration);
    * its source rule is still live and enabled, read now (``rule_disabled``,
-     :func:`~culture_rules.node.actions.github.source_rule_refusal`);
+     :func:`~culture_rules.extensions.github.port.source_rule_refusal`);
    * the clicked button's one-time code (deviation d3,
      :func:`~culture_rules.extensions.discord.buttons.use_code`): the **stored** click event's
      ``data.code`` (the gateway copies it from ``discord_buttons``, never from the click;
@@ -91,12 +91,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors import trusted
-from culture_rules.apps.github import GitHubApp, GitHubError
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import ADHOC_RULE_PREFIX, RUNS_COLLECTION
 from culture_rules.extensions.discord import buttons as buttons_mod
-from culture_rules.model.discord_filters import BUTTON_CLICKED
-from culture_rules.node.actions.github import (
+from culture_rules.extensions.github.client import GitHubApp, GitHubError
+from culture_rules.extensions.github.port import (
     ACTOR_NOT_FOUND,
     BAD_INPUT,
     SECRET_UNAVAILABLE,
@@ -105,6 +104,7 @@ from culture_rules.node.actions.github import (
     repo_refusal,
     source_rule_refusal,
 )
+from culture_rules.model.discord_filters import BUTTON_CLICKED
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError, StoreError
 

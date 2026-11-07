@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
 
 from culture_rules.engine.actorport import InvocationContext  # noqa: E402
-from culture_rules.node.actions.github import GitHubCommentPort  # noqa: E402
+from culture_rules.extensions.github.port import GitHubCommentPort  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 
 FAKE_BEARER = "ghs" + "_" + "FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
@@ -202,7 +202,7 @@ class HeadFake(Fake):
 
 
 def test_pr_head_port_reads_the_head_sha(pem):
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     store = MemoryStore()
     store.put("actors", actor_doc())
@@ -231,7 +231,7 @@ def test_pr_head_port_reads_the_head_sha(pem):
 def test_pr_head_port_reports_the_pr_state_and_merged_flag(pem, extra, state, merged):
     """#31: the same read tells the guard whether the PR is still open (a merged PR keeps
     its head sha, so the sha alone cannot tell)."""
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     store = MemoryStore()
     store.put("actors", actor_doc())
@@ -245,7 +245,7 @@ def test_pr_head_port_reports_the_pr_state_and_merged_flag(pem, extra, state, me
 
 
 def test_pr_head_port_refuses_unlisted_repo_and_surfaces_errors(pem):
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     store = MemoryStore()
     store.put("actors", actor_doc())
@@ -281,7 +281,7 @@ def test_pr_head_port_honours_the_deadline_through_a_cold_secret_resolve(pem):
     background and caches the App, so the next lookup is warm (one resolve in all)."""
     import time
 
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     store = MemoryStore()
     store.put("actors", actor_doc())
@@ -317,7 +317,7 @@ def test_pr_head_port_honours_the_deadline_through_a_cold_secret_resolve(pem):
 
 
 def test_pr_head_port_bounds_its_http_calls_by_the_deadline(pem):
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     store = MemoryStore()
     store.put("actors", actor_doc())
@@ -358,7 +358,7 @@ def test_pr_head_port_turns_an_in_flight_http_timeout_into_deadline_exceeded(pem
     """Codex r17b finding 2: a read cut off in flight by the deadline-bound timeout is
     ``deadline_exceeded`` (retryable, which the wait guard re-arms on), not a
     ``network_error`` that fails the run at once."""
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     store = MemoryStore()
     store.put("actors", actor_doc())
@@ -372,7 +372,7 @@ def test_pr_head_port_turns_an_in_flight_http_timeout_into_deadline_exceeded(pem
 
 
 def test_a_transport_failure_unrelated_to_the_deadline_stays_a_network_error(pem):
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     class Refused(HeadFake):
         def __call__(self, method, url, headers, body, timeout):
@@ -392,7 +392,7 @@ def test_a_transport_failure_unrelated_to_the_deadline_stays_a_network_error(pem
 
 
 def _head_port(pem, doc=None, fake=None, secrets=None):
-    from culture_rules.node.actions.github import GitHubPrHeadPort
+    from culture_rules.extensions.github.port import GitHubPrHeadPort
 
     store = MemoryStore()
     if doc is not False:
@@ -638,7 +638,7 @@ class PullFake(HeadFake):
 
 
 def _pr_port(pem, fake):
-    from culture_rules.node.actions.github import GitHubPrPort
+    from culture_rules.extensions.github.port import GitHubPrPort
 
     store = MemoryStore()
     store.put("actors", actor_doc())

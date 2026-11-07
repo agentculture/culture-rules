@@ -24,7 +24,7 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    then **listeners** - ticks every node listener the extension registry holds
    (:mod:`culture_rules.extensions`), in registration order. The built-in apps register two
    (:mod:`culture_rules.extensions.builtin`): ``github.checks_settle``, the checks settler's
-   due SHAs (:mod:`culture_rules.node.checks_settle`), and ``discord.gateway``, which
+   due SHAs (:mod:`culture_rules.extensions.github.checks_settle`), and ``discord.gateway``, which
    reconciles the Discord Gateway listeners
    (:class:`~culture_rules.extensions.discord.gateway.GatewaySupervisor`): for each enabled
    Discord app actor declaring ``discord.message.created``, ``discord.reaction.added``,

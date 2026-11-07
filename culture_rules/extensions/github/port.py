@@ -36,19 +36,19 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
-from culture_rules.apps.github import (
-    DEFAULT_API_BASE,
-    GitHubApp,
-    GitHubError,
-    Transport,
-    pr_facts,
-)
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import (
     ADHOC_RULE_PREFIX,
     RULES_COLLECTION,
     RUNS_COLLECTION,
     WORKFLOWS_COLLECTION,
+)
+from culture_rules.extensions.github.client import (
+    DEFAULT_API_BASE,
+    GitHubApp,
+    GitHubError,
+    Transport,
+    pr_facts,
 )
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import DuplicateKeyError

@@ -53,8 +53,10 @@ every top-level repo under its service actor's ``repos_root`` to the library the
 describes (culture-rules#124); everything but the actor is the actor's params.
 
 Which kinds exist is the extension registry's (:mod:`culture_rules.extensions`):
-:data:`ACTION_KINDS` is a live view over it, and the kinds above are
-:data:`BUILTIN_KINDS`, registered by the built-in apps. Standard-library only.
+:data:`ACTION_KINDS` is a live view over it. Each kind above is defined by the extension
+that registers it (``KINDS`` in its package under :mod:`culture_rules.extensions`; ``noop``
+and ``message`` in :mod:`culture_rules.extensions.builtin`, which also gathers them as
+``BUILTIN_KINDS``), built with :func:`kind`. Standard-library only.
 """
 
 from __future__ import annotations
@@ -68,7 +70,6 @@ from culture_rules.model.refs import REF_KEY, is_reference, structured_form
 
 __all__ = [
     "ACTION_KINDS",
-    "BUILTIN_KINDS",
     "INT",
     "REQ_STR",
     "STR",
@@ -108,47 +109,6 @@ def kind(
 STR = ParamSpec("str")
 REQ_STR = ParamSpec("str", True)
 INT = ParamSpec("int")
-
-_KINDS = (
-    kind("noop", "Do nothing (placeholder, tests)"),
-    kind(
-        "message",
-        "Send a message on the Culture mesh",
-        actor=STR,  # legacy: a Discord app actor here still posts to Discord
-        channel=REQ_STR,
-        text=REQ_STR,
-    ),
-    kind(
-        "github.comment",
-        "Comment on a GitHub issue or PR",
-        actor=REQ_STR,
-        repo=REQ_STR,
-        number=ParamSpec("int", True),
-        body=REQ_STR,
-        once_key=STR,  # d25: post at most once per (repo, PR, key), durably
-    ),
-    kind(
-        "github.merge",
-        "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
-        actor=REQ_STR,
-        repo=REQ_STR,
-        number=ParamSpec("int", True),
-        sha=REQ_STR,
-        delete_branch=ParamSpec("bool"),
-    ),
-    kind(
-        "github.pr",
-        "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
-        " as the GitHub App",
-        actor=REQ_STR,
-        repo=REQ_STR,
-        number=ParamSpec("int", True),
-    ),
-)
-
-BUILTIN_KINDS: dict[str, ActionKind] = {k.name: k for k in _KINDS}
-"""The built-in kinds' typed params, by name; the built-in extensions register them
-(:mod:`culture_rules.extensions.builtin`), each with the app it belongs to."""
 
 
 class _Catalogue(Mapping[str, ActionKind]):

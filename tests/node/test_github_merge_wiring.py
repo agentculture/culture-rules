@@ -13,7 +13,7 @@ from culture_rules.store.memory import MemoryStore
 
 def test_the_node_registers_github_merge():
     pytest.importorskip("cryptography")
-    from culture_rules.node.actions.github_merge import GitHubMergePort
+    from culture_rules.extensions.github.merge import GitHubMergePort
 
     ports = default_ports(MemoryStore(), "spark")
     assert isinstance(ports["action:github.merge"], GitHubMergePort)

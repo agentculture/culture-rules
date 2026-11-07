@@ -18,8 +18,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from culture_rules.engine.named_lease import LEASES_COLLECTION  # noqa: E402
 from culture_rules.extensions.discord.gateway import GATEWAY_STATE_COLLECTION  # noqa: E402
+from culture_rules.extensions.github import hooks as gh  # noqa: E402
 from culture_rules.ops.health import health_status  # noqa: E402
-from culture_rules.server.hooks import github as gh  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 from tests.server.conftest import dev_app  # noqa: E402
 

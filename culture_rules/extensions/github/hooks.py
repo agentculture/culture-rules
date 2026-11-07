@@ -13,8 +13,9 @@ FastAPI ``POST /hooks/github`` (the ``server`` extra, imported lazily).
 
 PR facts (d14): every PR-scoped event (``github.pr.*``, ``github.review.submitted``,
 ``github.review_comment.created`` and ``github.comment.created`` on a pull request) carries
-the same :data:`~culture_rules.apps.github.PR_FACT_FIELDS` (``head_sha``, ``head_branch``,
-``head_repo``, ``base_repo``, ``base_branch``, ``base_sha``, ``draft``, ``pr_author``). An
+the same :data:`~culture_rules.extensions.github.client.PR_FACT_FIELDS` (``head_sha``,
+``head_branch``, ``head_repo``, ``base_repo``, ``base_branch``, ``base_sha``, ``draft``,
+``pr_author``). An
 ``issue_comment`` payload has no head/base, so a comment on a PR is enriched through the
 read-only ``pull`` lookup (the GitHub App, bounded by :data:`PULL_LOOKUP_TIMEOUT_S`) and
 marked ``pr_enriched``; a failed lookup stores the comment without the PR fields and
@@ -49,7 +50,6 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from culture_rules.actors.secrets import resolve
-from culture_rules.apps.github import PR_FACT_FIELDS, complete_pr_facts, pr_facts
 from culture_rules.events.hook_sink import (
     BAD_REQUEST,
     DUPLICATE,
@@ -61,6 +61,7 @@ from culture_rules.events.hook_sink import (
     sink,
 )
 from culture_rules.events.ingest import EVENTS_COLLECTION
+from culture_rules.extensions.github.client import PR_FACT_FIELDS, complete_pr_facts, pr_facts
 
 __all__ = [
     "MAX_BODY_BYTES",
@@ -423,8 +424,8 @@ def handle(
     redelivered check completion, so a failed earlier attempt is retried. It runs only after
     the sink stored the event, and a failure answers 503 - but GitHub does not redeliver a
     failed delivery on its own, so the node's settle tick re-arms the SHA from the stored
-    completion (:mod:`culture_rules.node.checks_settle`, "Recovery"); a manual redelivery
-    still re-runs ``on_check``.
+    completion (:mod:`culture_rules.extensions.github.checks_settle`, "Recovery"); a manual
+    redelivery still re-runs ``on_check``.
 
     ``pull`` is the read-only PR lookup that enriches a comment on a pull request with the PR
     facts (d14, :func:`_enrich_comment`); it runs only when the sink would store the delivery,
