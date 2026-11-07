@@ -162,6 +162,10 @@ the command widgets pair through `args_for`.
 with 409 `variable_in_use` while a live, enabled rule references the variable (disabled and
 soft-deleted referrers are listed in `not_blocking`). Applied, it appends a tombstone
 version and one audit entry (`variables.delete`); `variables history` keeps every version.
+A per-variable guard document (`variable_guards`), written by the delete and by every rule
+write that leaves an enabled referrer (create, update, enable, restore, import), serializes
+them: no enabled rule can end up referencing a deleted variable, and enabling or restoring a
+referrer of one is refused (`variable_undefined`).
 
 **State between runs** (guide `docs/operations/keysets.md`). Generic named key sets:
 `keyset.filter` drops the items whose normalised key a set already holds, `keyset.add`

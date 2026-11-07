@@ -2513,7 +2513,7 @@
             "type": "string"
           },
           "not_blocking": {
-            "description": "rules that reference the variable but are disabled or soft-deleted, so do not block the delete; enabled again, each firing is a variable_undefined skip",
+            "description": "rules that reference the variable but are disabled or soft-deleted, so do not block the delete; once it is deleted, enabling or restoring one is refused (variable_undefined) until the variable is set again",
             "items": {
               "$ref": "#/components/schemas/VariableReferrer"
             },
@@ -8548,7 +8548,7 @@
     },
     "/variables/{name}": {
       "delete": {
-        "description": "Delete the variable (admin); a dry run (the default) writes nothing. Refused (409\n``variable_in_use``) while a live, enabled rule references it; disabled and\nsoft-deleted referrers are listed, not blocking. Applied, a tombstone version keeps\nthe history and one audit entry names the caller.",
+        "description": "Delete the variable (admin); a dry run (the default) writes nothing. Refused (409\n``variable_in_use``) while a live, enabled rule references it; disabled and\nsoft-deleted referrers are listed, not blocking. Applied, a tombstone version keeps\nthe history and one audit entry names the caller. No enabled rule can end up\nreferencing a deleted variable: the delete re-checks referrers in its transaction,\nand it and every rule write leaving an enabled referrer (create, update, enable,\nrestore, import) write the same per-variable guard, so the store serializes them.",
         "operationId": "delete_variable",
         "parameters": [
           {

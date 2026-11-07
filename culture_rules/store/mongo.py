@@ -70,6 +70,8 @@ from culture_rules.model.variable import (
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     EVENTS_COLLECTION,
+    VARIABLE_DELETE_VERB,
+    VARIABLE_GUARDS_COLLECTION,
     VARIABLES_COLLECTION,
     Change,
     ChangeFeed,
@@ -87,6 +89,7 @@ from culture_rules.store.port import (
     events_query,
     live_latest_version,
     variable_tombstone,
+    write_variable_guard,
 )
 from culture_rules.store.retry import DEFAULT_ATTEMPTS, run_transaction
 from culture_rules.store.versioning import (
@@ -744,6 +747,7 @@ class MongoStore:
             )
             if not result.won:
                 raise VariableVersionConflict(f"variable {name!r} changed while deleting it")
+            write_variable_guard(tx, name, by=VARIABLE_DELETE_VERB, at=now)
             after = self._variable_view(name, entry)
             if on_write is not None:
                 on_write(tx, self._variable_view(name, latest), after)
@@ -808,8 +812,9 @@ class MongoStore:
 
     def ensure_variables_collection(self) -> None:
         """Create the variables collection (with change-stream images) and a
-        unique index on ``name``."""
+        unique index on ``name``, and the variable guards collection beside it."""
         self._collection(VARIABLES_COLLECTION)
+        self._ensure(VARIABLE_GUARDS_COLLECTION)
         self._db[VARIABLES_COLLECTION].create_index("name", unique=True, name="name_unique")
 
 

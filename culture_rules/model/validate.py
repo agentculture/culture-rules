@@ -18,7 +18,7 @@ import dataclasses
 import json
 import math
 import re
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass
 from string import Formatter
 from typing import Any, Literal, get_args, get_origin
@@ -140,15 +140,23 @@ def validate(obj: Any, *, stored: bool = False) -> list[ValidationError]:
     return errors
 
 
-def variable_ref_errors(rule: Rule, defined: Collection[str]) -> list[ValidationError]:
-    """``variable_undefined`` for every shared variable ``rule`` references that is not in
-    ``defined`` (the names the store holds), each naming the variable.
+def _rule_part(obj: Any, name: str) -> Any:
+    return obj.get(name) if isinstance(obj, Mapping) else getattr(obj, name, None)
+
+
+def variable_ref_errors(
+    rule: Rule | Mapping[str, Any], defined: Collection[str]
+) -> list[ValidationError]:
+    """``variable_undefined`` for every shared variable ``rule`` (a :class:`Rule` or its
+    stored document) references that is not in ``defined`` (the names the store holds),
+    each naming the variable.
 
     :func:`validate` is pure, so the save path (which can read the store) calls this with
-    the defined names: a rule that references an undefined variable is refused at save.
+    the defined names: a rule that references an undefined variable is refused at save,
+    and a stored one is refused at enable and restore with the same errors.
     """
     errors: Errors = []
-    missing = sorted(condition_variable_refs(rule.condition) - set(defined))
+    missing = sorted(condition_variable_refs(_rule_part(rule, "condition")) - set(defined))
     if missing:
         names = ", ".join(repr(n) for n in missing)
         _err(
@@ -157,8 +165,8 @@ def variable_ref_errors(rule: Rule, defined: Collection[str]) -> list[Validation
             "variable_undefined",
             f"the condition references undefined shared variable(s): {names}",
         )
-    inputs = rule.workflow.inputs if rule.workflow is not None else {}
-    for input_name, mapping in sorted(inputs.items()):
+    inputs = _rule_part(_rule_part(rule, "workflow"), "inputs")
+    for input_name, mapping in sorted(inputs.items() if isinstance(inputs, Mapping) else ()):
         name = var_name(mapping)
         if name is not None and name not in defined:
             _err(

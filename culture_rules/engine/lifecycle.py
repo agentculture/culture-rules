@@ -22,6 +22,7 @@ from typing import Any
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
 from culture_rules.store import revision as rev
 from culture_rules.store.port import Document, StoragePort
+from culture_rules.store.retry import run_transaction
 
 RETENTION = timedelta(days=30)
 
@@ -127,10 +128,13 @@ class Lifecycle:
         check: Callable[[Any, Document], None] | None = None,
     ) -> Document:
         """``check(tx, before)`` runs inside the restore transaction before the tombstone is
-        cleared; it raises to refuse (the server's d7 node-capability guard)."""
+        cleared; it raises to refuse (the server's variable and d7 node-capability checks,
+        which may also write through ``tx``). A transient conflict re-runs the whole
+        transaction, ``check`` included."""
         require_identity(identity)
         now = self._clock()
-        with self._store.transaction() as tx:
+
+        def body(tx: Any) -> Document:
             before = self._require(tx, collection, id)
             if not self.is_deleted(before):
                 raise LifecycleError(f"{collection}/{id} is not deleted")
@@ -156,7 +160,9 @@ class Lifecycle:
                 before=before,
                 after=after,
             )
-        return after
+            return after
+
+        return run_transaction(self._store, body)
 
     @mutating_verb("lifecycle.purge", "Permanently remove a tombstoned item (admin, --apply)")
     def purge(self, collection: str, id: str, identity: str, *, apply: bool = False) -> PurgeResult:

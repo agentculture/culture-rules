@@ -11,7 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - An extension registry in core (`culture_rules/extensions/`, standard library only): an extension registers its action kinds, action ports, builtin steps, event types, webhook routes, API routes, node listeners and collections; the runner, the action catalogue, the server and the node daemon read it, so a new integration needs no core edit (no-flow-specific-code, Boundary release)
 - `GET /actions/kinds` serves the action catalogue from the registry (kinds, params and the editor's hints: label, widget, choices, advanced, args_for, declarable_by_apps, shown_as), with CLI `culture-rules actions kinds [KIND]` and the MCP tools `actions_kinds` / `actions_overview`
-- `DELETE /variables/{name}` (admin, dry run by default): writes a tombstone version, keeps the history, audits the delete, and is refused (`variable_in_use`) while an enabled rule references the variable; CLI `culture-rules variables delete NAME [--apply]`, MCP `variables_delete`
+- `DELETE /variables/{name}` (admin, dry run by default): writes a tombstone version, keeps the history, audits the delete, and is refused (`variable_in_use`) while an enabled rule references the variable; CLI `culture-rules variables delete NAME [--apply]`, MCP `variables_delete`; a delete and a rule create/update/enable/restore/import are serialized by a per-variable guard document (`variable_guards`, written in both transactions, the referrer check repeated inside the delete's), so no enabled rule can end up referencing a deleted variable, and enabling or restoring a referrer of a deleted variable is refused (`variable_undefined`)
 
 ### Changed
 

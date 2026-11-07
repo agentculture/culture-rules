@@ -28,6 +28,7 @@ from culture_rules.model.variable import (
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     EVENTS_COLLECTION,
+    VARIABLE_DELETE_VERB,
     VARIABLES_COLLECTION,
     Change,
     ChangeFeed,
@@ -42,6 +43,7 @@ from culture_rules.store.port import (
     events_query,
     live_latest_version,
     variable_tombstone,
+    write_variable_guard,
 )
 from culture_rules.store.retry import run_transaction
 from culture_rules.store.versioning import (
@@ -498,6 +500,7 @@ class MemoryStore:
             )
             if not result.won:
                 raise VariableVersionConflict(f"variable {name!r} changed while deleting it")
+            write_variable_guard(tx, name, by=VARIABLE_DELETE_VERB, at=now)
             after = self._variable_view(name, entry)
             if on_write is not None:
                 on_write(tx, self._variable_view(name, latest), after)
