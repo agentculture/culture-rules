@@ -13,9 +13,9 @@ pytest.importorskip("httpx")
 from culture_rules.cli.verbs import REGISTRY  # noqa: E402
 from culture_rules.mcp.tools import call_tool, tool_specs  # noqa: E402
 from tests.cli.test_nouns_api import jrun, run, store, wire  # noqa: E402,F401
-from tests.model.test_describe import PR_FIX_WORKFLOW, PR_FIXER_CHECKS  # noqa: E402
+from tests.model.test_describe import NEWSPAPER_RULE, NEWSPAPER_WORKFLOW  # noqa: E402
 
-BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "pr-fixer"
+BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "newspaper"
 PLAIN = json.loads(
     (
         Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "workflow_descriptions.json"
@@ -43,32 +43,32 @@ def _plain(doc: dict) -> dict:
 
 @pytest.fixture
 def seeded(store):  # noqa: F811
-    store.put("workflows", _plain(json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text())))
     store.put(
-        "workflows", _plain(json.loads((BUNDLE / "workflows" / "queue-add.json").read_text()))
+        "workflows", _plain(json.loads((BUNDLE / "workflows" / "daily-newspaper.json").read_text()))
     )
-    store.put("rules", json.loads((BUNDLE / "rules" / "pr-fixer-checks.json").read_text()))
+    store.put("rules", json.loads((BUNDLE / "rules" / "daily-newspaper.json").read_text()))
     return store
 
 
 def test_rules_describe_prints_the_lines(wire, seeded, capsys):  # noqa: F811
-    rc, out, err = run(capsys, "rules", "describe", "pr-fixer-checks")
+    rc, out, err = run(capsys, "rules", "describe", "daily-newspaper")
     assert rc == 0, err
-    assert out.splitlines() == PR_FIXER_CHECKS
+    assert out.splitlines() == NEWSPAPER_RULE
 
 
 def test_workflows_describe_prints_the_lines(wire, seeded, capsys):  # noqa: F811
-    rc, out, err = run(capsys, "workflows", "describe", "pr-fix")
+    rc, out, err = run(capsys, "workflows", "describe", "daily-newspaper")
     assert rc == 0, err
     # description, blank, paragraph, blank, then the d19 numbered lines
     head, para, lines = out.rstrip("\n").split("\n\n", 2)
-    assert head == seeded.get("workflows", "pr-fix")["description"]
-    paragraph = jrun(capsys, "workflows", "describe", "pr-fix")["paragraph"]
+    assert head == seeded.get("workflows", "daily-newspaper")["description"]
+    paragraph = jrun(capsys, "workflows", "describe", "daily-newspaper")["paragraph"]
     # d11: one sentence per line, each stand-in for a missing step description in [ ]
     assert len(para.splitlines()) == paragraph["text"].count("\n") + 1
-    assert not any(s.get("standin") for s in paragraph["segments"])  # all written here
+    # all written here but ``check``, the one step the plain-text fixture leaves undescribed
+    assert [s["step"] for s in paragraph["segments"] if s.get("standin")] == ["check"]
     assert _unmarked(para, paragraph) == paragraph["text"]
-    assert lines.splitlines() == PR_FIX_WORKFLOW
+    assert lines.splitlines() == NEWSPAPER_WORKFLOW
 
 
 def _unmarked(text: str, paragraph: dict) -> str:
@@ -81,9 +81,9 @@ def _unmarked(text: str, paragraph: dict) -> str:
 
 
 def test_describe_json_has_lines_and_entries(wire, seeded, capsys):  # noqa: F811
-    out = jrun(capsys, "workflows", "describe", "pr-fix")
-    assert out["lines"] == PR_FIX_WORKFLOW
-    assert out["entries"][0]["step"] == "quiet"
+    out = jrun(capsys, "workflows", "describe", "daily-newspaper")
+    assert out["lines"] == NEWSPAPER_WORKFLOW
+    assert out["entries"][0]["step"] == "sections"
     assert out["description"]
     assert out["paragraph"]["text"]
     assert out["paragraph"]["segments"]
@@ -106,19 +106,21 @@ def test_describe_is_a_read_only_viewer_verb_and_an_mcp_tool(wire, seeded):  # n
         assert not verb.mutating
         assert verb.role == "viewer"
     client = _api.make_client()
-    assert call_tool("rules_describe", {"id": "pr-fixer-checks"}, client)["lines"] == (
-        PR_FIXER_CHECKS
+    assert call_tool("rules_describe", {"id": "daily-newspaper"}, client)["lines"] == (
+        NEWSPAPER_RULE
     )
-    assert call_tool("workflows_describe", {"id": "pr-fix"}, client)["lines"] == (PR_FIX_WORKFLOW)
+    assert call_tool("workflows_describe", {"id": "daily-newspaper"}, client)["lines"] == (
+        NEWSPAPER_WORKFLOW
+    )
 
 
 def test_mcp_workflows_describe_carries_description_and_paragraph(wire, seeded):  # noqa: F811
     from culture_rules.cli import _api
 
-    got = call_tool("workflows_describe", {"id": "pr-fix"}, _api.make_client())
+    got = call_tool("workflows_describe", {"id": "daily-newspaper"}, _api.make_client())
     assert got["description"]
     assert got["paragraph"]["text"]
-    assert got["lines"] == PR_FIX_WORKFLOW
+    assert got["lines"] == NEWSPAPER_WORKFLOW
 
 
 NEWSPAPER = Path(__file__).resolve().parents[2] / "docs" / "rules" / "newspaper"
@@ -164,19 +166,14 @@ def test_describe_json_is_the_raw_payload_with_the_flag(wire, newspaper, capsys)
 def test_describe_puts_each_stand_in_in_brackets(
     wire, store, capsys, monkeypatch, tty  # noqa: F811
 ):
-    """d11: the bundle's pr-fix with no step descriptions: each step stands in by its name,
+    """d11: the bundle's daily-newspaper with no step descriptions: each step stands in by its name,
     in [ ] (on a terminal too); without the marks the output is exactly the paragraph."""
     monkeypatch.setattr("sys.stdout.isatty", lambda: tty, raising=False)
-    store.put("workflows", json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text()))
-    para = jrun(capsys, "workflows", "describe", "pr-fix")["paragraph"]
-    rc, out, err = run(capsys, "workflows", "describe", "pr-fix")
+    store.put("workflows", json.loads((BUNDLE / "workflows" / "daily-newspaper.json").read_text()))
+    para = jrun(capsys, "workflows", "describe", "daily-newspaper")["paragraph"]
+    rc, out, err = run(capsys, "workflows", "describe", "daily-newspaper")
     assert rc == 0, err
     body = out.split("\n\n")[0]
-    assert body.splitlines()[:3] == [
-        "No rule starts it yet.",
-        "First [quiet period], waiting 5 minutes, and the run stops if the PR head moves;"
-        " then [hold while GitGuardian fails].",
-        "Then, at the same time, [trusted review threads] and [failing SonarCloud conditions].",
-    ]
+    assert body.splitlines()[0] == "No rule starts it yet."
     assert body.count("[") == sum(1 for s in para["segments"] if s.get("standin"))
     assert _unmarked(body, para) == para["text"]

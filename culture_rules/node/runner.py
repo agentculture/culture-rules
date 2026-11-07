@@ -15,28 +15,16 @@ Production wiring done by :func:`run_node`:
   (``culture channel message``) when ``culture`` is on PATH, else to the log.
 * **Logs** - :func:`~culture_rules.ops.logs.configure_logging` with the node's host.
 * **Built-in code steps** - a ``code`` step with no actor runs the built-in named by its
-  ``config.builtin`` (:class:`BuiltinCodePort`): ``gate``, the PR fixer's test gate and diff
-  guard (:class:`~culture_rules.actors.gate.GatePort`, which runs commands only through
-  ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset), ``github.threads`` and
-  ``github.threads_addressed`` (d15, the fixer's trusted review threads and the agent's
-  replies to them, :mod:`culture_rules.node.actions.github_pr`), ``review`` (d20, the
-  reviewer's verdict, :mod:`culture_rules.actors.review`), ``sonar.gate_issues`` (d21, the
-  issues behind a PR's failing SonarCloud gate, :mod:`culture_rules.node.actions.sonar`),
-  ``gitguardian.findings`` and ``gitguardian.hold`` (d25, a PR head's GitGuardian findings
-  and the fix-run hold while GitGuardian fails, :mod:`culture_rules.node.actions.gitguardian`),
-  ``queue.add`` and ``queue.progress`` (#35, d29/d30, the fixer's first-come-first-served
-  queue, :mod:`culture_rules.node.actions.queue`), ``handoff.export`` and ``handoff.import``
-  (#39, the Codex fixer's commits carried from spark to spark2's gate through the store,
-  :mod:`culture_rules.actors.handoff`), ``newspaper.sections``, ``newspaper.filter``,
-  ``newspaper.render`` and ``newspaper.issue`` (#53, the daily newspaper,
-  :mod:`culture_rules.node.actions.newspaper`), ``keyset.filter`` and ``keyset.add`` (named
-  sets of keys remembered for a window, :mod:`culture_rules.node.actions.keyset`),
-  ``text.number`` (:mod:`culture_rules.node.actions.text_steps`), ``text.replace_refs``
+  ``config.builtin`` (:class:`BuiltinCodePort`), among them ``select``,
+  ``newspaper.sections``, ``newspaper.filter``, ``newspaper.render`` and ``newspaper.issue``
+  (#53, the daily newspaper, :mod:`culture_rules.node.actions.newspaper`), ``keyset.filter``
+  and ``keyset.add`` (named sets of keys remembered for a window,
+  :mod:`culture_rules.node.actions.keyset`), ``text.number``
+  (:mod:`culture_rules.node.actions.text_steps`), ``text.replace_refs``
   (:mod:`culture_rules.node.actions.text_refs`), ``text.validate``
-  (:mod:`culture_rules.node.actions.text_validate`) and
-  ``action`` (d12), which
-  never reaches this port: the executor routes a ``builtin: action`` step exactly like a
-  rule's terminal action, to the ``action:<kind>`` port through the actor router
+  (:mod:`culture_rules.node.actions.text_validate`) and ``action`` (d12), which never
+  reaches this port: the executor routes a ``builtin: action`` step exactly like a rule's
+  terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
 """
 
@@ -273,14 +261,6 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     repo's devague record into the library its actor describes (git + stdlib HTTP, #124).
     """
     del host
-    from culture_rules.actors.gate import GatePort  # noqa: PLC0415
-    from culture_rules.actors.handoff import (  # noqa: PLC0415
-        EXPORT_BUILTIN,
-        IMPORT_BUILTIN,
-        HandoffExportPort,
-        HandoffImportPort,
-    )
-    from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
     from culture_rules.node.actions import checklist  # noqa: PLC0415
     from culture_rules.node.actions.attachment_fetch import (  # noqa: PLC0415
         ATTACHMENT_FETCH_BUILTIN,
@@ -296,29 +276,12 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     from culture_rules.node.actions.discord_reply import DiscordReplyAction  # noqa: PLC0415
     from culture_rules.node.actions.discord_sweep import DiscordSweepAction  # noqa: PLC0415
     from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
-    from culture_rules.node.actions.fixer_cooldown import (  # noqa: PLC0415
-        FIXER_COOLDOWN_BUILTIN,
-        FixerCooldownPort,
-    )
-    from culture_rules.node.actions.gitguardian import (  # noqa: PLC0415
-        FINDINGS_BUILTIN,
-        HOLD_BUILTIN,
-        GitGuardianPort,
-    )
     from culture_rules.node.actions.github import (  # noqa: PLC0415
         GitHubCommentPort,
         GitHubPrHeadPort,
         GitHubPrPort,
     )
     from culture_rules.node.actions.github_merge import GitHubMergePort  # noqa: PLC0415
-    from culture_rules.node.actions.github_pr import (  # noqa: PLC0415
-        ADDRESSED_BUILTIN,
-        THREADS_BUILTIN,
-        AddressedThreadsPort,
-        GitHubPushPort,
-        GitHubReviewReplyPort,
-        GitHubThreadsPort,
-    )
     from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
     from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
     from culture_rules.node.actions.json_read import (  # noqa: PLC0415
@@ -356,14 +319,6 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         NewspaperRenderPort,
         NewspaperSectionsPort,
     )
-    from culture_rules.node.actions.queue import (  # noqa: PLC0415
-        QUEUE_ADD_BUILTIN,
-        QUEUE_PROGRESS_BUILTIN,
-        QUEUE_STOP_BUILTIN,
-        QueueAddPort,
-        QueueProgressPort,
-        QueueStopPort,
-    )
     from culture_rules.node.actions.repodocs import RepodocsSyncPort  # noqa: PLC0415
     from culture_rules.node.actions.run_read import RUN_READ_BUILTIN, RunReadPort  # noqa: PLC0415
     from culture_rules.node.actions.search import SearchWebPort  # noqa: PLC0415
@@ -372,7 +327,6 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     )
     from culture_rules.node.actions.sections import DocumentSectionsPort  # noqa: PLC0415
     from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort  # noqa: PLC0415
-    from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
     from culture_rules.node.actions.stt import AudioTranscribePort  # noqa: PLC0415
     from culture_rules.node.actions.text_refs import (  # noqa: PLC0415
         TEXT_REPLACE_REFS_BUILTIN,
@@ -393,14 +347,9 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     message = MessageAction(store)
     has_github = importlib.util.find_spec("cryptography") is not None
     github: Any = GitHubCommentPort(store) if has_github else MissingExtraPort("github")
-    push: Any = GitHubPushPort(store) if has_github else MissingExtraPort("github")
     merge: Any = GitHubMergePort(store) if has_github else MissingExtraPort("github")
     pr_read: Any = GitHubPrPort(store) if has_github else MissingExtraPort("github")
-    reply: Any = GitHubReviewReplyPort(store) if has_github else MissingExtraPort("github")
     head: Any = GitHubPrHeadPort(store) if has_github else MissingExtraPort("github")
-    threads: Any = GitHubThreadsPort(store) if has_github else MissingExtraPort("github")
-    findings: Any = GitGuardianPort(store) if has_github else MissingExtraPort("github")
-    hold: Any = GitGuardianPort(store, hold=True) if has_github else MissingExtraPort("github")
     return {
         "action:noop": NoopAction(),
         "action:github.pr_head": head,  # not a rule action: the wait guard's head lookup
@@ -412,10 +361,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:discord.reply": DiscordReplyAction(store),  # a command's private answer
         "action:discord.sweep": DiscordSweepAction(store),  # a channel since its cursor
         "action:github.comment": github,
-        "action:github.push": push,
         "action:github.pr": pr_read,  # the PR's facts, read only
         "action:github.merge": merge,  # the one merge: a click carrying the button's one-time code
-        "action:github.review_reply": reply,
         "action:jira.comment": JiraCommentPort(store),
         "action:email.send": EmailSendPort(store),  # #53: Resend
         "action:search.web": SearchWebPort(store),  # #53: Brave
@@ -431,24 +378,11 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:machine.command": MachineCommandPort(store),
         "code": BuiltinCodePort(
             {
-                "gate": GatePort.from_env(store, pr_lookup=head),
-                REVIEW_BUILTIN: ReviewVerdictPort(store),
-                THREADS_BUILTIN: threads,
-                ADDRESSED_BUILTIN: AddressedThreadsPort(),
-                SONAR_BUILTIN: SonarGateIssuesPort(),  # d21: the PR's failing gate's issues
-                FINDINGS_BUILTIN: findings,  # d25: GitGuardian's findings, for the comment
-                HOLD_BUILTIN: hold,  # d25: no fix run while GitGuardian fails on the head
-                QUEUE_ADD_BUILTIN: QueueAddPort(store),  # #35 d29: the fixer queue
-                QUEUE_PROGRESS_BUILTIN: QueueProgressPort(store, pr_lookup=head),
-                QUEUE_STOP_BUILTIN: QueueStopPort(store, pr_lookup=head),  # d34: /stop, 👎
                 SECTIONS_BUILTIN: NewspaperSectionsPort(),  # #53: the daily newspaper
                 FILTER_BUILTIN: NewspaperFilterPort(),
                 RENDER_BUILTIN: NewspaperRenderPort(),
                 ISSUE_BUILTIN: NewspaperIssuePort(store),  # one issue per local date
-                EXPORT_BUILTIN: HandoffExportPort.from_env(store),  # #39: Codex commits out
-                IMPORT_BUILTIN: HandoffImportPort.from_env(store),  # #39: ... into spark2
-                FIXER_COOLDOWN_BUILTIN: FixerCooldownPort(store),  # #39: capacity_exhausted
-                SELECT_BUILTIN: SelectPort(),  # #39: the gate's one source, whichever path ran
+                SELECT_BUILTIN: SelectPort(),  # first available source
                 JSON_READ_BUILTIN: JsonReadPort(),  # named fields from a JSON file under a root
                 MARKDOWN_RENDER_BUILTIN: MarkdownRenderPort(),  # fields as one Markdown page
                 FROM_HTML_BUILTIN: MarkdownFromHtmlPort(),  # HTML as Markdown, in chunks

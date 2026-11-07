@@ -126,7 +126,7 @@ def dummy_args(verb: Verb, bundle: Path, *, full: bool) -> dict:
 
 
 def _dummy(p: Param, bundle: Path):
-    if p.name == "path":
+    if p.name in ("path", "bundle"):  # d2: rollout seed/import need --bundle (the wheel has none)
         return str(bundle)
     return {"string": "x", "integer": 1, "boolean": False, "object": {}, "array": [], "any": "x"}[
         p.type
@@ -159,6 +159,7 @@ def operations_by_verb(tmp_path_factory) -> dict[tuple[str, str], set[tuple[str,
     for noun in ("rules", "workflows", "actors"):
         (bundle / noun).mkdir()
         (bundle / noun / "x.json").write_text(json.dumps({"id": "x"}))
+    (bundle / "variables.json").write_text(json.dumps([{"name": "x", "value": "x"}]))
     previous = _rollout_upgrade.set_runner(_no_commands)  # a fake runner (no ssh, no scp)
     try:
         return {v.path: recorded_requests(v, bundle) for v in REGISTRY.verbs()}

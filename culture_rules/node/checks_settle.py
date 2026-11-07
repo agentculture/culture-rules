@@ -1052,22 +1052,6 @@ class AppSuiteLister(GitHubCommentPort):
             return self._app_for(repo).list_check_suites(repo, sha)
         return self._bounded(repo, lambda app: app.list_check_suites(repo, sha), timeout_s)
 
-    def list_open_pulls_page(
-        self, repo: str, page: int, *, timeout_s: float
-    ) -> list[dict[str, Any]]:
-        """One page of the open PRs of ``repo`` (read-only ``Pull requests: read``; d31's
-        conflict watch), the whole lookup bounded by ``timeout_s`` as for :meth:`get_pull`."""
-        return self._bounded(repo, lambda app: app.list_open_pulls_page(repo, page), timeout_s)
-
-    def comment_reactions(
-        self, repo: str, comment_id: int, *, timeout_s: float
-    ) -> list[dict[str, Any]]:
-        """The 👎 reactions on issue comment ``comment_id`` of ``repo`` (read-only; d34's
-        reaction watch), the whole lookup bounded by ``timeout_s`` as for :meth:`get_pull`."""
-        return self._bounded(
-            repo, lambda app: app.list_comment_reactions(repo, comment_id), timeout_s
-        )
-
     def get_pull(
         self, repo: str, number: int, *, timeout_s: float | None = None
     ) -> Mapping[str, Any]:

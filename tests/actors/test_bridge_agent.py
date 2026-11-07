@@ -951,3 +951,10 @@ def test_a_lost_compare_and_set_rereads_and_records(store, clock):
         )
     ]
     assert invocation(store)["last_sequence"] == 2
+
+
+def test_locked_instruction_configuration_is_refused(store, clock):
+    actor = make_actor(store, clock, defaults={"locked_instruction": "retired-brief"})
+    payload, problem = actor.bridge_input({"instruction": "from the step"}, {})
+    assert payload is None
+    assert problem == "instruction_locked: no locked brief named 'retired-brief'"

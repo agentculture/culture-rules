@@ -8,8 +8,6 @@ completion is delivered (which frees the pool slot through the store-only releas
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from culture_rules.actors.limits import USAGE_COLLECTION, pool_doc_id
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.claims import idempotency_key
@@ -163,42 +161,3 @@ def _notify_rule():
         trigger=Trigger(kind="event", params={"type": "rules.queue.dispatch"}),
         action=Action(kind="noop"),
     )
-
-
-def _queue_of(c):
-    from culture_rules.engine.actorport import InvocationContext as Ctx
-    from culture_rules.node.actions.queue import QueueAddPort, QueueProgressPort
-
-    deadline = c.clock() + timedelta(hours=1)
-    cfg = {"queue": "q", "dispatch_rule": "dispatch", "stale_after_s": 900}
-    ctx = Ctx(run_id="r", step_id="s", kind="code", host="spark", config=cfg)
-    add, progress = QueueAddPort(c.base, clock=c.clock), QueueProgressPort(c.base, clock=c.clock)
-
-    def do_add(repo, n):
-        add.invoke({"repo": repo, "number": n}, f"add-{repo}", deadline, context=ctx)
-
-    def do_progress(tag):
-        return progress.invoke({}, tag, deadline, context=ctx).output
-
-    return do_add, do_progress
-
-
-def test_another_rule_on_the_dispatch_event_never_claims_the_slot():
-    from culture_rules.engine.runs import RUNS_COLLECTION
-    from culture_rules.node.actions.queue import QUEUES_COLLECTION
-
-    c = dispatch_cluster()
-    c.define(_notify_rule())
-    doc = c.base.get("rules", "dispatch")
-    c.base.put("rules", {**doc, "enabled": False})  # the configured dispatch rule is off
-    add, progress = _queue_of(c)
-    add("o/a", 1)
-    add("o/b", 2)
-    assert progress("p1")["dispatched"] == ["o/a#1"]
-    c.cycle()
-    c.cycle()
-    assert [r["rule_id"] for r in c.base.find(RUNS_COLLECTION)] == ["notify"]  # it fired
-    (act,) = c.base.get(QUEUES_COLLECTION, "q")["active"]
-    assert not act.get("claimed_at")  # but did not take the slot
-    c.clock.advance(901)
-    assert progress("p2")["dispatched"] == ["o/b#2"]  # the unclaimed slot expired

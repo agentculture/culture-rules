@@ -86,44 +86,6 @@ def test_comment_uses_installation_token(pem):
     assert json.loads(comment[3]) == {"body": "hello"}
 
 
-def test_a_comment_is_edited_in_place(pem):
-    fake = Fake()
-    app, _ = make(pem, fake)
-    out = app.update_issue_comment("acme/widgets", 77, "edited")
-    assert out == {"comment_id": 77, "url": "https://x/c/77"}
-    _exch, edit = fake.calls
-    assert edit[0] == "PATCH"
-    assert edit[1] == "https://api.github.com/repos/acme/widgets/issues/comments/77"
-    assert edit[2]["Authorization"] == f"Bearer {FAKE_BEARER}"
-    assert json.loads(edit[3]) == {"body": "edited"}
-
-
-def test_editing_a_deleted_comment_is_a_404(pem):
-    app, _ = make(pem, Fake(comment_status=404))
-    with pytest.raises(GitHubError) as exc:
-        app.update_issue_comment("acme/widgets", 77, "edited")
-    assert exc.value.code == "http_404"
-
-
-@pytest.mark.parametrize("comment_id", [0, -1, True, "77"])
-def test_a_comment_edit_needs_a_comment_id(pem, comment_id):
-    fake = Fake()
-    app, _ = make(pem, fake)
-    with pytest.raises(GitHubError) as exc:
-        app.update_issue_comment("acme/widgets", comment_id, "x")
-    assert exc.value.code == "bad_input"
-    assert fake.calls == []
-
-
-def test_a_comment_edit_outside_the_allowlist_makes_no_call(pem):
-    fake = Fake()
-    app, _ = make(pem, fake)
-    with pytest.raises(GitHubError) as exc:
-        app.update_issue_comment("evil/repo", 77, "x")
-    assert exc.value.code == "repo_not_allowed"
-    assert fake.calls == []
-
-
 def test_jwt_is_rs256_with_claims(pem, key):
     fake = Fake()
     app, _ = make(pem, fake)
@@ -248,47 +210,6 @@ def test_a_401_with_a_fresh_token_is_not_retried_again(pem):
     assert sum(not c[1].endswith("/access_tokens") for c in fake.calls) == 2
 
 
-def test_push_token_is_fresh_single_repo_contents_write(pem):
-    fake = Fake()
-    app, _ = make(pem, fake)
-    assert app.push_token("acme/widgets") == FAKE_BEARER
-    assert app.push_token("acme/widgets") == FAKE_BEARER
-    mints = [c for c in fake.calls if c[1].endswith("/access_tokens")]
-    assert len(mints) == 2  # never cached
-    for _, _, headers, body in mints:
-        assert json.loads(body) == {
-            "repositories": ["widgets"],
-            "permissions": {"contents": "write"},
-        }
-        assert headers["Authorization"] != f"Bearer {FAKE_BEARER}"  # signed with the App JWT
-    app.installation_token()  # the general token is a separate, unscoped exchange
-    assert fake.calls[-1][3] is None
-
-
-def test_push_token_refuses_off_allowlist_without_network(pem):
-    fake = Fake()
-    app, _ = make(pem, fake)
-    with pytest.raises(GitHubError) as err:
-        app.push_token("evil/repo")
-    assert err.value.code == "repo_not_allowed"
-    assert fake.calls == []
-
-
-def test_push_token_scope_mismatch_is_refused(pem):
-    def fake(method, url, headers, body, timeout):
-        payload = {
-            "token": FAKE_BEARER,
-            "expires_at": "2030-01-01T00:00:00Z",
-            "repositories": [{"full_name": "acme/widgets"}, {"full_name": "acme/other"}],
-        }
-        return 201, json.dumps(payload).encode()
-
-    app, _ = make(pem, fake)
-    with pytest.raises(GitHubError) as err:
-        app.push_token("acme/widgets")
-    assert err.value.code == "token_scope_mismatch"
-
-
 def test_merge_pull_is_the_app_s_only_merge_call():
     # one merge call, behind the github.merge port's fence (a click in a trusted merge workflow)
     assert [n for n in dir(GitHubApp) if "merge" in n.lower()] == ["merge_pull"]
@@ -347,60 +268,6 @@ def test_list_check_suites_paginates_and_trims(pem):
     with pytest.raises(GitHubError) as err:
         app.list_check_suites("other/repo", "ab12" * 10)
     assert err.value.code == "repo_not_allowed"
-
-
-def test_list_check_runs_paginates_and_keeps_only_the_report_fields(pem):
-    def page(n):
-        return [
-            {
-                "id": i,
-                "name": f"check {n}-{i}",
-                "app": {"slug": "gitguardian", "owner": {"login": "x"}},
-                "status": "completed",
-                "conclusion": "failure",
-                "html_url": "https://github.com/acme/widgets/runs/1",
-                "output": {"title": "1 secret uncovered!", "text": "| t |", "summary": "s"},
-                "head_sha": "ab12" * 10,
-            }
-            for i in range(100 if n == 1 else 1)
-        ]
-
-    class RunsFake(Fake):
-        def __call__(self, method, url, headers, body, timeout):
-            if "/check-runs" not in url:
-                return super().__call__(method, url, headers, body, timeout)
-            self.calls.append((method, url, dict(headers), body))
-            n = int(url.rsplit("page=", 1)[1])
-            return 200, json.dumps({"check_runs": page(n)}).encode()
-
-    fake = RunsFake()
-    app, _ = make(pem, fake)
-    out = app.list_check_runs("acme/widgets", "ab12" * 10)
-    assert len(out) == 101
-    assert out[0] == {
-        "name": "check 1-0",
-        "app_slug": "gitguardian",
-        "status": "completed",
-        "conclusion": "failure",
-        "title": "1 secret uncovered!",
-        "text": "| t |",
-        "html_url": "https://github.com/acme/widgets/runs/1",
-    }
-    urls = [c[1] for c in fake.calls if "/check-runs" in c[1]]
-    assert "filter=latest" in urls[0]
-    assert all(c[0] == "GET" for c in fake.calls if "/check-runs" in c[1])
-
-
-def test_list_check_runs_refuses_a_bad_sha_or_an_unlisted_repo_before_any_call(pem):
-    fake = Fake()
-    app, _ = make(pem, fake)
-    with pytest.raises(GitHubError) as err:
-        app.list_check_runs("acme/widgets", "../x")
-    assert err.value.code == "bad_input"
-    with pytest.raises(GitHubError) as err:
-        app.list_check_runs("other/repo", "ab12" * 10)
-    assert err.value.code == "repo_not_allowed"
-    assert fake.calls == []
 
 
 def test_pr_facts_shape():
@@ -472,46 +339,6 @@ class Pages(Fake):
         return 200, json.dumps(self.pages.pop(0) if self.pages else []).encode()
 
 
-def test_the_comments_of_a_pr_are_listed_with_their_app(pem):
-    full = [{"id": n, "html_url": f"u{n}", "body": "b", "user": {}} for n in range(100)]
-    last = [
-        {"id": 500, "html_url": "u500", "body": "mine", "performed_via_github_app": {"id": 123}},
-        {"id": 501, "body": None, "performed_via_github_app": {"id": True}},
-    ]
-    fake = Pages([full, last])
-    app, _ = make(pem, fake)
-    out = app.list_issue_comments("acme/widgets", 7)
-    assert len(out) == 102
-    assert out[100] == {"comment_id": 500, "url": "u500", "body": "mine", "app_id": "123"}
-    assert out[101]["app_id"] is None
-    assert out[101]["body"] == ""
-    urls = [c[1] for c in fake.calls if "/comments" in c[1]]
-    assert urls[0].endswith("/repos/acme/widgets/issues/7/comments?per_page=100&page=1")
-    assert urls[1].endswith("page=2")
-    assert app.app_id == "123"
-
-
-def test_a_request_guard_sees_every_request_and_can_stop_one(pem):
-    # d26: the status board counts each HTTP request (token exchange included)
-    fake = Fake()
-    app, _ = make(pem, fake)
-    seen = []
-
-    def guard():
-        seen.append(1)
-        if len(seen) > 2:
-            raise GitHubError("budget_exhausted", retryable=True)
-
-    with app.request_guard(guard):
-        app.post_comment("acme/widgets", 1, "a")  # token exchange + post
-        with pytest.raises(GitHubError) as exc:
-            app.post_comment("acme/widgets", 1, "b")
-    assert exc.value.code == "budget_exhausted"
-    assert len(fake.calls) == 2  # the third request was never sent
-    app.post_comment("acme/widgets", 1, "c")  # outside the block: unguarded
-    assert len(seen) == 3
-
-
 def test_a_trickling_response_is_cut_by_the_whole_call_deadline():
     # Codex round 3: the socket timeout bounds each read, not the call; one byte every
     # 0.5 s would never time out. The transport reads within one monotonic deadline.
@@ -558,92 +385,3 @@ def test_a_response_body_larger_than_the_cap_is_refused():
     with pytest.raises(ValueError):
         _read_within(big, deadline_at=never, max_bytes=10)
     assert _read_within(io.BytesIO(b"ok"), deadline_at=never, max_bytes=10) == b"ok"
-
-
-@pytest.mark.parametrize("drip", ["headers", "chunks", "trailers"])
-def test_a_dripping_response_returns_within_the_hard_deadline(pem, drip):
-    # Codex round 4: http.client reads headers, chunk sizes and trailers line by line
-    # under the original socket timeout; a watchdog bounds the whole call
-    import socket
-    import threading
-    import time
-
-    from culture_rules.apps.github import urllib_transport
-
-    head = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX-Pad: " + b"p" * 40 + b"\r\n\r\n"
-    body = b"2\r\n{}\r\n" * 20 + b"0\r\n"
-    trailers = b"X-Trailer: " + b"t" * 40 + b"\r\n\r\n"
-
-    def serve(listener):
-        conn, _ = listener.accept()
-        conn.recv(65536)
-        if drip == "headers":
-            parts = [bytes([b]) for b in head] + [body + b"\r\n"]
-        elif drip == "chunks":
-            parts = [head] + [bytes([b]) for b in body] + [b"\r\n"]
-        else:
-            parts = [head, body] + [bytes([b]) for b in trailers]
-        try:
-            for part in parts:
-                conn.sendall(part)
-                time.sleep(0.2)
-        except OSError:
-            pass
-        conn.close()
-
-    listener = socket.socket()
-    listener.bind(("127.0.0.1", 0))
-    listener.listen(1)
-    threading.Thread(target=serve, args=(listener,), daemon=True).start()
-    url = f"http://127.0.0.1:{listener.getsockname()[1]}/"
-
-    token = {"token": FAKE_BEARER, "expires_at": "2099-01-01T00:00:00Z"}
-
-    def transport(method, u, headers, data, timeout):
-        if u.endswith("/access_tokens"):
-            return 201, json.dumps(token).encode()
-        return urllib_transport("GET", url, headers, None, timeout)
-
-    app = GitHubApp(
-        app_id="1",
-        installation_id="2",
-        private_key=pem,
-        repos=("acme/widgets",),
-        transport=transport,
-    )
-    started = time.monotonic()
-    with app.deadline(datetime.now(UTC) + timedelta(seconds=1.0)), app.watchdog():
-        with pytest.raises(GitHubError) as exc:
-            app.get_pull("acme/widgets", 1)
-    took = time.monotonic() - started
-    listener.close()
-    assert exc.value.code == "deadline_exceeded"
-    assert took < 1.6
-
-
-def test_outside_the_status_stage_a_request_runs_inline(pem):
-    # the watchdog is opt-in: push, settle, threads, plain comments and the API's calls
-    # run their requests on the calling thread, exactly as before d26
-    import threading
-
-    from culture_rules.apps import github as gh
-
-    threads = []
-
-    def transport(method, url, headers, body, timeout):
-        threads.append(threading.current_thread())
-        return Fake()(method, url, headers, body, timeout)
-
-    app, _ = make(pem, transport)
-    taken = 0
-    while gh._WATCH_SLOTS.acquire(blocking=False):  # the watchdog pool exhausted
-        taken += 1
-    try:
-        assert app.post_comment("acme/widgets", 1, "x")["comment_id"] == 77
-        with app.watchdog(), pytest.raises(GitHubError) as exc:
-            app.post_comment("acme/widgets", 1, "y")
-    finally:
-        for _ in range(taken):
-            gh._WATCH_SLOTS.release()
-    assert threads == [threading.current_thread()] * 2  # token exchange and post: inline
-    assert exc.value.code == "transport_busy"  # only inside the status stage's context

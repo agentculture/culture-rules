@@ -163,41 +163,6 @@ def test_discord_message_is_catalogued_apart_from_the_mesh_message() -> None:
     assert ACTION_KINDS["message"].summary.lower().startswith("send a message on the culture mesh")
 
 
-def test_github_push_and_review_reply_required_params() -> None:
-    errs = _errs("github.push", {})
-    for name in (
-        "actor",
-        "repo",
-        "number",
-        "head_branch",
-        "expected_head_sha",
-        "commit_sha",
-        "source",
-    ):
-        assert (f"action.params.{name}", "action_param_required") in errs
-    errs = _errs("github.review_reply", {})
-    for name in ("actor", "repo", "number", "comment_id", "body"):
-        assert (f"action.params.{name}", "action_param_required") in errs
-
-
-def test_github_push_accepts_references_and_review_reply_resolve_is_bool() -> None:
-    push = {
-        "actor": "gh",
-        "repo": "{{ trigger.data.repository }}",
-        "number": "trigger.data.number",
-        "head_branch": "{{ trigger.data.head_branch }}",
-        "expected_head_sha": "{{ workflow.outputs.head_before }}",
-        "commit_sha": "{{ workflow.outputs.head_after }}",
-        "source": "{{ workflow.outputs.bundle }}",
-    }
-    assert _errs("github.push", push) == set()
-    reply = {"actor": "gh", "repo": "o/r", "number": 3, "comment_id": 7, "body": "ok"}
-    assert _errs("github.review_reply", {**reply, "resolve": True}) == set()
-    assert ("action.params.resolve", "action_param_type") in _errs(
-        "github.review_reply", {**reply, "resolve": "yes"}
-    )
-
-
 def test_no_merge_kind_is_catalogued() -> None:
     # merging stays a human gate: github.merge is the one merge kind, fenced by the port
     assert [k for k in ACTION_KINDS if "merge" in k] == ["github.merge"]
@@ -234,21 +199,6 @@ def test_discord_message_takes_buttons_as_a_list() -> None:
     assert _errs("discord.message", params) == set()
     params["buttons"] = "x"
     assert ("action.params.buttons", "action_param_type") in _errs("discord.message", params)
-
-
-def test_github_push_has_no_mutable_ref_param() -> None:
-    assert "ref" not in ACTION_KINDS["github.push"].params
-    assert ACTION_KINDS["github.push"].params["commit_sha"].required
-
-
-def test_a_comment_written_as_the_chains_status_comment() -> None:
-    # d26: status is a boolean, and it does not combine with once_key
-    params = {"actor": "gh", "repo": "o/r", "number": 3, "body": "x", "status": True}
-    assert _errs("github.comment", params) == set()
-    params["status"] = "yes"
-    assert ("action.params.status", "action_param_type") in _errs("github.comment", params)
-    params.update(status=True, once_key="k")
-    assert ("action.params.status", "action_param_conflict") in _errs("github.comment", params)
 
 
 # --- the daily-newspaper kinds (#53 t1) ----------------------------------------------------

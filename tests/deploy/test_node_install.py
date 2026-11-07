@@ -143,20 +143,3 @@ def test_a_quoted_or_escaped_executable_is_refused(tmp_path, prefix):
         plan(tmp_path, "--gate-run-as", prefix)
     assert "--gate-run-as" in exc.value.stderr
     assert "quote" in exc.value.stderr
-
-
-@pytest.mark.parametrize(
-    ("prefix", "nnp"),
-    [
-        ('/usr/bin/sudo -n -u culture-fixer -- /usr/bin/env "PATH=/a b"', "false"),
-        ("\tsudo -n -u x --", "false"),
-        ("/usr/local/bin/as-fixer 'quoted later' --", "true"),
-    ],
-)
-def test_the_unit_agrees_with_the_gates_own_parse_of_the_executable(tmp_path, prefix, nnp):
-    from culture_rules.actors.gate import run_as_from_env
-
-    run_as, _ = run_as_from_env({"CULTURE_RULES_GATE_RUN_AS": prefix})
-    assert run_as is not None
-    assert run_as.uses_sudo == (nnp == "false")
-    assert f"NoNewPrivileges={nnp}" in plan(tmp_path, "--gate-run-as", prefix)

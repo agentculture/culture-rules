@@ -9,16 +9,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1] / "culture_rules"
 
-GENERIC = (
-    "actors/agent.py",
-    "node/firing.py",
-    "node/daemon.py",
-    "node/actions/github.py",
-    "server/hooks/github.py",
-)
+GENERIC = tuple(str(path.relative_to(ROOT)) for path in sorted(ROOT.rglob("*.py")))
 
 FIXER_MODULES = frozenset(
     {
+        "culture_rules.apps.sonarcloud",
+        "culture_rules.apps.gitguardian",
         "culture_rules.actors.gate",
         "culture_rules.actors.review",
         "culture_rules.actors.handoff",
@@ -64,3 +60,36 @@ def _imported(rel: str) -> set[str]:
 @pytest.mark.parametrize("rel", GENERIC)
 def test_generic_module_imports_no_fixer_module(rel: str) -> None:
     assert sorted(_imported(rel) & FIXER_MODULES) == []
+
+
+def test_removed_modules_are_absent():
+    for module in FIXER_MODULES:
+        assert not (ROOT.parent / (module.replace(".", "/") + ".py")).exists()
+
+
+def test_removed_ports_are_absent_and_select_stays_registered():
+    from culture_rules.model.action_kinds import ACTION_KINDS
+    from culture_rules.node.runner import default_ports
+    from culture_rules.store.memory import MemoryStore
+
+    ports = default_ports(MemoryStore(), "test")
+    for kind in ("github.push", "github.review_reply"):
+        assert kind not in ACTION_KINDS
+        assert f"action:{kind}" not in ports
+    assert "status" not in ACTION_KINDS["github.comment"].params
+    assert "select" in ports["code"]._builtins
+    assert not set(ports["code"]._builtins) & {
+        "gate",
+        "review",
+        "github.threads",
+        "github.threads_addressed",
+        "sonar.gate_issues",
+        "gitguardian.findings",
+        "gitguardian.hold",
+        "queue.add",
+        "queue.progress",
+        "queue.stop",
+        "handoff.export",
+        "handoff.import",
+        "fixer.cooldown",
+    }

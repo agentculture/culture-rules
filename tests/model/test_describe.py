@@ -26,160 +26,28 @@ from culture_rules.model.workflow import Workflow
 EMAIL_SEND = "email.send"
 RULES_DOCS = Path(__file__).resolve().parents[2] / "docs" / "rules"
 SNAPSHOT = "condition_text_docs_rules.json"
-BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "pr-fixer"
+BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "newspaper"
 
 
 def _load(rel: str) -> dict:
     return json.loads((BUNDLE / rel).read_text())
 
 
-PR_FIX_WORKFLOW = [
-    "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
-    "2 secrets — gitguardian.hold as github-app: stop while GitGuardian fails on the head",
-    "3 threads — github.threads as github-app: unresolved threads by trusted authors",
-    "4 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
-    "5 fix — one try, until verdict exists:",
-    "  5.1 agent_qwen — qwen-fixer (agent, must commit),"
-    ' when fixer missing or fixer ∈ {"", qwen-fixer}',
-    "  5.2 agent_claude — claude-fixer (agent, workspace-write, must commit),"
-    " when fixer = claude-fixer",
-    "  5.3 handoff_export_claude — handoff.export: the fixer's commits as a size-capped pack in"
-    " the store on spark, when fixer = claude-fixer",
-    "  5.4 handoff_import_claude — handoff.import: that pack into a fresh fixer-owned worktree"
-    " on spark2, when fixer = claude-fixer",
-    "  5.5 agent_codex — codex-fixer (agent, workspace-write, must commit),"
-    " when fixer = codex-fixer",
-    "  5.6 handoff_export — handoff.export: the fixer's commits as a size-capped pack in the"
-    " store on spark, when fixer = codex-fixer",
-    "  5.7 handoff_import — handoff.import: that pack into a fresh fixer-owned worktree on"
-    " spark2, when fixer = codex-fixer",
-    "  5.8 select — select: the outputs of the path that ran (one source for the next step)"
-    " on spark2",
-    "  5.9 gate — test gate on spark2",
-]
-
-REPORT_SECRETS_WORKFLOW = [
-    "1 findings — gitguardian.findings as github-app: the head's GitGuardian findings, no secret"
-    " values",
-]
-
-REVIEW_COMMIT_WORKFLOW = [  # #39: the try's reviewer, one step each
-    "1 review_codex — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate}"
-    " and diff_truncated = false and (reviewer missing or reviewer ∈"
-    ' {null, "", codex-reviewer})',
-    "2 review_qwen — qwen-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate}"
-    " and diff_truncated = false and reviewer = qwen-reviewer",
-    "3 verdict — review verdict, recorded for its commit (github.push checks it)",
-]
-
-PUBLISH_FIX_WORKFLOW = [
-    "1 push — github.push as github-app on spark2 (only on a passing gate and an approving"
-    " review of exactly that commit)",
-    "2 threads — github.threads as github-app: unresolved threads by trusted authors",
-    "3 pick — github.threads_addressed",
-    "4 replies — for each item (≤200): github.review_reply as github-app and resolve",
-]
-
-CHAIN_END = "(as its chain's status comment) (only where its chain ends)"
-"""d26: every chain-end comment of the fixer writes the chain's status comment."""
-
-PR_FIXER_CHECKS = [
-    "When github.pr.checks_settled",
-    "If head_repo = base_repo",
-    "and draft = false",
-    "and state = open",
-    "and repository ∈ vars.fixer_repos",
-    "and not (repository ∈ vars.fixer_excluded_repos)",
-    "and conclusion ≠ success",
-    "and conclusion ≠ no_checks",
-    "and not (gitguardian ∈ failed_apps)",
-    "Run workflow queue-add (1 step)",
-    "On spark2",
-    "Then noop",
-    f"On failure github.comment as github-app {CHAIN_END}",
-    "Key pr-fixer:{repository}#{number}, outside the attempt budget",
-    "Disabled",
-]
-"""#35 d29: a red settle puts the PR in the fixer queue; pr-fixer-dispatch runs pr-fix."""
-
-PR_FIXER_SECRETS = [
-    "When github.pr.checks_settled",
-    "If head_repo = base_repo",
-    "and state = open",
-    "and repository ∈ vars.fixer_repos",
-    "and not (repository ∈ vars.fixer_excluded_repos)",
-    "and gitguardian ∈ failed_apps",
-    "Run workflow report-secrets (1 step)",
-    "On spark2",
-    "Then github.comment as github-app (once per once_key)",
-    "On failure github.comment as github-app (once per once_key)",
-    "Key pr-secrets:{repository}#{number}@{head_sha}",
-    "Disabled",
-]
-
-PR_FIXER_PUBLISH = [
-    "When rules.run.succeeded",
-    "If workflow_id = review-commit",
-    "and review = approve",
-    "and verdict = pass",
-    "and repository ∈ vars.fixer_repos",
-    "and not (repository ∈ vars.fixer_excluded_repos)",
-    "Run workflow publish-fix (4 steps)",
-    "On spark2",
-    f"Then github.comment as github-app {CHAIN_END}",
-    f"On failure github.comment as github-app {CHAIN_END}",
-    "Key pr-fixer:{repository}#{number}, outside the attempt budget",
-    "Disabled",
-]
-
-
-@pytest.mark.parametrize(
-    "name, golden",
-    [
-        ("pr-fix", PR_FIX_WORKFLOW),
-        ("review-commit", REVIEW_COMMIT_WORKFLOW),
-        ("publish-fix", PUBLISH_FIX_WORKFLOW),
-        ("report-secrets", REPORT_SECRETS_WORKFLOW),
-    ],
+NEWSPAPER_WORKFLOW = render(describe_workflow(_load("workflows/daily-newspaper.json")))
+NEWSPAPER_RULE = render(
+    describe_rule(_load("rules/daily-newspaper.json"), _load("workflows/daily-newspaper.json"))
 )
-def test_golden_pr_fixer_workflows(name, golden):
-    assert render(describe_workflow(_load(f"workflows/{name}.json"))) == golden
-
-
-def test_golden_pr_fixer_rules():
-    publish = _load("workflows/publish-fix.json")
-    queue_add = Workflow.from_dict(_load("workflows/queue-add.json"))
-    assert render(describe_rule(_load("rules/pr-fixer-checks.json"), queue_add)) == (
-        PR_FIXER_CHECKS
-    )
-    assert render(describe_rule(_load("rules/pr-fixer-publish.json"), publish)) == (
-        PR_FIXER_PUBLISH
-    )
-    secrets = _load("workflows/report-secrets.json")
-    assert render(describe_rule(_load("rules/pr-fixer-secrets.json"), secrets)) == (
-        PR_FIXER_SECRETS
-    )
-    late = render(describe_rule(_load("rules/pr-fixer-secrets-late.json"), secrets))
-    assert late == ["When github.pr.checks_failed_late", *PR_FIXER_SECRETS[1:]]
-
-
-@pytest.mark.parametrize("name", sorted(p.name for p in (BUNDLE / "rules").glob("*.json")))
-def test_every_shipped_rule_describes_and_names_its_event(name):
-    doc = _load(f"rules/{name}")
-    lines = render(describe_rule(doc))
-    assert lines[0] == f"When {trigger_text(doc['trigger'])}"
-    assert f"Run workflow {doc['workflow']['id']}" in lines
 
 
 def test_models_and_dicts_describe_the_same():
-    wf = _load("workflows/pr-fix.json")
-    rule = _load("rules/pr-fixer-checks.json")
+    wf = _load("workflows/daily-newspaper.json")
+    rule = _load("rules/daily-newspaper.json")
     assert describe_workflow(Workflow.from_dict(wf)) == describe_workflow(wf)
     assert describe_rule(Rule.from_dict(rule), Workflow.from_dict(wf)) == describe_rule(rule, wf)
 
 
 def test_deterministic_and_pure():
-    wf = _load("workflows/pr-fix.json")
+    wf = _load("workflows/daily-newspaper.json")
     before = json.dumps(wf, sort_keys=True)
     first = describe_workflow(wf)
     second = describe_workflow(wf)
@@ -187,21 +55,8 @@ def test_deterministic_and_pure():
     assert json.dumps(wf, sort_keys=True) == before
 
 
-def test_entries_shape():
-    entries = describe_workflow(_load("workflows/pr-fix.json"))
-    assert entries[4] == {
-        "label": "5",
-        "text": "one try, until verdict exists:",
-        "depth": 0,
-        "step": "fix",
-    }
-    assert entries[5]["depth"] == 1
-    assert entries[5]["label"] == "5.1"
-    assert all("step" not in e for e in describe_rule(_load("rules/pr-fixer-checks.json")))
-
-
 def test_prose_fields_are_never_used():
-    wf = _load("workflows/pr-fix.json")
+    wf = _load("workflows/daily-newspaper.json")
     wf["name"] = wf["description"] = "SECRET PROSE"
     for s in wf["steps"]:
         s["name"] = s["description"] = "SECRET PROSE"
@@ -227,18 +82,7 @@ def _step(kind: str, **kw) -> dict:
         (_step("code"), "code"),
         (_step("code", config={"command": "make test"}), "code `make test`"),
         (_step("code", placement={"machine": "thor"}), "code on thor"),
-        (_step("code", config={"builtin": "gate"}), "test gate"),
-        (_step("code", config={"builtin": "gate", "actor": "x"}), "test gate as x"),
-        (_step("code", config={"builtin": "github.threads_addressed"}), "github.threads_addressed"),
-        (
-            _step("code", config={"builtin": "github.threads"}, placement={"machine": "orin"}),
-            "github.threads on orin: unresolved threads by trusted authors",
-        ),
         (_step("code", config={"builtin": "mystery"}), "builtin mystery"),
-        (
-            _step("code", config={"builtin": "review"}),
-            "review verdict, recorded for its commit (github.push checks it)",
-        ),
         (
             _step("ai", placement={"actor": "rev"}, config={"sandbox": "read-only"}),
             "rev (agent, read-only)",
@@ -257,16 +101,6 @@ def _step(kind: str, **kw) -> dict:
                 },
             ),
             "rev (agent), when ok = true",
-        ),
-        (
-            _step(
-                "code",
-                config={
-                    "builtin": "action",
-                    "action": {"kind": "github.push", "params": {"actor": "app"}},
-                },
-            ),
-            "github.push as app (only on an approving review of exactly that commit)",
         ),
         (_step("code", config={"builtin": "action"}), "?"),
         (
@@ -352,10 +186,6 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
         (
             {"kind": "machine.command", "params": {"actor": "thor", "command": "reboot"}},
             "machine.command as thor `reboot`",
-        ),
-        (
-            {"kind": "github.push", "params": {"actor": "{{ x }}"}},
-            "github.push (only on an approving review of exactly that commit)",
         ),
         (
             {"kind": EMAIL_SEND, "params": {"actor": "mail", "subject": "Daily"}},
@@ -673,13 +503,6 @@ def test_a_rule_on_a_finished_run_reads_its_type_and_conditions():
     ]
 
 
-def test_a_status_comment_action_says_so():
-    from culture_rules.model.describe import action_text
-
-    action = {"kind": "github.comment", "params": {"actor": "github-app", "status": True}}
-    assert action_text(action) == "github.comment as github-app (as its chain's status comment)"
-
-
 def test_action_words_cover_the_newspaper_kinds():
     for kind in (
         EMAIL_SEND,
@@ -797,19 +620,6 @@ def test_condition_words_every_committed_condition_is_words_or_fallback():
         assert "∈" not in out, key
 
 
-def test_condition_words_review_commit_reviewer():
-    tree = _load("workflows/review-commit.json")["steps"][0]["config"]["when"]
-    assert condition_words(tree) == CONDITION_FALLBACK
-
-
-def test_condition_words_pr_fix_fixer():
-    body = _load("workflows/pr-fix.json")["steps"][4]["body"]
-    assert condition_words(body[0]["config"]["when"]) == (
-        "fixer is not set or fixer is empty or qwen-fixer"
-    )
-    assert condition_words(body[1]["config"]["when"]) == "fixer is claude-fixer"
-
-
 def _committed_conditions() -> dict:
     out: dict = {}
 
@@ -825,6 +635,8 @@ def _committed_conditions() -> dict:
                 walk(v, f"{path}[{i}]")
 
     for p in sorted(RULES_DOCS.rglob("*.json")):
+        if "pr-fixer" in p.parts:
+            continue
         walk(json.loads(p.read_text()), str(p.relative_to(RULES_DOCS.parents[1])))
     return out
 

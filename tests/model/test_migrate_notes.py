@@ -3,13 +3,9 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
-from culture_rules.actors.trusted import workflow_role
+from culture_rules.actors.trusted import workflow_digest_v2
 from culture_rules.model.migrate_notes import migrate_notes, notes_changes
-
-RULES_DIR = Path(__file__).resolve().parents[2] / "docs" / "rules"
 
 
 def _wf(**over):
@@ -70,9 +66,8 @@ def test_missing_fields_and_empty_description_are_untouched():
     assert migrate_notes(src) == src
 
 
-def test_committed_pr_fixer_workflows_keep_their_role():
-    for name in ("pr-fix", "review-commit", "publish-fix"):
-        doc = json.loads((RULES_DIR / "pr-fixer" / "workflows" / f"{name}.json").read_text())
-        role = workflow_role({"workflow": {"definition": doc}})
-        assert role == name
-        assert workflow_role({"workflow": {"definition": migrate_notes(doc)}}) == role
+def test_migration_preserves_workflow_digest():
+    doc = {"id": "example", "steps": [{"id": "step", "kind": "code", "description": "Details"}]}
+    digest = workflow_digest_v2(doc)
+    assert digest is not None
+    assert workflow_digest_v2(migrate_notes(doc)) == digest

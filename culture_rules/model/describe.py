@@ -65,19 +65,6 @@ CONDITION_FALLBACK = "if its condition holds"
 #: Built-in ``code`` steps (``config.builtin``): a gloss appended after the name, or a
 #: replacement name. ``action`` is handled separately (it reads as its action kind).
 BUILTIN_WORDS: dict[str, str] = {
-    "gate": "test gate",
-    "gitguardian.findings": "gitguardian.findings{as}: the head's GitGuardian findings, no secret"
-    " values",
-    "gitguardian.hold": "gitguardian.hold{as}: stop while GitGuardian fails on the head",
-    "github.threads": "github.threads{as}: unresolved threads by trusted authors",
-    "github.threads_addressed": "github.threads_addressed",
-    "review": "review verdict, recorded for its commit (github.push checks it)",
-    "sonar.gate_issues": "sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
-    "queue.add": "queue.add{as}: put the PR in line (first come, first served)",
-    "queue.progress": "queue.progress{as}: free ended slots, start the oldest request",
-    "handoff.export": "handoff.export: the fixer's commits as a size-capped pack in the store",
-    "handoff.import": "handoff.import: that pack into a fresh fixer-owned worktree",
-    "fixer.cooldown": "fixer.cooldown: the failed try's level rests after capacity_exhausted",
     "select": "select: the outputs of the path that ran (one source for the next step)",
     "json.read": "json.read: named fields from a JSON file under its root",
     "checklist.merge": "checklist.merge: add new items, keep ids and done marks",
@@ -110,9 +97,6 @@ _QUOTED = '"{}"'
 #: Per action kind: which literal params are worth a word, as ``(param, template)``.
 #: A param holding a reference or a ``{{ }}`` template is resolved at run time, so it is
 #: left out rather than shown half-resolved.
-STATUS_WORDS = "(as its chain's status comment)"
-"""How ``github.comment`` with ``status: true`` reads (d26): it writes the final section of
-the chain's one live status comment instead of posting another comment."""
 
 ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "message": _TO_CHANNEL,
@@ -128,8 +112,6 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "discord.reply": (("text", '"{}"'),),
     "discord.sweep": (_IN_CHANNEL, ("limit", "up to {} messages")),
     "github.comment": (),
-    "github.push": (),
-    "github.review_reply": (),
     "github.merge": (),
     "github.pr": (),
     "jira.comment": (("issue", "on {}"),),
@@ -373,11 +355,8 @@ def _actor_of(params: Mapping[str, Any]) -> str:
 
 
 def _comment_words(params: Mapping[str, Any]) -> list[str]:
-    """``github.comment``'s guard words: once per key (d25), the chain's status comment
-    (d26)."""
+    """``github.comment``'s guard words: once per key."""
     words = ["(once per once_key)"] if params.get("once_key") else []
-    if params.get("status") is True:
-        words.append(STATUS_WORDS)
     return words
 
 
@@ -404,13 +383,8 @@ def action_text(action: Any, where: str = "") -> str:
     kind = str(a.get("kind") or "?")
     params = a.get("params") if isinstance(a.get("params"), Mapping) else {}
     words = [kind, _actor_of(params), *_param_words(kind, params), where]
-    if kind == "github.push":  # the push port always requires an approving review (d20)
-        gate = "a passing gate and " if params.get("gate_verdict") else ""
-        words.append(f"(only on {gate}an approving review of exactly that commit)")
     if kind == "github.merge":  # the port runs it only from a click with the button's code
         words.append("(only on a button click, with the button's one-time code)")
-    if kind == "github.review_reply" and params.get("resolve") is True:
-        words.append("and resolve")
     if kind == "github.comment":
         words += _comment_words(params)
     if a.get("only_at_chain_end") is True:  # d21: one comment per chain
