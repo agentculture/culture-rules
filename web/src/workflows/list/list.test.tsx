@@ -1,32 +1,24 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { Rule, Condition } from "../../api/types";
-import type { WorkflowDef } from "../../api/workflows";
 import { foldModel } from "../../fold/model";
 import { triggerText } from "./presentation";
 import { ChainView } from "./ChainView";
 
-function fixture<T>(directory: string): T[] {
-  const path = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../docs/rules/pr-fixer", directory);
-  return readdirSync(path).filter((name) => name.endsWith(".json")).sort()
-    .map((name) => JSON.parse(readFileSync(resolve(path, name), "utf8")) as T);
-}
-const workflows = fixture<WorkflowDef>("workflows");
-const rules = fixture<Rule>("rules");
+import { FOLD_RULES, FOLD_WORKFLOWS } from "../simple/fixture";
+const workflows = FOLD_WORKFLOWS;
+const rules = FOLD_RULES.filter((r) => r.workflow);
 const model = foldModel(rules, workflows);
 const compare = (id: string): Condition => ({ op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: id } });
 
 describe("same-event notes (Chain view)", () => {
-  it("derives same-event notes across chains from the PR fixer fixture", () => {
-    const renamed = workflows.map(wf => wf.id === "report-secrets" ? { ...wf, name: "Secret reporter" } : wf);
-    render(<MemoryRouter><ChainView model={foldModel(rules, renamed)} /></MemoryRouter>);
-    const entry = screen.getByRole("link", { name: rules.find(rule => rule.id === "pr-fixer-checks")!.name }).closest("fieldset")!;
-    expect(within(entry as HTMLElement).getByText("same event starts Secret reporter")).toBeInTheDocument();
-    expect(within(entry as HTMLElement).queryByText(/same event starts.*pr-fix/)).not.toBeInTheDocument();
+  it("derives same-event notes across chains from the Document chain fixture", () => {
+    const extra = { ...rules[0], id: "notify", name: "Notify", workflow: { id: "notify" } };
+    render(<MemoryRouter><ChainView model={foldModel([...rules, extra], [...workflows, { id: "notify", name: "Notifier" }])} /></MemoryRouter>);
+    const entry = screen.getByRole("link", { name: rules[0].name }).closest("fieldset")!;
+    expect(within(entry as HTMLElement).getByText("same event starts Notifier")).toBeInTheDocument();
+    expect(within(entry as HTMLElement).queryByText(/same event starts.*prepare-document/)).not.toBeInTheDocument();
   });
 
   it("matches D1 on both trigger kind and type, deduplicating destination workflows", () => {
@@ -70,21 +62,16 @@ describe("Chain view", () => {
 
   it("draws all fixture starts, workflows and directed continuations, including the return edge", () => {
     const { container } = render(<MemoryRouter><ChainView model={model} /></MemoryRouter>);
-    // #35: the queue's workflows join the fixer's chain (queue-add, queue-progress); d34: queue-stop;
-    // #39: a try that hit capacity_exhausted rejoins through queue-add-capacity
-    expect(screen.getByText("24 rules → 11 entry points, 13 continuations, 8 workflows")).toBeInTheDocument();
-    expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(11);
-    expect(screen.getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(8);
+    expect(screen.getByText("7 rules → 3 entry points, 4 continuations, 3 workflows")).toBeInTheDocument();
+    expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(3);
+    expect(screen.getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(3);
     const edges = [...container.querySelectorAll("path[data-continuation-id]")];
     expect(edges.map((edge) => [edge.getAttribute("data-source"), edge.getAttribute("data-target")])).toEqual([
-      ["review-commit", "publish-fix"],
-      ["pr-fix", "queue-progress"], ["queue-add-capacity", "queue-progress"], ["pr-fix", "queue-progress"],
-      ["pr-fix", "queue-progress"], ["queue-stop", "queue-progress"], ["pr-fix", "queue-progress"],
-      ["queue-add", "queue-progress"], ["review-commit", "queue-add"], ["pr-fix", "queue-add-capacity"],
-      ["pr-fix", "queue-add"], ["pr-fix", "queue-add"],
-      ["pr-fix", "review-commit"],
+      ["validate-document", "prepare-document"],
+      ["prepare-document", "validate-document"],
+      ["validate-document", "publish-document"],
     ]);
-    expect(container.querySelectorAll("path[data-entry-id]")).toHaveLength(11);
+    expect(container.querySelectorAll("path[data-entry-id]")).toHaveLength(3);
     for (const rule of rules) expect(screen.getByText(`was ${rule.id}`)).toBeInTheDocument();
   });
 

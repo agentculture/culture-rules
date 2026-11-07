@@ -1,6 +1,6 @@
 # Run events: rules that fire when a run finishes
 
-Deviation d21 of the `pr-fixer-rule` plan, phase 1 (the engine). A rule can
+A rule can
 fire when another rule's run **finishes**. This is the second way rules
 compose:
 
@@ -44,7 +44,7 @@ and there is no condition an author could forget to add.
 
 The subject fields sit at the top level, so a downstream rule can use the
 same concurrency key template as the rule upstream of it, for example
-`pr-fixer:{trigger.data.repository}#{trigger.data.number}`. They also carry on
+`pr:{trigger.data.repository}#{trigger.data.number}`. They also carry on
 down a chain. Nothing else is copied from the trigger, so free text such as a
 comment body stays out.
 
@@ -127,7 +127,7 @@ until the hop cap stops it.
 Three refusals guard these events:
 
 - **Reserved namespace.** Ingest from the bus and the webhook sink refuse
-  `runevt_*` ids, `rules.run.*` types, the fixer queue's `queue_*` ids and
+  `runevt_*` ids, `rules.run.*` types, the engine queue's `queue_*` ids and
   `rules.queue.*` types (#35), `culture-rules://` sources, and any
   envelope that carries an `envelope` field (ambiguous with a stored event
   document). A refused envelope is never stored or evaluated. It is kept in
@@ -291,9 +291,8 @@ cannot set it to `false` together with `max_attempts`. The description's
 A rule can also **reset** its key's budget (`resets_attempt_budget: true`;
 issue #35, d32): when it fires (its trigger and condition hold), the key's counter
 is reset once for that event, before the firing is admitted, exactly like a
-human push or green checks. It needs a `concurrency_key`. The shipped
-fixer sets it on its comment and review-comment rules, so a trusted `/fix`
-starts a new story with a fresh budget. The description's `Key` line then
+human push or green checks. It needs a `concurrency_key`. A rule that
+sets it starts a new story with a fresh budget. The description's `Key` line then
 ends with `resets the attempt budget`.
 
 The field is trusted configuration, not a security boundary. Whoever can save
@@ -351,36 +350,6 @@ the stage that ends a chain posts. `rules describe` adds
 `(only where its chain ends)` to the `Then` / `On failure` line, and the editor
 shows it as a checkbox on the action.
 
-A `github.comment` that also sets `status: true` (d26) writes its text as the
-final section of the chain's one live status comment instead of posting
-(`docs/operations/pr-fixer.md`, "The status comment").
-
 The decision is taken when the terminal step is dispatched. If the continuing
 rule is disabled between that moment and the evaluation of the run's event, the
 chain ends with no comment. The run's history still has it.
-
-## The pr-fixer split (d21 phase 2)
-
-The shipped PR fixer (`docs/rules/pr-fixer/`) is built on these events:
-
-- `pr-fixer-{checks,comment,review,review-comment}` put the PR in the fixer
-  queue (`queue-add`, #35); `pr-fixer-dispatch` runs the `pr-fix` workflow when
-  the request's turn comes (a `rules.queue.dispatch` event): quiet period,
-  threads, the failing SonarCloud conditions, agent and gate, one try;
-- `pr-fixer-retry` puts a try whose gate did not pass back in the queue;
-- `pr-fixer-review-commit` fires on `pr-fix` succeeding and runs `review-commit`
-  (outside the attempt budget);
-- `pr-fixer-refix` fires on `review = request_changes` and puts the PR back in
-  the queue with the findings (the dispatched `pr-fix` run is the counted
-  attempt);
-- `pr-fixer-publish` fires on `review = approve` with a passing gate and runs
-  `publish-fix`: push, threads and replies (outside the budget).
-
-The rules share the PR's key, which the chain holds between its stages. Only
-fix runs count against the per-PR budget. Disabling `pr-fixer-publish` gives a
-review-only mode: the review ends the chain and posts its verdict. The review
-step and `github.push` walk the chain back through these events in the store
-(`culture_rules/actors/lineage.py`). The rule names differ from the d21 text in
-one place: the review stage is `pr-fixer-review-commit`, because
-`pr-fixer-review` already names the review-submitted trigger rule. The
-operations recipe is `docs/operations/pr-fixer.md`, section 7.

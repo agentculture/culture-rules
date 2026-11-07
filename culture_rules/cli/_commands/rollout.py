@@ -82,7 +82,11 @@ BOOTSTRAP_HINT = (
 )
 
 WHEEL = Param("wheel", help="the culture_rules-<version>-*.whl to roll out", required=True)
-BUNDLE = Param("bundle", help="bundle directory (default: the one this wheel carries)")
+BUNDLE = Param("bundle", help="bundle directory (workflows/, rules/, variables.json); required")
+NO_BUNDLE_HINT = (
+    "pass --bundle DIR, a bundle directory with workflows/, rules/ and variables.json "
+    "(e.g. one under docs/rules/ in a checkout of this release)"
+)
 
 
 # --------------------------------------------------------------------------- the release
@@ -93,17 +97,32 @@ def _release() -> dict[str, Any]:
     return deploy_data.release()
 
 
+_RELEASE_VERSION_RE = re.compile(r"\d{1,4}\.\d{1,4}\.\d{1,6}(?:\.dev\d{1,6})?")
+"""A release version as the manifest names it (``0.43.0``, ``0.43.0.dev3``): it reaches
+remote command lines (the deploy directory name), so nothing else is accepted."""
+
+
 def release_version() -> str:
-    return str(_release()["version"])
+    """The release manifest's version, refused unless it is a plain release version."""
+    raw = str(_release()["version"])
+    match = _RELEASE_VERSION_RE.fullmatch(raw)
+    if match is None:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"the release manifest names an invalid version {raw!r}",
+            "reinstall culture-rules; deploy/release.json must name a version like 0.43.0",
+        )
+    return match.group(0)
 
 
 def _bundle_dir(bundle: str | None) -> Path:
-    """``--bundle DIR`` or the bundle this wheel carries; a DIR of another release is refused."""
+    """``--bundle DIR``; the wheel carries no bundle (d2), so none is refused, and a DIR of
+    another release is refused too."""
     if not bundle:
-        return deploy_data.bundle_dir()
+        raise CliError(EXIT_USER_ERROR, "this wheel carries no rule bundle", NO_BUNDLE_HINT)
     root = Path(bundle)
     if not root.is_dir():
-        raise CliError(EXIT_USER_ERROR, f"no such bundle directory: {bundle}", "omit --bundle")
+        raise CliError(EXIT_USER_ERROR, f"no such bundle directory: {bundle}", NO_BUNDLE_HINT)
     manifest = root / "release.json"
     if manifest.is_file():
         other = json.loads(manifest.read_text(encoding="utf-8")).get("version")
@@ -112,17 +131,17 @@ def _bundle_dir(bundle: str | None) -> Path:
                 EXIT_USER_ERROR,
                 f"the bundle in {bundle} is release {other}, "
                 f"this CLI's release is {release_version()}",
-                "omit --bundle, or run the CLI from the bundle's release",
+                "pass this release's bundle, or run the CLI from the bundle's release",
             )
     return root
 
 
 def _seed_list(bundle: str | None) -> list[dict[str, Any]]:
-    if not bundle:
-        return deploy_data.variables()
+    """The bundle's ``variables.json``; a bundle without one seeds nothing (the step is still
+    recorded, so its import can follow)."""
     path = _bundle_dir(bundle) / "variables.json"
     if not path.is_file():
-        raise CliError(EXIT_USER_ERROR, f"no variables.json in {bundle}", "omit --bundle")
+        return []
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -423,7 +442,6 @@ def install_flags(name: str, install: Mapping[str, Any]) -> list[str]:
     for secret in install.get("secrets") or ():
         flags += ["--secret", str(secret)]
     optional = (
-        ("--gate-run-as", install.get("gate_run_as")),
         ("--extras", ",".join(install.get("extras") or ()) or None),
         ("--wheelhouse", install.get("wheelhouse")),
         ("--python", install.get("python")),
@@ -503,8 +521,14 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
         "       culture-rules workflows migrate-notes          (dry run: lists what moves)",
         "       culture-rules workflows migrate-notes --apply",
         "       culture-rules workflows migrate-notes          (dry run again: reports 0)",
-        "  5. culture-rules rollout seed --apply",
-        "  6. culture-rules rollout import --apply",
+        *(
+            [
+                "  5. culture-rules rollout seed --apply --bundle DIR",
+                "  6. culture-rules rollout import --apply --bundle DIR",
+            ]
+            if new_rules or new_vars
+            else ["  5-6. skip seed and import: this release adds no rules or variables"]
+        ),
         "  7. give each workflow-less rule its own stepless workflow, after import (import may"
         " add rules) and before enable; a rule pointing at a missing or deleted workflow is only"
         " listed as not adopted:",
@@ -725,13 +749,13 @@ def _seed(ctx: Context, bundle: str | None = None, force: bool = False) -> dict[
 def _import(ctx: Context, bundle: str | None = None) -> dict[str, Any]:
     """Import the bundle's workflows and rules in one ``POST /import`` (actors are not)."""
     version = release_version()
+    root = str(_bundle_dir(bundle))
     if "seed" not in _steps(_rollout_doc(ctx, version)):
         raise CliError(
             EXIT_USER_ERROR,
             f"import refused: release {version}'s seed step is not recorded",
-            "run 'culture-rules rollout seed --apply' first",
+            "run 'culture-rules rollout seed --apply --bundle DIR' first",
         )
-    root = str(_bundle_dir(bundle))
     files = {**collect_files(root, None, "workflows"), **collect_files(root, None, "rules")}
     plan = _api.call(
         lambda: ctx.client.request("POST", "/import", body={"files": files, "apply": ctx.apply})
@@ -794,7 +818,7 @@ def _refuse_absent_snapshot_rules(absent: list[str]) -> None:
         "enable refused: snapshot rule(s) recorded at pause no longer exist: " + ", ".join(absent),
         "restore each rule (from a backup, or 'culture-rules rules create --body @rule.json "
         "--apply'), or re-import the bundle that carries it ('culture-rules rollout import "
-        "--apply'); then re-run 'culture-rules rollout enable'",
+        "--apply --bundle DIR'); then re-run 'culture-rules rollout enable'",
     )
 
 
@@ -828,7 +852,7 @@ def _enable(ctx: Context) -> dict[str, Any]:
         raise CliError(
             EXIT_USER_ERROR,
             f"enable refused: the release's new rule(s) are not imported: {', '.join(absent_new)}",
-            "run 'culture-rules rollout import --apply' first",
+            "run 'culture-rules rollout import --apply --bundle DIR' first",
         )
     _refuse_absent_snapshot_rules([r for r in snapshot if r not in ids])
     target = list(dict.fromkeys([*snapshot, *new_rules]))

@@ -22,7 +22,7 @@ GATE = "sudo -n -u culture-fixer -- /usr/bin/env PATH=/srv/culture-fixer/.local/
 SPARK2 = {
     "mode": "install_sh",
     "secrets": ["RULES_QWEN_FIXER_TOKEN", "RULES_GITHUB_APP_PRIVATE_KEY"],
-    "gate_run_as": GATE,
+    "gate_run_as": GATE,  # stored before 0.43.0 (d7): ignored, never a flag
     "extras": ["store", "events"],
     "wheelhouse": "wh",
     "python": "3.12",
@@ -166,7 +166,6 @@ def test_dry_run_prints_the_exact_argv_and_runs_nothing(
         "--node-name", "spark2",
         "--wheel", f"{deploy}/{WHEEL_NAME}",
         "--secret", "RULES_QWEN_FIXER_TOKEN", "--secret", "RULES_GITHUB_APP_PRIVATE_KEY",
-        "--gate-run-as", GATE,
         "--extras", "store,events",
         "--wheelhouse", "wh",
         "--python", "3.12",
@@ -506,12 +505,9 @@ def test_a_stored_field_with_a_control_character_never_reaches_argv(
     [
         {"mode": "install_sh", "extras": ["store", "x\ny"]},
         {"mode": "install_sh", "secrets": ["OK", "BAD\n"]},
-        {"mode": "install_sh", "gate_run_as": "sudo -n -u fixer --\x00/bin/true"},
     ],
 )
-def test_stored_lists_and_the_run_as_prefix_are_checked_too(
-    wire, store, capsys, fake, wheel, install  # noqa: F811
-):
+def test_stored_lists_are_checked_too(wire, store, capsys, fake, wheel, install):  # noqa: F811
     put_machine(store, "thor", install)
     rc, _, _ = run(capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(wheel), "--json")
     assert rc == 1

@@ -39,20 +39,19 @@ def test_wheel_contains_the_web_build(wheel_names):
 
 
 @NEEDS_BUILD
-def test_wheel_contains_install_sh_the_pr_fixer_bundle_and_both_manifests(wheel_names):
-    """#45 t2: culture_rules/deploy_data carries what the rollout CLI installs and imports."""
+def test_wheel_contains_install_sh_and_the_release_manifest_but_no_bundle(wheel_names):
+    """#45 t2: culture_rules/deploy_data carries what the rollout CLI installs; d2: no bundle."""
     data = "culture_rules/deploy_data"
-    bundle = ROOT / "docs" / "rules" / "pr-fixer"
     assert f"{data}/__init__.py" in wheel_names
     assert f"{data}/install.sh" in wheel_names
-    assert f"{data}/pr-fixer/variables.json" in wheel_names
-    assert f"{data}/pr-fixer/release.json" in wheel_names
-    for kind in ("workflows", "rules", "actors"):
-        shipped = {n for n in wheel_names if n.startswith(f"{data}/pr-fixer/{kind}/")}
-        expected = {f"{data}/pr-fixer/{kind}/{p.name}" for p in (bundle / kind).glob("*.json")}
-        assert expected, kind
-        assert shipped == expected, kind
-    assert f"{data}/pr-fixer/seed-variables.sh" not in wheel_names
+    assert f"{data}/release.json" in wheel_names
+    extra = {
+        n
+        for n in wheel_names
+        if n.startswith(f"{data}/")
+        and n.rsplit("/", 1)[-1] not in ("__init__.py", "install.sh", "release.json")
+    }
+    assert extra == set()
 
 
 def test_build_hook_force_includes_the_build(tmp_path):

@@ -19,7 +19,7 @@ store, so a refusal reads no secret and makes no network call:
    * the App actor's document (the one snapshot whose connection is used) matches a digest
      pinned in :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS`
      (``actor_not_trusted``, :func:`~culture_rules.actors.trusted.doc_refusal`), as
-     ``github.push`` checks it: only a pinned App merges (``github-app`` is pinned). It is the
+     this action checks it: only a pinned App merges (``github-app`` is pinned). It is the
      App actor that is pinned, not a workflow;
    * the run was started by a ``discord.button.clicked`` event (:data:`NOT_CLICK`,
      ``not_started_by_click``, otherwise): its trigger is an event of that type, its id is
@@ -28,7 +28,7 @@ store, so a refusal reads no secret and makes no network call:
      run, a run started through the API and a run chained from another rule are all
      refused. Which user may click is the click rule's ``users`` filter (configuration);
    * its source rule is still live and enabled, read now (``rule_disabled``,
-     :func:`~culture_rules.node.actions.github_pr.source_rule_refusal`);
+     :func:`~culture_rules.node.actions.github.source_rule_refusal`);
    * the clicked button's one-time code (deviation d3,
      :func:`~culture_rules.apps.discord_buttons.use_code`): the **stored** click event's
      ``data.code`` (the gateway copies it from ``discord_buttons``, never from the click;
@@ -103,8 +103,8 @@ from culture_rules.node.actions.github import (
     GitHubCommentPort,
     _refused,
     repo_refusal,
+    source_rule_refusal,
 )
-from culture_rules.node.actions.github_pr import source_rule_refusal
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError, StoreError
 
@@ -254,7 +254,7 @@ class GitHubMergePort(GitHubCommentPort):
         request = _merge_input(input)
         if request is None:
             return InvocationResult.failed(BAD_INPUT, retryable=False)
-        # as github.push: the App actor's security fields must match a digest pinned in code
+        # the App actor's security fields must match a digest pinned in code
         refusal, _digest = trusted.doc_refusal(actor_id, snapshot)
         if not refusal:
             number, sha, _delete = request

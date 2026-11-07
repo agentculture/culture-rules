@@ -3,7 +3,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
 import { withView } from "./fixtures/view";
 import { mockWorkflowsApi } from "./fixtures/workflows";
-import { REVIEW_PR, WORKFLOW_DOCS } from "../src/workflows/fixture";
+import { SUMMARIZE_DOCUMENT, WORKFLOW_DOCS } from "../src/workflows/fixture";
 import type { WorkflowDef } from "../src/api/workflows";
 
 /**
@@ -27,7 +27,7 @@ async function agentState(page: Page) {
   return JSON.parse((await page.locator("#agent-state").textContent()) ?? "{}");
 }
 
-async function open(page: Page, start: WorkflowDef[], path = "/workflows?id=review-pr") {
+async function open(page: Page, start: WorkflowDef[], path = "/workflows?id=summarize-document") {
   // The canvas scenarios drive the Detailed (steps) view; a workflow opens in Simple by default.
   await withView(page);
   await mockApi(page);
@@ -51,8 +51,8 @@ async function noSeriousAxe(page: Page, label: string) {
 test.describe("Workflows tab: the workflow list", () => {
   test("an open workflow shows a compact pane left of the board: names only, the open one current (screenshot)", async ({ page }) => {
     await open(page, [...WORKFLOW_DOCS, NIGHTLY]);
-    await expect(paneLinks(page)).toHaveText(["Review PR", "Build image", "Nightly report"]);
-    await expect(paneLinks(page).filter({ hasText: "Review PR" })).toHaveAttribute("aria-current", "page");
+    await expect(paneLinks(page)).toHaveText(["Summarize document", "Build image", "Nightly report"]);
+    await expect(paneLinks(page).filter({ hasText: "Summarize document" })).toHaveAttribute("aria-current", "page");
     await expect(pane(page).locator("a[aria-current]")).toHaveCount(1);
     // Names only: no chain cards, switches or dots in the pane (they live in the overview).
     await expect(pane(page).getByRole("switch")).toHaveCount(0);
@@ -88,7 +88,7 @@ test.describe("Workflows tab: the workflow list", () => {
     await open(page, [...WORKFLOW_DOCS, NIGHTLY], "/workflows");
     const cards = page.getByRole("list", { name: "All workflows" }).getByRole("listitem");
     await expect(cards).toHaveCount(3);
-    await expect(cards.getByRole("link")).toHaveText([/Review PR/, /Build image/, /Nightly report/]);
+    await expect(cards.getByRole("link")).toHaveText([/Summarize document/, /Build image/, /Nightly report/]);
     // Nothing is open: no pane, no selection, and no chains / housekeeping section (d13).
     await expect(pane(page)).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "Chains and housekeeping" })).toHaveCount(0);
@@ -102,7 +102,7 @@ test.describe("Workflows tab: the workflow list", () => {
   });
 
   test("shows with one workflow (screenshot) and with none", async ({ page }) => {
-    await open(page, [REVIEW_PR], "/workflows");
+    await open(page, [SUMMARIZE_DOCUMENT], "/workflows");
     await expect(page.getByRole("list", { name: "All workflows" }).getByRole("listitem")).toHaveCount(1);
     await expect(page.getByRole("combobox", { name: "Workflow" })).toHaveCount(0);
     await page.screenshot({ path: `${SHOTS}/workflows-list-1.png`, fullPage: true });
@@ -114,7 +114,7 @@ test.describe("Workflows tab: the workflow list", () => {
   });
 
   test("a workflow's link opens it; its switch (in the head) enables / disables it", async ({ page }) => {
-    const calls = await open(page, [...WORKFLOW_DOCS, NIGHTLY], "/workflows?id=review-pr&run=run-7");
+    const calls = await open(page, [...WORKFLOW_DOCS, NIGHTLY], "/workflows?id=summarize-document&run=run-7");
     await paneLinks(page).filter({ hasText: "Build image" }).click();
     await expect(page).toHaveURL(/\/workflows\?id=build-image$/);
     await expect(page.getByRole("heading", { level: 1, name: "Build image" })).toBeVisible();
@@ -140,7 +140,7 @@ test.describe("Workflows tab: the workflow list", () => {
     await open(page, [...WORKFLOW_DOCS, NIGHTLY], "/workflows");
     const cards = page.getByRole("list", { name: "All workflows" }).getByRole("link");
     await cards.first().focus();
-    for (const name of [/Review PR/, /Build image/, /Nightly report/]) {
+    for (const name of [/Summarize document/, /Build image/, /Nightly report/]) {
       await expect(cards.filter({ hasText: name })).toBeFocused();
       await page.keyboard.press("Tab");
     }

@@ -76,7 +76,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import import_module
 from typing import Any, Protocol, runtime_checkable
 
-from culture_rules.actors.review import LOCKED_INSTRUCTIONS, instruction_digest
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.store.port import DuplicateKeyError
 
@@ -354,12 +353,11 @@ PASSTHROUGH_CONFIG = ("model", "sandbox", "mode")
 bridge requires ``mode``."""
 READ_ONLY_SANDBOX = "read-only"
 """An actor whose ``sandbox`` default is this one cannot be widened by a step or an input
-(``sandbox_locked``): the PR fixer's reviewer must never be able to write or commit."""
+(``sandbox_locked``): a read-only agent must never be able to write or commit."""
 READ_ONLY_MODE = "plan"
-"""#39: an actor whose ``mode`` default is this one (Qwen Code's plan mode, the qwen
-reviewer's) cannot be moved to another mode by a step or an input (``mode_locked``). The
-mode is an approval policy, not a sandbox: the reviewer's verdict step still checks that
-the checkout is unchanged."""
+"""#39: an actor whose ``mode`` default is this one (Qwen Code's plan mode) cannot be
+moved to another mode by a step or an input (``mode_locked``). The mode is an approval
+policy, not a sandbox: a flow that needs the checkout unchanged still checks it."""
 BRIDGE_CORE_INPUTS = frozenset({"instruction", "repo", "head_branch", "head_sha", "model", "async"})
 """Input keys a bridge reads itself; every other key is appended to the agent's prompt as
 JSON, which the bridge cuts at its ``max_bound_input_chars`` (60000 by default)."""
@@ -653,40 +651,9 @@ def _event_changes(
     changes = {"last_sequence": seq, "last_event_at": now}
     if kind == "heartbeat":
         changes["last_heartbeat_at"] = now
-    if kind == "progress":
-        changes.update(_status_notes(doc, payload, now))
     if kind == "accepted" and payload.get("invocation_id") and not doc.get("invocation_id"):
         changes["invocation_id"] = str(payload["invocation_id"])
     return {"status": doc["status"], "last_sequence": doc.get("last_sequence") or 0}, changes
-
-
-def _status_notes(doc: Mapping[str, Any], payload: Mapping[str, Any], now: str) -> dict[str, Any]:
-    """d26: the agent's ``STATUS: <note>`` out of a progress callback's ``note`` (a shell
-    tool call's title, e.g. ``tool_call: Shell: echo "STATUS: fixing it"``), normalized and
-    checked (:func:`~culture_rules.apps.public_text.clean_note`, against this process's
-    known secrets too) and appended to the invocation's last
-    :data:`~culture_rules.node.fixer_status.STATUS_NOTES_KEPT` notes; ``{}`` when it carries
-    none. A refused note is counted (``status_notes_withheld``) and drops every kept note
-    too, as does a new note that, with the kept ones, carries a secret (one split across
-    notes)."""
-    from culture_rules.actors.secrets import known_values  # noqa: PLC0415
-    from culture_rules.apps.public_text import clean_note, status_note, withheld  # noqa: PLC0415
-    from culture_rules.node.fixer_status import STATUS_NOTES_KEPT  # noqa: PLC0415
-
-    raw = status_note(payload.get("note"))
-    if raw is None:
-        return {}
-    known = known_values()
-    text = clean_note(raw, known=known)
-    kept = [n for n in doc.get("status_notes") or () if isinstance(n, Mapping)]
-    notes = [*kept, {"at": now, "text": text}][-STATUS_NOTES_KEPT:]
-    if text is None or withheld(" ".join(str(n.get("text")) for n in notes), known):
-        # a refused note may finish a secret the kept ones began: drop them all
-        return {
-            "status_notes": [],
-            "status_notes_withheld": (doc.get("status_notes_withheld") or 0) + 1,
-        }
-    return {"status_notes": notes}
 
 
 def _deliver_one(store: Any, executor: Any, doc: Mapping[str, Any]) -> bool:
@@ -814,33 +781,22 @@ class BridgeAgentActor:
 
     # ---------------------------------------------------------------- input
 
-    def _locked_instruction(
-        self, input: Mapping[str, Any], config: Mapping[str, Any]
-    ) -> tuple[str | None, str | None]:
-        """``(brief, None)`` for an actor with ``locked_instruction`` (any instruction from
-        the step's inputs or config is refused), ``(None, None)`` otherwise."""
+    def _locked_instruction(self) -> str | None:
+        """An actor configured with ``locked_instruction`` is refused: no locked brief ships,
+        so such an actor fails closed rather than taking an instruction from its step."""
         name = self._defaults.get("locked_instruction")
         if name is None:
-            return None, None
-        brief = LOCKED_INSTRUCTIONS.get(name) if isinstance(name, str) else None
-        if brief is None:
-            return None, f"instruction_locked: no locked brief named {name!r}"
-        for where, source in (("an input", input), ("the step config", config)):
-            for key in INSTRUCTION_KEYS:
-                if source.get(key) is not None:
-                    return None, (
-                        f"instruction_locked: the actor's brief is fixed; {where} sets {key!r}"
-                    )
-        return brief, None
+            return None
+        return f"instruction_locked: no locked brief named {name!r}"
 
     def bridge_input(
         self, input: Mapping[str, Any], config: Mapping[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
         """The bridge's ``input`` object, or ``(None, problem)``."""
-        instruction, problem = self._locked_instruction(input, config)
+        problem = self._locked_instruction()
         if problem:
             return None, problem
-        instruction = instruction or _instruction(input) or _instruction(config)
+        instruction = _instruction(input) or _instruction(config)
         if not instruction:
             return None, _NO_INSTRUCTION
         out: dict[str, Any] = {k: v for k, v in input.items() if v is not None}
@@ -865,7 +821,7 @@ class BridgeAgentActor:
     def _trust(self) -> tuple[str | None, str | None]:
         """``(digest, problem)`` for the actor configuration this adapter was built from
         and is about to call (Codex round-4 review #1). An actor pinned in
-        :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS` (the reviewer) must
+        :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS` must
         match before anything is dispatched, and the endpoint called must be the one in that
         snapshot; the digest is recorded on the invocation either way."""
         from culture_rules.actors import trusted  # noqa: PLC0415 - small and standard-library
@@ -913,7 +869,6 @@ class BridgeAgentActor:
         payload, digest, problem = self._checked_input(input, context.config or {})
         if problem:
             return InvocationResult.failed(problem, retryable=False)
-        payload = self._with_status_hint(self._with_merge_hint(payload, context), context)
         required = bool((context.config or {}).get(REQUIRE_COMMIT, False))
         if not self.callback_url:
             return InvocationResult.failed("the bridge actor has no callback_url", retryable=False)
@@ -926,7 +881,9 @@ class BridgeAgentActor:
         doc_id = bridge_invocation_id(idempotency_key, context.attempt)
         self._expire_previous(idempotency_key, context.attempt)
         callback_token = secrets.token_urlsafe(32)
-        instruction = instruction_digest(str((payload or {}).get("instruction") or ""))
+        instruction = hashlib.sha256(
+            str((payload or {}).get("instruction") or "").encode("utf-8")
+        ).hexdigest()
         doc = self._claim(
             doc_id, idempotency_key, context, callback_token, instruction, digest, required
         )
@@ -962,47 +919,6 @@ class BridgeAgentActor:
             self._settle(doc_id, _REJECTED, error=str(exc))
             return InvocationResult.failed(str(exc))
         return self._response(doc_id, status, raw, required)
-
-    def _with_merge_hint(
-        self, payload: dict[str, Any] | None, context: InvocationContext
-    ) -> dict[str, Any]:
-        """d36: a fixer try (a run whose rule writes a status comment and that was given a
-        ``base_sha``) is told it may make one real merge of that base commit
-        (:func:`~culture_rules.actors.merge_hint.with_merge_paragraph`, appended to its
-        instruction, never stored). An instruction that already names the base commit, and
-        a locked brief, are never changed."""
-        from culture_rules.actors.merge_hint import with_merge_paragraph  # noqa: PLC0415
-        from culture_rules.node.fixer_status import run_status_actor  # noqa: PLC0415
-
-        payload = payload or {}
-        if self._defaults.get("locked_instruction") is not None or not context.run_id:
-            return payload
-        run = self._store.get("runs", context.run_id)
-        if run_status_actor(run) is None:
-            return payload
-        inputs = (run or {}).get("inputs")
-        base = inputs.get("base_sha") if isinstance(inputs, Mapping) else None
-        told = with_merge_paragraph(payload.get("instruction"), base)
-        return payload if told is payload.get("instruction") else {**payload, "instruction": told}
-
-    def _with_status_hint(
-        self, payload: dict[str, Any] | None, context: InvocationContext
-    ) -> dict[str, Any]:
-        """d26: an agent whose run writes its chain's status comment is told how to post
-        status notes (:data:`~culture_rules.node.fixer_status.STATUS_NOTE_HINT`, appended to
-        its instruction). A locked brief is never changed."""
-        from culture_rules.node.fixer_status import (  # noqa: PLC0415
-            STATUS_NOTE_HINT,
-            run_status_actor,
-        )
-
-        payload = payload or {}
-        if self._defaults.get("locked_instruction") is not None or not context.run_id:
-            return payload
-        run = self._store.get("runs", context.run_id)
-        if run_status_actor(run) is None:
-            return payload
-        return {**payload, "instruction": f"{payload.get('instruction', '')}{STATUS_NOTE_HINT}"}
 
     def cancel(self, invocation_id: str) -> bool:
         """Ask the bridge to stop job ``invocation_id`` (``POST /v1/invocations/<id>/cancel``);

@@ -175,19 +175,6 @@ export const ENGINE_SURFACE: Surface = {
   events: RUN_EVENTS,
 };
 
-/**
- * The fixer queue's event (#35, d29): written only by the queue.progress
- * built-in when a queued request reaches the head of the line.
- */
-export const QUEUE_EVENTS = ["rules.queue.dispatch"] as const;
-
-/** The built-in surface for the queue's events. */
-export const QUEUE_SURFACE: Surface = {
-  id: "@rules-queue",
-  name: "Rules engine (a queued request's turn)",
-  events: QUEUE_EVENTS,
-};
-
 const idList = (text: string) =>
   text
     .split(",")
@@ -350,7 +337,6 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
   const surfaces: Surface[] = [
     ...apps.map((a) => ({ id: a.id, name: a.name, events: eventsOf(a) })),
     ENGINE_SURFACE,
-    QUEUE_SURFACE,
   ];
   const owner = surfaces.find((a) => a.events.includes(eventType));
   const [surface, setSurface] = useState(owner?.id ?? "");

@@ -65,7 +65,11 @@ def _run_rule(rid: str, source: str, outcome: str = "succeeded", target: str = "
 
 
 def _committed_rules() -> list[dict]:
-    return [json.loads(p.read_text()) for p in sorted(RULES_DOCS.glob("*/rules/*.json"))]
+    return [
+        json.loads(p.read_text())
+        for p in sorted(RULES_DOCS.glob("*/rules/*.json"))
+        if "pr-fixer" not in p.parts
+    ]
 
 
 def _committed_workflow(wid: str) -> dict:
@@ -193,31 +197,6 @@ def test_python_fold_matches_the_ts_fold_over_the_committed_corpus():
         for e in fold_rules(_committed_rules())
     ]
     assert got == expected["entries"]
-
-
-def test_the_committed_entry_and_continuation_sets_by_hand():
-    fold = fold_rules(_committed_rules())
-
-    def owned(wid: str, kind: str) -> set[str]:
-        return {e["rule"]["id"] for e in fold if e["workflow_id"] == wid and e["kind"] == kind}
-
-    assert owned("pr-fix", "entry") == {"pr-fixer-dispatch"}
-    assert owned("pr-fix", "continuation") == set()
-    assert owned("review-commit", "continuation") == {"pr-fixer-review-commit"}
-    assert owned("publish-fix", "continuation") == {"pr-fixer-publish"}
-    assert owned("daily-newspaper", "entry") == {"daily-newspaper"}
-    actual = {e["rule"]["id"] for e in onward_of(fold, "pr-fix")}
-    assert actual == {
-        "pr-fixer-queue-progress-cancelled",
-        "pr-fixer-queue-progress-failed",
-        "pr-fixer-queue-progress-fixed",
-        "pr-fixer-queue-progress-superseded",
-        "pr-fixer-retry-capacity",
-        "pr-fixer-retry-failed",
-        "pr-fixer-retry",
-        "pr-fixer-review-commit",
-    }
-    assert onward_of(fold, "daily-newspaper") == []
 
 
 def test_onward_includes_any_and_ambiguous_but_not_the_workflow_itself():
@@ -426,7 +405,7 @@ def test_then_action_on_failure_and_runs():
         "kind": "github.comment",
         "name": f"{SENTINEL} comment",
         "only_at_chain_end": True,
-        "params": {"actor": "github-app", "status": True, "body": f"{SENTINEL} body"},
+        "params": {"actor": "github-app", "body": f"{SENTINEL} body"},
     }
     rule = _rule(
         action=comment,
@@ -438,9 +417,8 @@ def test_then_action_on_failure_and_runs():
     actual = [s["text"] for s in segs]
     assert actual == [
         "Nothing continues from here.",
-        "Where the chain ends here, it updates the chain's status comment on GitHub"
-        " (as github-app).",
-        "If it fails, it updates that comment with the failure.",
+        "Where the chain ends here, it runs github.comment as github-app.",
+        "If it fails, it runs github.comment as github-app (only where its chain ends).",
         "It runs one at a time per pr:{repository}#{number}, with at most 3 attempts.",
     ]
     for seg in segs:
@@ -455,26 +433,6 @@ def _comment(**kw: object) -> dict:
 @pytest.mark.parametrize(
     "action, on_failure, texts",
     [
-        # a status comment written whenever it is done, and a plain failure action after it
-        (
-            _comment(params={"status": True}),
-            {"kind": "message", "params": {"channel": "#ops"}},
-            [
-                "When it is done, it updates the chain's status comment on GitHub"
-                " (as github-app).",
-                "If it fails, it runs message to #ops.",
-            ],
-        ),
-        # a status comment only on failure: it names the comment in full
-        (
-            {"kind": "noop"},
-            _comment(params={"status": True, "once_key": "k"}, only_at_chain_end=True),
-            [
-                "When it is done, nothing else happens.",
-                "If it fails, it updates the chain's status comment on GitHub with the failure"
-                " (as github-app, once per once_key).",
-            ],
-        ),
         # an ordinary comment at the chain's end: the lead-in says so, the brackets merge
         (
             _comment(params={"once_key": "k"}, only_at_chain_end=True),
@@ -486,15 +444,9 @@ def _comment(**kw: object) -> dict:
                 " (once per once_key, only where its chain ends).",
             ],
         ),
-        # a status comment with no actor reads with no brackets
-        (
-            {"kind": "github.comment", "params": {"status": True}},
-            None,
-            ["When it is done, it updates the chain's status comment on GitHub."],
-        ),
     ],
 )
-def test_then_status_comments_and_chain_ends(action, on_failure, texts):
+def test_then_comments_and_chain_ends(action, on_failure, texts):
     segs = _then([_rule(action=action, on_failure=on_failure)])
     actual = [s["text"] for s in segs[1:]]
     assert actual == texts
@@ -573,40 +525,6 @@ def test_workflow_paragraph_without_rules():
     assert out["text"] == "No rule starts it yet.\nFirst does it.\nNothing continues from here."
 
 
-def test_pr_fix_paragraph_opens_with_its_starting_rule_and_ends_with_then():
-    rules = _committed_rules()
-    wf = _committed_workflow("pr-fix")
-    out = workflow_paragraph(wf, rules)
-    starts = [s for s in out["segments"] if s["part"] == "start"]
-    actual = [s["rule"] for s in starts]
-    assert actual == ["pr-fixer-dispatch"]
-    assert out["text"].startswith(
-        "It starts when rules.queue.dispatch arrives, if its condition holds, on spark2."
-        "\nFirst waits for the pull request to settle, waiting 5 minutes"
-    )
-    steps = step_paragraph(wf)["text"]
-    head, sep, tail = out["text"].partition(steps)
-    assert sep
-    assert head.endswith(".\n")
-    assert tail.split("\n") == [
-        "",
-        "Then it continues into queue-progress, queue-add-capacity, queue-add or review-commit.",
-        "Where the chain ends here, it updates the chain's status comment on GitHub"
-        " (as github-app).",
-        "If it fails, it updates that comment with the failure.",
-        "It runs one at a time per pr-fixer:{repository}#{number}, with at most 3 attempts.",
-    ]
-    for seg in out["segments"]:
-        if seg["part"] != "step":
-            _assert_from_table(seg)
-    for rule in rules:  # no rule's name or description text
-        assert rule["name"] not in out["text"]
-        assert rule["description"] not in out["text"]
-        for action in (rule.get("action"), rule.get("on_failure")):
-            if action and action.get("name"):
-                assert action["name"] not in out["text"]
-
-
 def test_daily_newspaper_paragraph():
     out = workflow_paragraph(_committed_workflow("daily-newspaper"), _committed_rules())
     assert out["text"].startswith(
@@ -619,7 +537,7 @@ def test_daily_newspaper_paragraph():
 
 def test_workflow_paragraph_does_not_mutate_its_inputs():
     rules = _committed_rules()
-    wf = _committed_workflow("pr-fix")
+    wf = _committed_workflow("daily-newspaper")
     before = copy.deepcopy((rules, wf))
     workflow_paragraph(wf, rules)
     actual = (rules, wf)

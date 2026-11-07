@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] - 2026-11-07
+
+### Removed
+
+- The PR fixer is gone from code (no-flow-specific-code R1). It had been switched off live since 2026-10-19. Removed: its builtins (gate, review, handoff, fixer cooldown and levels, sonar and GitGuardian steps, the PR queue), the action kinds github.push and github.review_reply, its node stages (conflict, reaction and status-board watchers, story stop), the lineage and merge-hint helpers, the reviewer and workflow pins in actors/trusted.py, the docs/rules/pr-fixer bundle, deploy/pr-fixer and docs/operations/pr-fixer.md, and the editor's fixer fixtures
+- github.comment no longer keeps a status board: `status` other than absent or false is refused when saved (`action_param_removed`) and at run time (`bad_input`)
+- `rearm_settle` (the checks settle's re-arm after a refused push) and the duplicate `run_chain.step_state`
+- `install.sh --gate-run-as` (refused by name now), the machine record's `install.gate_run_as` (a stored one loads ignored; saving it is refused) and `rollout upgrade`'s flag for it: its only reader was the fixer's gate, and a sudo prefix relaxed the node unit's NoNewPrivileges. Every node unit keeps `NoNewPrivileges=true`
+- An agent actor with a locked instruction is refused (it was the fixer's)
+
+### Changed
+
+- The wheel ships no rule bundle: it carries deploy/release.json (the release manifest) and the node installer only; `rollout seed` and `rollout import` take `--bundle DIR` and exit 1 without one
+- Shared helpers moved to generic homes: engine/run_chain.py (upstream, LineageError) and node/actions/github.py (source_rule_refusal)
+- A bundle with no `variables.json` seeds nothing and records the seed step, so its import can follow
+- A release whose `release.json` lists no new rules or variables skips `rollout seed` and `rollout import`; `rollout plan` says so. The release manifest's version must be a plain version (`0.43.0`, `0.43.0.dev3`) before it reaches a remote command
+- A rule decision stored with the removed queue's `dispatch_revoked` still reads as a final skip
+- GitHub comment events keep `command`, `mention`, `mention_command` and `comment_id` as generic facts (documented in docs/actors/github.md); only the fixer's variables that matched them are gone
+- Kept, because other flows use them: the checks settle, the webhook settle path, run chains, chain holds, concurrency keys and pools, select, and the github-app pin (tests now cover the bridge agent's trust check for a pinned actor)
+
 ## [0.42.1] - 2026-11-03
 
 ### Fixed

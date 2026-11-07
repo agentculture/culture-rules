@@ -1,17 +1,17 @@
 """The web editor's Playwright fixture of the real API's describe answers (t18).
 
 ``web/e2e/fixtures/describe-paragraphs.json`` is what ``GET /workflows/{id}/describe`` answers
-for the twelve committed workflows (``docs/rules``) once
+for the six committed workflows (``docs/rules``) once
 ``tests/fixtures/workflow_descriptions.json`` is applied, built by the same
 ``workflow_paragraph`` the server calls, so the e2e mock serves
 the paragraph exactly as the API builds it. This test regenerates it and fails when the
 committed copy has drifted; ``REGENERATE_E2E_FIXTURES=1 uv run pytest <this file>`` rewrites it.
 
 One workflow ships with no description of its own (``daily-newspaper``), and a step with none
-(``publish-fix``'s loop body step), so the editor's gaps and stand-ins (d11: the step's name,
-marked ``standin``) are exercised.
+(``daily-newspaper``'s loop body step ``check``), so the editor's gaps and stand-ins (d11: the
+step's name, marked ``standin``) are exercised.
 
-Assumption c9 (checked here): none of the twelve committed workflows reads a ``fallback`` step
+Assumption c9 (checked here): none of the six committed workflows reads a ``fallback`` step
 segment, i.e. every step kind and config in them has a joining phrase in the table.
 """
 
@@ -106,18 +106,18 @@ def test_the_fixture_has_a_workflow_and_a_step_with_no_description():
         if not s["description"]
     ]
     assert gaps, "no step without a description"
-    assert any(wid == "publish-fix" for wid, _ in gaps)
-    segs = data["describe"]["publish-fix"]["paragraph"]["segments"]
+    assert ("daily-newspaper", "check") in gaps
+    segs = data["describe"]["daily-newspaper"]["paragraph"]["segments"]
     assert any(s.get("gap") for s in segs)
-    reply = next(s for s in segs if s.get("step") == "reply")
-    assert reply["standin"] is True
-    assert reply["text"] == reply["name"]
+    check = next(s for s in segs if s.get("step") == "check")
+    assert check["standin"] is True
+    assert check["text"] == check["name"]
 
 
 def test_c9_no_committed_workflow_falls_back_to_a_generated_line():
-    """c9: the twelve committed workflows all read with a joining phrase and no fallback."""
+    """c9: the six committed workflows all read with a joining phrase and no fallback."""
     data = build()
-    assert len(data["workflows"]) == 14
+    assert len(data["workflows"]) == 6
     fallbacks = {
         wid: [s["step"] for s in a["paragraph"]["segments"] if s.get("fallback")]
         for wid, a in data["describe"].items()

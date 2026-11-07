@@ -20,7 +20,6 @@ FOLD_DOCS = [
     "README.md",
     "web/README.md",
     "docs/demo.md",
-    "docs/operations/pr-fixer.md",
     "docs/run-events.md",
 ]
 TABS = "Workflows | Actors | Variables | Statistics"
@@ -114,32 +113,6 @@ def test_run_events_states_the_stepless_workflow_fact() -> None:
     assert "`data.workflow_id`" in text
     assert "`data.workflow_version`" in text
     assert "tests/engine/test_stepless_workflow.py" in text
-
-
-def test_pr_fixer_ops_doc_reads_the_fixer_as_one_chain() -> None:
-    # #69 d13: the overview has one card per workflow and no chain cards; the chain is
-    # drawn from an open workflow's header and read in Simple's paragraph.
-    text = _flat("docs/operations/pr-fixer.md")
-    assert "chain card" not in text
-    assert "See it as one chain" in text
-    assert "Then it continues into" in text
-
-
-def test_pr_fixer_ops_doc_explains_the_trusted_save_question() -> None:
-    text = _flat("docs/operations/pr-fixer.md")
-    assert "The editor does not warn" not in text
-    for needle in [
-        "Save a trusted workflow?",
-        "Keep editing",
-        "Save anyway",
-        "web/src/workflows/trusted.ts",
-        "tests/rules/test_trusted_role_ids.py",
-        "culture_rules/actors/trusted.py",
-        "a rename from the head",
-        "runs still start",
-        "Saving the original definition back restores the trust",
-    ]:
-        assert needle in text, needle
 
 
 def test_web_readme_counts_two_chains_and_documents_the_trust_question() -> None:

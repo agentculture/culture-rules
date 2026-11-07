@@ -29,7 +29,7 @@ export interface WriteBatch {
   redo: (snapshot: Rule) => Promise<FoldWriteResult>;
 }
 
-/** Old-value words for the fields a shared edit replaces ("pr-fixer:… , 3 attempts per key"). */
+/** Old-value words for the fields a shared edit replaces ("document-chain:… , 3 attempts per key"). */
 export function fieldsText(fields: readonly string[]) {
   return (rule: Rule) => fields.map((field) => valueText(field, fieldOf(rule, field))).join(", ");
 }

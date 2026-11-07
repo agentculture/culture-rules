@@ -24,7 +24,6 @@ FULL_INSTALL = {
     "mode": "install_sh",
     "node_name": "thor",
     "secrets": ["RULES_GITHUB_APP_KEY", "DISCORD_TOKEN_2"],
-    "gate_run_as": "sudo -n -u culture-fixer -- /usr/bin/env PATH=/usr/bin:/bin",
     "extras": ["store", "events", "github"],
     "wheelhouse": "/opt/wheelhouse",
     "python": "3.12",
@@ -94,7 +93,7 @@ def test_committed_machine_schema_describes_install() -> None:
     assert set(section["properties"]["mode"]["enum"]) == {"install_sh", "shared_venv"}
 
 
-# --- criterion 2: secrets are grant names, gate_run_as is a sudo -n -u prefix -----------
+# --- criterion 2: secrets are grant names ------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -106,44 +105,6 @@ def test_secret_that_is_not_a_grant_name_is_refused(bad) -> None:
         name="thor", install=MachineInstall(mode="install_sh", secrets=("GOOD_NAME", bad))
     )
     assert ("install.secrets[1]", "invalid_secret_name") in _codes(machine)
-
-
-@pytest.mark.parametrize(
-    "good",
-    [
-        "sudo -n -u culture-fixer",
-        "sudo -n -u culture-fixer --",
-        "sudo -n -u culture-fixer -- /usr/bin/env PATH=/srv/culture-fixer/.local/bin:/usr/bin",
-        "/usr/bin/sudo -n -u fixer_1 --",
-    ],
-)
-def test_sudo_n_u_prefix_is_accepted(good) -> None:
-    machine = Machine(name="thor", install=MachineInstall(mode="install_sh", gate_run_as=good))
-    assert validate(machine) == []
-
-
-@pytest.mark.parametrize(
-    "bad",
-    [
-        "",
-        "   ",
-        "culture-fixer",
-        "sudo -u culture-fixer",
-        "sudo -u culture-fixer -n",
-        "sudo -n culture-fixer",
-        "sudo -n -u",
-        "sudo -n -u -- /bin/true",
-        "sudo -n -u culture-fixer\nrm -rf /",
-        "sudo -n -u 'culture fixer'",
-        "sudo -n -u culture-fixer -- sh -c 'x'\\",
-        "doas -n -u culture-fixer",
-        "env sudo -n -u culture-fixer",
-        "sudo -n -u 'unterminated",
-    ],
-)
-def test_gate_run_as_that_is_not_a_sudo_n_u_prefix_is_refused(bad) -> None:
-    machine = Machine(name="thor", install=MachineInstall(mode="install_sh", gate_run_as=bad))
-    assert ("install.gate_run_as", "invalid_run_as") in _codes(machine)
 
 
 # --- criterion 3: documents without install load and save unchanged ---------------------
@@ -214,16 +175,22 @@ def test_an_extra_or_secret_with_a_control_character_is_refused(value) -> None:
     assert ("install.secrets[1]", "invalid_secret_name") in codes
 
 
-@pytest.mark.parametrize("char", ["\t", "\x00", "\x1b", "\x7f", "\x0b"])
-def test_gate_run_as_with_any_control_character_is_refused(char) -> None:
-    value = f"sudo -n -u culture-fixer --{char}/bin/true"
-    machine = Machine(name="thor", install=MachineInstall(mode="install_sh", gate_run_as=value))
-    assert ("install.gate_run_as", "invalid_run_as") in _codes(machine)
-
-
 @pytest.mark.parametrize(
     "value", ["-oProxyCommand=touch /tmp/x", "-v", "ssh://user@thor", "fd00::123", "thor:22"]
 )
 def test_an_ssh_target_that_reads_as_an_option_is_refused(value) -> None:  # #57
     machine = Machine(name="thor", install=MachineInstall(mode="install_sh", ssh_target=value))
     assert ("install.ssh_target", "invalid_value") in _codes(machine)
+
+
+def test_a_stored_record_with_the_removed_gate_run_as_still_loads() -> None:
+    """d7: the field is gone; a record stored before 0.43.0 reads with it ignored."""
+    doc = {"name": "spark2", "install": {"mode": "install_sh", "gate_run_as": "sudo -n -u x --"}}
+    machine = Machine.from_dict(doc, strict=False)
+    assert machine.install.mode == "install_sh"
+
+
+def test_saving_the_removed_gate_run_as_is_refused() -> None:
+    doc = {"name": "spark2", "install": {"mode": "install_sh", "gate_run_as": "sudo -n -u x --"}}
+    with pytest.raises(ModelParseError):
+        Machine.from_dict(doc)

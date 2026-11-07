@@ -48,10 +48,8 @@ connectors and the hostname survives any one host going down.
 - The operator's email as the first Access allow entry (placeholder
   `<operator-email>`; no real address is written into the tree).
 - **Synchronized clocks on every engine node** (NTP, e.g. `systemd-timesyncd`
-  or `chrony`; check with `timedatectl`). The PR fixer's status comment writer
-  lease (d26) tolerates at most 30 s of skew between nodes
-  (`MAX_CLOCK_SKEW_S`); see `docs/operations/pr-fixer.md`, "One writer,
-  desired state".
+  or `chrony`; check with `timedatectl`). Leases and claims compare node
+  clocks, so keep the skew between nodes small.
 
 ## Step 1: dry-run, then apply (once, from one host)
 

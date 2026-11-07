@@ -360,7 +360,7 @@ RULE_ATTEMPT_BUDGETS = "rule_attempt_budgets"
 The key is **global** (deviation d13): one document per resolved concurrency key string,
 whichever rule resolved it, id :func:`budget_id` (a digest of the key alone). Rules whose
 templates resolve to the same key share one active run and one budget; a rule that wants
-isolation uses a distinct template (a namespace prefix such as ``pr-fixer:``). Fields:
+isolation uses a distinct template (a namespace prefix such as ``my-flow:``). Fields:
 ``key``; ``rule_id`` / ``run_id`` / ``intent_id`` of the rule and run holding the key;
 ``count`` (runs admitted since the last reset, by any rule sharing the key - every admitted
 run of a rule that counts toward the budget counts, whatever its outcome); ``counted``
@@ -593,7 +593,7 @@ def _admitted_count(
 
 def key_state(store: StoreOps, key: str, now: datetime | None = None) -> dict[str, Any]:
     """Read-only view of a resolved concurrency ``key`` for a scheduler deciding whether to
-    start work on it (the fixer queue, #35): ``busy`` (a live run or pending intent holds
+    start work on it: ``busy`` (a live run or pending intent holds
     it, or it is held for a chain's continuation - a firing now would be ``deduplicated``),
     ``count`` (attempts counted since the last reset) and ``limit`` (the ``max_attempts``
     of its latest reservation, ``None`` when unknown). Never writes."""

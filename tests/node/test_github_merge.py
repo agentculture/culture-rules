@@ -533,7 +533,7 @@ def test_the_merge_uses_up_the_code(pem):
 
 def test_no_workflow_digest_is_needed(pem):
     port, _, _, run_id = world(pem, Fake())
-    assert all("merge" not in role for role in trusted.TRUSTED_WORKFLOWS_V2)
+    assert trusted.pinned_digest({}) is None
     assert merge(port, run_id).outcome == "completed"
 
 

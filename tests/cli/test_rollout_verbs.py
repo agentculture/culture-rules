@@ -193,7 +193,7 @@ def test_install_flags_follow_the_record():
         {
             "mode": "install_sh",
             "secrets": ["RULES_A", "RULES_B"],
-            "gate_run_as": "sudo -n -u culture-fixer --",
+            "gate_run_as": "sudo -n -u culture-fixer --",  # removed (d7): ignored
             "extras": ["store", "events"],
             "wheelhouse": None,
             "python": "3.12",
@@ -204,7 +204,6 @@ def test_install_flags_follow_the_record():
     assert flags == [
         "--node-name", "spark2",
         "--secret", "RULES_A", "--secret", "RULES_B",
-        "--gate-run-as", "sudo -n -u culture-fixer --",
         "--extras", "store,events",
         "--python", "3.12",
         "--events-host", "broker",
@@ -520,11 +519,19 @@ def test_seed_refuses_a_bundle_of_another_release(wire, capsys, bundle):  # noqa
     assert "release 8.0.0" in fail(capsys, "rollout", "seed", "--bundle", str(bundle))["message"]
 
 
-def test_seed_reads_the_wheel_bundle_by_default(wire, capsys, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(rollout, "_release", lambda: {**RELEASE, "version": __version__})
-    out = jrun(capsys, "rollout", "seed")
-    assert out["dry_run"] is True
-    assert len(out["set"]) == len(rollout.deploy_data.variables())
+def test_seed_without_a_bundle_says_the_wheel_carries_none(wire, capsys):  # noqa: F811
+    """d2: the wheel carries no rule bundle, so seed needs --bundle (exit 1, nothing sent)."""
+    err = fail(capsys, "rollout", "seed")
+    assert err["message"] == "this wheel carries no rule bundle"
+    assert "--bundle DIR" in err["remediation"]
+    assert wire.mutating() == []
+
+
+def test_import_without_a_bundle_says_the_wheel_carries_none(wire, capsys):  # noqa: F811
+    err = fail(capsys, "rollout", "import", "--apply")
+    assert err["message"] == "this wheel carries no rule bundle"
+    assert "--bundle DIR" in err["remediation"]
+    assert wire.mutating() == []
 
 
 def test_import_refuses_before_seed_then_imports_workflows_and_rules(
@@ -545,6 +552,22 @@ def test_import_refuses_before_seed_then_imports_workflows_and_rules(
     assert store.get("rules", "r-new") is not None
     assert store.get("workflows", "wf") is not None
     assert doc(store)["steps"]["import"]["outcome"] == {"add": 2}
+
+
+def test_a_bundle_without_variables_seeds_nothing_and_records_the_step(
+    wire, store, capsys, bundle  # noqa: F811
+):
+    (bundle / "variables.json").unlink()
+    out = jrun(capsys, "rollout", "seed", "--bundle", str(bundle), "--apply")
+    assert out["set"] == []
+    assert doc(store)["steps"]["seed"]["outcome"] == {"set": [], "skipped": []}
+
+
+def test_a_bundle_without_variables_can_then_be_imported(wire, store, capsys, bundle):  # noqa: F811
+    (bundle / "variables.json").unlink()
+    jrun(capsys, "rollout", "seed", "--bundle", str(bundle), "--apply")
+    out = jrun(capsys, "rollout", "import", "--bundle", str(bundle), "--apply")
+    assert out["applied"] is True
 
 
 # --------------------------------------------------------------------------- enable
@@ -855,3 +878,32 @@ def test_plan_places_migrate_notes_after_upgrade_before_import(
         "resume",
         "verify",
     ]
+
+
+@pytest.mark.parametrize("bad", ["9.1.0; rm -rf ~", "9.1.0 --apply", "-o9.1.0", "9.1", "v9.1.0"])
+def test_a_manifest_version_that_is_not_a_plain_release_is_refused(monkeypatch, bad):
+    """The version names the remote deploy directory, so only a plain version passes."""
+    monkeypatch.setattr(rollout, "_release", lambda: {**RELEASE, "version": bad})
+    with pytest.raises(rollout.CliError) as exc:
+        rollout.release_version()
+    assert exc.value.code == rollout.EXIT_ENV_ERROR
+
+
+@pytest.mark.parametrize("good", ["9.1.0", "0.43.0.dev3"])
+def test_a_plain_release_version_is_read(monkeypatch, good):
+    monkeypatch.setattr(rollout, "_release", lambda: {**RELEASE, "version": good})
+    assert rollout.release_version() == good
+
+
+def test_plan_says_to_skip_seed_and_import_when_nothing_is_new(
+    wire, store, capsys, tmp_path, monkeypatch  # noqa: F811
+):
+    monkeypatch.setattr(
+        rollout, "_release", lambda: {**RELEASE, "new_rules": [], "new_variables": []}
+    )
+    put_node(store, "spark", "9.0.0", install={"mode": "shared_venv"})
+    wheel = tmp_path / "culture_rules-9.1.0-py3-none-any.whl"
+    wheel.write_bytes(b"")
+    lines = jrun(capsys, "rollout", "plan", "--wheel", str(wheel))["lines"]
+    assert any("skip seed and import" in line for line in lines)
+    assert not any("rollout seed --apply" in line for line in lines)

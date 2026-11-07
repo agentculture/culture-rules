@@ -267,8 +267,8 @@ describe("lossless editing", () => {
     await user.click(screen.getByRole("button", { name: "Save new version" }));
     await waitFor(() => expect(api.calls.find((c) => c.method === "PUT")).toBeTruthy());
     expect(api.calls.find((c) => c.method === "PUT")?.body).toMatchObject({
-      description: "PR authors the fixer may act on",
+      description: "PR authors the processor may act on",
     });
-    expect(api.variableVersions.at(-1)?.description).toBe("PR authors the fixer may act on");
+    expect(api.variableVersions.at(-1)?.description).toBe("PR authors the processor may act on");
   });
 });

@@ -3,7 +3,7 @@ import {
   ACTORS,
   EXPORT_RESULT,
   REPOS,
-  REVIEW_PR_DESCRIBED,
+  SUMMARIZE_DOCUMENT_DESCRIBED,
   RUN_7,
   STARTED_RUN,
   WORKFLOW_DOCS,
@@ -43,7 +43,7 @@ export const FORM_RUN_OUTPUTS = { verdict: "approve", owner: "ori" };
 
 /**
  * A stand-in for GET /workflows/{id}/describe on a hand-made workflow: its description and one
- * `step` segment per step (the step's own description, empty for a gap). The committed PR fixer
+ * `step` segment per step (the step's own description, empty for a gap). The committed Document chain
  * and newspaper use the real API's paragraphs instead (e2e/fixtures/describe-paragraphs.json).
  */
 export function standInDescription(wf: WorkflowDef) {
@@ -136,9 +136,9 @@ export async function mockWorkflowsApi(
     const described = path.match(/^\/api\/workflows\/([^/]+)\/describe$/);
     if (described && method === "GET") {
       const stored = workflows.find((w) => w.id === described[1]);
-      if (described[1] === REVIEW_PR_DESCRIBED.id) {
-        const { lines, entries } = REVIEW_PR_DESCRIBED;
-        return json(200, { ...(stored ? standInDescription(stored) : {}), ...REVIEW_PR_DESCRIBED, lines, entries });
+      if (described[1] === SUMMARIZE_DOCUMENT_DESCRIBED.id) {
+        const { lines, entries } = SUMMARIZE_DOCUMENT_DESCRIBED;
+        return json(200, { ...(stored ? standInDescription(stored) : {}), ...SUMMARIZE_DOCUMENT_DESCRIBED, lines, entries });
       }
       if (!stored) return fail(404, "not_found", `workflows/${described[1]}`);
       return json(200, standInDescription(stored));
@@ -184,7 +184,7 @@ export async function mockWorkflowsApi(
         committed: applied,
         pushed: false,
         commit: applied ? "0123456789abcdef" : null,
-        changes: [{ kind: "workflows", id: "review-pr", path: "workflows/review-pr.json", action: "change" }],
+        changes: [{ kind: "workflows", id: "summarize-document", path: "workflows/summarize-document.json", action: "change" }],
       });
     }
     if (path === "/api/export") return json(200, EXPORT_RESULT);

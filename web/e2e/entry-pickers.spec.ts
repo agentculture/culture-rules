@@ -47,7 +47,7 @@ test.describe("Trigger picker", () => {
     const events = await form.getByLabel("Event", { exact: true }).locator("option").evaluateAll((os) =>
       os.map((o) => (o as HTMLOptionElement).value),
     );
-    expect(events).toEqual(["", "github.pr.opened", "github.push"]);
+    expect(events).toEqual(["", "github.pr.opened", "github.pr.closed"]);
     await form.getByLabel("Event", { exact: true }).selectOption("github.pr.opened");
     await noSeriousAxe(page, "new rule, event trigger");
     await form.getByRole("button", { name: "Create rule" }).click();
@@ -127,7 +127,7 @@ test.describe("Action picker", () => {
   test("an incomplete action is refused with a guided notice", async ({ page }) => {
     const { api, form } = await openNewRule(page, "No actor");
     await form.getByLabel("Surface").selectOption("github-app");
-    await form.getByLabel("Event", { exact: true }).selectOption("github.push");
+    await form.getByLabel("Event", { exact: true }).selectOption("github.pr.closed");
     await form.getByLabel("What happens").selectOption("github.comment");
     await form.getByRole("button", { name: "Create rule" }).click();
     await expect(form.getByRole("alert").or(form.getByRole("status"))).toBeVisible();

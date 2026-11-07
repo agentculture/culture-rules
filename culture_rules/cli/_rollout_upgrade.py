@@ -54,7 +54,7 @@ from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from culture_rules.cli._nounlib import seg
 from culture_rules.cli.registry import Context
 from culture_rules.client.http import ApiError, ApiUnreachable
-from culture_rules.model.validate import has_control_char, is_install_word, is_ssh_target
+from culture_rules.model.validate import is_install_word, is_ssh_target
 
 __all__ = [
     "Result",
@@ -254,9 +254,6 @@ def check_fields(machine: Mapping[str, Any], name: str, install: Mapping[str, An
     for field in _LIST_FIELDS:
         for i, item in enumerate(install.get(field) or ()):
             _check_word(name, f"install.{field}[{i}]", item)
-    run_as = install.get("gate_run_as")
-    if run_as is not None and (not isinstance(run_as, str) or has_control_char(run_as)):
-        raise _refuse_field(name, "install.gate_run_as", "holds a control character")
     port = install.get("events_port")
     if port is not None and (isinstance(port, bool) or not isinstance(port, int)):
         raise _refuse_field(name, "install.events_port", "is not a port number")

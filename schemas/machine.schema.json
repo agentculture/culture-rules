@@ -113,18 +113,6 @@
           "description": "Grant secret NAMES ([A-Z0-9_]+) passed as install.sh --secret; never values",
           "default": []
         },
-        "gate_run_as": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "install.sh --gate-run-as: a 'sudo -n -u <user> ...' run-as prefix",
-          "default": null
-        },
         "extras": {
           "anyOf": [
             {

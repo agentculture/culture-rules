@@ -134,17 +134,25 @@ def test_every_write_is_dry_run_without_apply(wire, store, capsys, tmp_path):
     assert [c for c in wire.mutating() if c != ("POST", "/import")] == []
 
 
-def test_rollout_writes_are_dry_run_without_apply(wire, store, capsys):
-    """Each rollout step's dry run (the wheel's own bundle) sends nothing mutating."""
-    jrun(capsys, "rollout", "seed", "--apply")  # import's guard needs the seed step
-    jrun(capsys, "rollout", "import", "--apply")  # enable's guard needs the release's new rules
+def test_rollout_writes_are_dry_run_without_apply(wire, store, capsys, tmp_path):
+    """Each rollout step's dry run (a bundle passed with --bundle; d2: the wheel carries none)
+    sends nothing mutating."""
+    root = tmp_path / "bundle"
+    (root / "workflows").mkdir(parents=True)
+    (root / "rules").mkdir()
+    (root / "workflows" / "wf.json").write_text(json.dumps(workflow_body("wf")))
+    (root / "rules" / "r1.json").write_text(json.dumps(rule_body("r1", enabled=False)))
+    (root / "variables.json").write_text(json.dumps([{"name": "v1", "value": 1}]))
+    bundle = ["--bundle", str(root)]
+    jrun(capsys, "rollout", "seed", *bundle, "--apply")  # import's guard needs the seed step
+    jrun(capsys, "rollout", "import", *bundle, "--apply")  # enable's guard: the new rules
     jrun(capsys, "rollout", "pause", "--apply")  # enable's guard needs the snapshot
     wire.calls.clear()
     before = snapshot(store) | {"rollouts": store.find("rollouts")}
     for argv in (
         ["rollout", "pause"],
-        ["rollout", "seed"],
-        ["rollout", "import"],
+        ["rollout", "seed", *bundle],
+        ["rollout", "import", *bundle],
         ["rollout", "enable"],
         ["rollout", "resume", "--force"],  # resume's guard needs the enable step (#62)
     ):

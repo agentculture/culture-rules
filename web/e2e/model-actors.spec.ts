@@ -94,8 +94,8 @@ test.describe("Actors tab: model actors", () => {
     });
 
     // Following a link opens the workflow.
-    await section.getByRole("link", { name: "review-pr" }).click();
-    await expect(page).toHaveURL(/\/workflows\?id=review-pr$/);
+    await section.getByRole("link", { name: "summarize-document" }).click();
+    await expect(page).toHaveURL(/\/workflows\?id=summarize-document$/);
   });
 
   test("Move on a stale revision: the workflow changed since you opened it, Reload, then Move", async ({ page }) => {
@@ -125,7 +125,7 @@ test.describe("Actors tab: model actors", () => {
     const refusal = row.getByRole("alert");
     await expect(refusal).toContainText("Claude Code is still used by");
     await expect(refusal.getByRole("link", { name: "newspaper" })).toHaveAttribute("href", "/workflows?id=newspaper");
-    await expect(refusal.getByRole("link", { name: "review-pr" })).toBeVisible();
+    await expect(refusal.getByRole("link", { name: "summarize-document" })).toBeVisible();
     await expect(row.getByRole("switch")).toHaveAttribute("aria-checked", "true");
     expect(await seriousViolations(page)).toEqual([]);
     await shoot(page, "d-disable-in-use");

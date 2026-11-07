@@ -20,12 +20,8 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    then **probe** - runs each due probe rule's allow-listed command on the actor's own
    machine and emits a ``kind=probe`` event on change or success
    (:mod:`culture_rules.node.probe_trigger`; same slot marker and window as schedule);
-   then **settle**, **conflict watch** and **reaction watch** - the checks settler's due SHAs
-   (:mod:`culture_rules.node.checks_settle`), every ``conflict_watch_interval_s`` one
-   ``github.pr.conflicting`` event per conflicting PR head and base pair of the fixer repos
-   (:mod:`culture_rules.node.conflict_watch`, d31), and every ``reaction_watch_interval_s``
-   one ``github.reaction.added`` event per 👎 on a live fixer story's ``/fix`` or status
-   comment (:mod:`culture_rules.node.reaction_watch`, d34);
+   then **settle** - the checks settler's due SHAs
+   (:mod:`culture_rules.node.checks_settle`);
    then **discord gateway** - reconciles the Discord Gateway listeners
    (:class:`~culture_rules.apps.discord_gateway.GatewaySupervisor`): for each enabled
    Discord app actor declaring ``discord.message.created``, ``discord.reaction.added``,
@@ -55,11 +51,7 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    asks each bridge this node can reach (an actor on this machine, or on none) to cancel
    the jobs whose step attempt is over (:func:`~culture_rules.actors.agent.cancel_orphans`,
    d21 phase 2), so an orphaned agent session never holds a bridge's seat;
-7. **status** - the PR fixer's live status comments (d26,
-   :mod:`culture_rules.node.status_board`): the single writer of the status comments of
-   the App actors placed on this machine reconciles each to its desired state, bounded per
-   cycle (requests and seconds), after the drive stage;
-8. **report** - optional: posts finished runs this node started through
+7. **report** - optional: posts finished runs this node started through
    :meth:`~culture_rules.engine.reports.RunReporter.observe`.
 
 Each stage is isolated: an exception in one is logged, recorded on the cycle report and in
@@ -82,7 +74,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors import agent, human
-from culture_rules.actors.review import CURRENT_COLLECTION, REVIEWS_COLLECTION
 from culture_rules.apps.discord_gateway import (
     GATEWAY_STATE_COLLECTION,
     Gateway,
@@ -125,13 +116,9 @@ from culture_rules.node.checks_settle import (
     AppSuiteLister,
     ChecksSettler,
 )
-from culture_rules.node.conflict_watch import ConflictWatcher
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
-from culture_rules.node.fixer_status import STATUS_COLLECTION
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
-from culture_rules.node.reaction_watch import ReactionWatcher
 from culture_rules.node.schedule import Scheduler
-from culture_rules.node.status_board import WRITERS_COLLECTION, ensure_status_indexes
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import Change, ChangeFeed, Document, StoragePort, feed_end
 
@@ -150,13 +137,8 @@ NODE_COLLECTIONS = (
     RULE_FIRES,
     RULE_DECISIONS,
     "actor_usage",
-    "queues",  # culture_rules.node.actions.queue.QUEUES_COLLECTION (#35)
-    "handoffs",  # culture_rules.actors.handoff.HANDOFFS_COLLECTION (#39)
-    "fixer_cooldowns",  # culture_rules.node.actions.fixer_levels.FIXER_COOLDOWNS (#39)
     human.ASKS_COLLECTION,
     agent.BRIDGE_INVOCATIONS,
-    REVIEWS_COLLECTION,
-    CURRENT_COLLECTION,
     PROBE_STATE,
     LEASES_COLLECTION,
     HOOK_STATS_COLLECTION,
@@ -165,8 +147,6 @@ NODE_COLLECTIONS = (
     RECOVERY_COLLECTION,
     LATE_COLLECTION,
     ONCE_COLLECTION,
-    STATUS_COLLECTION,
-    WRITERS_COLLECTION,
     RULE_ATTEMPT_BUDGETS,
     RUN_COMPLETIONS,
     RUN_EVENT_CONSUMPTION,
@@ -226,7 +206,6 @@ class CycleReport:
     redelivered: int = 0
     transitions: int = 0
     reported: int = 0
-    status_edits: int = 0
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -281,12 +260,9 @@ class Node:
         if callable(ensure):
             ensure(*NODE_COLLECTIONS)
         ensure_quarantine_ttl(store)  # every node can quarantine (outbox, ingest)
-        ensure_status_indexes(store)  # d26: the status board's queries
         options = options or NodeOptions()
         self._beat_options = heartbeat_options or HeartbeatOptions()
         self.router = ActorRouter(store, ports=actors, factories=adapters, clock=self._clock)
-        comment_port = (actors or {}).get("action:github.comment")
-        self._status_tick = getattr(comment_port, "status_tick", None)
         self.executor = Executor(
             store,
             host,
@@ -333,21 +309,6 @@ class Node:
             lister.list_suites,
             pull=lister.get_pull,
             serves=lister.serves,
-            clock=self._clock,
-        )
-        # d31: a PR that turns CONFLICTING starts a fixer request (no webhook says so)
-        self.conflicts = ConflictWatcher(
-            store,
-            lambda repo, page, timeout: lister.list_open_pulls_page(repo, page, timeout_s=timeout),
-            lambda repo, number, timeout: lister.get_pull(repo, number, timeout_s=timeout),
-            clock=self._clock,  # no serves: the bounded listing says repo_not_allowed
-        )
-        # d34: a 👎 on a live story's comments stops it (no webhook says so)
-        self.reactions = ReactionWatcher(
-            store,
-            lambda repo, comment_id, timeout: lister.comment_reactions(
-                repo, comment_id, timeout_s=timeout
-            ),
             clock=self._clock,
         )
         self.heartbeat: HeartbeatPublisher | None = None
@@ -471,8 +432,6 @@ class Node:
             self._stage(report, self._schedule, report)
             self._stage(report, self._probe, report)
             self._stage(report, self._settle, report)
-            self._stage(report, self._watch_conflicts, report)
-            self._stage(report, self._watch_reactions, report)
             self._stage(report, self._expire_holds, report)
             if self._listen_gateways:
                 self._stage(report, self._discord_gateway, report)
@@ -482,8 +441,6 @@ class Node:
             self._stage(report, self._redeliver, report)
             self._stage(report, self._drive, report)
             self._stage(report, self._cancel_orphans, report)
-            if self._status_tick is not None:
-                self._stage(report, self._fixer_status, report)
             if self._reporter is not None and self._report_token is not None:
                 self._stage(report, self._report, report)
         return report
@@ -518,14 +475,6 @@ class Node:
 
     def _settle(self, report: CycleReport) -> None:
         self.settler.tick()
-
-    def _watch_conflicts(self, report: CycleReport) -> None:
-        del report
-        self.conflicts.tick()
-
-    def _watch_reactions(self, report: CycleReport) -> None:
-        del report
-        self.reactions.tick()
 
     def _expire_holds(self, report: CycleReport) -> None:
         """Release chain holds past their TTL (d21): their pending events then fire through
@@ -564,10 +513,6 @@ class Node:
         this node can reach (:func:`~culture_rules.actors.agent.cancel_orphans`)."""
         del report
         agent.cancel_orphans(self._store, self._bridge_adapter, clock=self._clock)
-
-    def _fixer_status(self, report: CycleReport) -> None:
-        """Post and edit the PR fixer's status comments (d26) for the App actors here."""
-        report.status_edits += self._status_tick(self.host)
 
     def _bridge_adapter(self, actor_id: Any) -> Any:
         """The adapter of ``actor_id`` when this node may call its bridge: the actor lives

@@ -8,8 +8,6 @@ completion is delivered (which frees the pool slot through the store-only releas
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from culture_rules.actors.limits import USAGE_COLLECTION, pool_doc_id
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.claims import idempotency_key
@@ -118,55 +116,6 @@ def dispatch_cluster():
     return c
 
 
-def test_a_late_dispatch_whose_slot_expired_never_starts_a_run():
-    from culture_rules.engine.actorport import InvocationContext as Ctx
-    from culture_rules.engine.runs import RUNS_COLLECTION
-    from culture_rules.node.actions.queue import QUEUES_COLLECTION, QueueAddPort, QueueProgressPort
-
-    c = dispatch_cluster()
-    deadline = c.clock() + timedelta(hours=1)
-    cfg = {"queue": "q", "dispatch_rule": "dispatch", "stale_after_s": 900}
-    ctx = Ctx(run_id="r", step_id="s", kind="code", host="spark", config=cfg)
-    add, progress = QueueAddPort(c.base, clock=c.clock), QueueProgressPort(c.base, clock=c.clock)
-    add.invoke({"repo": "o/a", "number": 1}, "a", deadline, context=ctx)
-    add.invoke({"repo": "o/b", "number": 2}, "b", deadline, context=ctx)
-    assert progress.invoke({}, "p1", deadline, context=ctx).output["dispatched"] == ["o/a#1"]
-    a_run = c.base.get(QUEUES_COLLECTION, "q")["active"][0]["run_id"]
-    # the nodes do not consume A's dispatch in time (a stalled feed): its slot expires
-    c.clock.advance(901)
-    second = progress.invoke({}, "p2", deadline, context=ctx)
-    assert second.output["dispatched"] == ["o/b#2"]
-    # now the nodes catch up: A's late event must not start a run beside B's
-    c.cycle()
-    c.cycle()
-    assert c.base.get(RUNS_COLLECTION, a_run) is None
-    started = [r["trigger"]["data"]["number"] for r in c.base.find(RUNS_COLLECTION)]
-    assert started == [2]
-
-
-def test_a_claimed_dispatch_keeps_its_slot_until_its_run_ends():
-    from culture_rules.engine.actorport import InvocationContext as Ctx
-    from culture_rules.engine.runs import RUNS_COLLECTION
-    from culture_rules.node.actions.queue import QUEUES_COLLECTION, QueueAddPort, QueueProgressPort
-
-    c = dispatch_cluster()
-    deadline = c.clock() + timedelta(hours=1)
-    cfg = {"queue": "q", "dispatch_rule": "dispatch", "stale_after_s": 900}
-    ctx = Ctx(run_id="r", step_id="s", kind="code", host="spark", config=cfg)
-    add, progress = QueueAddPort(c.base, clock=c.clock), QueueProgressPort(c.base, clock=c.clock)
-    add.invoke({"repo": "o/a", "number": 1}, "a", deadline, context=ctx)
-    add.invoke({"repo": "o/b", "number": 2}, "b", deadline, context=ctx)
-    progress.invoke({}, "p1", deadline, context=ctx)
-    c.cycle()  # A's dispatch fires: its firing claims the slot
-    (act,) = c.base.get(QUEUES_COLLECTION, "q")["active"]
-    assert act["claimed_at"]
-    run = c.base.get(RUNS_COLLECTION, act["run_id"])
-    assert run is not None
-    assert run["status"] == "running"
-    c.clock.advance(5 * 3600)
-    assert progress.invoke({}, "p2", deadline, context=ctx).output["dispatched"] == []
-
-
 # ---- Codex #35 P2: a slot is released where it was taken, whatever the pool is now ----------
 
 
@@ -212,56 +161,3 @@ def _notify_rule():
         trigger=Trigger(kind="event", params={"type": "rules.queue.dispatch"}),
         action=Action(kind="noop"),
     )
-
-
-def _queue_of(c):
-    from culture_rules.engine.actorport import InvocationContext as Ctx
-    from culture_rules.node.actions.queue import QueueAddPort, QueueProgressPort
-
-    deadline = c.clock() + timedelta(hours=1)
-    cfg = {"queue": "q", "dispatch_rule": "dispatch", "stale_after_s": 900}
-    ctx = Ctx(run_id="r", step_id="s", kind="code", host="spark", config=cfg)
-    add, progress = QueueAddPort(c.base, clock=c.clock), QueueProgressPort(c.base, clock=c.clock)
-
-    def do_add(repo, n):
-        add.invoke({"repo": repo, "number": n}, f"add-{repo}", deadline, context=ctx)
-
-    def do_progress(tag):
-        return progress.invoke({}, tag, deadline, context=ctx).output
-
-    return do_add, do_progress
-
-
-def test_another_rule_on_the_dispatch_event_never_claims_the_slot():
-    from culture_rules.engine.runs import RUNS_COLLECTION
-    from culture_rules.node.actions.queue import QUEUES_COLLECTION
-
-    c = dispatch_cluster()
-    c.define(_notify_rule())
-    doc = c.base.get("rules", "dispatch")
-    c.base.put("rules", {**doc, "enabled": False})  # the configured dispatch rule is off
-    add, progress = _queue_of(c)
-    add("o/a", 1)
-    add("o/b", 2)
-    assert progress("p1")["dispatched"] == ["o/a#1"]
-    c.cycle()
-    c.cycle()
-    assert [r["rule_id"] for r in c.base.find(RUNS_COLLECTION)] == ["notify"]  # it fired
-    (act,) = c.base.get(QUEUES_COLLECTION, "q")["active"]
-    assert not act.get("claimed_at")  # but did not take the slot
-    c.clock.advance(901)
-    assert progress("p2")["dispatched"] == ["o/b#2"]  # the unclaimed slot expired
-
-
-def test_the_intended_dispatch_run_claims_its_slot_beside_another_rule():
-    from culture_rules.node.actions.queue import QUEUES_COLLECTION
-
-    c = dispatch_cluster()
-    c.define(_notify_rule())
-    add, progress = _queue_of(c)
-    add("o/a", 1)
-    progress("p1")
-    c.cycle()
-    (act,) = c.base.get(QUEUES_COLLECTION, "q")["active"]
-    assert act["claimed_at"]
-    assert act["claimed_run"] == act["run_id"]

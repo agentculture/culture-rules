@@ -18,18 +18,19 @@ the same :data:`~culture_rules.apps.github.PR_FACT_FIELDS` (``head_sha``, ``head
 ``issue_comment`` payload has no head/base, so a comment on a PR is enriched through the
 read-only ``pull`` lookup (the GitHub App, bounded by :data:`PULL_LOOKUP_TIMEOUT_S`) and
 marked ``pr_enriched``; a failed lookup stores the comment without the PR fields and
-``pr_enriched: false`` (fail-closed for the fixer's condition); so does an answer missing any
+``pr_enriched: false`` (fail-closed for a rule's condition); so does an answer missing any
 valid PR fact. On every type a missing or malformed fact is omitted rather than null, so it
 never compares equal (a deleted fork has no ``head_repo``). The lookup runs only when the
 sink would store the delivery, so a redelivery never re-reads the PR. Every PR-scoped event
 also carries the PR's ``state`` (``open``/``closed``, d21) when it is known.
 
 Comment intent (d21): an ``issue_comment``, ``pull_request_review`` or
-``pull_request_review_comment`` also carries ``command`` and ``mention``, read from the body's
-**first token** only (:func:`comment_intent`): ``/fix`` when the comment starts with it,
-``@<slug>`` when it starts with the App's mention (its ``params.self_identity`` without
-``[bot]``); each is omitted when absent. The fixer's comment rules match them against
-``vars.fixer_comment_triggers``: start the comment with ``/fix`` or ``@rules-culture-dev``.
+``pull_request_review_comment`` also carries ``command``, ``mention`` and ``mention_command``,
+read from the body's **first token** only (:func:`comment_intent`): ``/deploy`` when the
+comment starts with it, ``@<slug>`` when it starts with the App's mention (its
+``params.self_identity`` without ``[bot]``), and ``@<slug> <word>`` when a word follows the
+mention; each is omitted when absent. A comment event also carries ``comment_id``. A rule
+matches these facts in its condition; which commands mean anything is configuration.
 
 The endpoint is public:
 authentication is the signature alone, failures are a bare 401 that does not say whether the
@@ -191,8 +192,8 @@ def _comment_body(payload: Mapping[str, Any]) -> str | None:
 
 
 def _comment_id(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
-    """d34: the comment's own id (a positive integer, else omitted), so the reaction watch
-    can read the 👎s on the ``/fix`` comment that started a story."""
+    """The comment's own id (a positive integer, else omitted), so a later step can act on
+    that comment."""
     comment_id = _dig(payload, "comment", "id")
     if isinstance(comment_id, int) and not isinstance(comment_id, bool) and comment_id > 0:
         data["comment_id"] = comment_id
@@ -265,11 +266,10 @@ def _boundary(rest: str) -> bool:
 
 def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
     """What a comment asks of the App (d21): only its **first token** counts - the first
-    non-whitespace characters of the body. Start the comment with ``/fix`` or with the
-    App's mention.
+    non-whitespace characters of the body: a ``/word`` command or the App's mention.
 
     * ``command`` - the token when it is ``/word`` (ASCII letters, digits, ``_``, ``-``,
-      lowercased: ``/fix``) followed by whitespace or the end of the body; ``/fix,
+      lowercased: ``/deploy``) followed by whitespace or the end of the body; ``/deploy,
       please`` is no command;
     * ``mention`` - ``@<slug>`` when the token is the App's mention (``self_identity``
       without ``[bot]``; an optional ``[bot]`` is part of the token), compared
@@ -278,8 +278,7 @@ def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
       ``@rules-culture-dev[bot]x`` do not;
     * ``mention_command`` - ``@<slug> <word>`` when whitespace and then a word (ASCII
       letters, digits, ``_``, ``-``, lowercased, ending at a token boundary) follow the
-      mention: ``@rules-culture-dev stop`` (d34). The stop rules match it against
-      ``vars.fixer_stop_triggers``, and the fix rules ignore a mention that asks to stop.
+      mention: ``@rules-culture-dev stop`` (d34).
 
     Nothing later in the body ever counts, so there is no Markdown to parse. Leading
     whitespace (Unicode included) is stripped from the whole body first, then

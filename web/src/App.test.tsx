@@ -108,12 +108,12 @@ describe("App shell", () => {
       return null;
     }
     render(
-      <MemoryRouter initialEntries={["/rules/review-on-approve"]}>
+      <MemoryRouter initialEntries={["/rules/summarize-on-request"]}>
         <App />
         <Where />
       </MemoryRouter>,
     );
-    await waitFor(() => expect(where).toBe("/workflows?entry=review-on-approve"));
+    await waitFor(() => expect(where).toBe("/workflows?entry=summarize-on-request"));
   });
 
   it("an unknown rule id lands on Workflows with a not-found notice", async () => {

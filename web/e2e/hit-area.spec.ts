@@ -4,7 +4,7 @@ import { mockActorsApi } from "./fixtures/actors";
 import { mockStatistics } from "./fixtures/statistics";
 import { withView } from "./fixtures/view";
 import { mockWorkflowsApi } from "./fixtures/workflows";
-import { REVIEW_PR } from "../src/workflows/fixture";
+import { SUMMARIZE_DOCUMENT } from "../src/workflows/fixture";
 
 /**
  * Deviation d4: every interactive control has a hit area of at least 44x44
@@ -95,7 +95,7 @@ const TABS: {
   { name: "Workflows (a rule without a workflow)", path: "/workflows?entry=clean-caches", mock: (page) => mockApi(page) },
   {
     name: "Workflows (Detailed)",
-    path: "/workflows?id=review-pr",
+    path: "/workflows?id=summarize-document",
     mock: async (page) => {
       await withView(page, "detailed");
       await mockWorkflowsApi(page);
@@ -103,7 +103,7 @@ const TABS: {
   },
   {
     name: "Workflows (Debug)",
-    path: "/workflows?id=review-pr",
+    path: "/workflows?id=summarize-document",
     mock: async (page) => {
       await withView(page, "debug");
       await mockWorkflowsApi(page);
@@ -151,7 +151,7 @@ test.describe("d4: every control has a 44x44 hit area", () => {
   });
 
   for (const [label, start] of [
-    ["one workflow", [REVIEW_PR]],
+    ["one workflow", [SUMMARIZE_DOCUMENT]],
     ["no workflows", []],
   ] as const) {
     test(`Workflows tab: the overview's cards and New buttons (${label})`, async ({ page }) => {
@@ -176,18 +176,18 @@ test.describe("d4: every control has a 44x44 hit area", () => {
 
   test("Workflows tab: the open workflow's head, with its enable switch (d13)", async ({ page }) => {
     await mockApi(page);
-    await mockWorkflowsApi(page, [REVIEW_PR]);
-    await page.goto("/workflows?id=review-pr");
+    await mockWorkflowsApi(page, [SUMMARIZE_DOCUMENT]);
+    await page.goto("/workflows?id=summarize-document");
     await expect.poll(async () => (await agentState(page)).status).toBe("ready");
-    await expect(page.locator(".wf-head").getByRole("switch", { name: "Review PR enabled" })).toBeVisible();
+    await expect(page.locator(".wf-head").getByRole("switch", { name: "Summarize document enabled" })).toBeVisible();
     expect(await smallHitAreas(page, ".wf-head")).toEqual([]);
   });
 
   test("Workflows tab: the compact pane and its collapsed rail", async ({ page }) => {
     await withView(page, "detailed");
     await mockApi(page);
-    await mockWorkflowsApi(page, [REVIEW_PR]);
-    await page.goto("/workflows?id=review-pr");
+    await mockWorkflowsApi(page, [SUMMARIZE_DOCUMENT]);
+    await page.goto("/workflows?id=summarize-document");
     await expect.poll(async () => (await agentState(page)).status).toBe("ready");
     expect(await smallHitAreas(page, "aside.wf-pane")).toEqual([]);
     await page.getByRole("button", { name: "Hide workflows" }).click();

@@ -4,7 +4,7 @@ import { DESCRIBED, DESCRIBED_WORKFLOWS, mockDescribedApi, stepIds } from "./fix
 
 /**
  * Behavioural check of the workflow descriptions and the joined paragraph (plan t18; c21/h18,
- * c22/h19, c9): the committed ten workflows, served with the REAL API's describe paragraphs
+ * c22/h19, c9): the committed six workflows, served with the REAL API's describe paragraphs
  * (e2e/fixtures/describe-paragraphs.json, regenerated and compared by
  * tests/model/test_describe_paragraphs_fixture.py). Fails if a description, the paragraph, a
  * step, or the Notes is missing, or if the page shows a phrase the API did not send.
@@ -35,8 +35,8 @@ const paragraph = (page: Page) => page.getByTestId("paragraph");
 const WORKFLOWS = DESCRIBED_WORKFLOWS.map((w) => w.id);
 
 test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
-  test("the fixture has the fourteen committed workflows, one with no description and a step with none", () => {
-    expect(WORKFLOWS).toHaveLength(14);
+  test("the fixture has the six committed workflows, one with no description and a step with none", () => {
+    expect(WORKFLOWS).toHaveLength(6);
     expect(DESCRIBED_WORKFLOWS.filter((w) => !w.description?.trim()).map((w) => w.id)).toEqual(["daily-newspaper"]);
     const gaps = Object.values(DESCRIBED).flatMap((d) => d.paragraph.segments.filter((s) => s.gap));
     expect(gaps.length).toBeGreaterThan(0);
@@ -46,7 +46,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     await open(page, "/workflows");
     await expect(page.locator("aside.wf-pane")).toHaveCount(0);
     const cards = page.getByRole("list", { name: "All workflows" }).getByRole("listitem");
-    await expect(cards).toHaveCount(14);
+    await expect(cards).toHaveCount(6);
     for (const wf of DESCRIBED_WORKFLOWS) {
       const card = page.getByRole("link", { name: new RegExp(`^${wf.name}`) }).first();
       const expected = wf.description?.trim() || "No description yet";
@@ -54,12 +54,12 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     }
   });
 
-  test("pr-fix: Simple shows the description and the joined paragraph, Detailed the notes", async ({ page }) => {
-    await open(page, "/workflows?id=pr-fix");
-    const pr = DESCRIBED["pr-fix"];
+  test("transcript-to-reader: Simple shows the description and the joined paragraph, Detailed the notes", async ({ page }) => {
+    await open(page, "/workflows?id=transcript-to-reader");
+    const pr = DESCRIBED["transcript-to-reader"];
     // The compact pane (a search box and names), the open workflow current.
     await expect(page.locator("aside.wf-pane").getByRole("searchbox", { name: "Search workflows" })).toBeVisible();
-    await expect(page.locator("aside.wf-pane").getByRole("link", { name: DESCRIBED_WORKFLOWS.find((w) => w.id === "pr-fix")!.name, exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.locator("aside.wf-pane").getByRole("link", { name: DESCRIBED_WORKFLOWS.find((w) => w.id === "transcript-to-reader")!.name, exact: true })).toHaveAttribute("aria-current", "page");
     // The workflow's own description, then How it runs.
     await expect(page.getByRole("region", { name: "Simple view" })).toBeVisible();
     await expect(page.getByLabel("Workflow description")).toHaveText(pr.description);
@@ -72,13 +72,13 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
     // Detailed: the workflow's Notes at the top (d13), also in the inputs editor, and a step's Notes.
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.getByRole("group", { name: "Canvas view" }).getByRole("button", { name: "Detailed" }).click();
-    const wf = DESCRIBED_WORKFLOWS.find((w) => w.id === "pr-fix")!;
+    const wf = DESCRIBED_WORKFLOWS.find((w) => w.id === "transcript-to-reader")!;
     expect(wf.notes).toBeTruthy();
     await expect(page.getByRole("textbox", { name: "Notes for this workflow" })).toHaveValue(wf.notes!);
     await page.getByRole("group", { name: "Inputs", exact: true }).locator(".wf-card__io-title").click();
     await expect(page.getByRole("dialog", { name: "Edit inputs" }).getByRole("textbox", { name: "Workflow notes" })).toHaveValue(wf.notes!);
     await page.keyboard.press("Escape");
-    const quiet = wf.steps!.find((s) => s.id === "quiet")!;
+    const quiet = wf.steps!.find((s) => s.id === "summary")!;
     expect(quiet.notes).toBeTruthy();
     await page.getByRole("group", { name: quiet.name ?? "quiet", exact: true }).locator(".wf-card__name").click();
     await page.getByRole("button", { name: `Edit ${quiet.name ?? "quiet"}`, exact: true }).click();
@@ -121,13 +121,13 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
   }
 
   test("a step with no description shows its stand-in, marked not written yet", async ({ page }) => {
-    await open(page, "/workflows?id=publish-fix");
-    const seg = DESCRIBED["publish-fix"].paragraph.segments.find((s) => s.standin && s.part === "step")!;
+    await open(page, "/workflows?id=daily-newspaper");
+    const seg = DESCRIBED["daily-newspaper"].paragraph.segments.find((s) => s.standin && s.part === "step")!;
     expect(seg).toBeTruthy();
     const stand = paragraph(page).locator(`[data-step="${seg.step}"] .sv-standin`);
     // The words are the API's own stand-in, as paragraph.text reads them.
     await expect(stand).toHaveText(`${seg.shown} (not written yet)`);
-    expect(DESCRIBED["publish-fix"].paragraph.text).toContain(String(seg.shown));
+    expect(DESCRIBED["daily-newspaper"].paragraph.text).toContain(String(seg.shown));
     expect(await stand.evaluate((el) => getComputedStyle(el).fontStyle)).toBe("italic");
     // Clicking it opens the step's panel (d14) with an empty description for the author to write fresh.
     await stand.click();
@@ -143,7 +143,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
   });
 
   test("d14: a step opens its panel, a rule opens its editor with the enable switch; the selected words are highlighted", async ({ page }) => {
-    await open(page, "/workflows?id=pr-fix");
+    await open(page, "/workflows?id=transcript-to-reader");
     const step = paragraph(page).locator(".sv-step .sv-text").nth(1);
     await step.click();
     const panel = page.getByRole("dialog", { name: /^Edit / });
@@ -163,7 +163,7 @@ test.describe("Workflow descriptions and the joined paragraph (t18)", () => {
   });
 
   test("d13: disabled rules read muted with a tag, not struck through; Simple has no legend", async ({ page }) => {
-    await open(page, "/workflows?id=pr-fix");
+    await open(page, "/workflows?id=transcript-to-reader");
     const pill = paragraph(page).locator(".sv-pill").first();
     await expect(pill).toHaveText("disabled");
     expect(await paragraph(page).locator(".sv-disabled").first().evaluate((el) => getComputedStyle(el).textDecorationLine)).not.toBe("line-through");

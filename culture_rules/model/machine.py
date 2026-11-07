@@ -33,9 +33,6 @@ class MachineInstall(Model):
     secrets: tuple[str, ...] = doc(
         "Grant secret NAMES ([A-Z0-9_]+) passed as install.sh --secret; never values", default=()
     )
-    gate_run_as: str | None = doc(
-        "install.sh --gate-run-as: a 'sudo -n -u <user> ...' run-as prefix", default=None
-    )
     extras: tuple[str, ...] | None = doc("install.sh --extras (joined with ',')", default=None)
     wheelhouse: str | None = doc("install.sh --wheelhouse (offline install dir)", default=None)
     python: str | None = doc("install.sh --python (venv Python version)", default=None)

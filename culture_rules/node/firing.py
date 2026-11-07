@@ -158,12 +158,11 @@ of a firing intent.
 Concurrency keys
 ================
 A rule with a ``concurrency_key`` template (``Rule.concurrency_key``, e.g.
-``pr-fixer:{trigger.data.repository}#{trigger.data.number}``) holds that key from the moment
+``pr:{trigger.data.repository}#{trigger.data.number}``) holds that key from the moment
 it fires until its run ends. **The key is global** (deviation d13): rules whose templates
 resolve to the same string share one active run, one attempt budget and one coalescing slot
-- the pr-fixer is four rules (settled checks, a comment, a review, a review comment) on one
-key per PR. A rule that wants isolation uses a distinct template, by convention a namespace
-prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
+(e.g. several rules on one key per PR). A rule that wants isolation uses a distinct
+template, by convention a namespace prefix (``pr:``). :mod:`culture_rules.engine.claims` keeps one
 ``rule_attempt_budgets`` document per resolved key, written in the trigger transaction:
 
 * **one active run per key.** A firing whose key is held by a pending intent or a live run
@@ -179,13 +178,13 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   that leaves the pending event to its owner - so a concurrent trigger transaction noting a
   deduplicated event conflicts with each of them and re-runs (admitting its event) unless
   it committed first, and then every consumer, the owner's included, sees its event;
-* **an attempt budget.** Every admitted run counts, whatever its outcome - a fixer whose
+* **an attempt budget.** Every admitted run counts, whatever its outcome - a run whose
   own push produces new failing checks must not loop. After ``max_attempts`` admissions
   further firings are recorded as ``attempt_budget_exhausted``. Rules sharing a key share
   the count; the limit is the smallest ``max_attempts`` declared among the live rules whose
   template resolves to that key on the firing event (a rule without one is bounded by the
   others; nothing is refused at save time). A rule with ``counts_toward_budget`` false
-  (d21: a review firing on a fix's finished run is not a fix attempt) shares the key's one
+  (d21: a follow-up firing on a finished run is not a new attempt) shares the key's one
   active run and coalescing but is never counted, never refused by the budget, and its
   ``max_attempts`` (refused at save time) is never the limit. Only an explicit signal
   resets the counter (an outstanding reservation is kept): a ``github.pr.synchronize``
@@ -196,7 +195,7 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   event, whatever the event's own type. A reset applies once per (key, event) whatever the
   order consumers reach it in (a marker per pair, see ``reset_attempt_budget``), so a
   lagging consumer never grants an attempt without a new signal. A rule with
-  ``resets_attempt_budget`` (#35, d32: a trusted ``/fix`` request is a new story) resets
+  ``resets_attempt_budget`` (d32: an explicit request starts afresh) resets
   its own key the same way, once per (key, event), when it fires - its trigger and
   condition held - before its firing is admitted;
 * **a chain is one unit per key** (d21 phase 2, :mod:`culture_rules.engine.chain_hold`).
@@ -264,7 +263,6 @@ from culture_rules.engine.claims import (
     resolve_concurrency_key,
 )
 from culture_rules.engine.decisions import (
-    DISPATCH_REVOKED,
     FINAL_SKIP_REASONS,
     RATE_CAPPED,
     RULE_DECISIONS,
@@ -309,7 +307,6 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
-from culture_rules.node.actions.queue import claim_dispatch, dispatch_live, is_dispatch
 from culture_rules.node.chain import FeedConsumer, Source, Unrecoverable, live_rules
 from culture_rules.node.run_events import RunEventOutbox, is_run_event, verify_run_event
 from culture_rules.ops.logs import log_context
@@ -894,23 +891,13 @@ class RuleFiring:
         intent_id: str,
         now: datetime,
     ) -> tuple[Decision, str | None]:
-        """A firing decision after the queue's slot (#35), the budget reset (d32) and the
-        concurrency key's admission; a dispatch that still fires claims its slot."""
+        """A firing decision after the budget reset (d32) and the concurrency key's
+        admission."""
         key = None
-        if decision.fire and is_dispatch(envelope) and not dispatch_live(tx, envelope, run_id):
-            # #35 (Codex P1): the queue expired this dispatch and gave its slot away
-            decision = Decision(
-                rule_id=decision.rule_id,
-                fire=False,
-                reason=DISPATCH_REVOKED,
-                detail="the queue no longer holds this dispatch's slot",
-            )
         if decision.fire and rule.resets_attempt_budget is True:
-            _reset_own_key(tx, rule, envelope)  # d32: a new story
+            _reset_own_key(tx, rule, envelope)  # d32: starts afresh
         if decision.fire and rule.concurrency_key is not None:
             decision, key = self._admit(tx, rule, rules, envelope, decision, run_id, intent_id, now)
-        if decision.fire and is_dispatch(envelope):
-            claim_dispatch(tx, envelope, run_id, utc_timestamp(now))  # the slot is the run's
         return decision, key
 
     def _rate_capped(
@@ -1132,8 +1119,8 @@ def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerM
 
 
 BUDGET_RESET_FAMILIES = ("github.",)
-"""Trigger types whose rules a budget-reset event concerns: GitHub events (the pr-fixer's
-``checks_settled``, comment and review triggers alike); the key must also resolve."""
+"""Trigger types whose rules a budget-reset event concerns: GitHub events (``checks_settled``,
+comment and review triggers alike); the key must also resolve."""
 
 
 def _resets_budgets(envelope: Mapping[str, Any]) -> bool:
@@ -1151,7 +1138,7 @@ def _resets_budgets(envelope: Mapping[str, Any]) -> bool:
 
 def _budget_reset_applies(rule: Rule) -> bool:
     """Whether a reset event concerns ``rule``: a keyed rule triggered by a GitHub event
-    (whatever its exact type: a fixer triggered by settled checks or a comment is reset by
+    (whatever its exact type: a rule triggered by settled checks or a comment is reset by
     a human push). Its key must also resolve on the event."""
     wanted = rule.trigger.params.get("type")
     return (
@@ -1170,7 +1157,7 @@ def _resolved_key(rule: Rule, envelope: Mapping[str, Any]) -> str | None:
 
 
 def _reset_own_key(tx: StoreOps, rule: Rule, envelope: Mapping[str, Any]) -> None:
-    """#35 d32: ``rule`` (``resets_attempt_budget``) fires on ``envelope``: reset its key's
+    """d32: ``rule`` (``resets_attempt_budget``) fires on ``envelope``: reset its key's
     attempt budget once for this event, before the firing is admitted. A key that does not
     resolve resets nothing (the admission then skips the firing as unresolved)."""
     key = _resolved_key(rule, envelope)

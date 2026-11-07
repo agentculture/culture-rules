@@ -39,8 +39,8 @@ green signal that resets a rule's attempt budget for the PR (:mod:`culture_rules
 
 It also carries ``failed_apps`` (d25): the app slugs, lower-cased and sorted, of the
 counted suites that completed with conclusion ``failure`` (``[]`` when none did), so a rule
-can single out one app's failure - the PR fixer's ``pr-fixer-secrets`` fires on
-``"gitguardian" in failed_apps`` and ``pr-fixer-checks`` stays off it.
+can single out one app's failure - e.g. a condition ``"gitguardian" in failed_apps``,
+or its negation for a rule that should stay off it.
 
 **Late failures** (d25): a counted app's suite that completes ``failure`` *after* its SHA
 settled (the settle timed out while it ran, or a re-run failed) is not in that event's
@@ -48,8 +48,8 @@ settled (the settle timed out while it ran, or a re-run failed) is not in that e
 :meth:`ChecksSettler.on_check` then emits one :data:`LATE_TYPE` event per (repo, SHA, app)
 (:func:`late_event_id`): the settled event's data (its PR facts as of the settle) with
 ``failed_apps`` grown by the app, ``late_app``, ``conclusion: "failure"`` and
-``settled_by: "late"``. ``pr-fixer-secrets-late`` reports a GitGuardian finding from it; no
-fixer rule fires on it. Clocks never decide it: the failure becomes a candidate
+``settled_by: "late"``, so a rule can react to a failure that arrived after the settle.
+Clocks never decide it: the failure becomes a candidate
 (:data:`LATE_COLLECTION`) that is emitted only once the App's *current* listing still shows
 the app's suite for the head concluded ``failure`` (so a failure re-run green is never
 late); a failed listing, or a node that cannot read the repo's checks, keeps the candidate
@@ -98,7 +98,6 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -145,7 +144,6 @@ __all__ = [
     "ChecksSettler",
     "counted_suites",
     "ignored_check_apps",
-    "rearm_settle",
     "late_event_id",
     "settled_event_id",
     "suites_state",
@@ -198,14 +196,9 @@ class _PullDeferred(Exception):
     """The bounded webhook path's PR read ran out of time: emit from the tick instead."""
 
 
-REARM_LIMIT = 3
-"""The most times one head SHA's settle can be re-armed (:func:`rearm_settle`); the rules'
-per-PR attempt budget bounds the runs as well."""
-
-
 def settled_event_id(repo: str, sha: str, generation: int = 0) -> str:
     """The deterministic events id of ``repo@sha``'s settled event in ``generation`` (0 is
-    the first settle; a re-arm after ``base_changed`` starts the next one)."""
+    the first settle; records from before 0.43.0 may hold a later one)."""
     key = f"{repo}@{sha}".lower() + (f"#{generation}" if generation else "")
     digest = hashlib.sha256(key.encode()).hexdigest()[:24]
     return f"{SETTLED_ID_PREFIX}{digest}"
@@ -220,187 +213,6 @@ def late_event_id(repo: str, sha: str, app: str) -> str:
 def _generation(rec: Mapping[str, Any] | None) -> int:
     gen = (rec or {}).get("generation")
     return gen if isinstance(gen, int) and not isinstance(gen, bool) and gen >= 0 else 0
-
-
-def rearm_settle(
-    store: StoragePort,
-    repo: str,
-    sha: str,
-    *,
-    reason: str,
-    cause: str | None = None,
-    number: int | None = None,
-    head_branch: str | None = None,
-    now: datetime | None = None,
-) -> str:
-    """Settle ``repo@sha`` again (round 5): after ``github.push`` refused ``base_changed``
-    the reviewed run is over, but the head is unchanged, so no new head means no new
-    settle. This moves an emitted settle to ``pending`` in the next generation (a fresh
-    minimum window and deadline); the next completion or the node's poll then emits a new
-    ``checks_settled`` event carrying the PR's current facts (its new base), so the gate
-    and the review run again against it. Bounded by :data:`REARM_LIMIT` (and the rules'
-    attempt budget).
-
-    ``cause`` is the refusal's durable identity (the review record the push judged); it is
-    recorded with the generation transition in one compare-and-set, so replaying the same
-    refused push after the re-armed generation settled is a no-op (``replayed``).
-    ``number`` and ``head_branch`` (the PR the push named) are kept on a record the head
-    never had, so the emitted event names the PR and fetches its current facts. Returns
-    ``rearmed``, ``armed`` (no settle record yet), ``pending`` (already waiting),
-    ``replayed`` or ``limit``."""
-    when = now or datetime.now(UTC)
-    rid = f"{repo}@{sha}".lower()
-    timeout = _rearm_timeout(store)
-    numbers = _named_numbers(number)
-    fresh = {
-        "state": "pending",
-        "armed_at": _iso(when),
-        "deadline": _iso(when + timedelta(seconds=float(timeout))),
-        "next_poll_at": None,
-        "polls": 0,
-        "rearmed_for": reason,
-    }
-    head = _RearmHead(rid, repo, sha, cause, numbers, head_branch, fresh)
-    for _ in range(10):
-        move = _rearm_move(store.get(SETTLE_COLLECTION, rid), head)
-        if move.kind == "answer":
-            return move.outcome
-        if move.kind == "limit":
-            log.warning("checks settle: %s re-armed %d times; not again", rid, move.generation)
-            return "limit"
-        if move.kind == "insert":
-            try:
-                store.insert(SETTLE_COLLECTION, move.changes)
-                return "armed"
-            except DuplicateKeyError:
-                continue
-        if store.update_if(SETTLE_COLLECTION, rid, move.expected, move.changes).won:
-            return move.outcome
-    return "pending"
-
-
-def _named_numbers(number: Any) -> list[int]:
-    """``[number]`` when the refusal named an int PR number (not a bool), else ``[]``."""
-    return [number] if isinstance(number, int) and not isinstance(number, bool) else []
-
-
-@dataclass(frozen=True)
-class _RearmHead:
-    """What :func:`rearm_settle` was asked: the head, the refusal and its fresh settle."""
-
-    rid: str
-    repo: str
-    sha: str
-    cause: str | None
-    numbers: list[int]
-    head_branch: str | None
-    fresh: Mapping[str, Any]
-
-
-@dataclass(frozen=True)
-class _RearmMove:
-    """One :func:`rearm_settle` decision over the record as read: ``answer`` (return
-    ``outcome``, nothing written), ``limit``, ``insert`` (``changes`` is the new record) or
-    ``update`` (compare-and-set ``changes`` on ``expected``; ``outcome`` when it wins)."""
-
-    kind: str
-    outcome: str = "pending"
-    expected: Mapping[str, Any] | None = None
-    changes: dict[str, Any] = field(default_factory=dict)
-    generation: int = 0
-
-
-def _rearm_move(rec: Mapping[str, Any] | None, head: _RearmHead) -> _RearmMove:
-    """Decide :func:`rearm_settle`'s next write from the settle record ``rec`` as read."""
-    cause = head.cause
-    causes = list((rec or {}).get("rearm_causes") or [])
-    if cause is not None and cause in causes:
-        return _RearmMove("answer", "replayed")  # this refusal already re-armed the head once
-    recorded = causes + ([cause] if cause is not None else [])
-    if rec is None:
-        doc = _first_settle(
-            head.rid, head.repo, head.sha, head.head_branch, head.numbers, recorded, head.fresh
-        )
-        return _RearmMove("insert", "armed", changes=doc)
-    if rec.get("state") == "pending":
-        # coalesce into the settle that is still waiting: record the cause (so a replay
-        # after it settles is a no-op) and fill a PR number or branch it lacks, by
-        # compare-and-set on state, generation, causes and PR facts; a lost race (it
-        # settled meanwhile) is retried and takes the re-arm path instead
-        fill: dict[str, Any] = {}
-        if cause is not None:
-            fill["rearm_causes"] = recorded
-        fill.update(_missing_pr_facts(rec, head.numbers, head.head_branch))
-        if not fill:
-            return _RearmMove("answer", "pending")
-        return _RearmMove("update", "pending", _pending_guard(rec), fill)
-    gen = _generation(rec)
-    if gen >= REARM_LIMIT:
-        return _RearmMove("limit", "limit", generation=gen)
-    changes = {**head.fresh, "generation": gen + 1, "rearm_causes": recorded}
-    # PR facts of a head first seen by this refusal
-    changes.update(_missing_pr_facts(rec, head.numbers, head.head_branch))
-    expected = {
-        "state": rec.get("state"),
-        "generation": rec.get("generation"),
-        "rearm_causes": rec.get("rearm_causes"),
-    }
-    return _RearmMove("update", "rearmed", expected, changes)
-
-
-def _rearm_timeout(store: StoragePort) -> Any:
-    """``checks_settle_timeout_s`` when a positive number, else :data:`DEFAULT_TIMEOUT_S`."""
-    timeout = _var(store, "checks_settle_timeout_s")
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-        timeout = DEFAULT_TIMEOUT_S
-    return timeout
-
-
-def _first_settle(
-    rid: str,
-    repo: str,
-    sha: str,
-    head_branch: str | None,
-    numbers: list[int],
-    recorded: list,
-    fresh: Mapping[str, Any],
-) -> dict[str, Any]:
-    """The settle record :func:`rearm_settle` arms for a head that has none yet."""
-    return {
-        "id": rid,
-        "repository": repo,
-        "head_sha": sha,
-        "head_branch": head_branch,
-        "pr_numbers": numbers,
-        "number": numbers[0] if numbers else None,
-        "generation": 0,
-        "rearm_causes": recorded,
-        **fresh,
-    }
-
-
-def _missing_pr_facts(
-    rec: Mapping[str, Any], numbers: list[int], head_branch: str | None
-) -> dict[str, Any]:
-    """The PR number and branch the refusal names that settle record ``rec`` lacks."""
-    facts: dict[str, Any] = {}
-    if numbers and not rec.get("pr_numbers"):
-        facts.update(pr_numbers=numbers, number=numbers[0])
-    if head_branch and not rec.get("head_branch"):
-        facts["head_branch"] = head_branch
-    return facts
-
-
-def _pending_guard(rec: Mapping[str, Any]) -> dict[str, Any]:
-    """The compare-and-set guard of a fill into pending ``rec``: state, generation, causes
-    and PR facts as read."""
-    return {
-        "state": "pending",
-        "generation": rec.get("generation"),
-        "rearm_causes": rec.get("rearm_causes"),
-        "pr_numbers": rec.get("pr_numbers"),
-        "head_branch": rec.get("head_branch"),
-    }
 
 
 def ignored_check_apps(store: StoragePort) -> frozenset[str]:
@@ -907,7 +719,7 @@ class ChecksSettler:
         return self._store.get(SETTLE_COLLECTION, rid) or doc
 
     def _enrich(self, repo: str, numbers: list[int]) -> dict[str, Any]:
-        """Best-effort PR facts the fixer rules' condition reads (:func:`complete_pr_facts`,
+        """Best-effort PR facts a rule's condition reads (:func:`complete_pr_facts`,
         d14); any failure, or an answer missing any valid fact, omits them all. ``head_sha``
         stays the settled SHA (the PR may have moved on)."""
         if self._pull is None or not numbers:
@@ -1051,22 +863,6 @@ class AppSuiteLister(GitHubCommentPort):
         if timeout_s is None:
             return self._app_for(repo).list_check_suites(repo, sha)
         return self._bounded(repo, lambda app: app.list_check_suites(repo, sha), timeout_s)
-
-    def list_open_pulls_page(
-        self, repo: str, page: int, *, timeout_s: float
-    ) -> list[dict[str, Any]]:
-        """One page of the open PRs of ``repo`` (read-only ``Pull requests: read``; d31's
-        conflict watch), the whole lookup bounded by ``timeout_s`` as for :meth:`get_pull`."""
-        return self._bounded(repo, lambda app: app.list_open_pulls_page(repo, page), timeout_s)
-
-    def comment_reactions(
-        self, repo: str, comment_id: int, *, timeout_s: float
-    ) -> list[dict[str, Any]]:
-        """The 👎 reactions on issue comment ``comment_id`` of ``repo`` (read-only; d34's
-        reaction watch), the whole lookup bounded by ``timeout_s`` as for :meth:`get_pull`."""
-        return self._bounded(
-            repo, lambda app: app.list_comment_reactions(repo, comment_id), timeout_s
-        )
 
     def get_pull(
         self, repo: str, number: int, *, timeout_s: float | None = None

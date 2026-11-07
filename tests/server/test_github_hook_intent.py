@@ -1,15 +1,14 @@
-"""d21 phase 2 (E1, E2): what a PR comment asks for, and whether the PR is open.
+"""What a GitHub comment asks for, and whether the PR is open (generic webhook facts).
 
-Live findings: every comment by a trusted author started a fixer run - Qodo's billing
-notice, the operator's status note, a closing comment. A comment, review or review comment
-now carries two scalar facts a rule can match against a shared variable:
+A comment, review or review comment carries scalar facts a rule can match in its condition:
 
-* ``command`` - the first word of the body when the body starts with ``/`` (``/fix``),
-  lowercased;
-* ``mention`` - ``@<app slug>`` when the body mentions the App itself (its
-  ``params.self_identity`` without ``[bot]``), outside quoted lines and code;
+* ``command`` - the first token of the body when it is ``/word``, lowercased;
+* ``mention`` / ``mention_command`` - ``@<app slug>`` when the body starts with the App's
+  mention (its ``params.self_identity`` without ``[bot]``), and the word after it;
+* ``comment_id`` - the comment's own id;
 
 and every PR-scoped event carries ``state`` (``open`` / ``closed``) with the PR facts.
+The sample bodies use ``/fix``; which commands mean anything is configuration.
 """
 
 from __future__ import annotations
@@ -150,7 +149,7 @@ def test_pr_facts_carry_the_state():
     assert pr_facts(pr)["state"] == "closed"
     assert complete_pr_facts(pr)["state"] == "closed"
     assert "state" not in pr_facts({**pr, "state": "weird"})
-    # a missing state never blocks the other facts: the fixer rule's state check fails closed
+    # a missing state never blocks the other facts: a rule's state check fails closed
     without = {k: v for k, v in pr.items() if k != "state"}
     assert complete_pr_facts(without) is not None
     assert "state" not in complete_pr_facts(without)

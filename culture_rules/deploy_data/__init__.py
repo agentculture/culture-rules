@@ -1,14 +1,14 @@
-"""What a release deploys: the node installer, the pr-fixer bundle and its two manifests.
+"""What a release deploys: the node installer and the release manifest.
 
 The wheel carries them in this package (``hatch_build.py`` force-includes them; they are never
 committed here):
 
 * ``install.sh`` - ``deploy/node/install.sh``, the engine node installer;
-* ``pr-fixer/{workflows,rules,actors}/*.json`` - ``docs/rules/pr-fixer``, in the import format;
-* ``pr-fixer/variables.json`` - every seed variable ``{name, value, description}``
-  (``seed-variables.sh`` reads the same file);
-* ``pr-fixer/release.json`` - ``{version, new_rules, new_variables}``: the release this bundle
-  belongs to (equal to the package version) and what it adds.
+* ``release.json`` - ``deploy/release.json``, ``{version, new_rules, new_variables}``: the
+  release this wheel is (equal to the package version) and the rules and variables it adds.
+
+The wheel carries no rule bundle (d2): ``rollout seed`` and ``rollout import`` take one with
+``--bundle DIR``.
 
 Running from a source checkout (an editable install, the tests) the helpers fall back to those
 source paths. Stdlib only.
@@ -21,10 +21,9 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-__all__ = ["bundle_dir", "install_script", "release", "variables"]
+__all__ = ["install_script", "release", "release_manifest"]
 
-BUNDLE = "pr-fixer"
-_VARIABLES = "variables.json"
+_RELEASE = "release.json"
 
 
 def _packaged() -> Path:
@@ -37,37 +36,25 @@ def _source_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def install_script() -> Path:
-    """The engine node installer, ``install.sh``."""
-    packaged = _packaged() / "install.sh"
+def _find(name: str, source: Path) -> Path:
+    packaged = _packaged() / name
     if packaged.is_file():
         return packaged
-    source = _source_root() / "deploy" / "node" / "install.sh"
     if source.is_file():
         return source
-    raise FileNotFoundError("install.sh is neither in the package nor in a source checkout")
+    raise FileNotFoundError(f"{name} is neither in the package nor in a source checkout")
 
 
-def bundle_dir() -> Path:
-    """The pr-fixer bundle: ``workflows/``, ``rules/``, ``actors/`` and the two manifests."""
-    packaged = _packaged() / BUNDLE
-    if (packaged / _VARIABLES).is_file():
-        return packaged
-    source = _source_root() / "docs" / "rules" / BUNDLE
-    if (source / _VARIABLES).is_file():
-        return source
-    raise FileNotFoundError("the pr-fixer bundle is neither in the package nor in a checkout")
+def install_script() -> Path:
+    """The engine node installer, ``install.sh``."""
+    return _find("install.sh", _source_root() / "deploy" / "node" / "install.sh")
 
 
-def _read(name: str) -> Any:
-    return json.loads((bundle_dir() / name).read_text(encoding="utf-8"))
-
-
-def variables() -> list[dict[str, Any]]:
-    """The seed variables, each ``{name, value, description}``, in seeding order."""
-    return _read(_VARIABLES)
+def release_manifest() -> Path:
+    """The release manifest file, ``release.json``."""
+    return _find(_RELEASE, _source_root() / "deploy" / _RELEASE)
 
 
 def release() -> dict[str, Any]:
     """The release manifest: ``{version, new_rules, new_variables}``."""
-    return _read("release.json")
+    return json.loads(release_manifest().read_text(encoding="utf-8"))

@@ -59,8 +59,8 @@ On disk today:
   allowlist; the grant is resolved only after it passes), `actors references
   ID` lists what names an actor, `actors disable ID [--force]` is refused with
   `actor_in_use` while an enabled workflow or rule uses it, and `workflows
-  repoint-actor WF --from A --to B` moves a workflow (a trusted one needs
-  `--force`). The model rule: one enabled endpoint actor (one with
+  repoint-actor WF --from A --to B` moves a workflow (`--force` is for a pinned
+  one; none is pinned today). The model rule: one enabled endpoint actor (one with
   `params.base_url`) per model (409 `model_taken`, and again at run time in
   `llm.complete`); mesh agents without `base_url` are outside it. The verbs
   are MCP tools, the Actors page has Add models, Used by with Move, and
@@ -113,8 +113,10 @@ On disk today:
   `workflows migrate-notes [--apply]` (the committed `docs/rules` workflows
   are migrated), `workflows describe` returning the description and a
   paragraph from one phrase table (`culture_rules/model/paragraph.py`, no
-  AI), a server-owned workflow `revision` checked on save, v1 and v2 trust
-  digests, and `rules migrate-orphans [--apply]`.
+  AI), a server-owned workflow `revision` checked on save, v1 and v2 workflow
+  digests (no workflow is pinned today), and `rules migrate-orphans [--apply]`. The wheel ships `release.json`
+  (`culture_rules/deploy_data`) and no rule bundle: `rollout seed` and `rollout import`
+  take `--bundle DIR` (exit 1 without it).
 - State between runs (guide `docs/operations/keysets.md`): `keyset.filter` and
   `keyset.add` keep named key sets for a configured window (one document per key, TTL
   index, config-only rules); admin verbs `keysets list|show|clear`.

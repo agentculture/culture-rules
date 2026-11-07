@@ -84,7 +84,7 @@ def action_step(sid: str, kind: str, params: dict, *, inputs=(), outputs=(), **k
 def push_step(**kw) -> Any:
     return action_step(
         "push",
-        "github.push",
+        "github.pr",
         {
             "actor": "gh-app",
             "repo": "inputs.repo",
@@ -139,9 +139,9 @@ class Ports:
         self.reply = FakeActor(idempotent=reply_dedups, default=lambda inp, ctx: {"id": 1})
         self.noop = FakeActor()
         self.mapping = {
-            "action:github.push": self.push,
+            "action:github.pr": self.push,
             "action:github.comment": self.comment,
-            "action:github.review_reply": self.reply,
+            "action:jira.comment": self.reply,
             "action:noop": self.noop,
             "code": BuiltinCodePort({}),
             "*": self.agent,
@@ -182,7 +182,7 @@ def test_two_action_steps_run_in_order_with_params_from_earlier_outputs(store, c
     assert key == idempotency_key(run["id"], "push")
     # routed exactly like a rule action: kind "action", the literal actor, unresolved params
     assert (push_ctx.kind, push_ctx.actor, push_ctx.step_id) == ("action", "gh-app", "push")
-    assert push_ctx.config["kind"] == "github.push"
+    assert push_ctx.config["kind"] == "github.pr"
     assert push_ctx.config["params"]["commit_sha"] == "inputs.commit_sha"
     _, comment_in, comment_ctx, _ = p.comment.calls[0]
     assert comment_in["body"] == f"pushed {SHA_B} to #3"
@@ -226,9 +226,10 @@ def test_resolution_reuses_resolve_refs_with_the_inputs_namespace():
 def replies_workflow(**reply_kw: Any) -> Any:
     reply = action_step(
         "reply",
-        "github.review_reply",
+        "jira.comment",
         {
             "actor": "gh-app",
+            "issue": "DEMO-1",
             "repo": REPO,
             "number": 3,
             "comment_id": "inputs.item.comment_id",
@@ -287,7 +288,7 @@ def test_for_each_posts_one_reply_per_item_with_distinct_keys(store, clock):
 
 
 def test_crash_mid_loop_resumes_without_invoking_any_reply_twice(store, clock):
-    """A port that deduplicates on the key (like github.push): the resumed attempt reuses
+    """A port that deduplicates on the key (like github.pr): the resumed attempt reuses
     the iteration's key, so the crashed reply happens once and the loop finishes."""
     put_app(store)
     p = Ports(store, clock, reply_dedups=True)
@@ -302,7 +303,7 @@ def test_crash_mid_loop_resumes_without_invoking_any_reply_twice(store, clock):
     clock.advance(31)
     restarted = Ports(store, clock, reply_dedups=True)
     restarted.reply = p.reply  # the remote side outlives the engine
-    restarted.mapping["action:github.review_reply"] = p.reply
+    restarted.mapping["action:jira.comment"] = p.reply
     again = restarted.executor()
     again.run_until_idle()
 
@@ -316,7 +317,7 @@ def test_crash_mid_loop_resumes_without_invoking_any_reply_twice(store, clock):
 
 
 def test_crash_mid_loop_on_a_port_that_cannot_dedupe_fails_instead_of_reposting(store, clock):
-    """github.review_reply cannot deduplicate: as for a rule action, an unknown outcome is
+    """github.comment cannot deduplicate: as for a rule action, an unknown outcome is
     never retried (``unsafe_retry``) and later items are not posted."""
     put_app(store)
     p = Ports(store, clock, reply_dedups=False)
@@ -539,7 +540,7 @@ def test_resumed_action_step_stays_on_its_actors_machine_after_a_crash(store, cl
 def test_resumed_rule_action_stays_on_its_actors_machine_after_a_crash(store, clock):
     """The same restriction for a rule's terminal action routed by its actor."""
     action = Action(
-        kind="github.push",
+        kind="github.pr",
         params={
             "actor": "gh-app",
             "repo": REPO,

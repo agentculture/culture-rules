@@ -113,8 +113,8 @@ RUN_COLLECTIONS = (
 )
 """Run history, in scan order (module doc, "Run events and decision state"); last, the
 ``github.comment`` once-key claims (d25), so a restore never posts a once comment again,
-and the PR fixer's status comments per chain (d26), so a restored chain edits its comment
-instead of posting another."""
+and the status comments per chain (d26, written by no code since R1; kept so an older
+backup still restores)."""
 SNAPSHOT_INTERVAL = timedelta(hours=24)
 INCREMENT_INTERVAL = timedelta(hours=1)
 _SSE_MODES = ("AES256", "aws:kms")

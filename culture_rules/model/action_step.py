@@ -4,8 +4,8 @@ A workflow step of kind ``code`` whose ``config`` is ``{"builtin": "action", "ac
 {"kind": <action kind>, "params": {...}}}`` runs that action kind through the same router as
 a rule's terminal action (:mod:`culture_rules.engine.runs` turns its invocation context into
 an ``"action"`` one): ``params.actor`` engages that actor's limits, an unknown or disabled
-actor fails ``actor_unavailable``, and the action port's own refusals apply (``github.push``'s
-``gate_verdict``, the disabled source rule, the repo allowlist). Optional
+actor fails ``actor_unavailable``, and the action port's own refusals apply (the disabled
+source rule and the repo allowlist). Optional
 ``config.action.name`` (a string) and ``config.action.idempotent`` (a boolean) mean what
 they mean on a rule action; retry and timeout are the step's own (``config.action.retry`` /
 ``timeout_s`` are refused, as is any other key). At run time only ``idempotent: true`` itself
@@ -18,7 +18,7 @@ the step's input ports: ``inputs.<port>...``. A workflow never knows its trigger
 (``action_step_ref``): a value from the trigger reaches the step through the rule's
 workflow-input mapping and an edge, like any other step input. Inside a loop body the
 implicit ``item`` / ``index`` ports are inputs like any other, so a ``for_each`` can post one
-``github.review_reply`` per item (``inputs.item.comment_id``).
+``github.comment`` per item (``inputs.item.number``).
 
 At save time the kind must be catalogued and the params pass the same kind-param checks as a
 rule action (``action_kind_unknown`` / ``action_param_required`` / ``action_param_type``,

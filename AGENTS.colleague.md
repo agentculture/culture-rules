@@ -81,10 +81,11 @@ migrated. `culture-rules workflows describe` (and `GET
 /workflows/{id}/describe`) returns the description and a paragraph built
 from one phrase table (`culture_rules/model/paragraph.py`, no AI), with the
 rule sentences and the Then side. Workflow saves carry a server-owned
-`revision` (a stale one gets 409), trust accepts a v1 or v2 workflow digest
-(v2 ignores description and notes), and `culture-rules rules
+`revision` (a stale one gets 409), the v1 and v2 workflow digests remain
+(v2 ignores description and notes; no workflow is pinned today), and `culture-rules rules
 migrate-orphans [--apply]` gives each workflow-less rule its own stepless
-workflow.
+workflow. The wheel ships `release.json` (`culture_rules/deploy_data`) and no rule
+bundle: `rollout seed` and `rollout import` take `--bundle DIR` (exit 1 without it).
 
 The **model actors** work (spec
 `docs/specs/2026-10-19-model-actors-in-the-cli-and-mcp.md`, setup
@@ -96,7 +97,7 @@ endpoint actor per matched model served by the gateways in the shared variable
 is resolved only after it passes). `actors references ID` lists what names an
 actor, `actors disable ID [--force]` is refused with `actor_in_use` while an
 enabled workflow or rule uses it, and `workflows repoint-actor WF --from A
---to B` moves a workflow (a trusted one needs `--force`). The model rule: one
+--to B` moves a workflow (`--force` is for a pinned one; none is pinned today). The model rule: one
 enabled endpoint actor (one with `params.base_url`) per model (409
 `model_taken`, and again at run time in `llm.complete`); mesh agents without
 `base_url` are outside it. An older server answers exit 2. The newspaper

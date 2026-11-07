@@ -81,7 +81,7 @@ def test_the_table_is_lead_ins_connectors_trailing_clauses_and_sentences():
     for key, value in PHRASES.items():
         assert isinstance(value, str), key
         assert not value.endswith(":"), key  # d11: no colon
-    every = LEAD_KEYS | JOIN_KEYS | TAIL_KEYS | STANDIN_KEYS | SENTENCE_KEYS | MARK_KEYS | {"by"}
+    every = LEAD_KEYS | JOIN_KEYS | TAIL_KEYS | STANDIN_KEYS | SENTENCE_KEYS | MARK_KEYS
     assert every == set(PHRASES)
     for key in LEAD_KEYS:  # a lead-in opens a sentence: capitalised, no closing punctuation
         assert PHRASES[key][0].isupper(), key
@@ -679,7 +679,7 @@ def test_standin_text_is_the_name_else_the_generic_line():
             action_text({"kind": "search.web", "params": {"actor": "brave", "query": "q"}}),
         ),
         # builtin code: describe.BUILTIN_WORDS
-        ({"kind": "code", "config": {"builtin": "gate"}}, BUILTIN_WORDS["gate"]),
+        ({"kind": "code", "config": {"builtin": "json.read"}}, BUILTIN_WORDS["json.read"]),
         ({"kind": "code", "config": {"builtin": "select"}}, BUILTIN_WORDS["select"]),
         ({"kind": "code", "config": {"builtin": "newspaper.issue"}}, "builtin newspaper.issue"),
         ({"kind": "code", "config": {"command": "make test"}}, "code `make test`"),
@@ -703,10 +703,10 @@ def test_generic_line_never_says_a_condition_or_free_text():
     step = {
         "kind": "code",
         "description": "",
-        "config": {"builtin": "gate", "when": FIXER, "notes": "ZZFREE"},
+        "config": {"builtin": "select", "when": FIXER, "notes": "ZZFREE"},
         "notes": "ZZFREE",
     }
-    assert generic_line(step) == BUILTIN_WORDS["gate"]
+    assert generic_line(step) == BUILTIN_WORDS["select"]
 
 
 @pytest.mark.parametrize(
@@ -783,10 +783,12 @@ def _template_regex(template: str, first: bool) -> str:
 
 
 def _committed(written: bool = True) -> list[dict]:
-    """The ten committed workflows, with the fixture's descriptions (or none at all)."""
+    """The committed workflows, with the fixture's descriptions (or none at all)."""
     fixture = json.loads(FIXTURE.read_text())
     out = []
     for path in sorted(RULES_DOCS.glob("*/workflows/*.json")):
+        if "pr-fixer" in path.parts:
+            continue
         wf = json.loads(path.read_text())
         mine = fixture[wf["id"]] if written else {"steps": {}, "description": ""}
 
@@ -807,9 +809,9 @@ def _all_steps(steps: list[dict]):
         yield from _all_steps(s.get("body") or [])
 
 
-def test_the_fixture_covers_the_fourteen_committed_workflows():
+def test_the_fixture_covers_the_remaining_committed_workflows():
     committed = _committed()
-    assert len(committed) == 14
+    assert len(committed) == 6
     fixture = json.loads(FIXTURE.read_text())
     assert set(fixture) == {wf["id"] for wf in committed}
     ids = {wf["id"]: {s["id"] for s in _all_steps(wf["steps"])} for wf in committed}
@@ -894,44 +896,6 @@ def test_no_condition_repeats_on_consecutive_steps_that_share_it(wf):
 
 def _paragraph(wid: str, written: bool = True) -> str:
     return step_paragraph(next(wf for wf in _committed(written) if wf["id"] == wid))["text"]
-
-
-def test_review_commit_reads_depending_on_the_conditions():
-    text = _paragraph("review-commit")
-    assert "Depending on the conditions" in text
-    assert "at the same time" not in text.lower()
-    assert "once both" not in text.lower()
-
-
-def test_pr_fix_threads_and_sonar_run_at_the_same_time_then_join():
-    p = {
-        s["step"]: s["phrase"]
-        for s in step_paragraph(next(wf for wf in _committed() if wf["id"] == "pr-fix"))["segments"]
-    }
-    assert p["threads"] == "Then, at the same time,"
-    assert p["sonar"] == " and"
-    assert p["fix"] == "Once both are done,"
-
-
-def test_pr_fix_with_no_descriptions_reads_as_the_approved_mock():
-    """d11: the operator's approved mock (stand-ins in italics there, plain here), in d13's
-    shape: siblings in one sentence, the loop's body on its own line, ``empty``."""
-    assert _paragraph("pr-fix", written=False) == "\n".join(
-        [
-            "First quiet period, waiting 5 minutes, and the run stops if the PR head moves;"
-            " then hold while GitGuardian fails.",
-            "Then, at the same time, trusted review threads and failing SonarCloud conditions.",
-            "Once both are done, fix and test, one try, until verdict is set, at most once.",
-            "Each time, if fixer is not set or fixer is empty or qwen-fixer, fix the PR"
-            " (Qwen bridge agent).",
-            "Then, if fixer is claude-fixer, fix the PR (Claude bridge agent); then pack the"
-            " Claude commits for the hand-off; then hand off to spark2"
-            " to import the Claude commits.",
-            "Then, if fixer is codex-fixer, fix the PR (Codex bridge agent); then pack the"
-            " Codex commits for the hand-off; then hand off to spark2 to import the Codex commits.",
-            "Then the path that ran; then test gate and diff guard.",
-        ]
-    )
 
 
 def test_daily_newspaper_render_joins_by_then_alone():

@@ -12,7 +12,7 @@ import {
   putWorkflowDef,
   startRun,
 } from "./workflows";
-import { EXPORT_RESULT, REPOS, REVIEW_PR, RUN_7, importPlan, workflowRunsFor } from "../workflows/fixture";
+import { EXPORT_RESULT, REPOS, SUMMARIZE_DOCUMENT, RUN_7, importPlan, workflowRunsFor } from "../workflows/fixture";
 
 const init = (fetchMock: ReturnType<typeof mockFetch>["fetchMock"], i = 0) =>
   (fetchMock.mock.calls[i] as unknown as [string, RequestInit])[1];
@@ -60,15 +60,15 @@ describe("workflows API client", () => {
   });
 
   it("PUT /workflows/{id} replaces a definition", async () => {
-    const { fetchMock, calls } = mockFetch({ "/api/workflows/review-pr": { body: REVIEW_PR } });
-    await putWorkflowDef(REVIEW_PR, 3);
-    expect(calls).toEqual(["/api/workflows/review-pr"]);
+    const { fetchMock, calls } = mockFetch({ "/api/workflows/summarize-document": { body: SUMMARIZE_DOCUMENT } });
+    await putWorkflowDef(SUMMARIZE_DOCUMENT, 3);
+    expect(calls).toEqual(["/api/workflows/summarize-document"]);
     expect(init(fetchMock).method).toBe("PUT");
   });
 
   it("PUT /workflows/{id} sends the revision it read as expected_revision, never inside the definition", async () => {
-    const { fetchMock } = mockFetch({ "/api/workflows/review-pr": { body: REVIEW_PR } });
-    await putWorkflowDef(REVIEW_PR, 3);
+    const { fetchMock } = mockFetch({ "/api/workflows/summarize-document": { body: SUMMARIZE_DOCUMENT } });
+    await putWorkflowDef(SUMMARIZE_DOCUMENT, 3);
     const body = JSON.parse(init(fetchMock).body as string);
     expect(body.expected_revision).toBe(3);
     expect(body).not.toHaveProperty("revision");
@@ -76,12 +76,12 @@ describe("workflows API client", () => {
 
   it("a stale revision is an ApiError that isRevisionConflict names", async () => {
     mockFetch({
-      "/api/workflows/review-pr": {
+      "/api/workflows/summarize-document": {
         status: 409,
         body: { error: { code: "revision_conflict", message: "stale", errors: [] } },
       },
     });
-    const err = await putWorkflowDef(REVIEW_PR, 2).catch((e) => e);
+    const err = await putWorkflowDef(SUMMARIZE_DOCUMENT, 2).catch((e) => e);
     expect(isRevisionConflict(err)).toBe(true);
     expect(isRevisionConflict(new Error("x"))).toBe(false);
   });
@@ -92,12 +92,12 @@ describe("workflows API client", () => {
       "/api/runs": { body: { items: workflowRunsFor(now) } },
       "/api/runs/run-7": { body: RUN_7 },
     });
-    const runs = await listWorkflowRuns("review-pr");
+    const runs = await listWorkflowRuns("summarize-document");
     expect(runs.map((r) => r.id)).toEqual(["run-7", "run-6"]);
     expect((await getRun("run-7")).steps).toHaveLength(5);
-    await startRun("review-on-approve");
-    expect(calls).toEqual(["/api/runs?workflow_id=review-pr&limit=50", "/api/runs/run-7", "/api/runs"]);
-    expect(JSON.parse(init(fetchMock, 2).body as string)).toEqual({ rule_id: "review-on-approve" });
+    await startRun("summarize-on-request");
+    expect(calls).toEqual(["/api/runs?workflow_id=summarize-document&limit=50", "/api/runs/run-7", "/api/runs"]);
+    expect(JSON.parse(init(fetchMock, 2).body as string)).toEqual({ rule_id: "summarize-on-request" });
   });
 
   it("an error envelope becomes an ApiError with its message", async () => {
