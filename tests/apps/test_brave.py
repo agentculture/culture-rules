@@ -8,8 +8,8 @@ import urllib.parse
 
 import pytest
 
-from culture_rules.apps import brave
-from culture_rules.apps.brave import BraveError, BraveSearch
+from culture_rules.extensions.search import brave
+from culture_rules.extensions.search.brave import BraveError, BraveSearch
 
 FAKE_KEY = "brave" + "-" + "FAKEKEY0123456789abcdef"
 NEWS_URL = "https://example.org/a"

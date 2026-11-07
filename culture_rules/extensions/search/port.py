@@ -5,7 +5,7 @@ actor with surface ``search`` whose ``params.connection.api_key`` is a ``grant:N
 reference. The parameters are checked first (``query`` required; ``count``, ``freshness``,
 ``country``, ``lang`` optional), so a bad one fails the action before any secret is read or
 any call made. The key is then resolved on the executing host at call time and kept only in
-memory; the call goes only to Brave (:mod:`culture_rules.apps.brave`).
+memory; the call goes only to Brave (:mod:`culture_rules.extensions.search.brave`).
 
 Outputs: ``{results: [{title, url, snippet, age, source}, ...], query, count}`` with
 ``count == len(results)``; results are capped in number and per-field length by the client.
@@ -20,8 +20,8 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
-from culture_rules.apps.brave import BraveError, BraveSearch, build_query
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.extensions.search.brave import BraveError, BraveSearch, build_query
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.transport import Transport
 

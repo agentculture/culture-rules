@@ -196,16 +196,6 @@ _KINDS = (
     ),
     kind("jira.comment", "Comment on a Jira issue", actor=REQ_STR, issue=REQ_STR, body=REQ_STR),
     kind(
-        "search.web",
-        "Search the web through a search app actor (Brave)",
-        actor=REQ_STR,
-        query=REQ_STR,
-        count=INT,
-        freshness=STR,
-        country=STR,
-        lang=STR,
-    ),
-    kind(
         "llm.complete",
         "Complete an actor's brief with an OpenAI-compatible model on an agent actor (no tools)",
         any_of=(("content", "content_path"),),
