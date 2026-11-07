@@ -15,9 +15,11 @@ from culture_rules.model.action_kinds import INT, REQ_STR, STR, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
+LLM_COMPLETE = "llm.complete"
+
 KINDS = (
     kind(
-        "llm.complete",
+        LLM_COMPLETE,
         "Complete an actor's brief with an OpenAI-compatible model on an agent actor (no tools)",
         label="Summarise with a language model",
         any_of=(("content", "content_path"),),
@@ -65,5 +67,5 @@ def register(ext: Extension) -> None:
     """``llm.complete`` (``port.LlmCompletePort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_phrases("llm.complete", words=PHRASES)
-    ext.action_port("llm.complete", Lazy(__name__ + ".port", "LlmCompletePort", store=True))
+    ext.action_phrases(LLM_COMPLETE, words=PHRASES)
+    ext.action_port(LLM_COMPLETE, Lazy(__name__ + ".port", "LlmCompletePort", store=True))

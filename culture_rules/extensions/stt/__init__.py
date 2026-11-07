@@ -12,9 +12,11 @@ from culture_rules.model.action_kinds import REQ_STR, STR, kind
 
 __all__ = ["KINDS", "register"]
 
+AUDIO_TRANSCRIBE = "audio.transcribe"
+
 KINDS = (
     kind(
-        "audio.transcribe",
+        AUDIO_TRANSCRIBE,
         "Transcribe an audio file with a speech-to-text endpoint on an agent actor",
         label="Transcribe an audio file",
         actors=({"kinds": ["agent"], "has": ["base_url"]},),
@@ -32,6 +34,6 @@ def register(ext: Extension) -> None:
     """``audio.transcribe`` (``port.AudioTranscribePort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_phrases("audio.transcribe", words=(("audio_path", "of {}"),))
+    ext.action_phrases(AUDIO_TRANSCRIBE, words=(("audio_path", "of {}"),))
     port = Lazy(__name__ + ".port", "AudioTranscribePort", store=True)
-    ext.action_port("audio.transcribe", port)
+    ext.action_port(AUDIO_TRANSCRIBE, port)

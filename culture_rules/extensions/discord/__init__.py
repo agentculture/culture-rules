@@ -32,9 +32,15 @@ from culture_rules.model.action_kinds import INT, REQ_STR, REQ_TEXT, STR, ParamS
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
+DISCORD_MESSAGE = "discord.message"
+DISCORD_READ = "discord.read"
+DISCORD_REACT = "discord.react"
+DISCORD_REPLY = "discord.reply"
+DISCORD_SWEEP = "discord.sweep"
+
 KINDS = (
     kind(
-        "discord.message",
+        DISCORD_MESSAGE,
         "Post a message on Discord through a Discord app actor",
         label="Post a message on Discord",
         declarable_by_apps=True,
@@ -47,7 +53,7 @@ KINDS = (
         tags=ParamSpec("list"),  # forum tag names, with thread_name only
     ),
     kind(
-        "discord.read",
+        DISCORD_READ,
         "Read one Discord message in full (text and attachments) through a Discord app actor",
         label="Read a Discord message in full",
         declarable_by_apps=True,
@@ -57,7 +63,7 @@ KINDS = (
         message=REQ_STR,
     ),
     kind(
-        "discord.react",
+        DISCORD_REACT,
         "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
         " app actor, and take back the bot's own earlier reactions (remove)",
         label="React to a Discord message",
@@ -71,7 +77,7 @@ KINDS = (
         remove=ParamSpec("list"),
     ),
     kind(
-        "discord.reply",
+        DISCORD_REPLY,
         "Answer a Discord slash or message command privately through a Discord app actor",
         label="Answer a Discord command privately",
         declarable_by_apps=True,
@@ -80,7 +86,7 @@ KINDS = (
         text=REQ_TEXT,
     ),
     kind(
-        "discord.sweep",
+        DISCORD_SWEEP,
         "Read a Discord channel's messages newer than a stored cursor through a Discord app"
         " actor",
         label="Read a Discord channel since the last run",
@@ -107,16 +113,16 @@ _IN_CHANNEL = ("channel", "in {}")
 
 #: What describe says for each Discord kind after its name and actor.
 PHRASES = {
-    "discord.message": (("channel", "to {}"),),
-    "discord.read": (_IN_CHANNEL, ("message", "message {}")),
-    "discord.react": (
+    DISCORD_MESSAGE: (("channel", "to {}"),),
+    DISCORD_READ: (_IN_CHANNEL, ("message", "message {}")),
+    DISCORD_REACT: (
         ("emoji", "with {}"),
         ("remove", "removing {}"),
         _IN_CHANNEL,
         ("message", "on message {}"),
     ),
-    "discord.reply": (("text", '"{}"'),),
-    "discord.sweep": (_IN_CHANNEL, ("limit", "up to {} messages")),
+    DISCORD_REPLY: (("text", '"{}"'),),
+    DISCORD_SWEEP: (_IN_CHANNEL, ("limit", "up to {} messages")),
 }
 ATTACHMENT_FETCH_PHRASE = (
     "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node"
@@ -188,11 +194,11 @@ def register(ext: Extension) -> None:
     for k in KINDS:
         ext.action_kind(k)
         ext.action_phrases(k.name, words=PHRASES[k.name])
-    ext.action_port("discord.message", _port("message", "DiscordMessageAction"))
-    ext.action_port("discord.read", _port("read", "DiscordReadAction"))
-    ext.action_port("discord.react", _port("react", "DiscordReactAction"))
-    ext.action_port("discord.reply", _port("reply", "DiscordReplyAction"))
-    ext.action_port("discord.sweep", _port("sweep", "DiscordSweepAction"))
+    ext.action_port(DISCORD_MESSAGE, _port("message", "DiscordMessageAction"))
+    ext.action_port(DISCORD_READ, _port("read", "DiscordReadAction"))
+    ext.action_port(DISCORD_REACT, _port("react", "DiscordReactAction"))
+    ext.action_port(DISCORD_REPLY, _port("reply", "DiscordReplyAction"))
+    ext.action_port(DISCORD_SWEEP, _port("sweep", "DiscordSweepAction"))
     ext.builtin(
         "attachment.fetch",
         Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"),

@@ -13,9 +13,11 @@ from culture_rules.model.action_kinds import REQ_STR, REQ_TEXT, kind
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
+JIRA_COMMENT = "jira.comment"
+
 KINDS = (
     kind(
-        "jira.comment",
+        JIRA_COMMENT,
         "Comment on a Jira issue",
         label="Comment on Jira",
         declarable_by_apps=True,
@@ -33,8 +35,8 @@ def register(ext: Extension) -> None:
     and the event types the receiver emits."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_phrases("jira.comment", words=(("issue", "on {}"),))
-    ext.action_port("jira.comment", Lazy(__name__ + ".port", "JiraCommentPort", store=True))
+    ext.action_phrases(JIRA_COMMENT, words=(("issue", "on {}"),))
+    ext.action_port(JIRA_COMMENT, Lazy(__name__ + ".port", "JiraCommentPort", store=True))
     for event in EVENT_TYPES:
         ext.event_type(event)
     ext.webhook_route("/hooks/jira", Lazy(__name__ + ".hooks", "router", store=True))

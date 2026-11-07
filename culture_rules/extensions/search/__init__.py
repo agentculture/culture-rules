@@ -12,9 +12,11 @@ from culture_rules.model.action_kinds import INT, REQ_STR, STR, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
+SEARCH_WEB = "search.web"
+
 KINDS = (
     kind(
-        "search.web",
+        SEARCH_WEB,
         "Search the web through a search app actor (Brave)",
         label="Search the web",
         declarable_by_apps=True,
@@ -42,5 +44,5 @@ def register(ext: Extension) -> None:
     """``search.web`` (``port.SearchWebPort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_phrases("search.web", words=(("query", '"{}"'),))
-    ext.action_port("search.web", Lazy(__name__ + ".port", "SearchWebPort", store=True))
+    ext.action_phrases(SEARCH_WEB, words=(("query", '"{}"'),))
+    ext.action_port(SEARCH_WEB, Lazy(__name__ + ".port", "SearchWebPort", store=True))

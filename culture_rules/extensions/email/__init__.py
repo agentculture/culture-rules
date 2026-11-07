@@ -12,9 +12,11 @@ from culture_rules.model.action_kinds import ADV, REQ_STR, TEXT, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
+EMAIL_SEND = "email.send"
+
 KINDS = (
     kind(
-        "email.send",
+        EMAIL_SEND,
         "Send an email through an email app actor (Resend)",
         label="Send an email",
         declarable_by_apps=True,
@@ -35,5 +37,5 @@ def register(ext: Extension) -> None:
     """``email.send`` (``port.EmailSendPort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_phrases("email.send", words=(("subject", '"{}"'),))
-    ext.action_port("email.send", Lazy(__name__ + ".port", "EmailSendPort", store=True))
+    ext.action_phrases(EMAIL_SEND, words=(("subject", '"{}"'),))
+    ext.action_port(EMAIL_SEND, Lazy(__name__ + ".port", "EmailSendPort", store=True))

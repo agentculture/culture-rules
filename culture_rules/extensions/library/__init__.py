@@ -13,9 +13,11 @@ from culture_rules.model.action_kinds import INT, REQ_STR, STR, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
+LIBRARY_PUSH = "library.push"
+
 KINDS = (
     kind(
-        "library.push",
+        LIBRARY_PUSH,
         "Upload a file to a library, or replace one by id (and queue it on a device queue)",
         label="Send a book to a library",
         any_of=(("content_base64", "content_path"),),
@@ -53,7 +55,7 @@ def register(ext: Extension) -> None:
     for k in KINDS:
         ext.action_kind(k)
     ext.action_phrases(
-        "library.push",
+        LIBRARY_PUSH,
         words=(
             ("kind", "kind {}"),
             ("visibility", "({})"),
@@ -62,4 +64,4 @@ def register(ext: Extension) -> None:
             ("device_id", "to device {}"),
         ),
     )
-    ext.action_port("library.push", Lazy(__name__ + ".port", "LibraryPushPort", store=True))
+    ext.action_port(LIBRARY_PUSH, Lazy(__name__ + ".port", "LibraryPushPort", store=True))

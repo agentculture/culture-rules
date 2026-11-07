@@ -29,9 +29,13 @@ from culture_rules.model.serde import join
 
 __all__ = ["EVENT_TYPES", "KINDS", "register"]
 
+GITHUB_COMMENT = "github.comment"
+GITHUB_MERGE = "github.merge"
+GITHUB_PR = "github.pr"
+
 KINDS = (
     kind(
-        "github.comment",
+        GITHUB_COMMENT,
         "Comment on a GitHub issue or PR",
         label="Comment on GitHub",
         declarable_by_apps=True,
@@ -42,7 +46,7 @@ KINDS = (
         once_key=ADV,  # d25: post at most once per (repo, PR, key), durably
     ),
     kind(
-        "github.merge",
+        GITHUB_MERGE,
         "Merge a PR as the GitHub App, only from a click carrying the button's one-time code",
         label="Merge a GitHub PR",
         declarable_by_apps=True,
@@ -53,7 +57,7 @@ KINDS = (
         delete_branch=ParamSpec("bool"),
     ),
     kind(
-        "github.pr",
+        GITHUB_PR,
         "Read one PR's title, link, author, draft flag, state, repos, head branch and sha"
         " as the GitHub App",
         label="Read a GitHub PR",
@@ -175,14 +179,14 @@ def register(ext: Extension) -> None:
     lookup, ``POST /hooks/github``, the checks settler and their event types."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.params_validator("github.comment", comment_params)
-    ext.action_phrases("github.comment", after=comment_guard)
-    ext.action_phrases("github.merge", after=merge_guard)
-    ext.action_phrases("github.pr")
+    ext.params_validator(GITHUB_COMMENT, comment_params)
+    ext.action_phrases(GITHUB_COMMENT, after=comment_guard)
+    ext.action_phrases(GITHUB_MERGE, after=merge_guard)
+    ext.action_phrases(GITHUB_PR)
     ext.action_port("github.pr_head", _port("port", "GitHubPrHeadPort"), **_EXTRA)
-    ext.action_port("github.comment", _port("port", "GitHubCommentPort"), **_EXTRA)
-    ext.action_port("github.pr", _port("port", "GitHubPrPort"), **_EXTRA)
-    ext.action_port("github.merge", _port("merge", "GitHubMergePort"), **_EXTRA)
+    ext.action_port(GITHUB_COMMENT, _port("port", "GitHubCommentPort"), **_EXTRA)
+    ext.action_port(GITHUB_PR, _port("port", "GitHubPrPort"), **_EXTRA)
+    ext.action_port(GITHUB_MERGE, _port("merge", "GitHubMergePort"), **_EXTRA)
     for event in EVENT_TYPES:
         ext.event_type(event)
     ext.event_reservation("github.reaction", events.reaction_reserved)

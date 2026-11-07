@@ -13,9 +13,11 @@ from culture_rules.model.action_kinds import REQ_STR, STR, ParamSpec, kind
 
 __all__ = ["KINDS", "register"]
 
+TRANSCRIPT_RENDER = "transcript.render"
+
 KINDS = (
     kind(
-        "transcript.render",
+        TRANSCRIPT_RENDER,
         "Render one transcript and its summary as an EPUB or Markdown (right to left for Hebrew)",
         label="Make a book or Markdown from a transcript",
         actors=({"has_any": ["transcripts_root", "output_root"]},),
@@ -39,6 +41,6 @@ def register(ext: Extension) -> None:
     """``transcript.render`` (``port.TranscriptRenderPort``)."""
     for k in KINDS:
         ext.action_kind(k)
-    ext.action_phrases("transcript.render", words=(("result_path", "of {}"),))
+    ext.action_phrases(TRANSCRIPT_RENDER, words=(("result_path", "of {}"),))
     port = Lazy(__name__ + ".port", "TranscriptRenderPort", store=True)
-    ext.action_port("transcript.render", port)
+    ext.action_port(TRANSCRIPT_RENDER, port)
