@@ -383,9 +383,12 @@ Settled constraints that shape the architecture:
   (guide `docs/operations/action-catalogue.md`): `GET /actions/kinds`
   (viewer) lists the registry's kinds in order with their typed params, the
   editor hints on `ParamSpec` (`label`, `widget`, `choices`, `options_from`,
-  `needs_actor_param`, `needed`, `advanced`) and the actor clauses; the CLI verb is
+  `needs_actor_param`, `needed`, `advanced`, `args_for`), the actor clauses,
+  `declarable_by_apps` (the Actors tab offers only these) and `shown_as` (a
+  legacy form shown as another kind); the CLI verb is
   `actions kinds`, the MCP tool `actions_kinds`. `web/src/rules/ActionPicker.tsx`
-  builds from it (`web/src/api/actions.ts`) and keeps no table of kinds; the
+  builds from it (`web/src/api/actions.ts`) and keeps no table of kinds and no
+  per-kind shim (the blank action is the catalogue's first kind); the
   web tests' snapshot is `web/src/fixtures/action-kinds.data.ts`
   (`python3 scripts/export-action-kinds.py --write`).
 - **A variable can be deleted** (admin): `DELETE /variables/{name}`, CLI

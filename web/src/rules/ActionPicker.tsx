@@ -27,9 +27,6 @@ const typeOf = (p: ActionParam): ParamType => {
 const isRequired = (p: ActionParam) => p.required || p.needed;
 const choicesOf = (p: ActionParam): readonly Choice[] | undefined => (p.choices.length ? p.choices : undefined);
 
-/** The catalogue's entry for a stored kind, a legacy alias resolved. */
-const canonical = (catalogue: ActionCatalogue | undefined, kind: string) => kindOf(catalogue, kind)?.kind ?? kind;
-
 const REFERENCE = /^(trigger|workflow|vars|rule)\.[A-Za-z0-9_.]+$/;
 const CUSTOM = "__custom__";
 
@@ -41,15 +38,14 @@ const TRIGGER_FIELDS: { prefix: string; fields: string[] }[] = [
 ];
 
 /**
- * How the picker shows a stored action: a `message` that still names an actor is the form a
- * Discord message had before `discord.message` existed, so it is shown (and saved) as one.
+ * How the picker shows a stored action: a kind whose catalogue entry carries `shown_as` is a
+ * legacy form another kind took over (a `message` naming an actor was a Discord message before
+ * `discord.message` existed), so when it sets `when_param` it is shown (and saved) as that kind.
  */
 export function viewOf(action: Action, catalogue?: ActionCatalogue): Action {
-  const actor = (action.params as Record<string, unknown> | undefined)?.actor;
-  if (canonical(catalogue, action.kind) === "message" && typeof actor === "string" && actor) {
-    return { ...action, kind: "discord.message" };
-  }
-  return action;
+  const shownAs = kindOf(catalogue, action.kind)?.shown_as;
+  const value = shownAs ? (action.params as Record<string, unknown> | undefined)?.[shownAs.when_param] : undefined;
+  return shownAs && typeof value === "string" && value ? { ...action, kind: shownAs.kind } : action;
 }
 
 /** A reference to a trigger or workflow value, as a string or a `{"$ref"}` object; else null. */
@@ -78,9 +74,14 @@ function typeOk(p: ActionParam, value: unknown): boolean {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** An action of `kind` with no params filled in; the name is kept across kinds. */
-export function blankAction(kind = "noop", name?: string): Action {
-  const base: Action = kind === "noop" ? { kind } : { kind, params: {} };
+/**
+ * An action of `kind` (default: the first kind in catalogue order) with no params filled in, and
+ * no `params` at all when the kind takes none; the name is kept across kinds.
+ */
+export function blankAction(catalogue: ActionCatalogue, kind?: string, name?: string): Action {
+  const spec = kind === undefined ? catalogue.items[0] : kindOf(catalogue, kind);
+  const chosen = kind ?? spec?.kind ?? "";
+  const base: Action = spec && spec.params.length === 0 ? { kind: chosen } : { kind: chosen, params: {} };
   return name ? { ...base, name } : base;
 }
 
@@ -589,7 +590,8 @@ function DiscordTarget({ id, actorId, params, refs, load, setParams }: Readonly<
 }
 
 interface Props {
-  value: Action;
+  /** The stored action; absent: a blank one of the first kind in the catalogue. */
+  value?: Action;
   actors: Actor[];
   /** The rule's trigger event type, for the common trigger fields offered as mappings. */
   triggerType?: string;
@@ -922,6 +924,7 @@ function ButtonsField({ value, onChange }: Readonly<{ value: unknown; onChange: 
 function ParamField({
   id,
   p,
+  spec,
   params,
   actor,
   refs,
@@ -929,19 +932,21 @@ function ParamField({
   setParams,
 }: Readonly<ParamFieldsProps & { p: ActionParam }>) {
   const name = p.name;
-  const command = typeof params.command === "string" ? params.command : "";
   const commands = commandsOf(actor);
-  const declared = Object.keys(commands[command]?.params ?? {});
-  const args = (params.args ?? {}) as Record<string, unknown>;
   if (p.widget === "command") {
+    const command = typeof params[name] === "string" ? (params[name] as string) : "";
+    // the arguments of the previous command go with it (the params whose args_for names this one)
+    const argsCleared = Object.fromEntries(
+      spec.params.filter((q) => q.widget === "command_args" && q.args_for === name).map((q) => [q.name, undefined]),
+    );
     return (
       <label key={name}>
-        <span id={`${id}-command`}>Command</span>
+        <span id={`${id}-param-${name}`}>{labelOf(p)}</span>
         <select
-          aria-labelledby={`${id}-command`}
+          aria-labelledby={`${id}-param-${name}`}
           value={command}
           disabled={!actor}
-          onChange={(e) => setParams({ ...params, command: e.target.value || undefined, args: undefined })}
+          onChange={(e) => setParams({ ...params, ...argsCleared, [name]: e.target.value || undefined })}
         >
           <option value="">Choose a command…</option>
           {command && !(command in commands) ? <option value={command}>{command} (not registered)</option> : null}
@@ -955,6 +960,9 @@ function ParamField({
     );
   }
   if (p.widget === "command_args") {
+    const command = typeof params[p.args_for] === "string" ? (params[p.args_for] as string) : "";
+    const declared = Object.keys(commands[command]?.params ?? {});
+    const args = (params[name] ?? {}) as Record<string, unknown>;
     return declared.map((arg) => (
       <ValueField
         key={`${command}-${arg}`}
@@ -965,7 +973,7 @@ function ParamField({
         value={args[arg]}
         onChange={(v) => {
           const next = Object.fromEntries(Object.entries({ ...args, [arg]: v }).filter(([, x]) => x !== undefined));
-          setParam("args", Object.keys(next).length ? next : undefined);
+          setParam(name, Object.keys(next).length ? next : undefined);
         }}
       />
     ));
@@ -1050,7 +1058,7 @@ function Picker({
   catalogue,
 }: Readonly<Props & { catalogue: ActionCatalogue }>) {
   const id = useId();
-  const value = viewOf(stored, catalogue);
+  const value = viewOf(stored ?? blankAction(catalogue), catalogue);
   const spec = kindOf(catalogue, value.kind);
   const kind = spec?.kind ?? value.kind;
   const params = (value.params ?? {}) as Record<string, unknown>;
@@ -1068,7 +1076,7 @@ function Picker({
   };
   const setParam = (key: string, v: unknown) => setParams({ ...params, [key]: v });
   const chooseKind = (next: string) => {
-    if (next !== kind) onChange(blankAction(next, value.name));
+    if (next !== kind) onChange(blankAction(catalogue, next, value.name));
   };
 
   const kindOptions = catalogue.items.filter((k) => offered(k, actors, catalogue) || k.kind === kind);

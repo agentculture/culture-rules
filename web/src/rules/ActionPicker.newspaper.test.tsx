@@ -53,7 +53,7 @@ const NEWSPAPER_ACTORS: Actor[] = [
 ];
 
 function Harness({ start }: Readonly<{ start?: Action }>) {
-  const [value, setValue] = useState<Action>(start ?? blankAction());
+  const [value, setValue] = useState<Action>(start ?? blankAction(ACTION_CATALOGUE));
   return (
     <>
       <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={NEWSPAPER_ACTORS} triggerType="schedule" onChange={setValue} />

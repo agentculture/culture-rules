@@ -33,6 +33,8 @@ export interface ActionParam {
   needed: boolean;
   /** Rarely set: kept behind a "More settings" fold, open when the step already sets it. */
   advanced: boolean;
+  /** On a `command_args` param: the sibling `command` param whose chosen command's arguments it holds. */
+  args_for: string;
 }
 
 /** One alternative of "which actors can do it": every condition holds for an enabled actor. */
@@ -55,6 +57,10 @@ export interface ActionKindSpec {
   any_of: string[][];
   actors: ActorClause[];
   actorless: boolean;
+  /** An app actor may list it in `params.actions` (the Actors tab offers it). */
+  declarable_by_apps: boolean;
+  /** A stored action of this kind that sets `when_param` is shown, and saved, as `kind`. */
+  shown_as: { when_param: string; kind: string } | null;
 }
 
 export interface ActionCatalogue {

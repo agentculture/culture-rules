@@ -19,7 +19,7 @@ const TARGETS: DiscordTargets = {
 };
 
 function Harness() {
-  const [value, setValue] = useState<Action>(blankAction());
+  const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
   return (
     <>
       <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[BOT]} triggerType="discord.message.created" onChange={setValue}
@@ -60,7 +60,7 @@ describe("discord.react", () => {
   const REACTOR: Actor = { ...BOT, params: { ...BOT.params, actions: ["discord.read", "discord.react"] } };
 
   function ReactHarness() {
-    const [value, setValue] = useState<Action>(blankAction());
+    const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
     return (
       <>
         <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[REACTOR]} triggerType="discord.reaction.added" onChange={setValue}
@@ -115,7 +115,7 @@ describe("Release 3 kinds", () => {
   it("picks the sweep's channel from what the bot sees", async () => {
     const SWEEPER: Actor = { ...BOT, params: { ...BOT.params, actions: ["discord.sweep"] } };
     function SweepHarness() {
-      const [value, setValue] = useState<Action>(blankAction());
+      const [value, setValue] = useState<Action>(blankAction(ACTION_CATALOGUE));
       return (
         <>
           <ActionPicker catalogue={ACTION_CATALOGUE} value={value} actors={[SWEEPER]} onChange={setValue} loadDiscordTargets={async () => TARGETS} />

@@ -32,6 +32,7 @@ KINDS = (
         "discord.message",
         "Post a message on Discord through a Discord app actor",
         label="Post a message on Discord",
+        declarable_by_apps=True,
         actor=REQ_STR,
         guild=ParamSpec("str", widget="discord_guild"),
         channel=ParamSpec("str", True, widget="discord_channel"),
@@ -44,6 +45,7 @@ KINDS = (
         "discord.read",
         "Read one Discord message in full (text and attachments) through a Discord app actor",
         label="Read a Discord message in full",
+        declarable_by_apps=True,
         actor=REQ_STR,
         guild=ParamSpec("str", widget="discord_guild"),  # fills the message url when given
         channel=ParamSpec("str", True, widget="discord_channel"),
@@ -54,6 +56,7 @@ KINDS = (
         "React to one Discord message (a unicode emoji or a custom name:id) through a Discord"
         " app actor, and take back the bot's own earlier reactions (remove)",
         label="React to a Discord message",
+        declarable_by_apps=True,
         any_of=(("emoji", "remove"),),
         actor=REQ_STR,
         guild=ParamSpec("str", widget="discord_guild"),
@@ -66,6 +69,7 @@ KINDS = (
         "discord.reply",
         "Answer a Discord slash or message command privately through a Discord app actor",
         label="Answer a Discord command privately",
+        declarable_by_apps=True,
         actor=REQ_STR,
         event_id=REQ_STR,
         text=REQ_TEXT,
@@ -75,6 +79,7 @@ KINDS = (
         "Read a Discord channel's messages newer than a stored cursor through a Discord app"
         " actor",
         label="Read a Discord channel since the last run",
+        declarable_by_apps=True,
         actor=REQ_STR,
         guild=ParamSpec("str", widget="discord_guild"),
         channel=ParamSpec("str", True, widget="discord_channel"),

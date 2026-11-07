@@ -17,6 +17,7 @@ KINDS = (
         "search.web",
         "Search the web through a search app actor (Brave)",
         label="Search the web",
+        declarable_by_apps=True,
         actors=({"kinds": ["app"], "surface": "search"},),
         actor=REQ_STR,
         query=REQ_STR,

@@ -119,7 +119,9 @@ On disk today:
 - The API serves the action catalogue (guide `docs/operations/action-catalogue.md`):
   `GET /actions/kinds` (viewer), CLI `actions kinds`, MCP tool `actions_kinds`; the editor's
   action picker is built from it and keeps no table of kinds, so an extension's kind needs
-  no editor change.
+  no editor change. No per-kind shim either: the Actors tab offers the kinds marked
+  `declarable_by_apps`, a legacy form is shown through `shown_as`, and the command widgets
+  pair through `args_for`.
 - `variables delete NAME [--apply]` (admin; `DELETE /variables/{name}`, MCP tool
   `variables_delete`) is a dry run unless applied, refused with 409 `variable_in_use` while
   a live, enabled rule references the variable (disabled and soft-deleted referrers are

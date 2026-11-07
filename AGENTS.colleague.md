@@ -173,7 +173,9 @@ with the generic `cursor.advance`; a builtin's `config.with` reads
 **The action catalogue** (guide `docs/operations/action-catalogue.md`). The API serves the
 registry's action kinds with their typed params (`GET /actions/kinds`, viewer; CLI `actions
 kinds`, MCP tool `actions_kinds`), and the editor's action picker is built from it, so an
-extension's kind needs no editor change.
+extension's kind needs no editor change. The editor keeps no per-kind shim: the Actors tab
+offers the kinds marked `declarable_by_apps`, a legacy form is shown through `shown_as`, and
+the command widgets pair through `args_for`.
 
 **Deleting a variable.** `variables delete NAME [--apply]` (admin; `DELETE
 /variables/{name}`, MCP tool `variables_delete`) is a dry run unless applied and is refused

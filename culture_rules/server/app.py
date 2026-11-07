@@ -455,12 +455,20 @@ class ActionParam(BaseModel):
         description="the chosen actor's params key that lists (or, as a mapping, names) the values"
     )
     choose: str = Field(description="the prompt of the empty choice")
+    args_for: str = Field(
+        description="on a command_args param: the sibling command param it holds arguments for"
+    )
     needs_actor_param: str = Field(description="shown only when the chosen actor has it set")
     advanced: bool = Field(description="rarely set: an editor keeps it behind a fold")
     needed: bool = Field(
         description="not required of a stored step (the port refuses it at run time) "
         "but an editor asks for it"
     )
+
+
+class ActionShownAs(BaseModel):
+    when_param: str
+    kind: str
 
 
 class ActionKindItem(BaseModel):
@@ -476,6 +484,13 @@ class ActionKindItem(BaseModel):
         "not_kinds, surface, declares_action, has, has_any"
     )
     actorless: bool = Field(description="offered even when no enabled actor can perform it")
+    declarable_by_apps: bool = Field(
+        description="an app actor may list it in params.actions (the Actors tab offers it)"
+    )
+    shown_as: ActionShownAs | None = Field(
+        description="a stored action of this kind that sets when_param is shown, and saved, as "
+        "kind (a legacy form another kind took over); null for most kinds"
+    )
 
 
 class ActionKindList(BaseModel):

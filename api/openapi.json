@@ -54,6 +54,11 @@
             "title": "Any Of",
             "type": "array"
           },
+          "declarable_by_apps": {
+            "description": "an app actor may list it in params.actions (the Actors tab offers it)",
+            "title": "Declarable By Apps",
+            "type": "boolean"
+          },
           "kind": {
             "title": "Kind",
             "type": "string"
@@ -76,6 +81,17 @@
             "title": "Params",
             "type": "array"
           },
+          "shown_as": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionShownAs"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "a stored action of this kind that sets when_param is shown, and saved, as kind (a legacy form another kind took over); null for most kinds"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -90,7 +106,9 @@
           "params",
           "any_of",
           "actors",
-          "actorless"
+          "actorless",
+          "declarable_by_apps",
+          "shown_as"
         ],
         "title": "ActionKindItem",
         "type": "object"
@@ -118,6 +136,11 @@
             "description": "rarely set: an editor keeps it behind a fold",
             "title": "Advanced",
             "type": "boolean"
+          },
+          "args_for": {
+            "description": "on a command_args param: the sibling command param it holds arguments for",
+            "title": "Args For",
+            "type": "string"
           },
           "choices": {
             "description": "a closed set of values, or empty",
@@ -181,11 +204,30 @@
           "choices",
           "options_from",
           "choose",
+          "args_for",
           "needs_actor_param",
           "advanced",
           "needed"
         ],
         "title": "ActionParam",
+        "type": "object"
+      },
+      "ActionShownAs": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "when_param": {
+            "title": "When Param",
+            "type": "string"
+          }
+        },
+        "required": [
+          "when_param",
+          "kind"
+        ],
+        "title": "ActionShownAs",
         "type": "object"
       },
       "ActiveRun": {

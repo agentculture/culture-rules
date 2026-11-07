@@ -22,7 +22,15 @@ Each item has:
   (AND) over an enabled actor: `kinds`, `not_kinds`, `surface`, `declares_action` (the actor
   lists the kind in `params.actions`), `has` (these dotted actor params are non-empty) and
   `has_any`. A kind that names none means an app actor that declares it;
-- `actorless`: offered even when no enabled actor can perform it.
+- `actorless`: offered even when no enabled actor can perform it;
+- `declarable_by_apps`: an `app` actor may list the kind in `params.actions`; the Actors tab
+  offers only these (and any kind an actor already lists, so it stays removable). Each
+  extension sets it in its `KINDS` (`kind(..., declarable_by_apps=True)`); the default is
+  false;
+- `shown_as`: `{when_param, kind}` or null. A stored action of this kind that sets
+  `when_param` is shown, and saved, as `kind`: core's `message` carries
+  `{"when_param": "actor", "kind": "discord.message"}`, the form a Discord message had before
+  `discord.message` existed.
 
 The param hints are data on `ParamSpec` (`culture_rules/model/action_kinds.py`), so a new kind
 describes its own form:
@@ -37,6 +45,7 @@ describes its own form:
 | `needs_actor_param` | shown only when the chosen actor has that param set |
 | `advanced` | rarely set: the editor keeps it behind a "More settings" fold, open when the step already sets it |
 | `needed` | not required of a stored step (the port refuses it at run time) but the editor asks for it |
+| `args_for` | on a `command_args` param: the sibling `command` param whose chosen command's declared arguments it holds (`machine.command`'s `args` has `args_for: "command"`) |
 
 ## The surfaces
 
@@ -45,16 +54,18 @@ describes its own form:
   route: exit 2.
 - MCP: the tools `actions_overview` and `actions_kinds`, kept identical to the CLI by the
   parity test.
-- Contract: the route and its schemas (`ActionKindList`, `ActionKindItem`, `ActionParam`) are
-  pinned in `api/openapi.json`.
+- Contract: the route and its schemas (`ActionKindList`, `ActionKindItem`, `ActionParam`,
+  `ActionShownAs`) are pinned in `api/openapi.json`.
 
 ## The editor
 
 `web/src/api/actions.ts` fetches the catalogue once (`useActionCatalogue`), with a loading and
 a failed state (Try again). `web/src/rules/ActionPicker.tsx` offers the kinds whose actors
 match the clauses, builds each form from the params and widgets, and keeps a stored kind it
-does not know as it is. Nothing in the editor is keyed by kind name, except the legacy shim
-that shows a `message` naming an actor as a `discord.message`.
+does not know as it is. Nothing in the editor is keyed by kind or param name: a legacy form is
+shown through `shown_as`, a blank action is the first kind in catalogue order (with no
+`params` when the kind takes none), and the command widgets find each other through
+`args_for`. The Actors tab's "Actions it can perform" lists the `declarable_by_apps` kinds.
 
 The web tests use a snapshot of the built-in catalogue,
 `web/src/fixtures/action-kinds.data.ts`, generated from the Python by
