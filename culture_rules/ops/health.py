@@ -5,8 +5,10 @@ store is reachable and its schema version; this host's heartbeat age and online 
 executor lag (how long due work in live runs - pending steps that are ready to dispatch, aged
 from when they became ready, and retries past ``next_attempt_at`` - has been waiting; see
 :func:`culture_rules.engine.runs.due_steps`). ``hooks``
-counts webhook deliveries per surface, actor and outcome and ``gateways`` reports each Discord
-gateway's lease holder, connected flag and last event time. ``chain_needs_review`` counts the
+counts webhook deliveries per surface, actor and outcome; then come the sections extensions
+register (:meth:`~culture_rules.extensions.Extension.health_section`, e.g. the Discord
+extension's ``gateways``), each its ``empty()`` value when the store is unreachable.
+``chain_needs_review`` counts the
 chain continuations a node could not recover (d21,
 :data:`~culture_rules.node.chain.CHAIN_NEEDS_REVIEW`). The overall ``status`` is ``ok``,
 ``degraded`` (stale/missing heartbeat or lag above :data:`LAG_DEGRADED_S`) or ``down`` (store
@@ -19,9 +21,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules import __version__
-from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.runs import RUNS_COLLECTION, due_steps
 from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
+from culture_rules.extensions import registry
 from culture_rules.machines.heartbeat import (
     HEARTBEAT_COLLECTION,
     HEARTBEAT_INTERVAL_S,
@@ -29,13 +31,9 @@ from culture_rules.machines.heartbeat import (
 )
 from culture_rules.node.chain import CHAIN_NEEDS_REVIEW
 
-__all__ = ["LAG_DEGRADED_S", "gateways", "health_status", "hook_counts"]
+__all__ = ["LAG_DEGRADED_S", "health_status", "hook_counts"]
 
 LAG_DEGRADED_S = 30.0
-
-GATEWAY_STATE_COLLECTION = "gateway_state"
-"""The Discord Gateway's state collection, read here by name: core imports no app
-(``tests/test_extension_boundary.py`` pins it to the Discord extension's constant)."""
 
 
 def _parse(text: Any) -> datetime | None:
@@ -71,32 +69,6 @@ def hook_counts(store: Any) -> dict[str, dict[str, dict[str, int]]]:
     return out
 
 
-def gateways(store: Any, now: datetime) -> list[dict[str, Any]]:
-    """Discord gateway state per actor: lease holder (None once the lease lapsed), whether
-    its listener is connected and when it last saw a message."""
-    prefix = "discord-gateway:"
-    states = {str(d.get("id")): d for d in store.find(GATEWAY_STATE_COLLECTION)}
-    out = []
-    for lease in sorted(store.find(LEASES_COLLECTION), key=lambda d: str(d.get("id"))):
-        lease_id = str(lease.get("id"))
-        if not lease_id.startswith(prefix):
-            continue
-        actor = lease_id[len(prefix) :]
-        expires = _parse(lease.get("expires_at"))
-        live = lease.get("holder") if expires is not None and expires > now else None
-        state = states.get(actor) or {}
-        out.append(
-            {
-                "actor": actor,
-                "holder": live,
-                "connected": bool(live) and bool(state.get("connected")),
-                "last_event_at": state.get("last_event_at"),
-                "lease_expires_at": lease.get("expires_at"),
-            }
-        )
-    return out
-
-
 def health_status(
     store: Any, now: datetime, host: str, *, beat_every: float = HEARTBEAT_INTERVAL_S
 ) -> dict[str, Any]:
@@ -112,7 +84,7 @@ def health_status(
         beat = store.get(HEARTBEAT_COLLECTION, host)
         executor = _executor(store, now)
         hooks = hook_counts(store)
-        gateway_list = gateways(store, now)
+        sections = {e.name: e.provider(store, now) for e in registry().health_sections()}
         stuck = len(store.find(CHAIN_NEEDS_REVIEW))
         version = getattr(store, "node_schema_version", None)
         out["store"] = {
@@ -124,7 +96,7 @@ def health_status(
         out["heartbeat"] = {"age_s": None, "online": False}
         out["executor"] = {"lag_s": None, "due_steps": None}
         out["hooks"] = {}
-        out["gateways"] = []
+        out.update({e.name: e.empty() for e in registry().health_sections()})
         out["chain_needs_review"] = None
         out["status"] = "down"
         return out
@@ -133,7 +105,7 @@ def health_status(
     out["heartbeat"] = {"age_s": age, "online": age is not None and age < offline_after(beat_every)}
     out["executor"] = executor
     out["hooks"] = hooks
-    out["gateways"] = gateway_list
+    out.update(sections)
     out["chain_needs_review"] = stuck
     degraded = not out["heartbeat"]["online"] or executor["lag_s"] > LAG_DEGRADED_S
     out["status"] = "degraded" if degraded else "ok"

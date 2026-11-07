@@ -51,13 +51,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from culture_rules.events.emit import MAX_EVENT_HOPS, event_hops
+from culture_rules.extensions import registry
 from culture_rules.model import condition as cond
-from culture_rules.model.discord_filters import (
-    custom_id_admits,
-    discord_channels,
-    emoji_admits,
-    filter_values,
-)
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
@@ -82,9 +77,7 @@ __all__ = [
     "Decision",
     "RuleOutcome",
     "RunFacts",
-    "discord_channels",
     "exported_outputs",
-    "filter_values",
     "fired",
     "match",
     "trigger_matches",
@@ -207,9 +200,9 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
     An ``event`` trigger must name a ``type`` and matches only that event type; one without a
     type matches nothing. Other kinds match on kind alone (plus ``type`` when named). An event
     whose ``data.self_authored`` is true (set by ingest) matches only triggers with
-    ``params.include_self`` true. ``discord.*`` events, the bot's own included, also pass the
-    Discord filters
-    (``include_bots``, ``channels``, ``users``, ``roles``; see :func:`_discord_admits`).
+    ``params.include_self`` true. An event whose type's namespace has a registered trigger
+    filter (:meth:`~culture_rules.extensions.Extension.trigger_filter`, e.g. the Discord
+    extension's ``discord.*`` filters), the engine's own included, also passes that filter.
     """
     if trigger.kind != event.get("kind", "event"):
         return False
@@ -223,49 +216,11 @@ def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
     own = isinstance(data, Mapping) and data.get("self_authored") is True
     if own and trigger.params.get("include_self") is not True:
         return False
-    if isinstance(data, Mapping) and str(event.get("type", "")).startswith("discord."):
-        return _discord_admits(trigger.params, data, own=own)
+    if isinstance(data, Mapping):
+        found = registry().trigger_filter(str(event.get("type", "")))
+        if found is not None:
+            return found.match(trigger.params, data, own)
     return True
-
-
-def _discord_admits(
-    params: Mapping[str, Any], data: Mapping[str, Any], *, own: bool = False
-) -> bool:
-    """Discord filters: ``include_bots`` (default off), ``channels`` (ids; absent, empty or
-    ``"all"`` is every channel), and who: ``users`` (ids or names, case-insensitive) and
-    ``roles`` (role ids against ``data.user_roles``), ``emoji`` (a reaction's emoji,
-    :func:`~culture_rules.model.discord_filters.emoji_admits`) and ``command`` (an invoked
-    command's name, case-insensitive, discord-surfaces d12) and ``custom_id`` (a button
-    click's custom id, case-sensitive: a value ending in ``:`` is a prefix, any other is the
-    id itself or the id followed by ``:``;
-    :func:`~culture_rules.model.discord_filters.custom_id_admits`). A bare string is a one-item
-    list. With both ``users`` and ``roles`` set, either admits (a listed user, or anyone holding
-    a listed role); an event with no author id or name never passes a ``users`` filter, and one
-    with no emoji never passes an ``emoji`` filter."""
-    # the bot's own post (``own``, admitted by include_self) needs no include_bots, but the
-    # channel and who filters still apply to it
-    if data.get("bot") is True and not own and params.get("include_bots") is not True:
-        return False
-    channels = discord_channels(params)
-    if channels is not None and str(data.get("channel_id")) not in channels:
-        return False
-    emoji = filter_values(params.get("emoji"))
-    if emoji and not emoji_admits(emoji, data):
-        return False
-    custom_ids = filter_values(params.get("custom_id"))
-    if custom_ids and not custom_id_admits(custom_ids, data):
-        return False
-    commands = {c.casefold() for c in filter_values(params.get("command"))}
-    if commands and str(data.get("command") or "").casefold() not in commands:
-        return False
-    users = {u.casefold() for u in filter_values(params.get("users"))}
-    roles = set(filter_values(params.get("roles")))
-    if not users and not roles:
-        return True
-    who = {str(data.get(key) or "").casefold() for key in ("author_id", "author_name")} - {""}
-    if users & who:
-        return True
-    return bool(roles & set(filter_values(data.get("user_roles"))))
 
 
 def exported_outputs(rule: Rule, workflows: Mapping[str, Workflow]) -> frozenset[str]:

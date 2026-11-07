@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
-from culture_rules.model.discord_filters import discord_channels, filter_values
+from culture_rules.extensions import registry
 
 __all__ = [
     "ACTION_WORDS",
@@ -62,9 +62,11 @@ CONDITION_WORDS_CAP = 120
 #: its own ``if``, so a caller that otherwise writes ``If <words>:`` tests for it first.
 CONDITION_FALLBACK = "if its condition holds"
 
-#: Built-in ``code`` steps (``config.builtin``): a gloss appended after the name, or a
-#: replacement name. ``action`` is handled separately (it reads as its action kind).
-BUILTIN_WORDS: dict[str, str] = {
+#: Core's built-in ``code`` steps (``config.builtin``): a gloss appended after the name, or a
+#: replacement name. ``action`` is handled separately (it reads as its action kind). An
+#: extension's built-in brings its own (``ext.builtin(..., phrase=...)``); :data:`BUILTIN_WORDS`
+#: reads both.
+_CORE_BUILTIN_WORDS: dict[str, str] = {
     "select": "select: the outputs of the path that ran (one source for the next step)",
     "json.read": "json.read: named fields from a JSON file under its root",
     "checklist.merge": "checklist.merge: add new items, keep ids and done marks",
@@ -77,9 +79,6 @@ BUILTIN_WORDS: dict[str, str] = {
         "document.sections: a document split at a heading, as headings, links and excerpts"
     ),
     "run.read": "run.read: a step's outputs from the run that started this one",
-    "attachment.fetch": (
-        "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node"
-    ),
     "cursor.advance": "cursor.advance: move a stored cursor on, only from the value read",
     "keyset.filter": "keyset.filter: drop the items whose key a named set already holds",
     "keyset.add": "keyset.add: remember the items' keys in a named set for a window",
@@ -91,54 +90,67 @@ BUILTIN_WORDS: dict[str, str] = {
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
-_IN_CHANNEL = ("channel", "in {}")
-_QUOTED = '"{}"'
 
-#: Per action kind: which literal params are worth a word, as ``(param, template)``.
-#: A param holding a reference or a ``{{ }}`` template is resolved at run time, so it is
-#: left out rather than shown half-resolved.
-
-ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
+#: Core's action kinds: which literal params are worth a word, as ``(param, template)``. A
+#: param holding a reference or a ``{{ }}`` template is resolved at run time, so it is left
+#: out rather than shown half-resolved. An extension's kind brings its own
+#: (:meth:`~culture_rules.extensions.Extension.action_phrases`); :data:`ACTION_WORDS` reads
+#: both.
+_CORE_ACTION_WORDS: dict[str, tuple[tuple[Any, ...], ...]] = {
     "message": _TO_CHANNEL,
     "mesh.message": _TO_CHANNEL,
-    "discord.message": _TO_CHANNEL,
-    "discord.read": (_IN_CHANNEL, ("message", "message {}")),
-    "discord.react": (
-        ("emoji", "with {}"),
-        ("remove", "removing {}"),
-        _IN_CHANNEL,
-        ("message", "on message {}"),
-    ),
-    "discord.reply": (("text", '"{}"'),),
-    "discord.sweep": (_IN_CHANNEL, ("limit", "up to {} messages")),
-    "github.comment": (),
-    "github.merge": (),
-    "github.pr": (),
-    "jira.comment": (("issue", "on {}"),),
-    "http.call": (("method", "{}"), ("url", "{}")),
-    "machine.command": (("command", "`{}`"),),
-    "email.send": (("subject", _QUOTED),),
-    "search.web": (("query", _QUOTED),),
-    "llm.complete": (
-        ("brief", "brief {}"),
-        ("answer", "checking the answer against its configured shape"),
-        ("cache", "keeping the first valid answer"),
-        ("cache_name", "cache name {}"),
-        ("cache_label", "cache label {}"),
-    ),
-    "audio.transcribe": (("audio_path", "of {}"),),
-    "transcript.render": (("result_path", "of {}"),),
-    "decider.assess": (),
-    "library.push": (
-        ("kind", "kind {}"),
-        ("visibility", "({})"),
-        ("format", "as .{}"),
-        ("item_id", "replacing item {}"),
-        ("device_id", "to device {}"),
-    ),
-    "repodocs.sync": (),
     "noop": (),
 }
+
+
+class _ActionWords(Mapping[str, tuple[tuple[Any, ...], ...]]):
+    """Per action kind, its phrase words: core's, then the registered ones (read live)."""
+
+    def __getitem__(self, kind: str) -> tuple[tuple[Any, ...], ...]:
+        if kind in _CORE_ACTION_WORDS:
+            return _CORE_ACTION_WORDS[kind]
+        entry = registry().action_phrases(kind)
+        if entry is None:
+            raise KeyError(kind)
+        return entry.words
+
+    def __iter__(self) -> Iterator[str]:
+        registered = registry().action_phrase_kinds()
+        return iter((*_CORE_ACTION_WORDS, *(k for k in registered if k not in _CORE_ACTION_WORDS)))
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+
+class _BuiltinWords(Mapping[str, str]):
+    """Per built-in, its gloss: core's, then the registered phrases (read live)."""
+
+    def _all(self) -> dict[str, str]:
+        registered = registry().builtin_phrases()
+        return {
+            **_CORE_BUILTIN_WORDS,
+            **{k: v for k, v in registered.items() if k not in _CORE_BUILTIN_WORDS},
+        }
+
+    def __contains__(self, name: object) -> bool:
+        return name in _CORE_BUILTIN_WORDS or name in registry().builtin_phrases()
+
+    def __getitem__(self, name: str) -> str:
+        if name in _CORE_BUILTIN_WORDS:
+            return _CORE_BUILTIN_WORDS[name]
+        return registry().builtin_phrases()[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._all())
+
+    def __len__(self) -> int:
+        return len(self._all())
+
+
+ACTION_WORDS: Mapping[str, tuple[tuple[Any, ...], ...]] = _ActionWords()
+"""Per action kind, which literal params are worth a word (core's and the extensions')."""
+BUILTIN_WORDS: Mapping[str, str] = _BuiltinWords()
+"""Per built-in code step, its gloss (core's and the extensions')."""
 
 _TRIGGER_WORDS = {"manual": "started by hand", "event": "an event"}
 _WAIT_GUARDS = {"head_unchanged": "stop if the PR head moves"}
@@ -354,26 +366,28 @@ def _actor_of(params: Mapping[str, Any]) -> str:
     return f"as {actor}" if isinstance(actor, str) and actor and not _dynamic(actor) else ""
 
 
-def _comment_words(params: Mapping[str, Any]) -> list[str]:
-    """``github.comment``'s guard words: once per key."""
-    words = ["(once per once_key)"] if params.get("once_key") else []
-    return words
-
-
 def _param_words(kind: str, params: Mapping[str, Any]) -> list[str]:
     """The literal params :data:`ACTION_WORDS` names for ``kind``, each in its template; a
-    list param reads "a and b" (its literal items only)."""
+    list param reads "a and b" (its literal items only). A ``(param, template, test)`` word
+    reads its template as is when ``test(value)`` holds."""
     words = []
-    for param, template in ACTION_WORDS.get(kind, ()):
+    for word in ACTION_WORDS.get(kind, ()):
+        param, template = word[0], word[1]
         value = params.get(param)
         if isinstance(value, (list, tuple)):
             value = " and ".join(str(v) for v in value if not _dynamic(v))
-        if kind == "llm.complete" and param == "answer":
-            if isinstance(value, Mapping) and "shape" in value:
+        if len(word) == 3:
+            if word[2](value):
                 words.append(template)
         elif value is not False and value not in (None, "") and not _dynamic(value):
             words.append(template.format(value))
     return words
+
+
+def _after_words(kind: str, params: Mapping[str, Any]) -> list[str]:
+    """The words a kind's extension adds after the placement (its guards), or none."""
+    entry = None if kind in _CORE_ACTION_WORDS else registry().action_phrases(kind)
+    return list(entry.after(params)) if entry is not None and entry.after is not None else []
 
 
 def action_text(action: Any, where: str = "") -> str:
@@ -383,10 +397,7 @@ def action_text(action: Any, where: str = "") -> str:
     kind = str(a.get("kind") or "?")
     params = a.get("params") if isinstance(a.get("params"), Mapping) else {}
     words = [kind, _actor_of(params), *_param_words(kind, params), where]
-    if kind == "github.merge":  # the port runs it only from a click with the button's code
-        words.append("(only on a button click, with the button's one-time code)")
-    if kind == "github.comment":
-        words += _comment_words(params)
+    words += _after_words(kind, params)
     if a.get("only_at_chain_end") is True:  # d21: one comment per chain
         words.append("(only where its chain ends)")
     return _join(*words)
@@ -401,8 +412,9 @@ def trigger_text(trigger: Any) -> str:
     params = t.get("params") if isinstance(t.get("params"), Mapping) else {}
     if kind == "event":
         type_ = str(params.get("type") or _TRIGGER_WORDS["event"])
-        if type_.startswith("discord."):
-            return _join(type_, *_discord_filter_words(params))
+        found = registry().trigger_filter(type_)
+        if found is not None and found.describe is not None:
+            return _join(type_, *found.describe(params))
         return type_
     if kind == "schedule":
         tz = params.get("tz") or "UTC"
@@ -416,31 +428,6 @@ def trigger_text(trigger: Any) -> str:
             mode,
         )
     return _TRIGGER_WORDS.get(kind, kind)
-
-
-def _discord_filter_words(params: Mapping[str, Any]) -> list[str]:
-    """``(in channels 1, 2; from alice or role r1; bots too)``: a discord.* trigger's filters,
-    read as engine.matching applies them; nothing when every filter is open."""
-    parts = []
-    channels = discord_channels(params)
-    if channels is not None:
-        parts.append("in channels " + ", ".join(sorted(channels)))
-    emoji = filter_values(params.get("emoji"))
-    if emoji:
-        parts.append("with " + " or ".join(emoji))
-    buttons = filter_values(params.get("custom_id"))
-    if buttons:
-        parts.append("with button " + " or ".join(buttons))
-    commands = filter_values(params.get("command"))
-    if commands:
-        parts.append("for command " + " or ".join(commands))
-    who = [*filter_values(params.get("users"))]
-    who += [f"role {r}" for r in filter_values(params.get("roles"))]
-    if who:
-        parts.append("from " + " or ".join(who))
-    if params.get("include_bots") is True:
-        parts.append("bots too")
-    return [f"({'; '.join(parts)})"] if parts else []
 
 
 # --------------------------------------------------------------------------- rules

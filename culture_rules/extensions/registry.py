@@ -23,7 +23,25 @@ with an :class:`Extension` handle, through which it adds:
   front by every node;
 * **API routes** - ``name -> mount(app, ApiContext)``: routes an app adds to the API *inside*
   the OpenAPI contract (``GET /actors/{id}/discord/targets``); the API mounts them in
-  registration order at one fixed point, so the contract's path order holds.
+  registration order at one fixed point, so the contract's path order holds. ``roles``
+  declares the role each of its routes needs (``(method, path template, role)``), which the
+  auth policy reads (:meth:`Registry.route_role`);
+* **params validators** - ``kind -> validate(params, path)``, the kind's own save-time checks
+  beyond its typed params; each problem is a ``(path, code, message)`` triple, which
+  ``model.validate`` reports as a ``ValidationError``;
+* **trigger filters** - ``namespace -> match/validate/describe`` for the event types
+  ``<namespace>.*``: ``match(params, data, own)`` admits an event to an event trigger (the
+  engine finds it with one dict lookup per event), ``validate(params, path)`` sees *every*
+  event trigger's params at save (so it can refuse its filter params on another type) and
+  ``describe(params)`` gives the words after the type;
+* **phrases** - ``kind -> words`` (the literal params worth a word, ``(param, template)`` or
+  ``(param, template, test)``, and ``after(params)``, words after the placement) and a
+  built-in's ``phrase``: what ``model.describe`` says for an app's kind or built-in;
+* **health sections** - ``name -> provider(store, now)``, a key of the node's health document
+  (after ``hooks``); ``empty()`` is its value when the store is unreachable;
+* **event reservations** - ``name -> check(envelope)``, a reason an envelope may not enter from
+  the bus or a webhook (types and id prefixes only the engine writes), checked by
+  ``events.emit.reserved_reason`` in registration order.
 
 Registration is idempotent (an equal entry again is a no-op) and refuses a conflicting
 duplicate name with :class:`ExtensionError`, naming the extension that holds it; a refused
@@ -36,6 +54,7 @@ Standard library only: this module imports nothing from culture_rules at run tim
 
 from __future__ import annotations
 
+import functools
 import importlib
 import re
 import threading
@@ -50,19 +69,27 @@ if TYPE_CHECKING:
 __all__ = [
     "EVENT_TYPE_RE",
     "RESERVED_BUILTINS",
+    "RESERVED_HEALTH_SECTIONS",
+    "ROLES",
     "WEBHOOK_PREFIX",
+    "ActionPhrasesEntry",
     "ActionPortEntry",
     "ApiContext",
     "ApiRoutesEntry",
     "BuiltinEntry",
+    "EventReservationEntry",
     "EventTypeEntry",
     "Extension",
     "ExtensionError",
+    "HealthSectionEntry",
     "KindEntry",
     "Lazy",
     "NodeContext",
     "NodeListenerEntry",
+    "ParamsValidatorEntry",
+    "Problem",
     "Registry",
+    "TriggerFilterEntry",
     "WebhookRouteEntry",
 ]
 
@@ -73,8 +100,21 @@ RESERVED_BUILTINS = frozenset({"action"})
 #: Every webhook route lives under this prefix (the access-log filter keys on ``/hooks``).
 WEBHOOK_PREFIX = "/hooks/"
 _ROUTE_RE = re.compile(r"^/hooks/[A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+)*$")
+#: The first segment of the event types a trigger filter covers (``discord``: ``discord.*``).
+_NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+#: The health document's own keys; a section may not take one.
+RESERVED_HEALTH_SECTIONS = frozenset(
+    {"host", "at", "version", "store", "heartbeat", "executor", "hooks"}
+    | {"chain_needs_review", "status"}
+)
+#: The API's roles, lowest first (``auth.policy``).
+ROLES = ("viewer", "editor", "admin")
+_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"})
+_TEMPLATE_RE = re.compile(r"^(/([A-Za-z0-9._~-]+|\{[A-Za-z_][A-Za-z0-9_]*\}))+$")
 
 Factory = Callable[[Any], Any]
+#: A problem a params or trigger-filter validator reports: ``(path, code, message)``.
+Problem = tuple[str, str, str]
 
 
 class ExtensionError(ValueError):
@@ -143,6 +183,7 @@ class BuiltinEntry:
     name: str
     factory: Factory
     extension: str
+    phrase: str = ""
 
 
 @dataclass(frozen=True)
@@ -172,6 +213,52 @@ class ApiRoutesEntry:
     name: str
     mount: Callable[[Any, ApiContext], None]
     extension: str
+    #: ``(method, path template, role)`` per route it mounts (see :meth:`Registry.route_role`)
+    roles: tuple[tuple[str, str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class ParamsValidatorEntry:
+    kind: str
+    validate: Callable[[Mapping[str, Any], str], Iterable[Problem]]
+    extension: str
+
+
+@dataclass(frozen=True)
+class TriggerFilterEntry:
+    namespace: str
+    match: Callable[[Mapping[str, Any], Mapping[str, Any], bool], bool]
+    extension: str
+    validate: Callable[[Mapping[str, Any], str], Iterable[Problem]] | None = None
+    describe: Callable[[Mapping[str, Any]], Iterable[str]] | None = None
+
+
+@dataclass(frozen=True)
+class ActionPhrasesEntry:
+    kind: str
+    #: ``(param, template)`` or ``(param, template, test)``: see :meth:`Extension.action_phrases`
+    words: tuple[tuple[Any, ...], ...]
+    extension: str
+    after: Callable[[Mapping[str, Any]], Iterable[str]] | None = None
+
+
+def _none() -> None:
+    return None
+
+
+@dataclass(frozen=True)
+class HealthSectionEntry:
+    name: str
+    provider: Callable[[Any, Any], Any]
+    extension: str
+    empty: Callable[[], Any] = _none
+
+
+@dataclass(frozen=True)
+class EventReservationEntry:
+    name: str
+    check: Callable[[Mapping[str, Any]], str | None]
+    extension: str
 
 
 @dataclass(frozen=True)
@@ -184,6 +271,51 @@ def _name(value: Any, what: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ExtensionError(f"{what} must be a non-empty string, not {value!r}")
     return value
+
+
+def _callable(value: Any, what: str) -> Any:
+    if not callable(value):
+        raise ExtensionError(f"{what} must be callable, not {value!r}")
+    return value
+
+
+def _optional_callable(value: Any, what: str) -> Any:
+    return None if value is None else _callable(value, what)
+
+
+def _words(words: Iterable[Any]) -> tuple[tuple[Any, ...], ...]:
+    """Phrase words as a tuple: each ``(param, template)`` or ``(param, template, test)``."""
+    out = []
+    for word in words:
+        word = tuple(word) if isinstance(word, (list, tuple)) else (word,)
+        ok = len(word) in (2, 3) and all(isinstance(w, str) and w for w in word[:2])
+        if not ok or (len(word) == 3 and not callable(word[2])):
+            raise ExtensionError(
+                f"phrase word {word!r} must be (param, template) or (param, template, test)"
+            )
+        out.append(word)
+    return tuple(out)
+
+
+def _roles(roles: Iterable[Any]) -> tuple[tuple[str, str, str], ...]:
+    out = []
+    for role in roles:
+        method, template, name = tuple(role) if isinstance(role, (list, tuple)) else (role, 0, 0)
+        if method not in _METHODS:
+            raise ExtensionError(f"route method {method!r} is not one of {sorted(_METHODS)}")
+        if not isinstance(template, str) or not _TEMPLATE_RE.match(template):
+            raise ExtensionError(f"route path {template!r} must be an absolute path template")
+        if name not in ROLES:
+            raise ExtensionError(f"route role {name!r} is not one of {', '.join(ROLES)}")
+        out.append((method, template, name))
+    return tuple(out)
+
+
+@functools.lru_cache(maxsize=256)
+def _template_regex(template: str) -> re.Pattern[str]:
+    """``/actors/{actor_id}/x`` as a whole-path pattern, one segment per placeholder."""
+    parts = re.split(r"\{[A-Za-z_][A-Za-z0-9_]*\}", template)
+    return re.compile("^" + "[^/]+".join(re.escape(p) for p in parts) + "$")
 
 
 class Extension:
@@ -213,11 +345,15 @@ class Extension:
         entry = ActionPortEntry(_name(kind, "kind"), factory, self.name, needs_module, extra)
         self._registry._add("ports", entry.kind, entry, "action port")
 
-    def builtin(self, name: str, factory: Factory) -> None:
-        """Serve the built-in code step ``name`` with ``factory(store)``."""
+    def builtin(self, name: str, factory: Factory, *, phrase: str = "") -> None:
+        """Serve the built-in code step ``name`` with ``factory(store)``; ``phrase`` is what
+        ``model.describe`` says for it (empty: ``builtin <name>``)."""
         if _name(name, "builtin name") in RESERVED_BUILTINS:
             raise ExtensionError(f"builtin {name!r} is reserved by core")
-        self._registry._add("builtins", name, BuiltinEntry(name, factory, self.name), "builtin")
+        if not isinstance(phrase, str):
+            raise ExtensionError(f"builtin phrase must be a string, not {phrase!r}")
+        entry = BuiltinEntry(name, factory, self.name, phrase)
+        self._registry._add("builtins", name, entry, "builtin")
 
     def event_type(self, name: str, *, summary: str = "") -> None:
         """Declare an event type this extension's surface emits."""
@@ -243,11 +379,93 @@ class Extension:
         entry = _CollectionsEntry(provider, self.name)
         self._registry._add("collections", key, entry, "node collections")
 
-    def api_routes(self, name: str, mount: Callable[[Any, ApiContext], None]) -> None:
-        """Add contract routes to the API: ``mount(app, ApiContext)`` (see the module
+    def api_routes(
+        self,
+        name: str,
+        mount: Callable[[Any, ApiContext], None],
+        *,
+        roles: Iterable[tuple[str, str, str]] = (),
+    ) -> None:
+        """Add contract routes to the API: ``mount(app, ApiContext)``; ``roles`` declares the
+        role each route needs, ``(method, path template, role)`` (see the module
         docstring)."""
-        entry = ApiRoutesEntry(_name(name, "api routes name"), mount, self.name)
+        entry = ApiRoutesEntry(_name(name, "api routes name"), mount, self.name, _roles(roles))
         self._registry._add("api", name, entry, "api routes")
+
+    def params_validator(
+        self, kind: str, validate: Callable[[Mapping[str, Any], str], Iterable[Problem]]
+    ) -> None:
+        """Check ``kind``'s params at save: ``validate(params, path)`` returns its problems,
+        ``(path, code, message)`` each (``path`` is the action's ``params`` path)."""
+        entry = ParamsValidatorEntry(
+            _name(kind, "kind"), _callable(validate, "params validator"), self.name
+        )
+        self._registry._add("validators", kind, entry, "params validator")
+
+    def trigger_filter(
+        self,
+        namespace: str,
+        *,
+        match: Callable[[Mapping[str, Any], Mapping[str, Any], bool], bool],
+        validate: Callable[[Mapping[str, Any], str], Iterable[Problem]] | None = None,
+        describe: Callable[[Mapping[str, Any]], Iterable[str]] | None = None,
+    ) -> None:
+        """Filter event triggers on the types ``<namespace>.*`` (see the module docstring):
+        ``match(params, data, own)`` (``own``: the event is the engine's own, admitted by
+        ``include_self``), ``validate(params, path)`` and ``describe(params)``."""
+        if not _NAMESPACE_RE.match(_name(namespace, "trigger filter namespace")):
+            raise ExtensionError(f"{namespace!r} is not one lowercase event-type segment")
+        entry = TriggerFilterEntry(
+            namespace,
+            _callable(match, "trigger filter match"),
+            self.name,
+            _optional_callable(validate, "trigger filter validate"),
+            _optional_callable(describe, "trigger filter describe"),
+        )
+        self._registry._add("filters", namespace, entry, "trigger filter")
+
+    def action_phrases(
+        self,
+        kind: str,
+        *,
+        words: Iterable[tuple[Any, ...]] = (),
+        after: Callable[[Mapping[str, Any]], Iterable[str]] | None = None,
+    ) -> None:
+        """What ``model.describe`` says for ``kind`` after its name and actor: ``words``, the
+        literal params worth a word as ``(param, template)`` (a literal value fills the
+        template's ``{}``) or ``(param, template, test)`` (the template as is, when
+        ``test(value)`` holds); then ``after(params)``, words after the placement."""
+        entry = ActionPhrasesEntry(
+            _name(kind, "kind"), _words(words), self.name, _optional_callable(after, "after")
+        )
+        self._registry._add("phrases", kind, entry, "action phrases")
+
+    def health_section(
+        self,
+        name: str,
+        provider: Callable[[Any, Any], Any],
+        *,
+        empty: Callable[[], Any] = _none,
+    ) -> None:
+        """Add ``name`` to the node's health document: ``provider(store, now)``, JSON;
+        ``empty()`` when the store is unreachable."""
+        if _name(name, "health section") in RESERVED_HEALTH_SECTIONS:
+            raise ExtensionError(f"health section {name!r} is core's")
+        entry = HealthSectionEntry(
+            name, _callable(provider, "health provider"), self.name, _callable(empty, "empty")
+        )
+        self._registry._add("health", name, entry, "health section")
+
+    def event_reservation(
+        self, name: str, check: Callable[[Mapping[str, Any]], str | None]
+    ) -> None:
+        """Refuse envelopes from the bus and webhooks: ``check(envelope)`` returns why (a
+        type or id prefix only the engine writes), or ``None``. Its fields ``id``, ``type``,
+        ``kind`` and ``source`` are non-empty strings or absent when it is called."""
+        entry = EventReservationEntry(
+            _name(name, "reservation name"), _callable(check, "reservation check"), self.name
+        )
+        self._registry._add("reservations", name, entry, "event reservation")
 
 
 class Registry:
@@ -267,6 +485,11 @@ class Registry:
                 "listeners",
                 "collections",
                 "api",
+                "validators",
+                "filters",
+                "phrases",
+                "health",
+                "reservations",
             )
         }
         self._aliases: dict[str, str] = {}
@@ -374,6 +597,49 @@ class Registry:
 
     def api_routes(self) -> tuple[ApiRoutesEntry, ...]:
         return tuple(self._tables["api"].values())
+
+    def params_validator(
+        self, kind: str
+    ) -> Callable[[Mapping[str, Any], str], Iterable[Problem]] | None:
+        """``kind``'s params validator (aliases resolved), or None."""
+        entry = self._tables["validators"].get(self._aliases.get(kind, kind))
+        return entry.validate if entry else None
+
+    def trigger_filter(self, event_type: Any) -> TriggerFilterEntry | None:
+        """The filter for ``event_type``'s namespace (``discord.x`` -> ``discord``), or None:
+        one dict lookup, the engine's per-event path."""
+        if not isinstance(event_type, str):
+            return None
+        head, dot, _ = event_type.partition(".")
+        return self._tables["filters"].get(head) if dot else None
+
+    def trigger_filters(self) -> tuple[TriggerFilterEntry, ...]:
+        return tuple(self._tables["filters"].values())
+
+    def action_phrases(self, kind: str) -> ActionPhrasesEntry | None:
+        return self._tables["phrases"].get(kind)
+
+    def action_phrase_kinds(self) -> tuple[str, ...]:
+        return tuple(self._tables["phrases"])
+
+    def builtin_phrases(self) -> dict[str, str]:
+        """``name -> phrase`` of the built-ins registered with one."""
+        return {b.name: b.phrase for b in tuple(self._tables["builtins"].values()) if b.phrase}
+
+    def health_sections(self) -> tuple[HealthSectionEntry, ...]:
+        return tuple(self._tables["health"].values())
+
+    def event_reservations(self) -> tuple[EventReservationEntry, ...]:
+        return tuple(self._tables["reservations"].values())
+
+    def route_role(self, method: str, path: str) -> str | None:
+        """The role an extension declared for ``method path`` (a concrete path), or None."""
+        method = method.upper()
+        for entry in tuple(self._tables["api"].values()):
+            for m, template, role in entry.roles:
+                if m == method and _template_regex(template).match(path):
+                    return role
+        return None
 
     def node_collections(self) -> tuple[str, ...]:
         """Every extension's collections (each provider is called now), first seen first."""

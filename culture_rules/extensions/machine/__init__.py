@@ -29,4 +29,5 @@ def register(ext: Extension) -> None:
     """``machine.command`` (``port.MachineCommandPort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("machine.command", words=(("command", "`{}`"),))
     ext.action_port("machine.command", Lazy(__name__ + ".port", "MachineCommandPort", store=True))

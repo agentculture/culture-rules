@@ -8,20 +8,25 @@
   through the ``http`` extension's vetted opener);
 * the Gateway listener (:mod:`~culture_rules.extensions.discord.gateway`, with
   :mod:`~culture_rules.extensions.discord.buttons` and
-  :mod:`~culture_rules.extensions.discord.commands`), its four event types and its state
-  collection;
+  :mod:`~culture_rules.extensions.discord.commands`), its four event types, its state
+  collection and its ``gateways`` health section
+  (:mod:`~culture_rules.extensions.discord.health`);
 * the contract route ``GET /actors/{id}/discord/targets``
   (:mod:`~culture_rules.extensions.discord.api`).
 
-The ``discord.*`` trigger filters stay core's (:mod:`culture_rules.model.discord_filters`):
-the engine matches and validates them. Registering imports nothing but the kinds' typed
-params; every port, listener and route imports its module when it is built.
+* the ``discord.*`` trigger filters (:mod:`~culture_rules.extensions.discord.filters`): the
+  engine's match, the save-time checks and the describe words.
+
+Registering imports nothing but the kinds' typed params and the filters (standard library,
+called on every Discord event); every port, listener and route imports its module when it is
+built.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from culture_rules.extensions.discord import filters
 from culture_rules.extensions.registry import ApiContext, Extension, Lazy, NodeContext
 from culture_rules.model.action_kinds import INT, REQ_STR, REQ_TEXT, STR, ParamSpec, kind
 
@@ -98,6 +103,26 @@ EVENT_TYPES = (
 )
 
 
+_IN_CHANNEL = ("channel", "in {}")
+
+#: What describe says for each Discord kind after its name and actor.
+PHRASES = {
+    "discord.message": (("channel", "to {}"),),
+    "discord.read": (_IN_CHANNEL, ("message", "message {}")),
+    "discord.react": (
+        ("emoji", "with {}"),
+        ("remove", "removing {}"),
+        _IN_CHANNEL,
+        ("message", "on message {}"),
+    ),
+    "discord.reply": (("text", '"{}"'),),
+    "discord.sweep": (_IN_CHANNEL, ("limit", "up to {} messages")),
+}
+ATTACHMENT_FETCH_PHRASE = (
+    "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node"
+)
+
+
 def _port(module: str, attr: str) -> Lazy:
     return Lazy(f"{__name__}.{module}", attr, store=True)
 
@@ -142,6 +167,14 @@ def discord_collections() -> tuple[str, ...]:
     return (GATEWAY_STATE_COLLECTION,)
 
 
+def discord_health(store: Any, now: Any) -> list[dict[str, Any]]:
+    """The ``gateways`` health section: each gateway's lease holder, connection and last
+    event (:mod:`~culture_rules.extensions.discord.health`)."""
+    from culture_rules.extensions.discord.health import gateways  # noqa: PLC0415
+
+    return gateways(store, now)
+
+
 def discord_targets(app: Any, ctx: ApiContext) -> None:
     """``GET /actors/{id}/discord/targets`` (the ``server`` extra)."""
     from culture_rules.extensions.discord.api import register_targets  # noqa: PLC0415
@@ -154,14 +187,27 @@ def register(ext: Extension) -> None:
     listener and its four event types, and the targets route."""
     for k in KINDS:
         ext.action_kind(k)
+        ext.action_phrases(k.name, words=PHRASES[k.name])
     ext.action_port("discord.message", _port("message", "DiscordMessageAction"))
     ext.action_port("discord.read", _port("read", "DiscordReadAction"))
     ext.action_port("discord.react", _port("react", "DiscordReactAction"))
     ext.action_port("discord.reply", _port("reply", "DiscordReplyAction"))
     ext.action_port("discord.sweep", _port("sweep", "DiscordSweepAction"))
-    ext.builtin("attachment.fetch", Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"))
+    ext.builtin(
+        "attachment.fetch",
+        Lazy(__name__ + ".attachment_fetch", "AttachmentFetchPort"),
+        phrase=ATTACHMENT_FETCH_PHRASE,
+    )
     for event in EVENT_TYPES:
         ext.event_type(event)
+    ext.trigger_filter(
+        "discord", match=filters.admits, validate=filters.problems, describe=filters.words
+    )
     ext.node_listener("discord.gateway", discord_gateway, long_lived=True)
     ext.node_collections(discord_collections)
-    ext.api_routes("discord.targets", discord_targets)
+    ext.health_section("gateways", discord_health, empty=list)
+    ext.api_routes(
+        "discord.targets",
+        discord_targets,
+        roles=(("GET", "/actors/{actor_id}/discord/targets", "viewer"),),
+    )

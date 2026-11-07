@@ -27,4 +27,5 @@ def register(ext: Extension) -> None:
     """``repodocs.sync`` (``port.RepodocsSyncPort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("repodocs.sync")
     ext.action_port("repodocs.sync", Lazy(__name__ + ".port", "RepodocsSyncPort", store=True))

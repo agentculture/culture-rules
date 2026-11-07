@@ -32,5 +32,6 @@ def register(ext: Extension) -> None:
     """``audio.transcribe`` (``port.AudioTranscribePort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("audio.transcribe", words=(("audio_path", "of {}"),))
     port = Lazy(__name__ + ".port", "AudioTranscribePort", store=True)
     ext.action_port("audio.transcribe", port)

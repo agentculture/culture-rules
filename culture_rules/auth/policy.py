@@ -23,12 +23,17 @@ changing a runner actor's command registry (``params.commands``), but those depe
 (and the stored version), so the save routes check them (``culture_rules.auth.guards``); so
 is adding, changing or removing a machine's ``install`` section (``install_requires_admin``)
 and an actor's ``params.briefs``, on any actor kind (``briefs_admin_only``).
+A route an extension adds declares its own role
+(:meth:`~culture_rules.extensions.Extension.api_routes`, ``roles``): it applies after the
+admin patterns above, so an extension cannot lower one of them.
 Any mutation not listed here needs admin: the matrix fails closed.
 """
 
 from __future__ import annotations
 
 import re
+
+from culture_rules.extensions import registry
 
 __all__ = ["required_role"]
 
@@ -70,6 +75,9 @@ def required_role(method: str, path: str) -> str:
     path = path.rstrip("/") or "/"
     if any(p.match(path) for p in _ADMIN_PATTERNS):
         return "admin"
+    declared = registry().route_role(method, path)
+    if declared is not None:
+        return declared
     if method in ("GET", "HEAD", "OPTIONS"):
         return "viewer"
     if method == "POST" and any(p.match(path) for p in _VIEWER_POSTS):

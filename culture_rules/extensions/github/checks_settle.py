@@ -102,13 +102,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
-from culture_rules.events.emit import (
-    CHECKS_LATE_TYPE,
-    CHECKS_SETTLED_TYPE,
-    LATE_ID_PREFIX,
-    SETTLED_ID_PREFIX,
-    derive_envelope,
-)
+from culture_rules.events.emit import derive_envelope
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.extensions.github.client import (
     DEFAULT_API_BASE,
@@ -116,6 +110,12 @@ from culture_rules.extensions.github.client import (
     GitHubError,
     Transport,
     complete_pr_facts,
+)
+from culture_rules.extensions.github.events import (
+    CHECKS_LATE_TYPE,
+    CHECKS_SETTLED_TYPE,
+    LATE_ID_PREFIX,
+    SETTLED_ID_PREFIX,
 )
 from culture_rules.extensions.github.port import GitHubCommentPort
 from culture_rules.store.port import DuplicateKeyError, StoragePort

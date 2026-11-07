@@ -6,7 +6,7 @@ numbers, booleans, ``null`` and nested objects or lists of those; at most
 the posted id is ``<custom_id>:<token>`` (:func:`posted_id`, a fresh
 ``secrets.token_urlsafe(16)``), so the ``custom_id`` trigger filter still selects the button
 by the id it was given (``merge`` or ``merge:``,
-:func:`~culture_rules.model.discord_filters.custom_id_admits`), and no step ever has to parse
+:func:`~culture_rules.extensions.discord.filters.custom_id_admits`), and no step ever has to parse
 an id. A button without
 a ``value`` posts its ``custom_id`` unchanged.
 

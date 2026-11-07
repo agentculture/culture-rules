@@ -19,9 +19,9 @@ from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.claims import idempotency_key
 from culture_rules.engine.reports import RunReporter
 from culture_rules.engine.runs import ACTION_STEP, RUNS_COLLECTION, Containment, step_state
-from culture_rules.events.emit import SETTLE_TYPES
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.extensions.github.checks_settle import SOURCE as SETTLE_SOURCE
+from culture_rules.extensions.github.events import SETTLE_TYPES
 from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
 from culture_rules.machines.probe import ProbeResult
 from culture_rules.model.action import Action

@@ -65,7 +65,7 @@ A message is sunk only from a channel some enabled rule with a ``discord.*`` eve
 selects for that event type (:func:`selected_channels`, recomputed from the ``rules``
 collection on every :meth:`GatewaySupervisor.tick`): a rule's ``channels`` param is read
 exactly as the trigger matcher reads it
-(:func:`~culture_rules.model.discord_filters.discord_channels`), so a rule with no channels
+(:func:`~culture_rules.extensions.discord.filters.discord_channels`), so a rule with no channels
 or ``"all"`` selects every channel, and with no such rule nothing is sunk. A trigger names
 no actor, so the selection is one union per event type shared by every Discord actor (a
 channel any rule selects is kept for each bot); the actor's own ``connection.channels``
@@ -114,9 +114,9 @@ from culture_rules.events.hook_sink import (
 )
 from culture_rules.extensions.discord import buttons as buttons_mod
 from culture_rules.extensions.discord import commands as commands_mod
+from culture_rules.extensions.discord.filters import BUTTON_CLICKED, discord_channels, filter_values
 from culture_rules.extensions.discord.rest import guild_ids
 from culture_rules.model.discord_command_config import command_problems, definitions, not_here
-from culture_rules.model.discord_filters import BUTTON_CLICKED, discord_channels, filter_values
 from culture_rules.model.rule import Rule, Trigger
 
 __all__ = [

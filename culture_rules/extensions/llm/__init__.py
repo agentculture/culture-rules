@@ -7,6 +7,9 @@ nothing but the kind's typed params.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from culture_rules.extensions.registry import Extension, Lazy
 from culture_rules.model.action_kinds import INT, REQ_STR, STR, ParamSpec, kind
 
@@ -43,8 +46,24 @@ KINDS = (
 )
 
 
+def _has_shape(value: Any) -> bool:
+    """``answer`` reads its word only when it holds a ``shape`` (an object, never a literal)."""
+    return isinstance(value, Mapping) and "shape" in value
+
+
+#: What describe says for ``llm.complete`` after its name and actor.
+PHRASES = (
+    ("brief", "brief {}"),
+    ("answer", "checking the answer against its configured shape", _has_shape),
+    ("cache", "keeping the first valid answer"),
+    ("cache_name", "cache name {}"),
+    ("cache_label", "cache label {}"),
+)
+
+
 def register(ext: Extension) -> None:
     """``llm.complete`` (``port.LlmCompletePort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("llm.complete", words=PHRASES)
     ext.action_port("llm.complete", Lazy(__name__ + ".port", "LlmCompletePort", store=True))

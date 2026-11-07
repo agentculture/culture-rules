@@ -202,7 +202,7 @@ plan. What exists today:
     `jetson-bot`); the gateway's delivery id is per actor, and `connection.guild_id`
     is one id or a list (upgrade every node and the API before switching to a list);
   - `discord.*` trigger filters `include_bots`, `channels`, `users`, `roles` (users OR
-    roles; `model/discord_filters.py`); the gateway stores only channels an enabled
+    roles; `extensions/discord/filters.py`); the gateway stores only channels an enabled
     `discord.*` rule selects, and Discord events expire after 30 days;
   - the action kind `discord.read` (one message in full, with attachments) and the
     builtin `markdown.render` (a deterministic page and its `content_base64` for
@@ -358,10 +358,31 @@ Settled constraints that shape the architecture:
 - **Apps plug in through one registry**, `culture_rules/extensions`
   (stdlib only): an extension's `register(ext)` adds action kinds (their
   `ParamSpec`s), action ports, built-in code steps, event types, webhook
-  routes (`POST /hooks/...`) and node listeners. `ACTION_KINDS`,
-  `default_ports`, the API's webhook routes and the node's listeners read
-  `registry()`; the built-in apps register in
+  routes (`POST /hooks/...`), node listeners and collections, and API
+  routes. `ACTION_KINDS`, `default_ports`, the API's routes and the node's
+  listeners read `registry()`; the built-in apps register in
   `culture_rules/extensions/builtin.py`, every factory imported lazily.
+- **What core used to know about apps is registered too** (d9):
+  - `ext.params_validator(kind, fn)`: a kind's own save-time checks
+    (`github.comment`'s `params.status`, `action_param_removed`), run by
+    `model/validate.py`;
+  - `ext.trigger_filter(namespace, match=, validate=, describe=)`: the
+    filters of the event types `<namespace>.*`; `engine/matching.py`
+    finds the match with one dict lookup per event, `validate.py` runs every
+    filter's check on every event trigger and `model/describe.py` adds the
+    words (the `discord.*` filters, `extensions/discord/filters.py`);
+  - `ext.action_phrases(kind, words=, after=)` and `ext.builtin(...,
+    phrase=)`: what describe says for an app's kind or built-in;
+    `describe.py` keeps core's words, and `ACTION_WORDS`/`BUILTIN_WORDS` are
+    live views over both;
+  - `ext.health_section(name, provider, empty=)`: a key of the health
+    document after `hooks` (Discord's `gateways`);
+  - `ext.event_reservation(name, check)`: types and id prefixes only the
+    engine writes, refused at external ingest by `events/emit.py`'s
+    `reserved_reason` (GitHub's checks settle and reaction watch,
+    `extensions/github/events.py`);
+  - `ext.api_routes(..., roles=)`: the role each route needs, read by
+    `auth/policy.py` after core's admin patterns.
 - **Each app's integration code lives on the extension side**, one
   package per app under `culture_rules/extensions/<app>/` (`discord`,
   `github`, `jira`, `http`, `machine`, `email`, `search`, `llm`,
@@ -375,10 +396,10 @@ Settled constraints that shape the architecture:
   `GET /actors/{id}/discord/targets` is `extensions/discord/api.py`,
   mounted through the registry's `api_routes`. Core (everything else,
   the generic built-ins in `node/actions/` included) imports no app:
-  `tests/test_extension_boundary.py` checks it and pins the few imports
-  between apps. The `discord.*` trigger filters stay core's
-  (`model/discord_filters.py`), since the engine matches and validates
-  them.
+  `tests/test_extension_boundary.py` checks it, pins the few imports
+  between apps and checks that no core string literal (docstrings aside)
+  spells an app's kind, built-in, collection or event namespace, except the
+  pairs pinned in `APP_LITERALS_ALLOWED`, each with its reason.
 - **The API serves the action catalogue and the editor reads it**
   (guide `docs/operations/action-catalogue.md`): `GET /actions/kinds`
   (viewer) lists the registry's kinds in order with their typed params, the

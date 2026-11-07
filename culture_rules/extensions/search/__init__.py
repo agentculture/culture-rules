@@ -42,4 +42,5 @@ def register(ext: Extension) -> None:
     """``search.web`` (``port.SearchWebPort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("search.web", words=(("query", '"{}"'),))
     ext.action_port("search.web", Lazy(__name__ + ".port", "SearchWebPort", store=True))

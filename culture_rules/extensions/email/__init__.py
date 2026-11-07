@@ -35,4 +35,5 @@ def register(ext: Extension) -> None:
     """``email.send`` (``port.EmailSendPort``)."""
     for k in KINDS:
         ext.action_kind(k)
+    ext.action_phrases("email.send", words=(("subject", '"{}"'),))
     ext.action_port("email.send", Lazy(__name__ + ".port", "EmailSendPort", store=True))
