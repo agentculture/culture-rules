@@ -148,8 +148,14 @@ def test_core_and_the_registry_are_not_apps():
     assert app_imports_in(source) == set()
 
 
-def test_health_reads_the_gateway_state_collection_the_gateway_writes():
-    from culture_rules.extensions.discord.gateway import GATEWAY_STATE_COLLECTION
-    from culture_rules.ops import health
+def test_the_gateways_health_section_is_the_discord_extensions():
+    from culture_rules.extensions import registry
 
-    assert health.GATEWAY_STATE_COLLECTION == GATEWAY_STATE_COLLECTION
+    owners = {e.name: e.extension for e in registry().health_sections()}
+    assert owners == {"gateways": "discord"}
+
+
+def test_the_gateways_section_reads_the_state_collection_the_gateway_writes():
+    from culture_rules.extensions.discord import gateway, health
+
+    assert health.GATEWAY_STATE_COLLECTION is gateway.GATEWAY_STATE_COLLECTION

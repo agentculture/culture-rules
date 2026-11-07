@@ -8,8 +8,9 @@
   through the ``http`` extension's vetted opener);
 * the Gateway listener (:mod:`~culture_rules.extensions.discord.gateway`, with
   :mod:`~culture_rules.extensions.discord.buttons` and
-  :mod:`~culture_rules.extensions.discord.commands`), its four event types and its state
-  collection;
+  :mod:`~culture_rules.extensions.discord.commands`), its four event types, its state
+  collection and its ``gateways`` health section
+  (:mod:`~culture_rules.extensions.discord.health`);
 * the contract route ``GET /actors/{id}/discord/targets``
   (:mod:`~culture_rules.extensions.discord.api`).
 
@@ -166,6 +167,14 @@ def discord_collections() -> tuple[str, ...]:
     return (GATEWAY_STATE_COLLECTION,)
 
 
+def discord_health(store: Any, now: Any) -> list[dict[str, Any]]:
+    """The ``gateways`` health section: each gateway's lease holder, connection and last
+    event (:mod:`~culture_rules.extensions.discord.health`)."""
+    from culture_rules.extensions.discord.health import gateways  # noqa: PLC0415
+
+    return gateways(store, now)
+
+
 def discord_targets(app: Any, ctx: ApiContext) -> None:
     """``GET /actors/{id}/discord/targets`` (the ``server`` extra)."""
     from culture_rules.extensions.discord.api import register_targets  # noqa: PLC0415
@@ -196,4 +205,5 @@ def register(ext: Extension) -> None:
     )
     ext.node_listener("discord.gateway", discord_gateway, long_lived=True)
     ext.node_collections(discord_collections)
+    ext.health_section("gateways", discord_health, empty=list)
     ext.api_routes("discord.targets", discord_targets)
