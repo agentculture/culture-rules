@@ -1,10 +1,16 @@
 """The host of a web link, only when it is the host a browser would open (standard library).
 
-``urlsplit`` and browsers disagree on some authorities: a backslash (browsers read it as a
-slash, so ``http://evil.com\\@good.com/x`` opens evil.com while ``urlsplit`` reports
-good.com), userinfo (``user@host``), percent-escapes and non-ASCII letters in the authority,
-and a non-numeric port. :func:`browser_host` answers ``None`` for every such URL, so a domain
-allowlist checked against its answer is checked against the host a reader is sent to.
+``urlsplit`` and browsers disagree on some authorities: a backslash in the authority
+(browsers read it as a slash, so ``http://evil.com\\@good.com/x`` opens evil.com while
+``urlsplit`` reports good.com), userinfo (``user@host``), percent-escapes in the authority, and
+a port that is not a number from 1. :func:`browser_host` answers ``None`` for every such URL,
+so a domain allowlist checked against its answer is checked against the host a reader is sent
+to. One trailing dot (``evil.com.``, the same host to a browser) is removed.
+
+A non-ASCII host (an internationalised name written in Unicode) also answers ``None``: turning
+it into its ``xn--`` form needs IDNA 2008 / UTS 46, which the standard library lacks (its
+``idna`` codec is IDNA 2003 and maps ``ß`` to ``ss``, joining distinct domains), so such a link
+is dropped rather than guessed; written in its ``xn--`` form it is kept.
 """
 
 from __future__ import annotations
@@ -31,7 +37,7 @@ _AMBIGUOUS_AUTHORITY = ("@", "%")
 def _numeric_port(parts: SplitResult) -> bool:
     """No port, or a port that is a number (``.port`` raises on anything else)."""
     try:
-        return parts.port is None or parts.port >= 0
+        return parts.port is None or parts.port >= 1
     except ValueError:
         return False
 
@@ -39,7 +45,7 @@ def _numeric_port(parts: SplitResult) -> bool:
 def browser_host(url: Any) -> str | None:
     """The lower-cased host of an ``http``/``https`` URL, else None: only when ``urlsplit``'s
     host is the host a browser would open (module doc)."""
-    if not isinstance(url, str) or not url or "\\" in url:
+    if not isinstance(url, str) or not url:
         return None
     if _CONTROL.search(url) or _SPACE.search(url):
         return None
@@ -50,10 +56,11 @@ def browser_host(url: Any) -> str | None:
         return None
     if parts.scheme not in _SCHEMES or not host or not _numeric_port(parts):
         return None
-    if not parts.netloc.isascii():
+    if "\\" in parts.netloc or not parts.netloc.isascii():
         return None
     if any(mark in parts.netloc for mark in _AMBIGUOUS_AUTHORITY):
         return None
-    if _PLAIN_HOST.fullmatch(host) or (":" in host and _IPV6_CHARS.fullmatch(host)):
+    if ":" in host and _IPV6_CHARS.fullmatch(host):
         return host
-    return None
+    host = host[:-1] if host.endswith(".") else host
+    return host if host and _PLAIN_HOST.fullmatch(host) else None

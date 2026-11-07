@@ -113,12 +113,6 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _http_host(url: Any) -> str | None:
-    """The lower-cased host of an ``http``/``https`` URL, else None (module doc, rule 1):
-    only when ``urlsplit``'s host is the host a browser would open (:func:`browser_host`)."""
-    return browser_host(url)
-
-
 class _Rules:
     """The validated config of one run."""
 
@@ -155,7 +149,7 @@ class _Rules:
         return limit
 
     def host(self, item: Any) -> str | None:
-        return _http_host(walk_path(item, self.host_from) if self.host_from else None)
+        return browser_host(walk_path(item, self.host_from) if self.host_from else None)
 
     def seen_key(self, item: Any) -> Any:
         """The value ``dedupe_by`` compares, or ``MISSING`` when the item has none."""

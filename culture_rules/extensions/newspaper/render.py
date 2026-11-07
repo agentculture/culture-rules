@@ -144,14 +144,10 @@ def _clean(value: Any, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + _ELLIPSIS
 
 
-def http_host(url: Any) -> str | None:
-    """The lower-cased host of an ``http``/``https`` URL, else None: only when it is the host
-    a browser would open (:func:`~culture_rules.node.actions._urls.browser_host`: no
-    backslash, userinfo, percent-escape or non-ASCII authority) and the URL holds no
-    character XML forbids."""
-    if isinstance(url, str) and INVALID_XML.search(url):
-        return None
-    return browser_host(url)
+http_host = browser_host
+"""The host of a link a browser would open, else None
+(:func:`~culture_rules.node.actions._urls.browser_host`; it also refuses every character XML
+forbids)."""
 
 
 def _format(text: str) -> str:
