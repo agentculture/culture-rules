@@ -5,7 +5,8 @@ The server binds ``DEFAULT_HOST:DEFAULT_PORT`` when ``--host``/``--port`` and
 server talk to ``DEFAULT_API_URL`` when ``--api-url`` and ``CULTURE_RULES_API_URL`` are unset;
 the web dev proxy (``web/vite.config.ts``) uses the same URL, and a test keeps it in step.
 
-8791 is what production's LAN listener already uses, so defaults and production agree. It is
+8791 is the port production's LAN listener already uses (production binds its LAN address,
+not loopback, so the default URL does not reach it: set ``CULTURE_RULES_API_URL``). It is
 not 8765: on spark that port belongs to the culture console, and dev pages left running with
 the old default polled it until its abuse alerts fired.
 """

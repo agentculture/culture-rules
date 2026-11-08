@@ -30,7 +30,7 @@ def by_name(listeners):
 
 def test_without_access_config_there_is_one_lan_listener():
     (lan,) = serve_mod.build_listeners(MemoryStore(), env={})
-    assert (lan.name, lan.host, lan.port) == ("lan", "127.0.0.1", serve_mod.DEFAULT_PORT)
+    assert (lan.name, lan.host, lan.port) == ("lan", "127.0.0.1", 8791)
 
 
 def test_with_access_config_there_are_two_listeners():
@@ -90,9 +90,7 @@ def test_serve_runs_one_uvicorn_server_per_listener(monkeypatch):
     for k, v in ENV.items():
         monkeypatch.setenv(k, v)
     serve_mod.serve(MemoryStore(), fetch_jwks=jwks)
-    assert sorted((c.host, c.port) for c in seen) == sorted(
-        [("127.0.0.1", serve_mod.DEFAULT_PORT), ("127.0.0.1", 8766)]
-    )
+    assert sorted((c.host, c.port) for c in seen) == [("127.0.0.1", 8766), ("127.0.0.1", 8791)]
 
 
 def _health(listener, store):

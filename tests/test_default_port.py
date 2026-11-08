@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from culture_rules import defaults
 from culture_rules.client.http import DEFAULT_API_URL as CLIENT_DEFAULT
 from culture_rules.server import serve
@@ -37,14 +39,17 @@ def test_the_web_dev_proxy_uses_the_same_default():
 
 
 #: Files allowed to name the old port: history (CHANGELOG) and the module that explains the move.
-_MAY_NAME_OLD = ("CHANGELOG.md", "culture_rules/defaults.py")
-_OLD_PORT = re.compile(r"(?<![\d.])8765(?!\d)")
+_MAY_NAME_OLD = ("CHANGELOG.md", "culture_rules/defaults.py", "uv.lock")
+_OLD_PORT = re.compile(r"(?<![\w.])8765(?!\w)")  # not inside a hash or a longer number
 
 
 def _committed_text_files_outside_tests():
-    out = subprocess.run(
-        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
-    ).stdout.splitlines()
+    try:
+        out = subprocess.run(
+            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("needs a git checkout")
     for rel in out:
         if rel.startswith("tests/") or rel in _MAY_NAME_OLD:
             continue
