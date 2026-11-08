@@ -2,8 +2,9 @@
 
 Two listeners, on purpose (see :mod:`culture_rules.auth.resolve`):
 
-- ``lan`` on ``CULTURE_RULES_HOST:CULTURE_RULES_PORT`` (default ``127.0.0.1:8791``, :mod:`culture_rules.defaults`): service
-  tokens only; a ``Cf-Access-Jwt-Assertion`` header is ignored there.
+- ``lan`` on ``CULTURE_RULES_HOST:CULTURE_RULES_PORT`` (default ``127.0.0.1:8791``,
+  :mod:`culture_rules.defaults`): service tokens only; a ``Cf-Access-Jwt-Assertion`` header
+  is ignored there.
 - ``loopback`` on ``CULTURE_RULES_ACCESS_LISTEN`` (the address ``cloudflared`` forwards to),
   which honours Cloudflare Access JWTs pinned to ``CULTURE_RULES_ACCESS_TEAM_DOMAIN`` and
   ``CULTURE_RULES_ACCESS_AUD``. The three Access variables are all set or all unset; a partial

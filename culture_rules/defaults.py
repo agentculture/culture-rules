@@ -16,4 +16,5 @@ __all__ = ["DEFAULT_API_URL", "DEFAULT_HOST", "DEFAULT_PORT"]
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8791
-DEFAULT_API_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
+# Plain HTTP on purpose: a loopback address; remote APIs are given explicitly (https).
+DEFAULT_API_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"  # NOSONAR

@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from culture_rules.auth.tokens import ServiceTokens  # noqa: E402
 from culture_rules.cli import _api, main  # noqa: E402
 from culture_rules.cli.verbs import REGISTRY  # noqa: E402
-from culture_rules.defaults import DEFAULT_API_URL  # noqa: E402
 from culture_rules.client.http import ApiClient  # noqa: E402
+from culture_rules.defaults import DEFAULT_API_URL  # noqa: E402
 from culture_rules.engine.audit import AuditLog  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
