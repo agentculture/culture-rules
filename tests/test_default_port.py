@@ -11,7 +11,6 @@ from culture_rules.client.http import DEFAULT_API_URL as CLIENT_DEFAULT
 from culture_rules.server import serve
 
 ROOT = Path(__file__).resolve().parent.parent
-OLD = "127.0.0.1:8765"
 
 
 def test_the_default_port_is_productions_lan_port():
@@ -37,18 +36,33 @@ def test_the_web_dev_proxy_uses_the_same_default():
     assert match.group(1) == defaults.DEFAULT_API_URL
 
 
-def _committed_files_outside_tests():
+#: Files allowed to name the old port: history (CHANGELOG) and the module that explains the move.
+_MAY_NAME_OLD = ("CHANGELOG.md", "culture_rules/defaults.py")
+_OLD_PORT = re.compile(r"(?<![\d.])8765(?!\d)")
+
+
+def _committed_text_files_outside_tests():
     out = subprocess.run(
         ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
-    ).stdout.split()
-    return [p for p in out if not p.startswith(("tests/", "CHANGELOG.md"))]
-
-
-def test_no_committed_file_states_the_old_default():
-    stale = []
-    for rel in _committed_files_outside_tests():
+    ).stdout.splitlines()
+    for rel in out:
+        if rel.startswith("tests/") or rel in _MAY_NAME_OLD:
+            continue
         path = ROOT / rel
-        if path.is_file() and path.suffix in {".py", ".ts", ".tsx", ".md", ".json", ".yaml"}:
-            if OLD in path.read_text(encoding="utf-8", errors="ignore"):
-                stale.append(rel)
+        if not path.is_file():
+            continue
+        try:
+            yield rel, path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue  # binary
+
+
+def test_no_committed_file_states_the_old_port():
+    stale = [rel for rel, text in _committed_text_files_outside_tests() if _OLD_PORT.search(text)]
     assert stale == []
+
+
+def test_the_serve_explain_entry_states_the_shared_port():
+    from culture_rules.explain.catalog import _SERVE
+
+    assert f"or {defaults.DEFAULT_PORT})" in _SERVE

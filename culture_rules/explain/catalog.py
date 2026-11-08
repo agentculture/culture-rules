@@ -9,6 +9,8 @@ context without chaining reads.
 
 from __future__ import annotations
 
+from culture_rules.defaults import DEFAULT_API_URL, DEFAULT_HOST, DEFAULT_PORT
+
 _ROOT = """\
 # culture-rules
 
@@ -154,7 +156,7 @@ itself (distinct from the global `overview`, which describes the agent).
     culture-rules cli overview --json
 """
 
-_SERVE = """\
+_SERVE = f"""\
 # culture-rules serve
 
 Runs the HTTP API under uvicorn (needs `pip install 'culture-rules[server]'` and, for the
@@ -164,14 +166,14 @@ Without a usable store (`CULTURE_RULES_MONGO_URI` unset, or the store unreachabl
 ## Parameters
 
 - `--host` (string) — bind address (default `CULTURE_RULES_HOST` or 127.0.0.1)
-- `--port` (integer) — port (default `CULTURE_RULES_PORT` or 8791)
+- `--port` (integer) — port (default `CULTURE_RULES_PORT` or {DEFAULT_PORT})
 - `--admin` (string, repeatable) — identity allowed to purge
 - `--node-name` (string) — the engine node `/health` reports on (default
   `CULTURE_RULES_NODE_NAME`, else the short hostname); match the node's `--host`
 
 ## Usage
 
-    culture-rules serve --host 127.0.0.1 --port 8791
+    culture-rules serve --host {DEFAULT_HOST} --port {DEFAULT_PORT}
     culture-rules serve --admin alice
     CULTURE_RULES_NODE_NAME=spark culture-rules serve
 """
@@ -282,7 +284,7 @@ def _noun_entry(noun: str, verbs: list) -> str:
         f"# culture-rules {noun}\n\n{_NOUN_BLURBS[noun]}\n\n## Verbs\n\n"
         + "\n".join(lines)
         + "\n\nEvery verb supports `--json`. Writes are dry-run unless `--apply`. The CLI talks "
-        "only to the HTTP API (`CULTURE_RULES_API_URL`, default `http://127.0.0.1:8791`; "
+        f"only to the HTTP API (`CULTURE_RULES_API_URL`, default `{DEFAULT_API_URL}`; "
         "`CULTURE_RULES_TOKEN` is a bearer token or a `grant:<NAME>` reference).\n\n"
         f"## Usage\n\n    culture-rules {noun} overview\n    culture-rules {noun} list --json\n"
     )
