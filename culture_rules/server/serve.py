@@ -2,7 +2,7 @@
 
 Two listeners, on purpose (see :mod:`culture_rules.auth.resolve`):
 
-- ``lan`` on ``CULTURE_RULES_HOST:CULTURE_RULES_PORT`` (default ``127.0.0.1:8765``): service
+- ``lan`` on ``CULTURE_RULES_HOST:CULTURE_RULES_PORT`` (default ``127.0.0.1:8791``, :mod:`culture_rules.defaults`): service
   tokens only; a ``Cf-Access-Jwt-Assertion`` header is ignored there.
 - ``loopback`` on ``CULTURE_RULES_ACCESS_LISTEN`` (the address ``cloudflared`` forwards to),
   which honours Cloudflare Access JWTs pinned to ``CULTURE_RULES_ACCESS_TEAM_DOMAIN`` and
@@ -37,6 +37,7 @@ from urllib.parse import unquote
 
 from culture_rules.auth.access import AccessConfigError, AccessListenerConfig, AccessVerifier
 from culture_rules.auth.resolve import LAN, LOOPBACK, AuthSettings
+from culture_rules.defaults import DEFAULT_HOST, DEFAULT_PORT
 from culture_rules.ops.nodename import node_name as default_node_name
 from culture_rules.store.port import StoragePort
 
@@ -52,8 +53,6 @@ __all__ = [
     "store_from_env",
 ]
 
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8765
 _TRUE = ("1", "true", "yes", "on")
 _ACCESS_LOGGER = "uvicorn.access"
 _HOOK_MARK = "/hooks"

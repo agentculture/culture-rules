@@ -7,7 +7,7 @@ import react from "@vitejs/plugin-react";
 // in dev that prefix is proxied to the API, stripped, so the browser never
 // needs CORS. Override the target with CULTURE_RULES_API_URL — the same
 // variable the CLI reads — and it defaults to the CLI's own default.
-const API_TARGET = process.env.CULTURE_RULES_API_URL ?? "http://127.0.0.1:8765";
+const API_TARGET = process.env.CULTURE_RULES_API_URL ?? "http://127.0.0.1:8791";
 
 // Dev only: the app itself never sends a credential (behind Cloudflare
 // Access the edge adds Cf-Access-Jwt-Assertion). Against a local API started

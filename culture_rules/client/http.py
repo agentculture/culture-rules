@@ -16,9 +16,10 @@ from collections.abc import Callable, Mapping
 from typing import Any
 from urllib.parse import urlencode
 
+from culture_rules.defaults import DEFAULT_API_URL
+
 __all__ = ["ApiClient", "ApiError", "ApiUnreachable", "DEFAULT_API_URL", "Transport"]
 
-DEFAULT_API_URL = "http://127.0.0.1:8765"
 IDENTITY_HEADER = "X-Culture-Identity"
 _TIMEOUT_S = 30
 

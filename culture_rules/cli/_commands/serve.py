@@ -6,6 +6,7 @@ import argparse
 
 from culture_rules.cli._errors import EXIT_ENV_ERROR, CliError
 from culture_rules.cli._output import emit_diagnostic, emit_result
+from culture_rules.defaults import DEFAULT_PORT
 
 STORE_REMEDIATION = (
     "set CULTURE_RULES_MONGO_URI (and install 'culture-rules[store]': "
@@ -40,7 +41,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("serve", help="Run the HTTP API (needs the 'server' extra).")
     p.add_argument("--host", help="bind address (default CULTURE_RULES_HOST or 127.0.0.1)")
-    p.add_argument("--port", type=int, help="port (default CULTURE_RULES_PORT or 8765)")
+    p.add_argument("--port", type=int, help=f"port (default CULTURE_RULES_PORT or {DEFAULT_PORT})")
     p.add_argument("--admin", action="append", help="identity allowed to purge (repeatable)")
     p.add_argument(
         "--node-name",

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.2] - 2026-11-08
+
+### Changed
+
+- The API's default address moves from 127.0.0.1:8765 to 127.0.0.1:8791 (culture-rules#141): one constant in culture_rules/defaults.py is read by `serve`, the HTTP client and the CLI/MCP, and the web dev proxy uses the same URL (a test keeps them in step). 8765 belongs to the culture console on spark; dev pages left running with the old default polled it until its abuse alerts fired. 8791 is what production's LAN listener already uses. Production sets its ports explicitly and is unaffected; a client that relied on the old default must set CULTURE_RULES_API_URL.
+
 ## [0.45.1] - 2026-11-07
 
 ### Fixed
