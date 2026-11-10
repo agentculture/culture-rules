@@ -1,6 +1,7 @@
 """Builds the HTTP API client the CLI talks through (the CLI's only data path).
 
-Base URL: ``--api-url`` or ``CULTURE_RULES_API_URL`` (default ``http://127.0.0.1:8765``).
+Base URL: ``--api-url`` or ``CULTURE_RULES_API_URL`` (default ``http://127.0.0.1:8791``,
+:mod:`culture_rules.defaults`).
 Credentials: ``CULTURE_RULES_TOKEN`` is a bearer service token, or a ``grant:<NAME>``
 reference resolved through :mod:`culture_rules.actors.secrets` (the token itself is never
 accepted on argv). ``CULTURE_RULES_IDENTITY`` sets the dev identity header, which the server

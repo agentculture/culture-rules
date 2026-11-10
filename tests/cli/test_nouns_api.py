@@ -17,6 +17,7 @@ from culture_rules.auth.tokens import ServiceTokens  # noqa: E402
 from culture_rules.cli import _api, main  # noqa: E402
 from culture_rules.cli.verbs import REGISTRY  # noqa: E402
 from culture_rules.client.http import ApiClient  # noqa: E402
+from culture_rules.defaults import DEFAULT_API_URL  # noqa: E402
 from culture_rules.engine.audit import AuditLog  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
@@ -311,7 +312,7 @@ def test_bearer_token_from_env_is_sent(store, monkeypatch, capsys):
     monkeypatch.delenv("CULTURE_RULES_API_URL", raising=False)
     client = _api.make_client()
     client._transport = w  # the real factory, a swapped transport
-    assert client.base_url == "http://127.0.0.1:8765"
+    assert client.base_url == DEFAULT_API_URL
     client.request("GET", "/rules")
     assert w.calls[0][2]["Authorization"] == f"Bearer {token}"
 

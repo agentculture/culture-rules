@@ -10,7 +10,7 @@ import type {
 
 /**
  * Same-origin API prefix. In dev, vite.config.ts proxies `/api` to the
- * culture-rules API (CULTURE_RULES_API_URL, default http://127.0.0.1:8765)
+ * culture-rules API (CULTURE_RULES_API_URL, default http://127.0.0.1:8791)
  * with the prefix stripped; in production whatever serves this bundle
  * mounts the API under the same prefix. Never an absolute remote URL.
  *

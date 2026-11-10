@@ -197,7 +197,7 @@ The browser calls the culture-rules HTTP API (`culture_rules/server`, the
 `[server]` extra) under the same-origin prefix `/api`:
 
 - **Dev:** `vite.config.ts` proxies `/api` to `CULTURE_RULES_API_URL`
-  (default `http://127.0.0.1:8765`, the CLI's own default) and strips the
+  (default `http://127.0.0.1:8791`, the CLI's own default) and strips the
   prefix.
 - **Types:** `src/api/types.ts` is hand-maintained against the committed
   `api/openapi.json`. Update both in the same PR.
