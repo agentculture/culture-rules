@@ -62,7 +62,10 @@ Read this before moving anything. It is what decides which steps follow you.
 1. **Store and API.** Add the new host to the replica set, let it catch up, promote
    it and remove the old member (see [replica-set.md](replica-set.md)), so the oplog
    and change-stream cursors carry over. Then move the API unit and its Access
-   tunnel, and point every node's `RULES_MONGO_URI` at the new primary.
+   tunnel, and point every node and the API at the new primary. Both read
+   `CULTURE_RULES_MONGO_URI`; a node unit injects it from a grant secret
+   (`RULES_MONGO_URI` by default, see
+   [deploy/node/README.md](../../deploy/node/README.md)), so update that secret.
 2. **Services the engine calls.** Move or expose each loopback service from the
    inventory. While anything on the old host still needs a moved service, a **reverse
    ssh tunnel run from the new host** keeps the old loopback address working without
@@ -82,25 +85,26 @@ Read this before moving anything. It is what decides which steps follow you.
    "address": ..., "roles": ["engine_node", "runner"], ...}' --apply`. The body
    takes no `id`; the name is the id. An offline machine is never eligible, so
    enrolling before the node exists changes nothing yet.
-5. **Start the node** as a user unit: `culture-rules node run --host <name>` under
+5. **Copy node-local state** the moved steps expect: file roots, cursor and state
+   files, caches. Copy it now, before the node starts: an unplaced built-in step can
+   run on the new host as soon as it is online.
+6. **Start the node** as a user unit: `culture-rules node run --host <name>` under
    `grant run`, injecting the same app secrets as the old node, minus any that no
    longer have a consumer. From here, unplaced built-in steps run on the new host
    if its name sorts first.
-6. **Move the actors.** `cr actors update <id> --body @actor.json --apply` replaces
+7. **Move the actors.** `cr actors update <id> --body @actor.json --apply` replaces
    the whole actor, and the body must carry its `id`. Change `machine`, every
    absolute path, and any `base_url` or `model` the new host reaches differently.
    For a runner whose command `argv` names paths on the old host, create a new runner
    on the new host and repoint to it rather than editing the old one in place.
    Listener-owning app actors (a Discord gateway) hand their lease over by
    themselves: the old node stops listening and the new one takes the lease.
-7. **Move the workflows.** `cr workflows update <id> --body @wf.json
+8. **Move the workflows.** `cr workflows update <id> --body @wf.json
    --expected-revision <rev> --apply`: change each `placement.machine` and each
    absolute path. `workflows repoint-actor` moves a workflow from one actor to another
    when that is the only change.
-8. **Move the rules.** `cr rules update <id> --body @rule.json --apply`: change
+9. **Move the rules.** `cr rules update <id> --body @rule.json --apply`: change
    `placement.machine`, and a probe trigger's `params.actor` if its runner changed.
-9. **Copy node-local state** the moved steps expect: file roots, cursor and state
-   files, caches. Copy it before the first run on the new host, not after.
 
 ## Verify, then retire the old node
 
