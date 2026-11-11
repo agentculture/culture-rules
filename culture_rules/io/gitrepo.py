@@ -68,7 +68,8 @@ def _subdir(repo: Path, directory: str) -> Path:
         raise escapes
     root = os.path.abspath(repo)
     joined = os.path.normpath(os.path.join(root, directory))
-    if os.path.commonpath([root, joined]) != root:  # lexical containment (also when root is /)
+    prefix = root if root.endswith(os.sep) else root + os.sep  # "/" is its own prefix
+    if joined != root and not joined.startswith(prefix):
         raise escapes
     target = Path(joined).resolve()
     if not target.is_relative_to(Path(root).resolve()):
