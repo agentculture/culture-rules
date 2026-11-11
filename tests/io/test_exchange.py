@@ -16,7 +16,7 @@ from culture_rules.io.exchange import (
     import_bundle,
     read_bundle,
 )
-from culture_rules.io.gitrepo import load_from_repo, save_to_repo
+from culture_rules.io.gitrepo import _subdir, load_from_repo, save_to_repo
 from culture_rules.store.memory import MemoryStore
 from tests.model.factories import make_actor, make_rule, make_workflow
 
@@ -215,6 +215,10 @@ def test_save_to_repo_accepts_a_directory_inside_the_repo(repos, directory):
     _, work = repos
     result = save_to_repo(_bundle(), work, directory=directory, apply=False)
     assert not result.committed
+
+
+def test_subdir_accepts_a_directory_under_the_filesystem_root():
+    assert _subdir(Path("/"), "defs") == Path("/defs").resolve()
 
 
 def test_load_from_repo_missing_directory_is_error(repos):

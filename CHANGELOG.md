@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
-- The repo export checks its `directory` as text before touching the filesystem (culture_rules/io/gitrepo.py `_subdir`): an absolute path, a `..` part (either slash) or a NUL is refused with `escapes the repository` before anything resolves it, the normalised path must stay under the repo, and the resolved path is checked again so a symlink inside the repo cannot lead out. Before, the request's value was resolved first and checked after (SonarCloud S6549, a filesystem oracle), which kept main's quality gate red once SonarCloud's Python profile changed
+- The repo export checks its `directory` as text before touching the filesystem (culture_rules/io/gitrepo.py `_subdir`): an absolute path, a `..` part (either slash) or a NUL is refused with `escapes the repository` before anything resolves it, and the resolved directory is checked again so that it is not itself a symlink leading out of the repo (files below it are still followed; #116 tracks one path-under-root check for every read and write). Before, the request's value was resolved first and checked after (SonarCloud S6549, a filesystem oracle), which kept main's quality gate red once SonarCloud's Python profile changed
 
 ## [0.45.3] - 2026-11-11
 
