@@ -189,6 +189,32 @@ def test_save_to_and_load_from_second_git_repo(repos):
     assert not again.committed
 
 
+@pytest.mark.parametrize(
+    "directory",
+    ["../out", "defs/../../out", "/etc", "\\\\server\\share", "defs\\..\\..\\out", "a\0b"],
+)
+def test_save_to_repo_refuses_a_directory_outside_the_repo(repos, directory):
+    _, work = repos
+    with pytest.raises(ValueError, match="escapes the repository"):
+        save_to_repo(_bundle(), work, directory=directory, apply=False)
+
+
+def test_save_to_repo_refuses_a_symlink_out_of_the_repo(repos, tmp_path):
+    _, work = repos
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (work / "link").symlink_to(outside)
+    with pytest.raises(ValueError, match="escapes the repository"):
+        save_to_repo(_bundle(), work, directory="link", apply=False)
+
+
+@pytest.mark.parametrize("directory", ["", ".", "defs", "defs/sub", "./defs/"])
+def test_save_to_repo_accepts_a_directory_inside_the_repo(repos, directory):
+    _, work = repos
+    result = save_to_repo(_bundle(), work, directory=directory, apply=False)
+    assert not result.committed
+
+
 def test_load_from_repo_missing_directory_is_error(repos):
     bare, work = repos
     save_to_repo(_bundle(), work, directory="defs", apply=True, push=True)

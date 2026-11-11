@@ -7,6 +7,7 @@ temp directory, so the source repo is never modified.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -54,9 +55,24 @@ def _git(cwd: Path | str, *argv: str, identity: bool = False) -> str:
 
 
 def _subdir(repo: Path, directory: str) -> Path:
-    target = (repo / directory).resolve()
-    if not target.is_relative_to(repo.resolve()):
-        raise ValueError(f"directory {directory!r} escapes the repository")
+    """``directory`` inside ``repo``, checked as text before the filesystem is consulted.
+
+    ``directory`` can come from a request, so it is refused (absolute, a ``..`` part, a NUL)
+    before anything resolves it; the resolved path is then checked again so a symlink inside
+    the repo cannot lead out of it.
+    """
+    escapes = ValueError(f"directory {directory!r} escapes the repository")
+    if "\0" in directory or os.path.isabs(directory) or directory.startswith("\\"):
+        raise escapes
+    if ".." in directory.replace("\\", "/").split("/"):
+        raise escapes
+    root = os.path.abspath(repo)
+    joined = os.path.normpath(os.path.join(root, directory))
+    if joined != root and not joined.startswith(root + os.sep):
+        raise escapes
+    target = Path(joined).resolve()
+    if not target.is_relative_to(Path(root).resolve()):
+        raise escapes
     return target
 
 
