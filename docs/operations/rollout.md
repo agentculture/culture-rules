@@ -4,7 +4,8 @@
 (#45). It replaces the hand-written per-release scripts (`rollout-0186.sh` to
 `rollout-0188.sh`, kept on #45 for reference). `culture-rules explain rollout
 pause` (or any rollout verb) prints the step-by-step note; this page is the
-operator's runbook.
+operator's runbook. Moving the control plane and the engine to another machine is
+[move-host.md](move-host.md).
 
 ## Before you start
 
