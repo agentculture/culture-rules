@@ -16,7 +16,7 @@ from culture_rules.io.exchange import (
     import_bundle,
     read_bundle,
 )
-from culture_rules.io.gitrepo import load_from_repo, save_to_repo
+from culture_rules.io.gitrepo import _subdir, load_from_repo, save_to_repo
 from culture_rules.store.memory import MemoryStore
 from tests.model.factories import make_actor, make_rule, make_workflow
 
@@ -187,6 +187,38 @@ def test_save_to_and_load_from_second_git_repo(repos):
     # saving the same content again is a no-op (no empty commit)
     again = save_to_repo(bundle, work, directory="defs", apply=True)
     assert not again.committed
+
+
+@pytest.mark.parametrize(
+    "directory",
+    ["../out", "defs/../../out", "/etc", "\\\\server\\share", "defs\\..\\..\\out", "a\0b"],
+)
+def test_save_to_repo_refuses_a_directory_outside_the_repo(repos, directory):
+    _, work = repos
+    bundle = _bundle()
+    with pytest.raises(ValueError, match="escapes the repository"):
+        save_to_repo(bundle, work, directory=directory, apply=False)
+
+
+def test_save_to_repo_refuses_a_symlink_out_of_the_repo(repos, tmp_path):
+    _, work = repos
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (work / "link").symlink_to(outside)
+    bundle = _bundle()
+    with pytest.raises(ValueError, match="escapes the repository"):
+        save_to_repo(bundle, work, directory="link", apply=False)
+
+
+@pytest.mark.parametrize("directory", ["", ".", "defs", "defs/sub", "./defs/"])
+def test_save_to_repo_accepts_a_directory_inside_the_repo(repos, directory):
+    _, work = repos
+    result = save_to_repo(_bundle(), work, directory=directory, apply=False)
+    assert not result.committed
+
+
+def test_subdir_accepts_a_directory_under_the_filesystem_root():
+    assert _subdir(Path("/"), "defs") == Path("/defs").resolve()
 
 
 def test_load_from_repo_missing_directory_is_error(repos):
