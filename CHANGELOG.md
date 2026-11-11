@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.3] - 2026-11-11
+
+### Added
+
+- docs/operations/move-host.md: a generic runbook for moving the control plane and the engine node to another machine (the order, what decides where steps run, transition tunnels, verification and rollback); rollout.md links to it
+
 ## [0.45.2] - 2026-11-08
 
 ### Changed
