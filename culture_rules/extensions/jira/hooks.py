@@ -250,13 +250,18 @@ def _allowed_keys(keys: list[str], allowed: Any) -> list[str]:
 
 
 def _key_data(
-    issue: Any, key: str, connection: Mapping[str, Any], comment: Mapping[str, Any] | None
+    issue: Any,
+    key: str,
+    connection: Mapping[str, Any],
+    comment: Mapping[str, Any] | None,
+    author: str | None = None,
 ) -> dict[str, Any]:
     base = str(connection.get("api_base") or "")
     site = str(connection.get("site") or "")
     data = _issue_data(issue, key, site, base)
     if comment is not None:
         _add_comment(data, comment)
+    data["author"] = author
     return data
 
 
@@ -293,7 +298,7 @@ def _process(
     delivery_header = (hdr.get("x-atlassian-webhook-identifier") or "").strip()
     results = []
     for key in keys:
-        data = _key_data(issues[key], key, connection, comment)
+        data = _key_data(issues[key], key, connection, comment, author)
         delivery = _delivery_id(delivery_header, event, key, payload.get("timestamp"), len(keys))
         outcome = sink(store, actor, etype, data, delivery, author)
         results.append({"key": key, "outcome": outcome})
