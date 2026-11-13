@@ -1,4 +1,4 @@
-"""jira-devague t7: a bridge step may hand an operating agent one writable ``working_path``
+"""A bridge step may hand an operating agent one writable ``working_path``
 under the cultureagent ``operate`` sandbox (the role t8 adds). ``operate`` is an actor's own
 opt-in (``params.sandbox: operate``), pinned like ``read-only``: no step can raise, lower or
 switch an actor's sandbox to or from it, and a ``working_path`` exists only under it. A bad
@@ -24,7 +24,7 @@ from culture_rules.store.memory import MemoryStore
 from tests.actors.test_bridge_agent import PR, FakeBridge, make_actor
 from tests.engine.run_helpers import T0, Clock
 
-PATH = "/srv/devague/frames/ABC-1"
+PATH = "/srv/work/frames/ABC-1"
 OPERATE = {"sandbox": OPERATE_SANDBOX}
 READ_ONLY = {"sandbox": "read-only"}
 WORKSPACE_WRITE = {"sandbox": "workspace-write"}
@@ -123,13 +123,13 @@ def test_an_operate_actor_may_run_a_step_without_a_working_path(store, clock):
 @pytest.mark.parametrize(
     "bad",
     [
-        "devague/frames/ABC-1",  # relative
+        "work/frames/ABC-1",  # relative
         "./ABC-1",
         "~/frames",
         "",
         "   ",
         " /srv/x",  # not stripped: it is a path, not prose
-        "/srv/devague/../../etc",  # a '..' segment
+        "/srv/work/../../etc",  # a '..' segment
         "/srv/x\0y",
         "/srv/x\\y",  # a backslash: never a POSIX path the bridge should see
         "C:\\frames",

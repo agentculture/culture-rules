@@ -350,8 +350,8 @@ _JSON_CONTENT_TYPE = "application/json"
 ADDRESS_FIELDS = ("repo", "head_branch", "head_sha")
 """Where the bridge checks out: taken from the step's inputs (or config), never the actor."""
 WORKING_PATH = "working_path"
-"""The bridge input naming the one directory an operating agent may write to (jira-devague
-t7; the cultureagent ``operate`` role reads it, t8). It comes from the step's input, else its
+"""The bridge input naming the one directory an operating agent may write to (the
+cultureagent ``operate`` role reads it, t8). It comes from the step's input, else its
 config, per invocation, never from the actor. It exists only under sandbox
 :data:`OPERATE_SANDBOX`: for any other effective sandbox it is refused
 (``working_path_invalid: only for sandbox operate``, as the bridge refuses it on other roles),
