@@ -223,3 +223,16 @@ def test_add_comment_multi_line_sends_to_adf():
     text = "Summary\n- one\n- two"
     client(fake).add_comment("ACME-7", text)
     assert json.loads(fake.calls[-1][3]) == {"body": to_adf(text)}
+
+
+def test_a_null_comment_does_not_make_pages_overlap():
+    comments = [comment(0), None, comment(2), comment(3), comment(4)]
+    fake = Fake(comments=comments, page=2)
+    out = client(fake).get_issue_full("ACME-7")
+    assert [c["id"] for c in out["comments"]] == ["1000", "1002", "1003", "1004"]
+    starts = [
+        urllib.parse.parse_qs(urllib.parse.urlparse(c[1]).query)["startAt"][0]
+        for c in fake.calls
+        if "/comment" in c[1]
+    ]
+    assert starts == ["0", "2", "4"]

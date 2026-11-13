@@ -3,9 +3,9 @@
 The step's bound actor (``context.actor``) is a stored App actor (surface ``jira``) whose
 ``params.connection`` carries ``site``, ``email``, ``token: grant:NAME`` and ``projects``
 (the allowlist). The token is resolved from ``grant`` on the executing host at call time and
-kept only in memory. A malformed issue key fails ``bad_input`` and one whose project is outside
-the allowlist fails ``project_not_allowed``, both before any secret is read or any network call
-is made.
+kept only in memory. A malformed issue key or an absent, empty or blank-only body fails
+``bad_input`` and an issue whose project is outside the allowlist fails ``project_not_allowed``,
+all before any secret is read or any network call is made.
 
 Jira's comment API cannot deduplicate, so ``supports_idempotency_key`` is False.
 """
@@ -66,9 +66,9 @@ class JiraCommentPort:
             return InvocationResult.failed("bad_input", retryable=False)
         if not project_allowed(issue, allowed_projects(conn)):
             return InvocationResult.failed("project_not_allowed", retryable=False)
-        if "body" not in input:
+        body = str(input["body"]) if "body" in input else ""
+        if not body.strip():
             return InvocationResult.failed("bad_input", retryable=False)
-        body = str(input["body"])
         try:
             token = (self._secrets or resolve_secret)(str(conn.get("token") or ""))
         except Exception:  # noqa: BLE001 - never echo secret text

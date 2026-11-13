@@ -193,12 +193,14 @@ class JiraClient:
     def _comments(self, key: str) -> list[dict[str, Any]]:
         """Every comment, in order, following ``startAt``/``total`` pagination (capped)."""
         out: list[dict[str, Any]] = []
+        received = 0  # items Jira sent, a non-dict one included, so pages never overlap
         for _ in range(_MAX_COMMENT_PAGES):
-            query = urllib.parse.urlencode({"startAt": len(out), "maxResults": _COMMENT_PAGE})
+            query = urllib.parse.urlencode({"startAt": received, "maxResults": _COMMENT_PAGE})
             page = self._request("GET", f"/rest/api/3/issue/{key}/comment?{query}", None)
             chunk = page.get("comments")
             if not isinstance(chunk, list) or not chunk:
                 return out
+            received += len(chunk)
             for item in chunk:
                 if isinstance(item, dict):
                     out.append(
@@ -210,7 +212,7 @@ class JiraClient:
                         }
                     )
             total = page.get("total")
-            if isinstance(total, int) and len(out) >= total:
+            if isinstance(total, int) and received >= total:
                 return out
         raise JiraError("too_many_comments", f"more than {_MAX_COMMENT_PAGES} pages")
 
