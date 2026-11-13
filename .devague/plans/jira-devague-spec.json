@@ -1,0 +1,663 @@
+{
+  "slug": "jira-devague-spec",
+  "title": "jira-devague-spec",
+  "frame_slug": "jira-devague-spec",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-11-13T04:32:21Z",
+  "updated": "2026-11-13T04:54:44Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Opening a Jira issue starts a devague conversation in its comments: the engine asks scope, think and challenge questions, I answer in Jira, and a Fable 5.2 agent writes the converged devague spec, which lands in the library for my review.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A Jira issue opened in an allowed project, naming a repo, produces a library spec item without any terminal session by the operator.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "A read-only Jira action kind (e.g. jira.read) returns an issue's description and its full comment thread as text: today the event carries only key/project/summary/status/assignee/url, comment_body is cut at 500 chars and an ADF body is JSON-dumped (extensions/jira/hooks.py:68,146-160,209-213), and JiraClient.get_issue fetches no description (client.py _FIELDS).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The read action returns the full description and every comment's full plain text (ADF flattened), with no 500-char cut, and is refused outside the actor's projects before any secret is read.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "jira.comment can post a multi-line, structured comment (numbered questions with their ids): today add_comment sends one ADF paragraph with one text node (extensions/jira/client.py add_comment).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "A comment of several numbered lines renders in Jira as separate lines/list items, not one run-on paragraph.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "The conversation is a chain of rule firings, not one waiting run: jira.issue.created starts round one, and jira.comment.created on the same issue (concurrency_key like jiraconv:{trigger.data.key}) runs the next round; the wait step is time-only (model/validate.py:686-740) and a human ask is answered only through the API (actors/human.py:166), with no Jira bridge.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "Every round is a separate run started by an event; no run stays waiting between the operator's replies, and two replies during one round still both reach the next round's thread read.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Only allowlisted answerers advance the conversation: Jira comments by the operator's Jira user or a listed bot account; the culture-rules Jira account (the actor's self_identity) is never an answerer. Today Jira has no trigger filters (none registered for jira.*) and the author's accountId is not in event data (hooks.py:282-284 uses it only for self_authored), so the author must reach the event and be filterable.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A comment by an account not on the answerer list (including the culture-rules account, and culture-nodes which shares it) starts no round.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "The devague CLI stays unchanged and is reached only as configuration: a registered machine.command on core's runner actor (argv with typed args, actors/code.py bind_argv) whose wrapper lives on core, outside the repo; devague calls no LLM (#20).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "No change lands in ../devague; culture-rules only invokes its CLI with --frame and --json.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "A registered runner command can keep durable per-key state across runs: machine.command runs registered argv in a fresh temp cwd with a minimal env (actors/code.py _sandboxed), so durable state is an absolute path argument built from a validated event field (e.g. trigger.data.key, matched by ISSUE_KEY_RE in hooks.py); the directory layout is the configured wrapper's business, not culture-rules'.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "A registered command whose argv takes {key} from trigger.data.key cannot be steered to another path by comment text, and a key failing ISSUE_KEY_RE never reaches the command.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "No prompt text and no flow-specific code is committed: the agent's round instruction is step configuration on the live workflow (the bridge takes instruction from input/config and refuses locked_instruction since no locked brief ships, actors/agent.py:784-799), and the rules/workflows are configured live, as the no-hardcoded-prompts and no-flow-specific-code specs require (docs/specs/2026-11-02-no-hardcoded-prompts.md, 2026-11-06-no-flow-specific-code.md).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "tests/test_extension_boundary.py and the no-flow-code checks stay green; no brief or instruction text is added under culture_rules/.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "A workflow step can bind a bridge agent actor (any model, here Fable 5.2 by configuration) in either of two generic modes: (a) output-only, read-only on the repo, its output plain step output that later steps (e.g. a registered machine.command) consume; (b) operating, the bridge running on core with tools and a writable working path given by the step. The bridge needs repo, head_branch and a commit head_sha (actors/agent.py:349,703-808) and pins sandbox/mode per actor (agent.py:715-725).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The agent cannot write to the repo (sandbox locked read-only) and completes a round through the bridge callbacks within its timeout.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "In mode (b) the agent can write only under the step's configured working path; any write outside it, and any write to the repo checkout unless the actor allows it, is refused.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "library.push can publish a md file from a runner-produced path as kind spec, private: culture-library already has kind spec (culture_library/core/models.py:12-25); the library actor's kinds and its key gain spec by configuration (docs/actors/library.md); no repodocs route.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The library item's bytes equal the exported spec-md and its kind/visibility are spec/private; nothing else publishes it.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "Generic repo context for a bridge step: a Jira read can return configured fields (a custom field naming the repo) so a workflow can map it, and a step can resolve a repo's default branch and head sha; what to do when the repo is missing is configuration.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "A workflow maps a Jira custom field's value into a bridge step's repo input and gets a 40-hex head_sha for that repo's default branch without any flow-specific code.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "audience",
+      "text": "The operator (Ori), who files ideas as Jira issues and answers in Jira, and who reviews the resulting spec in the library.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The operator, and only the operator (or a listed bot), answers.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "before_state",
+      "text": "Turning an idea into a devague spec needs an interactive Claude Code session at a terminal: /scope, /think, /challenge are run by hand, and a Jira issue only gets an echo comment from culture-rules.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Today no rule or workflow drives devague from Jira (docs/rules has no such bundle).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "after_state",
+      "text": "Filing a Jira issue that names a repo is enough: the conversation runs in the issue's comments over as many rounds as it needs, and a converged, exported devague spec (with its obligations) appears in the library as a private spec item.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "The exported spec passes devague converge and the library holds it as kind spec.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "why_it_matters",
+      "text": "Specs can start from anywhere Jira is reachable (phone included), keep the anti-fabrication gate (every proposal adjudicated by the operator), and land where the operator already reads.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "Every proposal in the exported spec was adjudicated by an allowlisted answerer's Jira comment, and the spec is readable in the library without a terminal.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "success_signal",
+      "text": "On one real issue in SCRUM: >= 2 question rounds, every confirmed claim traceable to an operator reply, 0 comments from the culture-rules account treated as answers, and exactly 1 spec item (kind spec, private) in the library whose text equals the devague export.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The measured trial is recorded with the issue key and library item id.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "boundary",
+      "text": "culture-rules implements generics only and cannot tell what devague is: devague (its CLI, ids, obligations, answer grammar, export) is purely configuration \u2014 a registered runner command, the agent's step instruction, and live rules/workflows \u2014 never code, literals or tests in culture_rules/.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "grep -ri devague culture_rules/ tests/ web/src finds nothing, and docs mention it only in an example under docs/ (guide), never as a built-in.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Cross-repo (cultureagent): the Claude bridge gains an operating role for mode (b): the checkout stays unchanged (the reviewer's baseline check), Bash is limited to named commands, and one per-invocation writable working path is allowed, plus a model name (Fable 5.2). Today it has only read-only (no Bash, no writes, checkout change fails the run) and workspace-write (edits the worktree, never pushes) roles, its tool lists are per deployment (fixer_allowed_tools, config.py:211-212), and its only writable path is worktrees_root (cultureagent bridges/claude/backend.py:1-25, README.md:38-43).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "A bridge invocation given a working path can create and edit files there, and cannot write outside it or its worktree.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "In the operating role, an attempt to change the checkout or write outside the given path fails the run; the named command can write in the path.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "jira.read tags every comment and the issue itself with its author's accountId, and the author filter (c7) applies to jira.issue.created too, so a workflow can hand the agent only allowlisted authors' text: anyone with project access can open an issue or comment, and that text reaches an agent with tools on core (prompt injection).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "An issue or comment by a non-allowlisted account starts no round, and its text never appears in the agent's input.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "The operating agent cannot adjudicate: in mode (b) only the reply step (driven by an allowlisted comment) may confirm, reject or resolve, and every agent-made record lands as a proposal. Risk: devague capture defaults to --origin user, which auto-confirms, and the agent could run confirm itself or edit the frame JSON.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "After any agent run, every record the agent added is proposed; a confirm/reject/resolve exists only where a reply step cited an allowlisted comment.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "A failed round tells the operator: the round rule's on_failure action (model/rule.py:64) posts one Jira comment with the failure code, so a bridge timeout or a refused command never leaves the issue silently waiting.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "A forced bridge failure produces exactly one Jira comment carrying the failure code.",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "ADF helpers: flatten ADF to plain text, and plain multi-line text to ADF paragraphs/lists (extensions/jira/adf.py, new)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/extensions/test_jira_adf.py: flatten() turns paragraphs, hardBreaks, bullet/ordered lists, mentions and code blocks into plain text with newlines; unknown node types keep their text children; a non-ADF string passes through unchanged",
+        "to_adf('a') equals today's single-paragraph document exactly; to_adf of N lines gives N paragraphs; consecutive '1. '/'- ' lines become one orderedList/bulletList",
+        "stdlib only; no import outside culture_rules.extensions.jira"
+      ],
+      "deps": [],
+      "covers": [
+        "h3"
+      ],
+      "instruction": "Pure functions, no I/O. Keep today's one-line ADF byte-identical (o2). Put the module next to client.py; do not touch client.py in this task."
+    },
+    {
+      "id": "t2",
+      "summary": "JiraClient reads the full issue: description, every comment (paginated) with author accountId and created, and named custom fields; add_comment sends to_adf(body) (extensions/jira/client.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/extensions/test_jira_client_read.py with a fake transport: get_issue_full(key, fields=[...]) returns {key, project, summary, description (flattened), reporter, comments:[{id, author, created, body}], fields:{name: value}}; comments over several pages are all returned in order; no 500-char cut",
+        "add_comment of a one-line body sends exactly the same JSON as before (regression test); a multi-line body sends to_adf's document",
+        "existing tests/node/test_jira_action.py and tests/server/test_hooks_jira.py pass unchanged; the token never appears in repr or errors"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c4"
+      ],
+      "instruction": "Use /rest/api/3/issue/{key}?fields=... and /rest/api/3/issue/{key}/comment?startAt=&maxResults=; flatten bodies with adf.flatten. Keep get_issue as-is for the webhook."
+    },
+    {
+      "id": "t3",
+      "summary": "Jira webhook puts the author on every event: data.author (accountId) on jira.issue.created/updated and jira.comment.created (extensions/jira/hooks.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/server/test_hooks_jira_author.py: an issue_created delivery stores data.author = payload user accountId; a comment_created delivery stores the comment author's accountId; self_authored is unchanged; all other data fields unchanged",
+        "a delivery with no author stores data.author = null, and nothing else changes"
+      ],
+      "deps": [],
+      "covers": [
+        "c33"
+      ],
+      "instruction": "Only _key_data/_process gain the author; do not change auth, dedup or the event type mapping."
+    },
+    {
+      "id": "t4",
+      "summary": "jira.read action kind: register it and its port (extensions/jira/__init__.py, extensions/jira/read.py new)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/node/test_jira_read_action.py: params actor, issue (required), fields (optional list of custom field names); output {key, project, summary, description, reporter, comments, fields}; an issue outside connection.projects fails project_not_allowed before the secret resolver is called; a non-jira or disabled actor fails actor_not_found",
+        "GET /actions/kinds lists jira.read with its typed params; web/src/fixtures/action-kinds.data.ts regenerated with scripts/export-action-kinds.py --write; describe has a phrase for it",
+        "supports_idempotency_key is True (a read is repeatable); declarable_by_apps=True"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c3",
+        "h2",
+        "c20"
+      ],
+      "instruction": "Mirror port.py's _connection and project check; reuse JiraClient.get_issue_full. Read-only: never call add_comment."
+    },
+    {
+      "id": "t5",
+      "summary": "jira.* trigger filter users: match data.author against a list, never the actor's self_identity (extensions/jira/filters.py new; register in extensions/jira/__init__.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/extensions/test_jira_filters.py: a jira.comment.created or jira.issue.created trigger with params.users [A] fires for author A only; an event with self_authored true never fires even if its author is listed; no users param keeps today's behaviour",
+        "validate refuses users that is not a non-empty list of strings; describe says the filter in words (e.g. 'by A or B')",
+        "tests/test_extension_boundary.py stays green"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c7",
+        "h5",
+        "h27",
+        "h15"
+      ],
+      "instruction": "Follow extensions/discord/filters.py and ext.trigger_filter(namespace='jira', match=, validate=, describe=)."
+    },
+    {
+      "id": "t6",
+      "summary": "Runner argument type segment: one safe path segment for registered commands (culture_rules/actors/code.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/actors/test_code_segment_param.py: a param declared 'segment' accepts 'SCRUM-12' and refuses '', '.', '..', any value with '/', '\\\\' or NUL, and values over 128 chars, before any process starts; existing types unchanged",
+        "docs for machine.command list the new type"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h21"
+      ],
+      "instruction": "Add one entry to the type table near code.py:128; the refusal is a bind error like other type mismatches."
+    },
+    {
+      "id": "t7",
+      "summary": "Bridge step forwards an optional working_path and accepts an operating sandbox; read-only locks still hold (culture_rules/actors/agent.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/actors/test_bridge_working_path.py: a step input working_path (absolute path string) is forwarded in the bridge input; a relative path is refused; an actor pinned read-only refuses sandbox 'operate' (sandbox_locked); an actor allowing 'operate' forwards it",
+        "the agent's completed output reaches later steps unchanged (existing callback tests pass)"
+      ],
+      "deps": [],
+      "covers": [
+        "c13",
+        "h10"
+      ],
+      "instruction": "Extend BRIDGE_CORE_INPUTS/PASSTHROUGH_CONFIG minimally; the sandbox name must match the cultureagent role from t8."
+    },
+    {
+      "id": "t8",
+      "summary": "cultureagent: Claude bridge operating role (separate repo, its own PR)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "in ../cultureagent: sandbox 'operate' runs claude -p with Bash limited to configured command patterns and one per-invocation writable working_path; the reviewer's checkout baseline check fails the run on any checkout change; writes outside working_path are refused; git push always denied; --model passes through",
+        "cultureagent tests cover each refusal; its version bumped and PR opened via its own cicd"
+      ],
+      "deps": [],
+      "covers": [
+        "c30",
+        "h24",
+        "h30",
+        "h23"
+      ],
+      "instruction": "Work in a ../cultureagent worktree. Reuse backend.py's read-only baseline measurement and config.py's tool-list pattern; the role name 'operate' is the contract with t7."
+    },
+    {
+      "id": "t9",
+      "summary": "Docs: Jira actor guide gains jira.read, data.author and the users filter; a generic guide for comment-driven conversations with an agent (docs/actors/jira.md, docs/operations/jira-conversations.md new)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the guide describes the generic shape only: rule on jira.issue.created, rule on jira.comment.created with concurrency_key jiraconv:{trigger.data.key}, users filter, max_attempts, on_failure posting run.error.code, jira.read -> bridge step -> registered command -> jira.comment; devague appears at most as an example under docs/",
+        "markdownlint-cli2 passes on both files"
+      ],
+      "deps": [
+        "t4",
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c5",
+        "h4",
+        "c37",
+        "h29",
+        "c12",
+        "h9"
+      ],
+      "instruction": "Docs describe what is on disk; anything ahead of reality is marked planned."
+    },
+    {
+      "id": "t10",
+      "summary": "Boundary test: no devague literal in culture-rules code, tests or editor (tests/test_extension_boundary.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a new test fails if 'devague' (case-insensitive) appears in culture_rules/, tests/ (except this test's own needle) or web/src",
+        "the test passes on the branch"
+      ],
+      "deps": [],
+      "covers": [
+        "c28",
+        "h20",
+        "c8",
+        "h6"
+      ],
+      "instruction": "Build the needle so the test file itself does not contain the literal."
+    },
+    {
+      "id": "t11",
+      "summary": "Release: version bump and CHANGELOG for the generic Jira/runner/bridge changes (pyproject.toml, CHANGELOG.md, uv.lock)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "/version-bump minor; CHANGELOG lists jira.read, data.author, the users filter, the segment type and working_path; full suite, lint, scan-secrets and teken doctor green"
+      ],
+      "deps": [
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t9",
+        "t10"
+      ],
+      "covers": [],
+      "instruction": "Only this task touches pyproject.toml, CHANGELOG.md and uv.lock."
+    },
+    {
+      "id": "t12",
+      "summary": "Core wrapper for devague (outside the repo, on core): proposals-only for the agent, adjudication only from the reply step, and a post-run check",
+      "origin": "llm",
+      "status": "proposed",
+      "acceptance_criteria": [
+        "a wrapper on core's PATH takes the issue key (segment) and a JSON move list; agent-mode calls force --origin llm and refuse confirm/reject/resolve/oblige --confirm; reply-mode calls accept them only with a cited allowlisted comment id; the frame dir is `<root>/<key>`",
+        "a post-run check diffs frame state before/after an agent run and fails (nonzero) if any record became confirmed/approved; tested with a scratch frame"
+      ],
+      "deps": [],
+      "covers": [
+        "c34",
+        "h28"
+      ],
+      "instruction": "Lives in ~/.local/bin (or a sibling ops repo), never in culture-rules. Registered on core's runner actor as machine.command entries with typed args (key: segment)."
+    },
+    {
+      "id": "t13",
+      "summary": "Live actors on core: library actor gains kind spec + md and a key minted --kind spec; Fable 5.2 bridge agent actor (operate, working_path root); runner commands for the wrapper and git ls-remote head lookup; jira-app answerer accountIds noted",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture-rules actors show for each actor lists the new params; a dry-run library.push of a scratch md as kind spec private succeeds against library.culture.dev, then the item is deleted",
+        "the bridge's repo allowlist admits only the operator's repos; a head lookup for one returns a 40-hex sha"
+      ],
+      "deps": [
+        "t8",
+        "t11",
+        "t12"
+      ],
+      "covers": [
+        "c14",
+        "h11",
+        "h22"
+      ],
+      "instruction": "Configured live with --apply after a dry run; no secret literal anywhere (grant references only). Roll actors out before code that needs them is enabled."
+    },
+    {
+      "id": "t14",
+      "summary": "Live rules and workflows on core: round-one on jira.issue.created, reply rounds on jira.comment.created, users filter, concurrency_key, max_attempts, on_failure, final library.push; all shipped disabled until the trial",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture-rules workflows describe for both workflows reads as the generic shape; rules validate; both disabled",
+        "the agent's round instruction is step configuration; no brief added to the repo"
+      ],
+      "deps": [
+        "t13"
+      ],
+      "covers": [
+        "c1",
+        "c23"
+      ],
+      "instruction": "Nothing committed: create with the CLI (dry run, then --apply)."
+    },
+    {
+      "id": "t15",
+      "summary": "Trial on one real SCRUM issue: enable, run a full conversation, record the result",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "one SCRUM issue naming a repo: >= 2 question rounds; 0 culture-rules comments taken as answers; a comment by an unlisted account starts no round; exactly 1 library item, kind spec, private, bytes equal to the export",
+        "issue key, run ids and library item id recorded as devague evidence for the obligations (validate-delivery)"
+      ],
+      "deps": [
+        "t14"
+      ],
+      "covers": [
+        "c25",
+        "h17",
+        "c27",
+        "h19",
+        "c26",
+        "h26",
+        "h1",
+        "c24",
+        "h16"
+      ],
+      "instruction": "Before enabling, confirm no existing bundle drives this flow (docs/rules) and probe v5 (Jira's double event on comments)."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Ops on core unverified (frame v3): whether a Claude bridge runs on core, its claude login there, and the Fable 5.2 model id for claude -p --model; t13 cannot finish until known.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t13",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "Jira may also send jira:issue_updated for each comment (frame v5, lapse l1); the reply rule must listen only to jira.comment.created; probe before enabling.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t15",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "The sandbox name 'operate' is a cross-repo contract between t7 (culture-rules) and t8 (cultureagent); a rename on either side breaks the bridge step.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "The main working tree has uncommitted, unrelated changes (discord code_use, github merge); build in `../.worktrees.culture-rules/<name>/` branches off main, never on top of them.",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "Jira comment pagination (startAt/maxResults on /issue/{key}/comment) and the comment size limit are from memory (frame v6); t2's fake-transport tests encode the assumption and need one live check.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "Per-issue directories on core have no retention or cleanup when an issue closes (frame v4).",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "Opening a PR from an agent's local commits through culture-rules (frame v2) is a later flow.",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}
