@@ -61,6 +61,7 @@ import hashlib
 import hmac
 import json
 import logging
+import posixpath
 import re
 import secrets
 import ssl
@@ -348,17 +349,33 @@ IDEMPOTENCY_HEADER = "Idempotency-Key"
 _JSON_CONTENT_TYPE = "application/json"
 ADDRESS_FIELDS = ("repo", "head_branch", "head_sha")
 """Where the bridge checks out: taken from the step's inputs (or config), never the actor."""
-PASSTHROUGH_CONFIG = ("model", "sandbox", "mode")
-"""Step-config keys forwarded into the bridge input (the actor supplies defaults); the qwen
-bridge requires ``mode``."""
+WORKING_PATH = "working_path"
+"""The bridge input naming the one directory an operating agent may write to (jira-devague
+t7; the cultureagent ``operate`` role reads it, t8). It comes from the step's input, else its
+config, per invocation, never from the actor. It must be an absolute POSIX path with no
+``..`` segment, sent as given (``working_path_invalid`` otherwise, before any request), and a
+read-only actor refuses it (``sandbox_locked``): a writable directory is exactly what such an
+actor must never get. Whether the directory exists, and what runs in it, is the bridge's."""
+PASSTHROUGH_CONFIG = ("model", "sandbox", "mode", WORKING_PATH)
+"""Step-config keys forwarded into the bridge input (the actor supplies defaults, except
+for ``working_path``, which no actor default carries); the qwen bridge requires ``mode``."""
 READ_ONLY_SANDBOX = "read-only"
 """An actor whose ``sandbox`` default is this one cannot be widened by a step or an input
 (``sandbox_locked``): a read-only agent must never be able to write or commit."""
+OPERATE_SANDBOX = "operate"
+"""The cultureagent sandbox role that runs the agent with tools and one writable
+:data:`WORKING_PATH` (t8; the name is the contract between the two repos). It needs no
+lock of its own and no new switch: an actor allows it the way it allows ``workspace-write``,
+by its ``sandbox`` default (``params.sandbox: operate``, so every step of it operates) or by
+pinning no sandbox (then a step's config or input may ask for it). Only ``read-only`` pins,
+so a read-only actor refuses it like every other sandbox."""
 READ_ONLY_MODE = "plan"
 """#39: an actor whose ``mode`` default is this one (Qwen Code's plan mode) cannot be
 moved to another mode by a step or an input (``mode_locked``). The mode is an approval
 policy, not a sandbox: a flow that needs the checkout unchanged still checks it."""
-BRIDGE_CORE_INPUTS = frozenset({"instruction", "repo", "head_branch", "head_sha", "model", "async"})
+BRIDGE_CORE_INPUTS = frozenset(
+    {"instruction", "repo", "head_branch", "head_sha", "model", "async", WORKING_PATH}
+)
 """Input keys a bridge reads itself; every other key is appended to the agent's prompt as
 JSON, which the bridge cuts at its ``max_bound_input_chars`` (60000 by default)."""
 RESULT_FIELDS = (
@@ -730,6 +747,27 @@ def _lock_refusal(
                     f"{name}_locked: the actor is {value}; "
                     f"{where} asks for {name} {source[name]!r}"
                 )
+    if locks.get("sandbox") == READ_ONLY_SANDBOX:
+        # a writable directory is what the operating sandbox adds: a read-only actor never
+        # gets one, however the sandbox field itself reads (t7)
+        for where, source in (("an input", input), ("the step config", config)):
+            if source.get(WORKING_PATH) is not None:
+                return (
+                    f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
+                    f"{where} hands it a {WORKING_PATH}"
+                )
+    return None
+
+
+def _working_path_problem(value: Any) -> str | None:
+    """``working_path_invalid: ...`` unless ``value`` is an absolute POSIX path with no
+    ``..`` segment and no NUL; nothing is normalised, so what is checked is what is sent."""
+    if not isinstance(value, str) or isinstance(value, bool):
+        return f"working_path_invalid: not a path string ({type(value).__name__})"
+    if not value or "\0" in value or not posixpath.isabs(value):
+        return f"working_path_invalid: {value!r} is not an absolute path"
+    if ".." in value.split("/"):
+        return f"working_path_invalid: {value!r} has a '..' segment"
     return None
 
 
@@ -814,6 +852,10 @@ class BridgeAgentActor:
             value = config.get(name, self._defaults.get(name))
             if value is not None:
                 out.setdefault(name, value)
+        if WORKING_PATH in out:
+            problem = _working_path_problem(out[WORKING_PATH])
+            if problem:
+                return None, problem
         out.update(locks)
         out["instruction"] = instruction
         return out, None
