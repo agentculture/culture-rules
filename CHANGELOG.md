@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.0] - 2026-11-13
+
+### Added
+
+- `jira.read` (extensions/jira/read.py): a read-only action kind returning an issue's `summary`, flattened `description`, `reporter`, every comment (`id`, `author` accountId, `created`, flattened `body`, all pages, no truncation) and named custom fields (by id or name through `/rest/api/3/field`); refusals (`actor_not_found`, `bad_input`, `project_not_allowed`) happen before the secret is read. The editor's catalogue snapshot includes it
+- Every Jira event carries `data.author` (the accountId of the comment's or payload's author), and every `jira.*` trigger takes a `users` filter (extensions/jira/filters.py): a non-empty list of accountIds, never admitting a self-authored event or one without an author; a malformed list matches nothing. The trigger picker shows a Users field for `jira.*` triggers, and changing the surface drops the other app's filters
+- extensions/jira/adf.py: `flatten` (ADF to plain text, never raising on external data) and `to_adf`; `jira.comment` sends a multi-line body as ADF paragraphs and lists, a one-line body byte-for-byte as before
+- The runner argument type `segment` (actors/code.py): one safe path segment (1-128 characters, not `.` or `..`, no `/`, `\`, control character or leading `-`), refused before any process starts; the Actors tab's command editor offers it
+- A bridge agent step may pass a `working_path` to the cultureagent `operate` role. `operate` is the actor's own opt-in (`params.sandbox: operate`, pinned like `read-only`): a step of any other actor asking for it is `sandbox_locked`, and a `working_path` is accepted only under `operate` (`working_path_invalid` otherwise; absolute, normalised, no `..`, NUL or backslash). It needs a cultureagent bridge that implements `operate`
+- docs/operations/jira-conversations.md: a generic guide for a conversation with an agent in a Jira issue's comments (two rules, `concurrency_key`, `max_attempts`, `on_failure`, state under a `segment` directory, the `operate` opt-in, filtering comments by author with `list.filter`); docs/actors/jira.md covers `jira.read`, `data.author`, the `users` filter and that `self_identity` is required for the bot's own comments to be excluded
+- The spec, plan and delivery records for this work (docs/specs and docs/plans `2026-11-13-jira-devague-spec*`, `.devague`), and a boundary test that pins today's files naming the spec tool and fails on any new one
+
+### Changed
+
+- `jira.comment` treats an absent or empty `connection.projects` as every project, as the Jira guide, the webhook and `jira.read` do; before, it refused every issue. An actor that lists `projects` still refuses the others before the secret is read
+- `jira.comment` fails a malformed issue key (not a string, or no project prefix) with `bad_input`, as `jira.read` does; before, it reported `project_not_allowed`. The webhook, `jira.comment` and `jira.read` share one allowlist reading (extensions/jira/projects.py): keys compare upper-cased on both sides, so a lowercase `projects` list admits `SCRUM-1` in the webhook too, and a bare string is one project
+- Review fixes, all failing closed: a bridge `working_path` must already be in `posixpath.normpath` form (no trailing slash, `.` part, doubled or leading `//` slash) and carry no whitespace or permission-rule metacharacter (`, ( ) * ? [ ] { }`), else `working_path_invalid`; the runner type `segment` refuses those metacharacters too (`SCRUM-12` still passes); a malformed `connection.projects` (a number, an object, a list with a non-string, or one naming no key) allows no project in the webhook, `jira.read` and `jira.comment` instead of raising or reading a dict's keys; `flatten` never raises on non-dict `attrs`, `content` or list items; comment paging advances by the items Jira sent, so a null comment no longer makes pages overlap; `to_adf` keeps an ordered list's start above 1 (`attrs.order`) and never sends an empty document, and `jira.comment` refuses an empty or blank-only body with `bad_input` before the secret is read
+
 ## [0.45.4] - 2026-11-11
 
 ### Security

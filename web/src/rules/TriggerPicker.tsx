@@ -181,11 +181,41 @@ const idList = (text: string) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
+/** Filter params that belong to an app's events; they never carry over to another app. */
+const APP_FILTER_KEYS = ["users", "roles", "channels", "include_bots", "emoji", "command", "custom_id"] as const;
+
+/** The params without any app-specific filter (type and generic ones such as include_self stay). */
+function withoutAppFilters(params: EventTrigger["params"]): EventTrigger["params"] {
+  const next: Record<string, unknown> = { ...params };
+  for (const k of APP_FILTER_KEYS) delete next[k];
+  return next as unknown as EventTrigger["params"];
+}
+
+const namespaceOf = (type: string) => type.split(".")[0];
+
 /** A stored command filter (one name or a list) as a list. */
 const commandNames = (command: string | string[] | undefined): string[] => {
   if (command === undefined) return [];
   return Array.isArray(command) ? command : [command];
 };
+
+/**
+ * The one filter of a jira.* event trigger (culture_rules/extensions/jira/filters.py): users, as
+ * exact Jira accountIds. An empty field removes params.users, since the backend refuses [].
+ */
+function JiraFilters({ t, onChange }: Readonly<{ t: EventTrigger; onChange: (trigger: Trigger) => void }>) {
+  return (
+    <ListField
+      label="Users"
+      hint="Jira account ids, matched exactly, separated by commas. Empty means anyone."
+      value={t.params.users ?? []}
+      onList={(l) => {
+        const { users: _drop, ...rest } = t.params;
+        onChange({ kind: "event", params: (l.length ? { ...rest, users: l } : rest) as EventTrigger["params"] });
+      }}
+    />
+  );
+}
 
 /** A comma-separated list field; the text is kept as typed and the parsed list is what is saved. */
 function ListField({
@@ -355,7 +385,7 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
           value={surface}
           onChange={(e) => {
             setSurface(e.target.value);
-            onChange({ kind: "event", params: { ...t.params, type: "" } });
+            onChange({ kind: "event", params: { ...withoutAppFilters(t.params), type: "" } });
           }}
         >
           <option value="">Choose an app…</option>
@@ -374,8 +404,10 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
           disabled={!surfaceActor}
           onChange={(e) => {
             // emoji belongs to reactions and command to commands: never carry either hidden onto another type
-            const { emoji, command, custom_id, ...rest } = t.params;
             const next = e.target.value;
+            // users are Jira accountIds or Discord ids: other filters too belong to one namespace
+            const crossing = eventType !== "" && next !== "" && namespaceOf(eventType) !== namespaceOf(next);
+            const { emoji, command, custom_id, ...rest } = crossing ? withoutAppFilters(t.params) : t.params;
             const keep = {
               ...rest,
               ...(next === "discord.reaction.added" && emoji !== undefined ? { emoji } : {}),
@@ -402,6 +434,9 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
       </label>
       {eventType.startsWith("discord.") && apps.some((a) => a.id === surface) ? (
         <DiscordFilters key={surface} name={name} actorId={surface} t={t} load={load} onChange={onChange} />
+      ) : null}
+      {eventType.startsWith("jira.") && apps.some((a) => a.id === surface) ? (
+        <JiraFilters key={surface} t={t} onChange={onChange} />
       ) : null}
       {surface === ENGINE_SURFACE.id ? (
         <p className="trigger-picker__words" data-testid="run-event-hint">

@@ -70,3 +70,17 @@ shown through `shown_as`, a blank action is the first kind in catalogue order (w
 The web tests use a snapshot of the built-in catalogue,
 `web/src/fixtures/action-kinds.data.ts`, generated from the Python by
 `python3 scripts/export-action-kinds.py --write`; a test fails when it is stale.
+
+## Runner command argument types
+
+A runner actor's registered commands (`machine.command`'s `command` and `args`) declare each
+argument's type in the command's `params`. The runner checks the value against the type
+before any process starts; a mismatch is a bind error. The types are:
+
+| Type | Accepts |
+|------|---------|
+| `string` | any string |
+| `int` | an integer (not a boolean) |
+| `number` | an integer or float (not a boolean) |
+| `bool` | a boolean, passed as `true` or `false` |
+| `segment` | one safe path segment: 1 to 128 characters, not `.` or `..`, with no `/` or `\`, none of `, ( ) * ? [ ] { }` (a segment often names a directory that becomes a working path), no control character (below 0x20, or 0x7f, NUL included) and no leading `-` (so it never reads as an option); `SCRUM-12` passes, `../x`, `a,b`, `*` and `--help` do not |

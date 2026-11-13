@@ -51,6 +51,7 @@ from culture_rules.events.hook_sink import (
     sink,
 )
 from culture_rules.extensions.jira.client import ISSUE_KEY_RE, JiraClient, JiraError
+from culture_rules.extensions.jira.projects import allowed_projects, project_allowed
 from culture_rules.store.port import StoragePort
 
 __all__ = ["MAX_BODY", "SURFACE", "handle", "router"]
@@ -242,21 +243,25 @@ def handle(
     return _process(store, actor, payload, hdr, secrets, client_factory)
 
 
-def _allowed_keys(keys: list[str], allowed: Any) -> list[str]:
-    """``keys`` limited to the connection's projects (all of them when none are set)."""
-    if allowed:
-        return [k for k in keys if k.split("-")[0] in allowed]
-    return keys
+def _allowed_keys(keys: list[str], allowed: frozenset[str] | None) -> list[str]:
+    """``keys`` limited to the connection's projects (all of them when none are set, none
+    when the allowlist is malformed)."""
+    return [k for k in keys if project_allowed(k, allowed)]
 
 
 def _key_data(
-    issue: Any, key: str, connection: Mapping[str, Any], comment: Mapping[str, Any] | None
+    issue: Any,
+    key: str,
+    connection: Mapping[str, Any],
+    comment: Mapping[str, Any] | None,
+    author: str | None = None,
 ) -> dict[str, Any]:
     base = str(connection.get("api_base") or "")
     site = str(connection.get("site") or "")
     data = _issue_data(issue, key, site, base)
     if comment is not None:
         _add_comment(data, comment)
+    data["author"] = author
     return data
 
 
@@ -278,7 +283,7 @@ def _process(
     if not keys:
         record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
         return _error(400, "no_issue_key")
-    keys = _allowed_keys(keys, connection.get("projects"))
+    keys = _allowed_keys(keys, allowed_projects(connection))
     if not keys:
         return 200, {"ignored": True}
 
@@ -293,7 +298,7 @@ def _process(
     delivery_header = (hdr.get("x-atlassian-webhook-identifier") or "").strip()
     results = []
     for key in keys:
-        data = _key_data(issues[key], key, connection, comment)
+        data = _key_data(issues[key], key, connection, comment, author)
         delivery = _delivery_id(delivery_header, event, key, payload.get("timestamp"), len(keys))
         outcome = sink(store, actor, etype, data, delivery, author)
         results.append({"key": key, "outcome": outcome})

@@ -141,6 +141,7 @@ APP_DECLARABLE = {
     "github.merge",
     "github.pr",
     "jira.comment",
+    "jira.read",
     "http.call",
     "email.send",
     "search.web",

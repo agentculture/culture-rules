@@ -1,5 +1,6 @@
 import {
   PARAM_TYPES,
+  PARAM_TYPE_HINTS,
   emptyCommand,
   inlineEvalWarning,
   type CommandDraft,
@@ -90,8 +91,8 @@ export function CommandsEditor({ value, onChange, errors = {} }: Readonly<Comman
                     onChange={(e) => patch(i, { params: command.params.map((p, k) => (k === j ? { ...p, type: e.target.value } : p)) })}
                   >
                     {PARAM_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
+                      <option key={t} value={t} title={PARAM_TYPE_HINTS[t]}>
+                        {PARAM_TYPE_HINTS[t] ? `${t} (${PARAM_TYPE_HINTS[t]})` : t}
                       </option>
                     ))}
                   </select>

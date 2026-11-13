@@ -225,6 +225,10 @@ CLI. A parity test keeps the two surfaces identical.
   green-PR merge prompt in Discord, configured live from `github.pr`,
   `github.merge`, buttons and the click event (an example), and pinning the
   merge workflow's digest.
+- [`docs/operations/jira-conversations.md`](docs/operations/jira-conversations.md):
+  a conversation with an agent in a Jira issue's comments, one round per
+  comment, configured live from `jira.read`, a bridge agent step, a registered
+  command and `jira.comment`.
 
 ## Background
 

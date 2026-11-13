@@ -1,0 +1,90 @@
+{
+  "plan_slug": "jira-devague-spec",
+  "schema_version": 2,
+  "created": "2026-11-13T04:58:24Z",
+  "updated": "2026-11-13T12:17:11Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t10's boundary test pins today's files that already mention devague (the repodocs extension, its tests and fixtures, the web action-kinds fixture) with their reason, and fails on any new file mentioning it",
+      "task_ref": "t10",
+      "reason": "repodocs already names .devague paths (extensions/repodocs/port.py:197, __init__.py, model/action_kinds.py:51), so a literal no-mention-anywhere test fails on main",
+      "affects": [
+        "c28",
+        "h20"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "The t8 task agent commits only; the main agent opens the cultureagent PR (and the culture-rules PR) at the final human gate",
+      "task_ref": "t8",
+      "reason": "outward-facing pushes and PRs wait for gate 3 and the operator's OK",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Add t16: the editor offers the runner argument type segment in the Actors command editor, and a Users field for jira.* triggers in the trigger picker",
+      "task_ref": "t16",
+      "reason": "the build surfaced two hand-written editor lists (web/src/actors/app-config.ts:478, web/src/rules/TriggerPicker.tsx) that would leave segment and the jira users filter CLI/MCP-only",
+      "affects": [
+        "c7",
+        "c9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Add t17: jira.comment treats an absent or empty connection.projects as every project, like the guide, the webhook and jira.read",
+      "task_ref": "t17",
+      "reason": "jira.comment refused every issue with an empty projects list while docs/actors/jira.md step 6, hooks._allowed_keys and jira.read accept all",
+      "affects": [
+        "c3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Add t18: the whole-branch review's two fail-closed inconsistencies are fixed before the PR (bad_input for a malformed key in jira.comment; one case-insensitive project normaliser for the webhook and both actions)",
+      "task_ref": "t18",
+      "reason": "operator chose to fix the final review's findings before opening the PR",
+      "affects": [
+        "c3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "Add t19 and t20: fix all ten verified /code-review findings on PR #148 and #61 (three operate security gaps, two crash paths, five smaller) plus SonarCloud's three open issues",
+      "task_ref": "t19",
+      "reason": "operator chose to fix all ten review findings before merge",
+      "affects": [
+        "c30",
+        "c13"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 6
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
