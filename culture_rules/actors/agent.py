@@ -61,6 +61,7 @@ import hashlib
 import hmac
 import json
 import logging
+import posixpath
 import re
 import secrets
 import ssl
@@ -348,17 +349,39 @@ IDEMPOTENCY_HEADER = "Idempotency-Key"
 _JSON_CONTENT_TYPE = "application/json"
 ADDRESS_FIELDS = ("repo", "head_branch", "head_sha")
 """Where the bridge checks out: taken from the step's inputs (or config), never the actor."""
-PASSTHROUGH_CONFIG = ("model", "sandbox", "mode")
-"""Step-config keys forwarded into the bridge input (the actor supplies defaults); the qwen
-bridge requires ``mode``."""
+WORKING_PATH = "working_path"
+"""The bridge input naming the one directory an operating agent may write to (the
+cultureagent ``operate`` role reads it, t8). It comes from the step's input, else its
+config, per invocation, never from the actor. It exists only under sandbox
+:data:`OPERATE_SANDBOX`: for any other effective sandbox it is refused
+(``working_path_invalid: only for sandbox operate``, as the bridge refuses it on other roles),
+and a read-only actor refuses it as ``sandbox_locked``. It must be an absolute POSIX path with
+no ``..`` segment, no NUL and no backslash, sent as given (``working_path_invalid``
+otherwise), every refusal before any request. Whether the directory exists, and what runs in
+it, is the bridge's."""
+PASSTHROUGH_CONFIG = ("model", "sandbox", "mode", WORKING_PATH)
+"""Step-config keys forwarded into the bridge input (the actor supplies defaults, except
+for ``working_path``, which no actor default carries); the qwen bridge requires ``mode``."""
 READ_ONLY_SANDBOX = "read-only"
 """An actor whose ``sandbox`` default is this one cannot be widened by a step or an input
 (``sandbox_locked``): a read-only agent must never be able to write or commit."""
+OPERATE_SANDBOX = "operate"
+"""The cultureagent sandbox role that runs the agent with tools and one writable
+:data:`WORKING_PATH` (t8; the name is the contract between the two repos). It is
+**actor-pinned only**: the actor's own ``sandbox`` default (``params.sandbox: operate``) is
+the opt-in, and it pins like ``read-only``, so a step of an operate actor can neither switch
+nor narrow its sandbox (``sandbox_locked``), and a step of any other actor (unpinned,
+``workspace-write`` or ``read-only``; mode ``plan`` fences nothing here) cannot ask for it
+(``sandbox_locked``, naming the opt-in): editing a step never raises an agent to operate."""
+PINNED_SANDBOXES = frozenset({READ_ONLY_SANDBOX, OPERATE_SANDBOX})
+"""The sandboxes an actor's default locks: a step changes neither."""
 READ_ONLY_MODE = "plan"
 """#39: an actor whose ``mode`` default is this one (Qwen Code's plan mode) cannot be
 moved to another mode by a step or an input (``mode_locked``). The mode is an approval
 policy, not a sandbox: a flow that needs the checkout unchanged still checks it."""
-BRIDGE_CORE_INPUTS = frozenset({"instruction", "repo", "head_branch", "head_sha", "model", "async"})
+BRIDGE_CORE_INPUTS = frozenset(
+    {"instruction", "repo", "head_branch", "head_sha", "model", "async", WORKING_PATH}
+)
 """Input keys a bridge reads itself; every other key is appended to the agent's prompt as
 JSON, which the bridge cuts at its ``max_bound_input_chars`` (60000 by default)."""
 RESULT_FIELDS = (
@@ -712,24 +735,78 @@ def _address(
 
 
 def _locks(defaults: Mapping[str, Any]) -> dict[str, str]:
-    """The bridge settings an actor's defaults pin: a ``read-only`` sandbox, a ``plan``
-    mode (#39)."""
-    pinned = {"sandbox": READ_ONLY_SANDBOX, "mode": READ_ONLY_MODE}
-    return {k: v for k, v in pinned.items() if defaults.get(k) == v}
+    """The bridge settings an actor's defaults pin: a ``read-only`` or ``operate`` sandbox
+    (:data:`PINNED_SANDBOXES`), a ``plan`` mode (#39)."""
+    locks: dict[str, str] = {}
+    if defaults.get("sandbox") in PINNED_SANDBOXES:
+        locks["sandbox"] = defaults["sandbox"]
+    if defaults.get("mode") == READ_ONLY_MODE:
+        locks["mode"] = READ_ONLY_MODE
+    return locks
 
 
 def _lock_refusal(
     input: Mapping[str, Any], config: Mapping[str, Any], locks: Mapping[str, str]
 ) -> str | None:
     """A locked actor refuses an input or step config asking for another sandbox or mode
-    (``sandbox_locked`` / ``mode_locked``)."""
+    (``sandbox_locked`` / ``mode_locked``); any actor not pinned to ``operate`` refuses a
+    step asking for it (``sandbox_locked``, naming the actor opt-in); a read-only actor
+    refuses a ``working_path`` (``sandbox_locked``)."""
+    sources = (("an input", input), ("the step config", config))
     for name, value in locks.items():
-        for where, source in (("an input", input), ("the step config", config)):
+        for where, source in sources:
             if name in source and source[name] != value:
-                return (
+                problem = (
                     f"{name}_locked: the actor is {value}; "
                     f"{where} asks for {name} {source[name]!r}"
                 )
+                if name == "sandbox" and source[name] == OPERATE_SANDBOX:
+                    problem += _OPERATE_OPT_IN
+                return problem
+    pinned = locks.get("sandbox")
+    if pinned != OPERATE_SANDBOX:
+        # operate is the actor's own opt-in, never a step's: an unpinned or workspace-write
+        # actor cannot be raised to it by editing a step (cortex review of t7)
+        for where, source in sources:
+            if source.get("sandbox") == OPERATE_SANDBOX:
+                actor = f"the actor is {pinned}" if pinned else "the actor pins no sandbox"
+                return (
+                    f"sandbox_locked: {actor}; {where} asks for sandbox "
+                    f"{OPERATE_SANDBOX!r}{_OPERATE_OPT_IN}"
+                )
+    if pinned == READ_ONLY_SANDBOX:
+        # a writable directory is what the operating sandbox adds: a read-only actor never
+        # gets one, however the sandbox field itself reads (t7)
+        for where, source in sources:
+            if source.get(WORKING_PATH) is not None:
+                return (
+                    f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
+                    f"{where} hands it a {WORKING_PATH}"
+                )
+    return None
+
+
+_OPERATE_OPT_IN = (
+    f" ({OPERATE_SANDBOX} is the actor's own opt-in, params.sandbox: {OPERATE_SANDBOX}, "
+    "never a step's)"
+)
+_WORKING_PATH_ONLY_OPERATE = (
+    f"working_path_invalid: only for sandbox {OPERATE_SANDBOX} (the actor's params.sandbox)"
+)
+
+
+def _working_path_problem(value: Any) -> str | None:
+    """``working_path_invalid: ...`` unless ``value`` is an absolute POSIX path with no
+    ``..`` segment, no NUL and no backslash; nothing is normalised, so what is checked is
+    what is sent."""
+    if not isinstance(value, str):
+        return f"working_path_invalid: not a path string ({type(value).__name__})"
+    if not value or "\0" in value or not posixpath.isabs(value):
+        return f"working_path_invalid: {value!r} is not an absolute path"
+    if "\\" in value:
+        return f"working_path_invalid: {value!r} has a backslash"
+    if ".." in value.split("/"):
+        return f"working_path_invalid: {value!r} has a '..' segment"
     return None
 
 
@@ -815,6 +892,14 @@ class BridgeAgentActor:
             if value is not None:
                 out.setdefault(name, value)
         out.update(locks)
+        if WORKING_PATH in out:
+            # only an operating agent has a writable directory; the bridge refuses it on
+            # every other role too, this refusal just comes before the call
+            if out.get("sandbox") != OPERATE_SANDBOX:
+                return None, _WORKING_PATH_ONLY_OPERATE
+            problem = _working_path_problem(out[WORKING_PATH])
+            if problem:
+                return None, problem
         out["instruction"] = instruction
         return out, None
 
