@@ -169,6 +169,10 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
             "jira.comment as j on CR-1",
         ),
         (
+            {"kind": "jira.read", "params": {"actor": "j", "issue": "CR-1"}},
+            "jira.read as j of CR-1",
+        ),
+        (
             {
                 "kind": "http.call",
                 "params": {"actor": "h", "method": "POST", "url": "http://localhost/x"},
