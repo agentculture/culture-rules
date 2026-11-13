@@ -179,15 +179,8 @@ class JiraClient:
             else:
                 pending.append(name)
         if pending:
-            listing = self._call("GET", "/rest/api/3/field", None)
-            by_name: dict[str, str] = {}
-            for entry in listing if isinstance(listing, list) else []:
-                if isinstance(entry, dict) and isinstance(entry.get("id"), str):
-                    by_name.setdefault(str(entry.get("name")), entry["id"])
-                    by_name.setdefault(entry["id"], entry["id"])
-            for name in pending:
-                if name in by_name:
-                    out[name] = by_name[name]
+            by_name = _fields_by_name(self._call("GET", "/rest/api/3/field", None))
+            out.update({name: by_name[name] for name in pending if name in by_name})
         return out
 
     def _comments(self, key: str) -> list[dict[str, Any]]:
@@ -215,6 +208,17 @@ class JiraClient:
             if isinstance(total, int) and received >= total:
                 return out
         raise JiraError("too_many_comments", f"more than {_MAX_COMMENT_PAGES} pages")
+
+
+def _fields_by_name(listing: Any) -> dict[str, str]:
+    """``GET /rest/api/3/field``'s list as name -> id (each id maps to itself too); the first
+    entry for a name wins, and an entry without a string id is skipped."""
+    by_name: dict[str, str] = {}
+    for entry in listing if isinstance(listing, list) else []:
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+            by_name.setdefault(str(entry.get("name")), entry["id"])
+            by_name.setdefault(entry["id"], entry["id"])
+    return by_name
 
 
 def _account(user: Any) -> str | None:

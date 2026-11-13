@@ -138,8 +138,9 @@ def test_empty_page_stops_even_if_total_lies():
 
 def test_too_many_comment_pages_raises():
     fake = Fake(comments=[comment(i) for i in range(200)], page=1)
+    c = client(fake)
     with pytest.raises(JiraError) as err:
-        client(fake).get_issue_full("ACME-7")
+        c.get_issue_full("ACME-7")
     assert err.value.code == "too_many_comments"
 
 
@@ -186,8 +187,9 @@ def test_ids_only_skip_field_lookup():
 
 def test_bad_key_refused_before_any_call():
     fake = Fake()
+    c = client(fake)
     with pytest.raises(JiraError) as err:
-        client(fake).get_issue_full("acme 7")
+        c.get_issue_full("acme 7")
     assert err.value.code == "bad_key"
     assert fake.calls == []
 

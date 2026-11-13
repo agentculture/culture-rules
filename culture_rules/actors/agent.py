@@ -745,6 +745,9 @@ def _locks(defaults: Mapping[str, Any]) -> dict[str, str]:
     return locks
 
 
+_Sources = tuple[tuple[str, Mapping[str, Any]], ...]
+
+
 def _lock_refusal(
     input: Mapping[str, Any], config: Mapping[str, Any], locks: Mapping[str, str]
 ) -> str | None:
@@ -752,7 +755,17 @@ def _lock_refusal(
     (``sandbox_locked`` / ``mode_locked``); any actor not pinned to ``operate`` refuses a
     step asking for it (``sandbox_locked``, naming the actor opt-in); a read-only actor
     refuses a ``working_path`` (``sandbox_locked``)."""
-    sources = (("an input", input), ("the step config", config))
+    sources: _Sources = (("an input", input), ("the step config", config))
+    pinned = locks.get("sandbox")
+    return (
+        _changed_lock_refusal(sources, locks)
+        or _operate_refusal(sources, pinned)
+        or _read_only_path_refusal(sources, pinned)
+    )
+
+
+def _changed_lock_refusal(sources: _Sources, locks: Mapping[str, str]) -> str | None:
+    """``<name>_locked`` when an input or the step config asks for another locked value."""
     for name, value in locks.items():
         for where, source in sources:
             if name in source and source[name] != value:
@@ -763,26 +776,35 @@ def _lock_refusal(
                 if name == "sandbox" and source[name] == OPERATE_SANDBOX:
                     problem += _OPERATE_OPT_IN
                 return problem
-    pinned = locks.get("sandbox")
-    if pinned != OPERATE_SANDBOX:
-        # operate is the actor's own opt-in, never a step's: an unpinned or workspace-write
-        # actor cannot be raised to it by editing a step (cortex review of t7)
-        for where, source in sources:
-            if source.get("sandbox") == OPERATE_SANDBOX:
-                actor = f"the actor is {pinned}" if pinned else "the actor pins no sandbox"
-                return (
-                    f"sandbox_locked: {actor}; {where} asks for sandbox "
-                    f"{OPERATE_SANDBOX!r}{_OPERATE_OPT_IN}"
-                )
-    if pinned == READ_ONLY_SANDBOX:
-        # a writable directory is what the operating sandbox adds: a read-only actor never
-        # gets one, however the sandbox field itself reads (t7)
-        for where, source in sources:
-            if source.get(WORKING_PATH) is not None:
-                return (
-                    f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
-                    f"{where} hands it a {WORKING_PATH}"
-                )
+    return None
+
+
+def _operate_refusal(sources: _Sources, pinned: str | None) -> str | None:
+    """operate is the actor's own opt-in, never a step's: an unpinned or workspace-write
+    actor cannot be raised to it by editing a step (cortex review of t7)."""
+    if pinned == OPERATE_SANDBOX:
+        return None
+    for where, source in sources:
+        if source.get("sandbox") == OPERATE_SANDBOX:
+            actor = f"the actor is {pinned}" if pinned else "the actor pins no sandbox"
+            return (
+                f"sandbox_locked: {actor}; {where} asks for sandbox "
+                f"{OPERATE_SANDBOX!r}{_OPERATE_OPT_IN}"
+            )
+    return None
+
+
+def _read_only_path_refusal(sources: _Sources, pinned: str | None) -> str | None:
+    """A writable directory is what the operating sandbox adds: a read-only actor never
+    gets one, however the sandbox field itself reads (t7)."""
+    if pinned != READ_ONLY_SANDBOX:
+        return None
+    for where, source in sources:
+        if source.get(WORKING_PATH) is not None:
+            return (
+                f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
+                f"{where} hands it a {WORKING_PATH}"
+            )
     return None
 
 

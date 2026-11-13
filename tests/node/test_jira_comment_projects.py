@@ -19,7 +19,8 @@ def test_absent_or_empty_projects_allow_any_issue(doc):
     port, resolved = setup(fake, doc)
     res = port.invoke(params("OTHER-1"), "k", DEADLINE, context=ctx())
     assert res.outcome == "completed"
-    assert fake.calls and fake.calls[-1][1].endswith("/issue/OTHER-1/comment")
+    assert fake.calls
+    assert fake.calls[-1][1].endswith("/issue/OTHER-1/comment")
     assert resolved == ["grant:JIRA_TOKEN"]
 
 
@@ -29,7 +30,8 @@ def test_listed_projects_still_refuse_others_before_secret():
     res = port.invoke(params("OTHER-1"), "k", DEADLINE, context=ctx())
     assert res.outcome == "failed"
     assert res.error == "project_not_allowed"
-    assert resolved == [] and fake.calls == []
+    assert resolved == []
+    assert fake.calls == []
     assert port.invoke(params("SCRUM-2"), "k", DEADLINE, context=ctx()).outcome == "completed"
 
 
@@ -41,7 +43,8 @@ def test_malformed_issue_is_bad_input(issue, projects):
     res = port.invoke(params(issue), "k", DEADLINE, context=ctx())
     assert res.outcome == "failed"
     assert res.error == "bad_input"
-    assert resolved == [] and fake.calls == []
+    assert resolved == []
+    assert fake.calls == []
 
 
 @pytest.mark.parametrize("body", ["", "\n", "  \n\t\n", "   "])

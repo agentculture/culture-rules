@@ -163,7 +163,8 @@ def test_fields_must_be_a_list_of_strings(bad):
     port, resolved = setup(fake)
     res = port.invoke(params(fields=bad), "k", DEADLINE, context=ctx())
     assert (res.error, res.retryable) == ("bad_input", False)
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
 
 
 def test_actor_falls_back_to_input():
@@ -188,7 +189,8 @@ def test_a_malformed_issue_is_bad_input(issue, projects):
     port, resolved = setup(fake, actor_doc(projects=projects))
     res = port.invoke({"actor": "jira-app", "issue": issue}, "k", DEADLINE, context=ctx())
     assert res.error == "bad_input"
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
 
 
 @pytest.mark.parametrize("projects", [None, []])
@@ -222,7 +224,8 @@ def test_non_jira_missing_or_disabled_actor_is_not_found(doc, actor):
     port, resolved = setup(fake, doc=doc)
     res = port.invoke(params(), "k", DEADLINE, context=ctx(actor=actor))
     assert (res.error, res.retryable) == ("actor_not_found", False)
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
 
 
 def test_retryability_4xx_vs_5xx():
