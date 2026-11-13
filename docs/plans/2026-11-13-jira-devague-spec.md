@@ -155,6 +155,16 @@ slug: `jira-devague-spec` · status: `exported` · from frame: `jira-devague-spe
   - tests/node/`test_jira_comment_projects.py`: with projects absent or \[\] a comment on any issue is sent; with projects \['SCRUM'\] an OTHER-1 issue fails `project_not_allowed` before the secret is read
   - existing tests/node/`test_jira_action.py` passes, updated only where it pinned the old empty-means-none behaviour (reported)
 
+### t18 — jira.comment refuses a malformed issue key with `bad_input` (like jira.read); one shared project-allowlist normaliser used by the webhook, jira.comment and jira.read (`culture_rules`/extensions/jira/projects.py new, port.py, read.py, hooks.py)
+
+- instruction: Extract one helper (e.g. `allowed_projects`(connection) -> frozenset\[str\] and `project_allowed`(key, allowed) -> bool) and use it in all three; also share `_connection` between port.py and read.py if it stays a small change.
+- depends on: t17
+- covers: c3
+- acceptance:
+  - tests/extensions/`test_jira_projects.py`: the shared helper uppercases both sides; absent or empty allows all; a lowercase projects list admits SCRUM-1 in the webhook, jira.read and jira.comment alike
+  - jira.comment: a non-string or prefix-less issue fails `bad_input` before the secret is read (tests updated where they pinned `project_not_allowed`, reported); an allowlist miss stays `project_not_allowed`
+  - full suite, lint and bandit pass; docs/actors/jira.md and CHANGELOG.md say `bad_input` for a malformed key
+
 ## Risks
 
 - [unknown_nonblocking] Ops on core unverified (frame v3): whether a Claude bridge runs on core, its claude login there, and the Fable 5.2 model id for claude -p --model; t13 cannot finish until known. (task t13)

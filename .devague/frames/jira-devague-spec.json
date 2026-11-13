@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-13T01:07:11Z",
-  "updated": "2026-11-13T11:18:39Z",
+  "updated": "2026-11-13T11:51:02Z",
   "claims": [
     {
       "id": "c1",
@@ -1124,6 +1124,17 @@
       "skipped_check": "a red run of the new TriggerPicker tests before the fix",
       "refs": [
         "t16: web/src/rules/TriggerPicker.tsx"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "control-absent",
+      "what": "t18's new jira.read malformed-key tests were not seen failing on their own (a collection error hid them); the main agent ran them against the pre-alignment read.py: 4 failed, then passed",
+      "skipped_check": "an isolated red run by the task agent",
+      "refs": [
+        "t18: extensions/jira/read.py"
       ],
       "origin": "llm",
       "status": "proposed"

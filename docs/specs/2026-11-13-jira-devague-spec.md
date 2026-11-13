@@ -19,6 +19,7 @@
 
 - A read-only Jira action kind (e.g. jira.read) returns an issue's description and its full comment thread as text: today the event carries only key/project/summary/status/assignee/url, `comment_body` is cut at 500 chars and an ADF body is JSON-dumped (extensions/jira/hooks.py:68,146-160,209-213), and JiraClient.`get_issue` fetches no description (client.py `_FIELDS`).
   - ⚠ contested by `d4` (risky): jira.comment refused every issue with an empty projects list while docs/actors/jira.md step 6, hooks.`_allowed_keys` and jira.read accept all
+  - ⚠ contested by `d5` (acceptable): operator chose to fix the final review's findings before opening the PR
   - honesty: The read action returns the full description and every comment's full plain text (ADF flattened), with no 500-char cut, and is refused outside the actor's projects before any secret is read.
 - jira.comment can post a multi-line, structured comment (numbered questions with their ids): today `add_comment` sends one ADF paragraph with one text node (extensions/jira/client.py `add_comment`).
   - honesty: A comment of several numbered lines renders in Jira as separate lines/list items, not one run-on paragraph.

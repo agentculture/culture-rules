@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-13T04:32:21Z",
-  "updated": "2026-11-13T11:18:39Z",
+  "updated": "2026-11-13T11:51:02Z",
   "targets": [
     {
       "id": "c1",
@@ -636,6 +636,24 @@
         "c3"
       ],
       "instruction": "Match jira.read's check (read.py): if allowed and project not in allowed."
+    },
+    {
+      "id": "t18",
+      "summary": "jira.comment refuses a malformed issue key with bad_input (like jira.read); one shared project-allowlist normaliser used by the webhook, jira.comment and jira.read (culture_rules/extensions/jira/projects.py new, port.py, read.py, hooks.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/extensions/test_jira_projects.py: the shared helper uppercases both sides; absent or empty allows all; a lowercase projects list admits SCRUM-1 in the webhook, jira.read and jira.comment alike",
+        "jira.comment: a non-string or prefix-less issue fails bad_input before the secret is read (tests updated where they pinned project_not_allowed, reported); an allowlist miss stays project_not_allowed",
+        "full suite, lint and bandit pass; docs/actors/jira.md and CHANGELOG.md say bad_input for a malformed key"
+      ],
+      "deps": [
+        "t17"
+      ],
+      "covers": [
+        "c3"
+      ],
+      "instruction": "Extract one helper (e.g. allowed_projects(connection) -> frozenset[str] and project_allowed(key, allowed) -> bool) and use it in all three; also share _connection between port.py and read.py if it stays a small change."
     }
   ],
   "risks": [

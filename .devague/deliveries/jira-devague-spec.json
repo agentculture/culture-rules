@@ -2,7 +2,7 @@
   "plan_slug": "jira-devague-spec",
   "schema_version": 2,
   "created": "2026-11-13T04:58:24Z",
-  "updated": "2026-11-13T09:33:20Z",
+  "updated": "2026-11-13T11:21:38Z",
   "deviations": [
     {
       "id": "d1",
@@ -55,6 +55,19 @@
       "status": "approved",
       "classification": "risky",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Add t18: the whole-branch review's two fail-closed inconsistencies are fixed before the PR (bad_input for a malformed key in jira.comment; one case-insensitive project normaliser for the webhook and both actions)",
+      "task_ref": "t18",
+      "reason": "operator chose to fix the final review's findings before opening the PR",
+      "affects": [
+        "c3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
     }
   ],
   "evidence": [],
