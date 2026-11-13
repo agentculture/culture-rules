@@ -5,7 +5,8 @@ A *runner* actor's config carries a registry of named commands (``extras["comman
     {"echo": {"argv": ["echo", "{msg}"], "params": {"msg": "string"}, "timeout": 30}}
 
 A step invokes one by name with typed arguments (``{"command": "echo", "args": {...}}``).
-Arguments are validated against the declared param types and substituted into the argv
+Arguments are validated against the declared param types (``string``, ``int``, ``number``,
+``bool`` and ``segment``, one safe path segment) and substituted into the argv
 list as whole-or-embedded string values; the process is started with an argv list and
 ``shell=False`` always, so argument text is never interpreted by a shell.
 
@@ -123,9 +124,23 @@ def _is_number(value: Any) -> bool:
     return not isinstance(value, bool) and isinstance(value, int | float)
 
 
+_MAX_SEGMENT = 128
+
+
+def _is_segment(value: Any) -> bool:
+    """One safe path segment: 1-128 chars, not ``.``/``..``, no slash, backslash or NUL."""
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= _MAX_SEGMENT
+        and value not in (".", "..")
+        and not any(ch in value for ch in ("/", "\\", "\x00"))
+    )
+
+
 #: Per declared argument type: (accepts the value?, what it must be, render as argv text).
 _COERCIONS: dict[str, tuple[Callable[[Any], bool], str, Callable[[Any], str]]] = {
     "string": (lambda v: isinstance(v, str), "a string", lambda v: v),
+    "segment": (_is_segment, "one safe path segment", lambda v: v),
     "int": (_is_int, "an int", str),
     "number": (_is_number, "a number", repr),
     "bool": (lambda v: isinstance(v, bool), "a bool", lambda v: "true" if v else "false"),
