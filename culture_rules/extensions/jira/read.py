@@ -22,8 +22,12 @@ from typing import Any
 from culture_rules.actors.secrets import resolve as resolve_secret
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.extensions.jira.client import JiraClient, JiraError
-from culture_rules.extensions.jira.port import project_of
-from culture_rules.node.actors import ACTORS_COLLECTION
+from culture_rules.extensions.jira.projects import (
+    allowed_projects,
+    connection_of,
+    project_allowed,
+    well_formed,
+)
 from culture_rules.transport import Transport
 
 __all__ = ["JiraReadPort"]
@@ -54,19 +58,6 @@ class JiraReadPort:
         self._transport = transport
         self._secrets = secrets
 
-    def _connection(self, actor_id: str | None) -> Mapping[str, Any] | None:
-        """An enabled actor of surface ``jira`` and its connection (as ``jira.comment``)."""
-        if not actor_id:
-            return None
-        doc = self._store.get(ACTORS_COLLECTION, actor_id)
-        if not doc or doc.get("enabled") is False:
-            return None
-        params = doc.get("params") or {}
-        conn = params.get("connection")
-        if params.get("surface") != "jira" or not isinstance(conn, Mapping):
-            return None
-        return conn
-
     def invoke(
         self,
         input: Mapping[str, Any],
@@ -76,14 +67,13 @@ class JiraReadPort:
         context: InvocationContext,
     ) -> InvocationResult:
         actor_id = context.actor or input.get("actor")
-        conn = self._connection(actor_id)
+        conn = connection_of(self._store, actor_id)
         if conn is None:
             return InvocationResult.failed("actor_not_found", retryable=False)
         issue = input.get("issue")
-        if not isinstance(issue, str) or not issue:
+        if not well_formed(issue):
             return InvocationResult.failed("bad_input", retryable=False)
-        allowed = {str(p).upper() for p in conn.get("projects") or ()}
-        if allowed and project_of(issue).upper() not in allowed:
+        if not project_allowed(issue, allowed_projects(conn)):
             return InvocationResult.failed("project_not_allowed", retryable=False)
         fields = _fields(input.get("fields"))
         if fields is None:

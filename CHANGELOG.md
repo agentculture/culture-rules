@@ -20,6 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - `jira.comment` treats an absent or empty `connection.projects` as every project, as the Jira guide, the webhook and `jira.read` do; before, it refused every issue. An actor that lists `projects` still refuses the others before the secret is read
+- `jira.comment` fails a malformed issue key (not a string, or no project prefix) with `bad_input`, as `jira.read` does; before, it reported `project_not_allowed`. The webhook, `jira.comment` and `jira.read` share one allowlist reading (extensions/jira/projects.py): keys compare upper-cased on both sides, so a lowercase `projects` list admits `SCRUM-1` in the webhook too, and a bare string is one project
 
 ## [0.45.4] - 2026-11-11
 

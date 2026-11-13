@@ -51,6 +51,7 @@ from culture_rules.events.hook_sink import (
     sink,
 )
 from culture_rules.extensions.jira.client import ISSUE_KEY_RE, JiraClient, JiraError
+from culture_rules.extensions.jira.projects import allowed_projects, project_allowed
 from culture_rules.store.port import StoragePort
 
 __all__ = ["MAX_BODY", "SURFACE", "handle", "router"]
@@ -242,11 +243,9 @@ def handle(
     return _process(store, actor, payload, hdr, secrets, client_factory)
 
 
-def _allowed_keys(keys: list[str], allowed: Any) -> list[str]:
+def _allowed_keys(keys: list[str], allowed: frozenset[str]) -> list[str]:
     """``keys`` limited to the connection's projects (all of them when none are set)."""
-    if allowed:
-        return [k for k in keys if k.split("-")[0] in allowed]
-    return keys
+    return [k for k in keys if project_allowed(k, allowed)]
 
 
 def _key_data(
@@ -283,7 +282,7 @@ def _process(
     if not keys:
         record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
         return _error(400, "no_issue_key")
-    keys = _allowed_keys(keys, connection.get("projects"))
+    keys = _allowed_keys(keys, allowed_projects(connection))
     if not keys:
         return 200, {"ignored": True}
 

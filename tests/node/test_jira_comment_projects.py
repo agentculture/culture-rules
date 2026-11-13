@@ -35,10 +35,10 @@ def test_listed_projects_still_refuse_others_before_secret():
 
 @pytest.mark.parametrize("issue", [None, 7, "NOHYPHEN", "-5", ""])
 @pytest.mark.parametrize("projects", [[], ["SCRUM"]])
-def test_malformed_issue_still_refused(issue, projects):
+def test_malformed_issue_is_bad_input(issue, projects):
     fake = Fake()
     port, resolved = setup(fake, actor_doc(projects=projects))
     res = port.invoke(params(issue), "k", DEADLINE, context=ctx())
     assert res.outcome == "failed"
-    assert res.error == "project_not_allowed"
+    assert res.error == "bad_input"
     assert resolved == [] and fake.calls == []
