@@ -1,8 +1,9 @@
 # Jira app actor
 
 Jira Cloud sends a system webhook when issues and comments change. The
-receiver refetches each issue through a service account, and the
-`jira.comment` action comments as that account.
+receiver refetches each issue through a service account, the `jira.read`
+action reads a whole issue, and the `jira.comment` action comments as that
+account.
 
 This assumes you are signed in to Atlassian as an organisation admin and Jira
 administrator, and that nothing else is prepared. Read [README.md](README.md)
@@ -114,7 +115,7 @@ serving host, or write the JSON with the CLI:
   "params": {
     "surface": "jira",
     "events": ["jira.issue.created", "jira.issue.updated", "jira.comment.created"],
-    "actions": ["jira.comment"],
+    "actions": ["jira.comment", "jira.read"],
     "self_identity": "<service account accountId>",
     "connection": {
       "site": "<site>.atlassian.net",
@@ -127,8 +128,14 @@ serving host, or write the JSON with the CLI:
 }
 ```
 
-Leave `projects` out to accept every project, including ones created later. Set
-`"projects": ["SCRUM"]` to keep only those keys.
+Leave `projects` out (or empty) to accept every project, including ones created
+later: the webhook receiver, `jira.read` and `jira.comment` all read an absent
+or empty `projects` that way. Set `"projects": ["SCRUM"]` to keep only those
+keys.
+
+Set `self_identity` if any rule listens to `jira.comment.created` or uses the
+`users` filter: it is the only thing that marks the account's own comments
+`self_authored` (see [Events and data](#events-and-data)).
 
 ## 7. Register the system webhook
 
@@ -200,8 +207,55 @@ logged.
 
 The payload is only a hint. Each issue key is refetched, and `data` holds
 `key`, `project`, `summary`, `status`, `assignee` (accountId), `updated` and
-`url`. Pick a project in a rule with a condition on `data.project`. A
-redelivery is deduplicated by `X-Atlassian-Webhook-Identifier`.
+`url`. Every event also carries `author`, the accountId of the person or
+account that made the change (the comment's author for `jira.comment.created`).
+Pick a project in a rule with a condition on `data.project`. A redelivery is
+deduplicated by `X-Atlassian-Webhook-Identifier`.
+
+### The `users` filter
+
+Every `jira.*` event trigger accepts `users`: a non-empty list of accountIds
+(strings), matched exactly against `data.author`:
+
+```json
+{"type": "jira.comment.created", "users": ["<accountId>", "<accountId>"]}
+```
+
+Without `users`, every event passes. With it, an event passes only when its
+author is listed. It never admits an event with no author, and never admits an
+event the actor wrote itself (`data.self_authored`), even with `include_self`
+and even when the actor's own accountId is listed. A malformed list (empty, or
+not strings) is refused on save and matches nothing. **`self_authored` is set
+only when the actor has `params.self_identity`**; without it the service
+account's own comments carry no mark, and the filter can only keep them out if
+you leave that account out of `users`.
+
+## Reading an issue: `jira.read`
+
+`jira.read` reads one issue through the actor and changes nothing, so a retry
+repeats nothing. Params:
+
+| Param | Meaning |
+|---|---|
+| `actor` | the Jira app actor id (required) |
+| `issue` | the issue key, for example `SCRUM-12` (required) |
+| `fields` | optional list of custom field names or ids to include |
+
+Outputs: `key`, `project`, `summary`, `description`, `reporter`, `comments`
+(each `{id, author, created, body}`, oldest first) and `fields` (the requested
+ones). An issue outside `connection.projects` fails before any secret is read;
+an absent or empty `projects` allows every project.
+
+## Commenting: `jira.comment`
+
+A one-line `body` is posted as it is. A multi-line body becomes paragraphs
+(Atlassian Document Format), and consecutive lines starting with a dash and a space, or with `1.` and a space, become a bullet or numbered list.
+Blank lines separate paragraphs and are dropped.
+Like `jira.read`, it allows every project when `connection.projects` is absent
+or empty.
+
+For a conversation that runs in an issue's comments, see
+[jira-conversations.md](../operations/jira-conversations.md).
 
 ## Troubleshooting
 
