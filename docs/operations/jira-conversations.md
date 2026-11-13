@@ -50,7 +50,9 @@ from any other rule's. While a round runs, a new comment on the same issue does
 not start a second run: it waits as one pending firing, and when several
 arrive, the newest one fires once the run ends. Replies sent during a round
 therefore **coalesce**, which is fine because every round re-reads the whole
-thread with `jira.read` and does not depend on which comment fired it.
+thread with `jira.read` and does not depend on which comment fired it. Build
+the round on `jira.read`, never on the event: the event's `comment_body` is cut
+at 500 characters.
 
 ### Capping rounds
 
