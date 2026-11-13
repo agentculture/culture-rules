@@ -329,3 +329,48 @@ def test_the_app_name_check_sees_every_literal_form(source):
 )
 def test_the_app_name_check_ignores_prose_and_core_names(source):
     assert app_literals_in(source, _pattern(*_app_names())) == set()
+
+
+# --- no spec-tool name in code, tests or the editor ---------------------------------------------
+# The needle is built from two halves so this file never spells it out itself.
+_SPEC_TOOL_NEEDLE = "de" + "vague"
+_SPEC_TOOL_ROOTS = ("culture_rules", "tests", "web/src")
+_SPEC_TOOL_SKIP_DIRS = {"node_modules", "__pycache__", ".pytest_cache", "dist"}
+
+#: Files (relative to the repo root) that mention the needle today, each with its reason. A new
+#: file that mentions it fails; a pinned file that stops mentioning it fails too, so the list
+#: cannot rot.
+SPEC_TOOL_MENTIONS_ALLOWED = {
+    "culture_rules/extensions/repodocs/__init__.py": "repodocs syncs the tool's record paths",
+    "culture_rules/extensions/repodocs/port.py": "repodocs syncs the tool's record paths",
+    "culture_rules/model/action_kinds.py": "the repodocs kind's help text names those paths",
+    "tests/fixtures/workflow_descriptions.json": "a fixture describing the repodocs kind",
+    "tests/node/test_repodocs_sync.py": "tests repodocs syncing the tool's record paths",
+    "tests/rules/fixtures/github-app.live.json": "a fixture whose text names those paths",
+    "tests/rules/fixtures/github-app.with-author.json": "a fixture whose text names those paths",
+    "web/src/fixtures/action-kinds.data.ts": "snapshot of the action catalogue (repodocs kind)",
+    "web/src/rules/ActionPicker.repodocs.test.tsx": "editor test for the repodocs kind",
+}
+
+
+def _files_mentioning_spec_tool() -> set[str]:
+    found: set[str] = set()
+    for root in _SPEC_TOOL_ROOTS:
+        for path in (ROOT / root).rglob("*"):
+            if not path.is_file() or _SPEC_TOOL_SKIP_DIRS & set(path.parts):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue  # binary or unreadable
+            if _SPEC_TOOL_NEEDLE in text.lower():
+                found.add(path.relative_to(ROOT).as_posix())
+    return found
+
+
+def test_no_new_file_names_the_spec_tool():
+    found = _files_mentioning_spec_tool()
+    new = sorted(found - set(SPEC_TOOL_MENTIONS_ALLOWED))
+    assert not new, f"files naming the spec tool, not pinned in the allowlist: {new}"
+    stale = sorted(set(SPEC_TOOL_MENTIONS_ALLOWED) - found)
+    assert not stale, f"pinned files that no longer name it, drop them: {stale}"
