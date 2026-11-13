@@ -478,7 +478,7 @@ export function httpParamsFrom(draft: HttpDraft): HttpPolicy | undefined {
 export const PARAM_TYPES = ["string", "int", "number", "bool", "segment"] as const;
 
 /** A short hint for a type that needs one. */
-export const PARAM_TYPE_HINTS: Record<string, string> = {
+export const PARAM_TYPE_HINTS: Partial<Record<(typeof PARAM_TYPES)[number], string>> = {
   segment: "one path segment, e.g. an issue key",
 };
 
