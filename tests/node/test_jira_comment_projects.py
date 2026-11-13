@@ -42,3 +42,14 @@ def test_malformed_issue_is_bad_input(issue, projects):
     assert res.outcome == "failed"
     assert res.error == "bad_input"
     assert resolved == [] and fake.calls == []
+
+
+@pytest.mark.parametrize("body", ["", "\n", "  \n\t\n", "   "])
+def test_an_empty_or_blank_body_is_bad_input_before_secret(body):
+    fake = Fake()
+    port, resolved = setup(fake, actor_doc(projects=["SCRUM"]))
+    res = port.invoke({**params("SCRUM-1"), "body": body}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed"
+    assert res.error == "bad_input"
+    assert resolved == []
+    assert fake.calls == []

@@ -11,6 +11,8 @@ from typing import Any
 
 _ORDERED = re.compile(r"^\d+\. (.*)$")
 _BULLET = re.compile(r"^- (.*)$")
+#: A longer start is not kept (and never parsed: ``int`` refuses very long digit strings).
+_MAX_ORDER_DIGITS = 9
 
 
 def _text_node(text: str) -> dict[str, Any]:
@@ -33,8 +35,10 @@ def to_adf(text: str) -> dict[str, Any]:
     """Plain multi-line text as an ADF document.
 
     One line is one paragraph (exactly the legacy document). Several lines give one
-    paragraph each; consecutive ``1. `` lines become one ``orderedList`` and consecutive
-    ``- `` lines one ``bulletList``. Blank lines separate and are dropped.
+    paragraph each; consecutive ``N. `` lines become one ``orderedList`` (``attrs.order`` is
+    its first number when that is not 1) and consecutive ``- `` lines one ``bulletList``.
+    Blank lines separate and are dropped; a text of blank lines only is one empty paragraph,
+    never an empty document.
     """
     if "\n" not in text and "\r" not in text:
         return {"type": "doc", "version": 1, "content": [_paragraph(text)]}
@@ -50,10 +54,31 @@ def to_adf(text: str) -> dict[str, Any]:
             content.append(_paragraph(line))
             continue
         if open_list is None or open_list["type"] != kind:
-            open_list = {"type": kind, "content": []}
+            open_list = _open_list(kind, line)
             content.append(open_list)
         open_list["content"].append({"type": "listItem", "content": [_paragraph(body)]})
-    return {"type": "doc", "version": 1, "content": content}
+    return {"type": "doc", "version": 1, "content": content or [_paragraph("")]}
+
+
+def _open_list(kind: str, first_line: str) -> dict[str, Any]:
+    """A new list node; an ordered list starting above 1 keeps its start in ``attrs``."""
+    node: dict[str, Any] = {"type": kind, "content": []}
+    digits = first_line.split(".", 1)[0]
+    if kind == "orderedList" and len(digits) <= _MAX_ORDER_DIGITS and int(digits) > 1:
+        node["attrs"] = {"order": int(digits)}
+    return node
+
+
+def _attrs(node: dict[str, Any]) -> dict[str, Any]:
+    """A node's ``attrs`` when it is a dict, else an empty one (external data)."""
+    attrs = node.get("attrs")
+    return attrs if isinstance(attrs, dict) else {}
+
+
+def _content(node: dict[str, Any]) -> list[Any]:
+    """A node's ``content`` when it is a list, else an empty one (external data)."""
+    content = node.get("content")
+    return content if isinstance(content, list) else []
 
 
 def _inline(node: dict[str, Any]) -> str:
@@ -63,13 +88,13 @@ def _inline(node: dict[str, Any]) -> str:
     if kind == "hardBreak":
         return "\n"
     if kind in ("mention", "emoji", "inlineCard"):
-        attrs = node.get("attrs") or {}
+        attrs = _attrs(node)
         return str(attrs.get("text") or attrs.get("shortName") or attrs.get("url") or "")
     return _children(node, "")
 
 
 def _children(node: dict[str, Any], sep: str) -> str:
-    return sep.join(_inline(c) for c in node.get("content") or [] if isinstance(c, dict))
+    return sep.join(_inline(c) for c in _content(node) if isinstance(c, dict))
 
 
 def _start(order: Any) -> int:
@@ -79,19 +104,28 @@ def _start(order: Any) -> int:
     return 1
 
 
+def _list(node: dict[str, Any], kind: str) -> str:
+    """A bullet or ordered list, one line per item that is a dict (others are skipped)."""
+    start = _start(_attrs(node).get("order"))
+    items = [item for item in _content(node) if isinstance(item, dict)]
+    lines = []
+    for index, item in enumerate(items):
+        marker = f"{start + index}. " if kind == "orderedList" else "- "
+        lines.append(marker + _blocks(_content(item), "\n"))
+    return "\n".join(lines)
+
+
 def _block(node: dict[str, Any]) -> str:
     kind = node.get("type")
     if kind in ("bulletList", "orderedList"):
-        start = _start((node.get("attrs") or {}).get("order"))
-        lines = []
-        for index, item in enumerate(node.get("content") or []):
-            marker = f"{start + index}. " if kind == "orderedList" else "- "
-            lines.append(marker + _blocks(item.get("content") or [], "\n"))
-        return "\n".join(lines)
-    if kind in ("paragraph", "heading", "codeBlock", "text", "hardBreak", "mention"):
-        return _inline(node) if kind in ("text", "hardBreak", "mention") else _children(node, "")
-    if any(isinstance(c, dict) and c.get("type") in _BLOCKS for c in node.get("content") or []):
-        return _blocks(node.get("content") or [], "\n")
+        return _list(node, kind)
+    if kind in ("text", "hardBreak", "mention"):
+        return _inline(node)
+    if kind in ("paragraph", "heading", "codeBlock"):
+        return _children(node, "")
+    content = _content(node)
+    if any(isinstance(c, dict) and c.get("type") in _BLOCKS for c in content):
+        return _blocks(content, "\n")
     return _children(node, "")
 
 
@@ -113,7 +147,7 @@ def flatten(adf: Any) -> str:
     """
     if isinstance(adf, dict):
         if adf.get("type") == "doc":
-            return _blocks(adf.get("content") or [], "\n")
+            return _blocks(_content(adf), "\n")
         return _block(adf)
     if isinstance(adf, str):
         return adf

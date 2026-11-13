@@ -131,7 +131,9 @@ serving host, or write the JSON with the CLI:
 Leave `projects` out (or empty) to accept every project, including ones created
 later: the webhook receiver, `jira.read` and `jira.comment` all read an absent
 or empty `projects` that way. Set `"projects": ["SCRUM"]` to keep only those
-keys.
+keys. Any other value (a number, an object, a list holding a non-string, or one
+naming no key, such as `" "`) is malformed and allows no project at all: the
+webhook ignores every key and both actions fail `project_not_allowed`.
 
 Set `self_identity` if any rule listens to `jira.comment.created` or uses the
 `users` filter: it is the only thing that marks the account's own comments
@@ -252,8 +254,10 @@ Project keys compare case-insensitively, in the webhook, `jira.comment` and
 ## Commenting: `jira.comment`
 
 A one-line `body` is posted as it is. A multi-line body becomes paragraphs
-(Atlassian Document Format), and consecutive lines starting with a dash and a space, or with `1.` and a space, become a bullet or numbered list.
-Blank lines separate paragraphs and are dropped.
+(Atlassian Document Format), and consecutive lines starting with a dash and a space, or with a number, a dot and a space, become a bullet or numbered list
+(a numbered list starting above 1 keeps its first number).
+Blank lines separate paragraphs and are dropped. An absent, empty or blank-only
+`body` fails `bad_input` before the secret is read.
 Like `jira.read`, it allows every project when `connection.projects` is absent
 or empty, and it fails a malformed issue key with `bad_input` (a project outside
 the list stays `project_not_allowed`), both before the secret is read.

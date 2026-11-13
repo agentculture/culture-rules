@@ -2,7 +2,8 @@
 
 The webhook receiver, ``jira.comment`` and ``jira.read`` all limit work to
 ``connection.projects`` and must agree: keys compare upper-cased on both sides, and an absent
-or empty list allows every project. A bare string is one project, not a list of characters.
+or empty list allows every project. A bare string is one project, not a list of characters,
+and any other malformed value allows no project at all.
 """
 
 from __future__ import annotations
@@ -25,16 +26,29 @@ def well_formed(issue: Any) -> bool:
     return isinstance(issue, str) and bool(project_of(issue))
 
 
-def allowed_projects(connection: Mapping[str, Any]) -> frozenset[str]:
-    """The upper-cased project keys ``connection.projects`` lists; empty allows all."""
+def allowed_projects(connection: Mapping[str, Any]) -> frozenset[str] | None:
+    """The upper-cased project keys ``connection.projects`` lists; empty allows all.
+
+    Only an absent, ``None``, ``""`` or empty list value is empty. Any other value that is not
+    a string or a list of strings (a number, a dict, a list with a non-string), or that names
+    no key (``"  "``, ``[" "]``), is malformed and reads as ``None``, which allows nothing.
+    """
     raw = connection.get("projects")
+    if raw is None or raw == "" or raw == [] or raw == ():
+        return frozenset()
     if isinstance(raw, str):
         raw = [raw]
-    return frozenset(str(p).strip().upper() for p in raw or () if str(p).strip())
+    if not isinstance(raw, list | tuple) or not all(isinstance(p, str) for p in raw):
+        return None
+    keys = frozenset(p.strip().upper() for p in raw if p.strip())
+    return keys or None
 
 
-def project_allowed(key: str, allowed: frozenset[str]) -> bool:
-    """Whether the issue ``key`` is in ``allowed`` (always, when ``allowed`` is empty)."""
+def project_allowed(key: str, allowed: frozenset[str] | None) -> bool:
+    """Whether the issue ``key`` is in ``allowed`` (always, when ``allowed`` is empty; never,
+    when it is ``None``, a malformed allowlist)."""
+    if allowed is None:
+        return False
     return not allowed or project_of(key).upper() in allowed
 
 

@@ -73,7 +73,8 @@ def test_no_author_stores_null_and_nothing_else_changes(http, store):
     assert _post(http, json.dumps(doc).encode()).status_code == 202
     (ev,) = events(store)
     data = ev["data"]
-    assert "author" in data and data["author"] is None
+    assert "author" in data
+    assert data["author"] is None
     assert data["self_authored"] is False
     assert data["key"] == "OPS-7"
     assert data["summary"] == "Broken thing"

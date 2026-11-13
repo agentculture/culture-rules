@@ -243,8 +243,9 @@ def handle(
     return _process(store, actor, payload, hdr, secrets, client_factory)
 
 
-def _allowed_keys(keys: list[str], allowed: frozenset[str]) -> list[str]:
-    """``keys`` limited to the connection's projects (all of them when none are set)."""
+def _allowed_keys(keys: list[str], allowed: frozenset[str] | None) -> list[str]:
+    """``keys`` limited to the connection's projects (all of them when none are set, none
+    when the allowlist is malformed)."""
     return [k for k in keys if project_allowed(k, allowed)]
 
 

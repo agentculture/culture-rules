@@ -118,3 +118,50 @@ def test_to_adf_matches_client_add_comment_literal():
         "content": [{"type": "paragraph", "content": [{"type": "text", "text": body}]}],
     }
     assert to_adf(body) == expected
+
+
+def test_flatten_non_dict_attrs_never_raise():
+    for attrs in ([], ["x"], "text", 5, True):
+        d = doc(para(txt("hi "), {"type": "mention", "attrs": attrs}, txt("!")))
+        assert flatten(d) == "hi !"
+        d = doc({"type": "orderedList", "attrs": attrs, "content": [_item(para(txt("a")))]})
+        assert flatten(d) == "1. a"
+
+
+def test_flatten_non_dict_list_items_are_skipped():
+    d = doc(
+        {
+            "type": "bulletList",
+            "content": [None, "junk", 7, ["x"], _item(para(txt("a"))), {"type": "listItem"}],
+        }
+    )
+    assert flatten(d) == "- a\n- "
+
+
+def test_flatten_list_item_with_non_list_content():
+    d = doc({"type": "bulletList", "content": [{"type": "listItem", "content": "oops"}]})
+    assert flatten(d) == "- "
+
+
+def test_to_adf_ordered_list_keeps_its_start():
+    d = to_adf("3. a\n4. b")
+    (ol,) = d["content"]
+    assert ol["type"] == "orderedList"
+    assert ol["attrs"] == {"order": 3}
+    assert flatten(d) == "3. a\n4. b"
+
+
+def test_to_adf_ordered_list_from_one_has_no_attrs():
+    d = to_adf("1. a\n2. b")
+    assert "attrs" not in d["content"][0]
+
+
+def test_to_adf_blank_only_body_never_sends_empty_content():
+    for body in ("\n", "\n\n", "  \n \t\n"):
+        assert to_adf(body)["content"] != []
+
+
+def test_to_adf_huge_ordered_start_never_raises():
+    d = to_adf("9" * 5000 + ". a\nb")
+    assert d["content"][0]["type"] == "orderedList"
+    assert "attrs" not in d["content"][0]

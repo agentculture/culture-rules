@@ -86,7 +86,8 @@ def test_an_absolute_working_path_input_is_forwarded_in_the_bridge_input(store, 
     body = sent(bridge)
     assert body[WORKING_PATH] == PATH
     assert body["sandbox"] == OPERATE_SANDBOX
-    assert body["repo"] == PR["repo"] and body["head_sha"] == PR["head_sha"]
+    assert body["repo"] == PR["repo"]
+    assert body["head_sha"] == PR["head_sha"]
     assert bound_input_chars(body) == 0  # not counted against max_bound_input_chars
 
 
@@ -231,3 +232,28 @@ def test_a_step_without_a_working_path_sends_none(store, clock):
     body = sent(bridge)
     assert WORKING_PATH not in body
     assert "sandbox" not in body
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "/srv/work/",  # trailing slash: not what normpath gives, the bridge refuses it
+        "/srv/./work",
+        "/srv//work",
+        "//srv/work",
+        "/srv/work/.",
+        "/srv/a,b",  # a comma would split the bridge's permission rules
+        "/srv/a(b",
+        "/srv/a)b",
+        "/srv/a*",
+        "/srv/a?",
+        "/srv/a[1]",
+        "/srv/a{b}",
+        "/srv/a b",
+        "/srv/a\tb",
+        "/srv/a\nb",
+    ],
+)
+def test_an_unnormalised_or_rule_metacharacter_working_path_is_refused(store, clock, bad):
+    res, bridge = invoke(store, clock, {**PR, WORKING_PATH: bad}, defaults=OPERATE)
+    refused(res, bridge, "working_path_invalid:")
