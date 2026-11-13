@@ -243,8 +243,11 @@ repeats nothing. Params:
 
 Outputs: `key`, `project`, `summary`, `description`, `reporter`, `comments`
 (each `{id, author, created, body}`, oldest first) and `fields` (the requested
-ones). An issue outside `connection.projects` fails before any secret is read;
-an absent or empty `projects` allows every project.
+ones). A malformed issue key (not a string, or no project prefix) fails `bad_input`,
+and an issue outside `connection.projects` fails `project_not_allowed`, both
+before any secret is read; an absent or empty `projects` allows every project.
+Project keys compare case-insensitively, in the webhook, `jira.comment` and
+`jira.read` alike.
 
 ## Commenting: `jira.comment`
 
@@ -252,7 +255,8 @@ A one-line `body` is posted as it is. A multi-line body becomes paragraphs
 (Atlassian Document Format), and consecutive lines starting with a dash and a space, or with `1.` and a space, become a bullet or numbered list.
 Blank lines separate paragraphs and are dropped.
 Like `jira.read`, it allows every project when `connection.projects` is absent
-or empty.
+or empty, and it fails a malformed issue key with `bad_input` (a project outside
+the list stays `project_not_allowed`), both before the secret is read.
 
 For a conversation that runs in an issue's comments, see
 [jira-conversations.md](../operations/jira-conversations.md).

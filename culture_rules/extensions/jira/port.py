@@ -3,8 +3,9 @@
 The step's bound actor (``context.actor``) is a stored App actor (surface ``jira``) whose
 ``params.connection`` carries ``site``, ``email``, ``token: grant:NAME`` and ``projects``
 (the allowlist). The token is resolved from ``grant`` on the executing host at call time and
-kept only in memory. An issue whose project is outside the allowlist fails the action before
-any secret is read or any network call is made.
+kept only in memory. A malformed issue key fails ``bad_input`` and one whose project is outside
+the allowlist fails ``project_not_allowed``, both before any secret is read or any network call
+is made.
 
 Jira's comment API cannot deduplicate, so ``supports_idempotency_key`` is False.
 """
@@ -19,17 +20,17 @@ from typing import Any
 from culture_rules.actors.secrets import resolve as resolve_secret
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.extensions.jira.client import JiraClient, JiraError
-from culture_rules.node.actors import ACTORS_COLLECTION
+from culture_rules.extensions.jira.projects import (
+    allowed_projects,
+    connection_of,
+    project_allowed,
+    project_of,
+)
 from culture_rules.transport import Transport
 
 __all__ = ["JiraCommentPort"]
 
 log = logging.getLogger(__name__)
-
-
-def project_of(issue: str) -> str:
-    """The project key of an issue key: the prefix before the last ``-``."""
-    return issue.rpartition("-")[0]
 
 
 class JiraCommentPort:
@@ -48,18 +49,6 @@ class JiraCommentPort:
         self._transport = transport
         self._secrets = secrets
 
-    def _connection(self, actor_id: str | None) -> Mapping[str, Any] | None:
-        if not actor_id:
-            return None
-        doc = self._store.get(ACTORS_COLLECTION, actor_id)
-        if not doc or doc.get("enabled") is False:
-            return None
-        params = doc.get("params") or {}
-        conn = params.get("connection")
-        if params.get("surface") != "jira" or not isinstance(conn, Mapping):
-            return None
-        return conn
-
     def invoke(
         self,
         input: Mapping[str, Any],
@@ -69,14 +58,13 @@ class JiraCommentPort:
         context: InvocationContext,
     ) -> InvocationResult:
         actor_id = context.actor or input.get("actor")
-        conn = self._connection(actor_id)
+        conn = connection_of(self._store, actor_id)
         if conn is None:
             return InvocationResult.failed("actor_not_found", retryable=False)
         issue = input.get("issue")
-        allowed = {str(p).upper() for p in conn.get("projects") or ()}
         if not isinstance(issue, str) or not project_of(issue):
-            return InvocationResult.failed("project_not_allowed", retryable=False)
-        if allowed and project_of(issue).upper() not in allowed:
+            return InvocationResult.failed("bad_input", retryable=False)
+        if not project_allowed(issue, allowed_projects(conn)):
             return InvocationResult.failed("project_not_allowed", retryable=False)
         if "body" not in input:
             return InvocationResult.failed("bad_input", retryable=False)
