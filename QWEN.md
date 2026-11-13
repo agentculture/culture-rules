@@ -156,6 +156,17 @@ On disk today:
   top-level repo's devague record (default-branch versions, working drafts, tombstones,
   spec links) to culture-library; the bundle `docs/rules/repodocs` runs it every 15
   minutes (disabled).
+- **Jira conversations** (spec `docs/specs/2026-11-13-jira-devague-spec.md`, guide
+  `docs/operations/jira-conversations.md`): generic surfaces only; the flows that use them
+  are configured live, never committed. `jira.read` returns an issue's description, every
+  comment (author accountId, flattened body, all pages) and named custom fields; every
+  Jira event carries `data.author`, and every `jira.*` trigger takes a `users` filter
+  (never a self-authored event, which needs the actor's `self_identity`); `jira.comment`
+  sends multi-line text as ADF paragraphs and lists, and an absent or empty
+  `connection.projects` means every project for both kinds. The runner argument type
+  `segment` is one safe path segment. A bridge agent step may pass a `working_path` to the
+  cultureagent `operate` role, which is the actor's own opt-in (`params.sandbox: operate`,
+  pinned like `read-only`).
 - **Forum posts and actor briefs**: `markdown.from_html` takes `split_at` (h1-h6) and then also outputs `parts` (`{index, heading, text}`, a `''` lead part first when content precedes the first heading of that rank); `discord.message` takes `thread_name` and `tags` to post into a forum as a thread (tags matched by name, unknown ones listed in `tags_missing`, text over 2000 characters posted as replies, a failure after the thread exists is not retried); `llm.complete` takes a `brief` naming one of the agent actor's `params.briefs` (only admins may edit `params.briefs`, else `briefs_admin_only`). Flows that use them are configured live, never committed (guides `docs/actors/discord.md`, `docs/actors/llm.md`, `docs/operations/newspaper.md`).
 - **No prompts in code**: `llm.complete` takes its system prompt only from the bound actor's `params.briefs` (a step's `brief` names one; there is no built-in brief and no default; only admins edit briefs), an optional `answer: {shape}` checked by the generic shape validator (`culture_rules/model/shape.py`: `text`, `word`, `lines`, `int`, `bool`, `list`, `object`; `answer_not_json` / `answer_invalid`), and `cache` / `cache_name` / `cache_label` for any brief with an answer and a `content_path`. The generic builtins `text.number` (items into numbered text by a template), `text.replace_refs` (numbered references swapped for a template, e.g. a link) and `text.validate` (explicit rules, a verdict `ok` + `reasons`, never a failure) take every format and rule as step config (guide `docs/operations/text-steps.md`); `newspaper.render` takes its notes as `texts` and a per-section `summary_ok` verdict and holds no shape rule. A release that moves behaviour into configuration rolls out actor configuration first, then the code, then the live steps (`docs/operations/rollout.md`).
 
