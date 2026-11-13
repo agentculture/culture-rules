@@ -56,12 +56,15 @@ thread with `jira.read` and does not depend on which comment fired it.
 
 Set `max_attempts` on both rules (the smallest one among rules sharing the key
 applies). After that many admitted runs for a key, further firings are skipped.
-That bounds how long an issue can keep an agent busy. The counter is reset by
-the events the rule model names (GitHub pushes and green checks); a Jira
-conversation has none of those, so treat `max_attempts` as a hard cap per
-issue and raise it on the rules (or use a new issue) to continue. Leave
-`counts_toward_budget` true; set it false only on a follow-up rule that should
-share the key's one active run without spending the budget.
+That caps the rounds per budget, so one issue cannot keep an agent busy without
+end. The budget starts anew when the key's story starts anew: a rule with
+`resets_attempt_budget: true` resets the key's budget, once per (key, event),
+before its firing is admitted. Setting it on the opening rule (trigger
+`jira.issue.created`) gives each new issue a fresh budget. A reply rule should
+not set it, or every reply would reset the cap. `resets_attempt_budget` needs a
+`concurrency_key`. Leave `counts_toward_budget` true; set it false only on a
+follow-up rule that should share the key's one active run without spending the
+budget (it is refused together with `max_attempts` on the same rule).
 
 ### Saying why a round failed
 
@@ -131,9 +134,19 @@ works in is the same one the registered command writes.
   they did not write is untrusted. Jira Cloud lets anyone with comment access
   to the project comment, so `users` on the trigger is not enough by itself:
   have the workflow filter `jira.read`'s `comments` by `author` before they
-  reach the agent (for example with a generic step from
-  [building-blocks.md](building-blocks.md)), so the agent sees only the
-  allowlisted authors' text.
+  reach the agent, with the generic builtin `list.filter`
+  ([building-blocks.md](building-blocks.md)). Its `items` input is the
+  `comments` output of `jira.read`, any other input is a context value read as
+  `{"var": "<input name>"}`, and its `where` config reads each comment's fields
+  with `{"item": "<path>"}`. To keep the comments whose author is in an
+  `answerers` input (a list of accountIds):
+
+  ```json
+  {"op": "in", "value": {"item": "author"}, "items": {"var": "answerers"}}
+  ```
+
+  The step's `items` output goes to the agent, so it sees only the allowlisted
+  authors' text.
 - `jira.read` and `jira.comment` allow every project when
   `connection.projects` is absent or empty. Set `projects` on the actor when
   the conversation should live in some projects only.
