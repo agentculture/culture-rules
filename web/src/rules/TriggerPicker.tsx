@@ -181,7 +181,6 @@ const idList = (text: string) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
-/** A stored command filter (one name or a list) as a list. */
 /** Filter params that belong to an app's events; they never carry over to another app. */
 const APP_FILTER_KEYS = ["users", "roles", "channels", "include_bots", "emoji", "command", "custom_id"] as const;
 
@@ -194,6 +193,7 @@ function withoutAppFilters(params: EventTrigger["params"]): EventTrigger["params
 
 const namespaceOf = (type: string) => type.split(".")[0];
 
+/** A stored command filter (one name or a list) as a list. */
 const commandNames = (command: string | string[] | undefined): string[] => {
   if (command === undefined) return [];
   return Array.isArray(command) ? command : [command];
