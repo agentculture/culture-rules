@@ -110,9 +110,9 @@ directory per issue, written by a **registered command** (a runner actor's
 command, as in [govee-lamp.md](govee-lamp.md)), never by the engine:
 
 - The command's argument for the issue key has the runner argument type
-  `segment`: one safe path segment (no `/`, `\`, NUL or control character, not
-  `.` or `..`, no leading `-`, at most 128 characters), so the key cannot walk
-  out of the directory. See [action-catalogue.md](action-catalogue.md).
+  `segment`: one safe path segment (no `/`, `\`, NUL or control character, none
+  of `, ( ) * ? [ ] { }`, not `.` or `..`, no leading `-`, at most 128
+  characters), so the key cannot walk out of the directory. See [action-catalogue.md](action-catalogue.md).
 - The command builds the absolute path itself from a fixed root plus that
   segment, for example `<state root>/<issue key>/`. The root is the command's
   own configuration, not an argument.
@@ -125,7 +125,10 @@ By default the bridge agent step reads and answers only. To let it edit files in
 the issue's directory, the Jira conversation's agent actor opts in with
 `params.sandbox: operate` (only on the actor; a step cannot raise itself to
 operate), and the step supplies a `working_path` input, an absolute path under
-that root. A `working_path` is accepted only under `operate`. **This needs a
+that root. A `working_path` is accepted only under `operate`, and only already
+normalised (no trailing slash, `.` part, doubled or leading `//` slash, or `..`)
+with no whitespace, backslash, NUL or any of `, ( ) * ? [ ] { }`
+(`working_path_invalid` otherwise, before the bridge is called). **This needs a
 cultureagent bridge that implements the `operate` role**, which ships separately;
 until the bridge in use does, such a step is refused. The directory the agent
 works in is the same one the registered command writes.

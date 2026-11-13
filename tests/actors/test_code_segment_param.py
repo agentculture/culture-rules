@@ -39,6 +39,15 @@ def test_segment_accepts_the_length_limit():
         "a\x1bb",
         "a\x7fb",
         "a\x1fb",
+        "a,b",
+        "a(b",
+        "a)b",
+        "a*",
+        "a?",
+        "a[1]",
+        "a]",
+        "a{b",
+        "a}",
     ],
 )
 def test_segment_refuses_unsafe_values(value):

@@ -125,18 +125,20 @@ def _is_number(value: Any) -> bool:
 
 
 _MAX_SEGMENT = 128
+_SEGMENT_REFUSED = frozenset("/\\,()*?[]{}")
 
 
 def _is_segment(value: Any) -> bool:
-    """One safe path segment: 1-128 chars, not ``.``/``..``, no slash or backslash, no control
-    character (below 0x20, or 0x7f, NUL included), and no leading ``-`` (it would read as an
-    option when used as an argv part)."""
+    """One safe path segment: 1-128 chars, not ``.``/``..``, no slash or backslash, no rule or
+    glob metacharacter (``, ( ) * ? [ ] { }``: a segment often names a directory that becomes
+    a working path), no control character (below 0x20, or 0x7f, NUL included), and no leading
+    ``-`` (it would read as an option when used as an argv part)."""
     return (
         isinstance(value, str)
         and 0 < len(value) <= _MAX_SEGMENT
         and value not in (".", "..")
         and not value.startswith("-")
-        and not any(ch in value for ch in ("/", "\\"))
+        and not any(ch in _SEGMENT_REFUSED for ch in value)
         and not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value)
     )
 

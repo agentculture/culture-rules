@@ -795,10 +795,17 @@ _WORKING_PATH_ONLY_OPERATE = (
 )
 
 
+#: Characters the cultureagent bridge's permission rules give a meaning: it builds
+#: ``Edit(//<path>/**)`` and joins rules with commas, so none may appear in a path.
+_RULE_METACHARACTERS = frozenset(",()*?[]{}")
+
+
 def _working_path_problem(value: Any) -> str | None:
     """``working_path_invalid: ...`` unless ``value`` is an absolute POSIX path with no
-    ``..`` segment, no NUL and no backslash; nothing is normalised, so what is checked is
-    what is sent."""
+    ``..`` segment, no NUL, backslash, whitespace or permission-rule metacharacter, already
+    in ``posixpath.normpath`` form (no trailing slash, ``.`` or doubled slash, as the bridge
+    requires; a leading ``//``, which POSIX normpath keeps, is refused too); nothing is
+    normalised, so what is checked is what is sent."""
     if not isinstance(value, str):
         return f"working_path_invalid: not a path string ({type(value).__name__})"
     if not value or "\0" in value or not posixpath.isabs(value):
@@ -807,6 +814,10 @@ def _working_path_problem(value: Any) -> str | None:
         return f"working_path_invalid: {value!r} has a backslash"
     if ".." in value.split("/"):
         return f"working_path_invalid: {value!r} has a '..' segment"
+    if any(ch.isspace() or ch in _RULE_METACHARACTERS for ch in value):
+        return f"working_path_invalid: {value!r} has whitespace or a rule metacharacter"
+    if value != posixpath.normpath(value) or value.startswith("//"):
+        return f"working_path_invalid: {value!r} is not normalised"
     return None
 
 
