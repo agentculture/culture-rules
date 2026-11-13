@@ -15,7 +15,7 @@ secrets, no webhook, no actor.
 |---|---|---|---|
 | GitHub | [github.md](github.md) | App webhook to `POST /hooks/github` | `github.comment` |
 | Discord | [discord.md](discord.md) | Gateway listener on one engine node | `discord.message` |
-| Jira | [jira.md](jira.md) | System webhook to `POST /hooks/jira` | `jira.comment` |
+| Jira | [jira.md](jira.md) | System webhook to `POST /hooks/jira` | `jira.read`, `jira.comment` |
 | Email (Resend) | [email.md](email.md) | nothing (send only) | `email.send` |
 | Web search (Brave) | [search.md](search.md) | nothing (read only) | `search.web` |
 | OpenAI-compatible model (`agent` actor) | [llm.md](llm.md) | nothing | `llm.complete` |
