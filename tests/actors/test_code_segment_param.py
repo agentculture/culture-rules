@@ -19,7 +19,27 @@ def test_segment_accepts_the_length_limit():
 
 @pytest.mark.parametrize(
     "value",
-    ["", ".", "..", "a/b", "/abs", "a\\b", "a\x00b", "a" * 129, 12, None, True],
+    [
+        "",
+        ".",
+        "..",
+        "a/b",
+        "/abs",
+        "a\\b",
+        "a\x00b",
+        "a" * 129,
+        12,
+        None,
+        True,
+        "-",
+        "--help",
+        "-rf",
+        "a\nb",
+        "a\tb",
+        "a\x1bb",
+        "a\x7fb",
+        "a\x1fb",
+    ],
 )
 def test_segment_refuses_unsafe_values(value):
     with pytest.raises(CodeRunnerError):

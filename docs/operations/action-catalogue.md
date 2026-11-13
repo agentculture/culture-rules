@@ -83,4 +83,4 @@ before any process starts; a mismatch is a bind error. The types are:
 | `int` | an integer (not a boolean) |
 | `number` | an integer or float (not a boolean) |
 | `bool` | a boolean, passed as `true` or `false` |
-| `segment` | one safe path segment: 1 to 128 characters, not `.` or `..`, with no `/`, `\` or NUL (`SCRUM-12` passes; `../x` does not) |
+| `segment` | one safe path segment: 1 to 128 characters, not `.` or `..`, with no `/` or `\`, no control character (below 0x20, or 0x7f, NUL included) and no leading `-` (so it never reads as an option); `SCRUM-12` passes, `../x` and `--help` do not |

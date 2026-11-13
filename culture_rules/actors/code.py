@@ -128,12 +128,16 @@ _MAX_SEGMENT = 128
 
 
 def _is_segment(value: Any) -> bool:
-    """One safe path segment: 1-128 chars, not ``.``/``..``, no slash, backslash or NUL."""
+    """One safe path segment: 1-128 chars, not ``.``/``..``, no slash or backslash, no control
+    character (below 0x20, or 0x7f, NUL included), and no leading ``-`` (it would read as an
+    option when used as an argv part)."""
     return (
         isinstance(value, str)
         and 0 < len(value) <= _MAX_SEGMENT
         and value not in (".", "..")
-        and not any(ch in value for ch in ("/", "\\", "\x00"))
+        and not value.startswith("-")
+        and not any(ch in value for ch in ("/", "\\"))
+        and not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value)
     )
 
 
