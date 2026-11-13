@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-13T01:07:11Z",
-  "updated": "2026-11-13T11:51:02Z",
+  "updated": "2026-11-13T12:49:16Z",
   "claims": [
     {
       "id": "c1",
@@ -1135,6 +1135,28 @@
       "skipped_check": "an isolated red run by the task agent",
       "refs": [
         "t18: extensions/jira/read.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "control-absent",
+      "what": "t19: a few new tests were not seen failing first (a non-list content case, the {'a':1} cases in three paths, and possibly [5]/['SCRUM',7]); the same behaviour is pinned by sibling cases that did fail first",
+      "skipped_check": "isolated red runs for every new case",
+      "refs": [
+        "t19: extensions/jira"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "assumption-for-measurement",
+      "what": "t20: one new test (unspellable checkout path) was written after its code; Claude Code's real permission-rule parsing of the allowed charset (+ @ . ~ $) and of commas in --allowedTools remains unverified (extends l2)",
+      "skipped_check": "a live claude -p run with operate rules; a red run of the late test",
+      "refs": [
+        "t20: cultureagent bridges/claude"
       ],
       "origin": "llm",
       "status": "proposed"

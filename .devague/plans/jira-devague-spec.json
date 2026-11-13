@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-13T04:32:21Z",
-  "updated": "2026-11-13T11:51:02Z",
+  "updated": "2026-11-13T12:49:16Z",
   "targets": [
     {
       "id": "c1",
@@ -654,6 +654,44 @@
         "c3"
       ],
       "instruction": "Extract one helper (e.g. allowed_projects(connection) -> frozenset[str] and project_allowed(key, allowed) -> bool) and use it in all three; also share _connection between port.py and read.py if it stays a small change."
+    },
+    {
+      "id": "t19",
+      "summary": "Review fixes in culture-rules (PR #148): working_path normpath parity and rule-metacharacter refusal; segment refuses rule/glob metacharacters; ADF flatten never raises (non-dict attrs/items) and _block below Sonar's complexity 15; paging by len(chunk); a malformed projects value refuses everything; to_adf keeps an ordered list's start and never sends an empty document; the TriggerPicker doc comment; Sonar composite assertions",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests for each: a trailing-slash or ./ working_path is working_path_invalid; ',' '(' ')' '*' '?' '[' ']' '{' '}' are refused in working_path and in segment; flatten of attrs=[] or a non-dict list item returns text without raising; a page with a null comment does not duplicate the next page; projects=5 or {'a':1} allows nothing in the webhook and both actions; to_adf('3. a\\n4. b') has attrs.order 3; a blank-only body is refused bad_input by jira.comment before the secret",
+        "SonarCloud's three open issues (adf.py S3776, two S9073 composite assertions) resolved; full suite, lint, bandit and the web job pass"
+      ],
+      "deps": [
+        "t18"
+      ],
+      "covers": [
+        "c3",
+        "c9",
+        "c13"
+      ],
+      "instruction": "Fail closed everywhere; keep one-line comment bytes unchanged."
+    },
+    {
+      "id": "t20",
+      "summary": "Review fixes in cultureagent (PR #61): working_path refuses characters that break Claude permission rules; the claude config dir is protected; operate runs only under acceptEdits; the prompt names the working path",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests: a working_path containing , ( ) * ? [ ] { } or whitespace/control characters is refused before claude starts; a working_path inside or containing CLAUDE_CONFIG_DIR or the claude HOME/.claude is refused; operate with permission_mode other than acceptEdits is refused (config or run time); the prompt states the one writable directory (the resolved real path)",
+        "full suite (6 known socket failures aside), lint, bandit, markdownlint pass; docs/bridges.md updated"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c30",
+        "h24",
+        "h30"
+      ],
+      "instruction": "Prefer refusing over escaping: the path must match a conservative safe charset."
     }
   ],
   "risks": [

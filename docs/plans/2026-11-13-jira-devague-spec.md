@@ -165,6 +165,24 @@ slug: `jira-devague-spec` · status: `exported` · from frame: `jira-devague-spe
   - jira.comment: a non-string or prefix-less issue fails `bad_input` before the secret is read (tests updated where they pinned `project_not_allowed`, reported); an allowlist miss stays `project_not_allowed`
   - full suite, lint and bandit pass; docs/actors/jira.md and CHANGELOG.md say `bad_input` for a malformed key
 
+### t19 — Review fixes in culture-rules (PR #148): `working_path` normpath parity and rule-metacharacter refusal; segment refuses rule/glob metacharacters; ADF flatten never raises (non-dict attrs/items) and `_block` below Sonar's complexity 15; paging by len(chunk); a malformed projects value refuses everything; `to_adf` keeps an ordered list's start and never sends an empty document; the TriggerPicker doc comment; Sonar composite assertions
+
+- instruction: Fail closed everywhere; keep one-line comment bytes unchanged.
+- depends on: t18
+- covers: c3, c9, c13
+- acceptance:
+  - tests for each: a trailing-slash or ./ `working_path` is `working_path_invalid`; ',' '(' ')' '\*' '?' '\[' '\]' '{' '}' are refused in `working_path` and in segment; flatten of attrs=\[\] or a non-dict list item returns text without raising; a page with a null comment does not duplicate the next page; projects=5 or {'a':1} allows nothing in the webhook and both actions; `to_adf`('3. a\n4. b') has attrs.order 3; a blank-only body is refused `bad_input` by jira.comment before the secret
+  - SonarCloud's three open issues (adf.py S3776, two S9073 composite assertions) resolved; full suite, lint, bandit and the web job pass
+
+### t20 — Review fixes in cultureagent (PR #61): `working_path` refuses characters that break Claude permission rules; the claude config dir is protected; operate runs only under acceptEdits; the prompt names the working path
+
+- instruction: Prefer refusing over escaping: the path must match a conservative safe charset.
+- depends on: t8
+- covers: c30, h24, h30
+- acceptance:
+  - tests: a `working_path` containing , ( ) \* ? \[ \] { } or whitespace/control characters is refused before claude starts; a `working_path` inside or containing `CLAUDE_CONFIG_DIR` or the claude HOME/.claude is refused; operate with `permission_mode` other than acceptEdits is refused (config or run time); the prompt states the one writable directory (the resolved real path)
+  - full suite (6 known socket failures aside), lint, bandit, markdownlint pass; docs/bridges.md updated
+
 ## Risks
 
 - [unknown_nonblocking] Ops on core unverified (frame v3): whether a Claude bridge runs on core, its claude login there, and the Fable 5.2 model id for claude -p --model; t13 cannot finish until known. (task t13)

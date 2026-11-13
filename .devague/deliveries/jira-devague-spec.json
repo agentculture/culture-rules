@@ -2,7 +2,7 @@
   "plan_slug": "jira-devague-spec",
   "schema_version": 2,
   "created": "2026-11-13T04:58:24Z",
-  "updated": "2026-11-13T11:21:38Z",
+  "updated": "2026-11-13T12:17:11Z",
   "deviations": [
     {
       "id": "d1",
@@ -68,6 +68,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "Add t19 and t20: fix all ten verified /code-review findings on PR #148 and #61 (three operate security gaps, two crash paths, five smaller) plus SonarCloud's three open issues",
+      "task_ref": "t19",
+      "reason": "operator chose to fix all ten review findings before merge",
+      "affects": [
+        "c30",
+        "c13"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 6
     }
   ],
   "evidence": [],
