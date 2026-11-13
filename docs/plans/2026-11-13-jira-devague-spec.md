@@ -136,6 +136,25 @@ slug: `jira-devague-spec` · status: `exported` · from frame: `jira-devague-spe
   - one SCRUM issue naming a repo: >= 2 question rounds; 0 culture-rules comments taken as answers; a comment by an unlisted account starts no round; exactly 1 library item, kind spec, private, bytes equal to the export
   - issue key, run ids and library item id recorded as devague evidence for the obligations (validate-delivery)
 
+### t16 — Editor: runner argument type segment in the Actors command editor, and a Users field for jira.\* triggers in the trigger picker (web/src/actors/app-config.ts, web/src/rules/TriggerPicker.tsx)
+
+- instruction: Follow how the discord Users field is built in TriggerPicker.tsx; keep the change small and add vitest cases next to the existing ones.
+- depends on: t5, t6
+- covers: c7, c9
+- acceptance:
+  - the Actors tab's command editor offers 'segment' as a param type; a stored segment param loads and saves unchanged
+  - a jira.\* trigger shows a Users field (accountIds) writing params.users; discord.\* keeps its own fields; other triggers show none
+  - npx vitest run and npm run typecheck pass; the Playwright suite and the webglass gate pass
+
+### t17 — jira.comment treats an absent or empty connection.projects as every project (`culture_rules`/extensions/jira/port.py)
+
+- instruction: Match jira.read's check (read.py): if allowed and project not in allowed.
+- depends on: t4
+- covers: c3
+- acceptance:
+  - tests/node/`test_jira_comment_projects.py`: with projects absent or \[\] a comment on any issue is sent; with projects \['SCRUM'\] an OTHER-1 issue fails `project_not_allowed` before the secret is read
+  - existing tests/node/`test_jira_action.py` passes, updated only where it pinned the old empty-means-none behaviour (reported)
+
 ## Risks
 
 - [unknown_nonblocking] Ops on core unverified (frame v3): whether a Claude bridge runs on core, its claude login there, and the Fable 5.2 model id for claude -p --model; t13 cannot finish until known. (task t13)
@@ -145,3 +164,4 @@ slug: `jira-devague-spec` · status: `exported` · from frame: `jira-devague-spe
 - [unknown_nonblocking] Jira comment pagination (startAt/maxResults on /issue/{key}/comment) and the comment size limit are from memory (frame v6); t2's fake-transport tests encode the assumption and need one live check. (task t2)
 - [follow_up] Per-issue directories on core have no retention or cleanup when an issue closes (frame v4).
 - [follow_up] Opening a PR from an agent's local commits through culture-rules (frame v2) is a later flow.
+- [unknown_nonblocking] An operating agent's allowed Bash commands can still write outside `working_path` through shell redirects or the command's own file writes; Edit rules don't cover Bash and the checkout baseline only checks the repo. Mitigation: allow only the core wrapper (t12), which writes only under its own root. (task t12)

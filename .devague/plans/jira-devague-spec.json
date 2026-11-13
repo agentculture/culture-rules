@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-13T04:32:21Z",
-  "updated": "2026-11-13T04:58:24Z",
+  "updated": "2026-11-13T11:18:39Z",
   "targets": [
     {
       "id": "c1",
@@ -599,6 +599,43 @@
         "h16"
       ],
       "instruction": "Before enabling, confirm no existing bundle drives this flow (docs/rules) and probe v5 (Jira's double event on comments)."
+    },
+    {
+      "id": "t16",
+      "summary": "Editor: runner argument type segment in the Actors command editor, and a Users field for jira.* triggers in the trigger picker (web/src/actors/app-config.ts, web/src/rules/TriggerPicker.tsx)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the Actors tab's command editor offers 'segment' as a param type; a stored segment param loads and saves unchanged",
+        "a jira.* trigger shows a Users field (accountIds) writing params.users; discord.* keeps its own fields; other triggers show none",
+        "npx vitest run and npm run typecheck pass; the Playwright suite and the webglass gate pass"
+      ],
+      "deps": [
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c7",
+        "c9"
+      ],
+      "instruction": "Follow how the discord Users field is built in TriggerPicker.tsx; keep the change small and add vitest cases next to the existing ones."
+    },
+    {
+      "id": "t17",
+      "summary": "jira.comment treats an absent or empty connection.projects as every project (culture_rules/extensions/jira/port.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/node/test_jira_comment_projects.py: with projects absent or [] a comment on any issue is sent; with projects ['SCRUM'] an OTHER-1 issue fails project_not_allowed before the secret is read",
+        "existing tests/node/test_jira_action.py passes, updated only where it pinned the old empty-means-none behaviour (reported)"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c3"
+      ],
+      "instruction": "Match jira.read's check (read.py): if allowed and project not in allowed."
     }
   ],
   "risks": [
@@ -655,6 +692,14 @@
       "text": "Opening a PR from an agent's local commits through culture-rules (frame v2) is a later flow.",
       "kind": "follow_up",
       "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r8",
+      "text": "An operating agent's allowed Bash commands can still write outside working_path through shell redirects or the command's own file writes; Edit rules don't cover Bash and the checkout baseline only checks the repo. Mitigation: allow only the core wrapper (t12), which writes only under its own root.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t12",
       "resolved": false,
       "resolution": ""
     }

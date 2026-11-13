@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-13T01:07:11Z",
-  "updated": "2026-11-13T04:32:12Z",
+  "updated": "2026-11-13T11:18:39Z",
   "claims": [
     {
       "id": "c1",
@@ -1083,6 +1083,50 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "assumption-for-measurement",
+      "what": "t8's operate role rests on Claude Code permission-rule semantics read from the docs (Edit(//path/**), --add-dir, deny beats acceptEdits); tests used a fake claude binary, with no live claude -p run",
+      "skipped_check": "a live claude -p operate run against a scratch working_path and checkout",
+      "refs": [
+        "t8: cultureagent bridges/claude"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "assumption-for-measurement",
+      "what": "t2's Jira comment pagination (startAt/maxResults/total/comments) and /rest/api/3/field shapes are from memory, encoded only in a fake transport",
+      "skipped_check": "one live call to agentculture.atlassian.net for /issue/{key}/comment and /field",
+      "refs": [
+        "t2: extensions/jira/client.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "control-absent",
+      "what": "t4 was merged into the integration branch before its colleague review, contrary to the approved split (option A: review before merge); the review ran after the merge",
+      "skipped_check": "cortex review of t4 before merging",
+      "refs": [
+        "assign-to-workforce: t4 merge"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "control-absent",
+      "what": "t16's surface-change fix and its tests were written together; the new tests were not seen failing first",
+      "skipped_check": "a red run of the new TriggerPicker tests before the fix",
+      "refs": [
+        "t16: web/src/rules/TriggerPicker.tsx"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [

@@ -2,7 +2,7 @@
   "plan_slug": "jira-devague-spec",
   "schema_version": 2,
   "created": "2026-11-13T04:58:24Z",
-  "updated": "2026-11-13T04:58:24Z",
+  "updated": "2026-11-13T09:33:20Z",
   "deviations": [
     {
       "id": "d1",
@@ -28,6 +28,33 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Add t16: the editor offers the runner argument type segment in the Actors command editor, and a Users field for jira.* triggers in the trigger picker",
+      "task_ref": "t16",
+      "reason": "the build surfaced two hand-written editor lists (web/src/actors/app-config.ts:478, web/src/rules/TriggerPicker.tsx) that would leave segment and the jira users filter CLI/MCP-only",
+      "affects": [
+        "c7",
+        "c9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Add t17: jira.comment treats an absent or empty connection.projects as every project, like the guide, the webhook and jira.read",
+      "task_ref": "t17",
+      "reason": "jira.comment refused every issue with an empty projects list while docs/actors/jira.md step 6, hooks._allowed_keys and jira.read accept all",
+      "affects": [
+        "c3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 4
     }
   ],
   "evidence": [],
