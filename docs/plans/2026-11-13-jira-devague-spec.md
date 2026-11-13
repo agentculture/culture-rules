@@ -106,7 +106,7 @@ slug: `jira-devague-spec` · status: `exported` · from frame: `jira-devague-spe
 - instruction: Lives in ~/.local/bin (or a sibling ops repo), never in culture-rules. Registered on core's runner actor as machine.command entries with typed args (key: segment).
 - covers: c34, h28
 - acceptance:
-  - a wrapper on core's PATH takes the issue key (segment) and a JSON move list; agent-mode calls force --origin llm and refuse confirm/reject/resolve/oblige --confirm; reply-mode calls accept them only with a cited allowlisted comment id; the frame dir is <root>/<key>
+  - a wrapper on core's PATH takes the issue key (segment) and a JSON move list; agent-mode calls force --origin llm and refuse confirm/reject/resolve/oblige --confirm; reply-mode calls accept them only with a cited allowlisted comment id; the frame dir is `<root>/<key>`
   - a post-run check diffs frame state before/after an agent run and fails (nonzero) if any record became confirmed/approved; tested with a scratch frame
 
 ### t13 — Live actors on core: library actor gains kind spec + md and a key minted --kind spec; Fable 5.2 bridge agent actor (operate, `working_path` root); runner commands for the wrapper and git ls-remote head lookup; jira-app answerer accountIds noted

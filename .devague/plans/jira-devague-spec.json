@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-13T04:32:21Z",
-  "updated": "2026-11-13T04:54:44Z",
+  "updated": "2026-11-13T04:58:24Z",
   "targets": [
     {
       "id": "c1",
@@ -524,7 +524,7 @@
       "id": "t12",
       "summary": "Core wrapper for devague (outside the repo, on core): proposals-only for the agent, adjudication only from the reply step, and a post-run check",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a wrapper on core's PATH takes the issue key (segment) and a JSON move list; agent-mode calls force --origin llm and refuse confirm/reject/resolve/oblige --confirm; reply-mode calls accept them only with a cited allowlisted comment id; the frame dir is `<root>/<key>`",
         "a post-run check diffs frame state before/after an agent run and fails (nonzero) if any record became confirmed/approved; tested with a scratch frame"

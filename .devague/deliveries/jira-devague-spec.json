@@ -1,0 +1,36 @@
+{
+  "plan_slug": "jira-devague-spec",
+  "schema_version": 2,
+  "created": "2026-11-13T04:58:24Z",
+  "updated": "2026-11-13T04:58:24Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t10's boundary test pins today's files that already mention devague (the repodocs extension, its tests and fixtures, the web action-kinds fixture) with their reason, and fails on any new file mentioning it",
+      "task_ref": "t10",
+      "reason": "repodocs already names .devague paths (extensions/repodocs/port.py:197, __init__.py, model/action_kinds.py:51), so a literal no-mention-anywhere test fails on main",
+      "affects": [
+        "c28",
+        "h20"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "The t8 task agent commits only; the main agent opens the cultureagent PR (and the culture-rules PR) at the final human gate",
+      "task_ref": "t8",
+      "reason": "outward-facing pushes and PRs wait for gate 3 and the operator's OK",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
