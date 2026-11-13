@@ -6,7 +6,7 @@ import pytest
 
 from culture_rules.extensions.jira.hooks import handle
 from culture_rules.extensions.jira.port import JiraCommentPort
-from culture_rules.extensions.jira.projects import allowed_projects, project_allowed
+from culture_rules.extensions.jira.projects import allowed_projects, project_allowed, well_formed
 from culture_rules.extensions.jira.read import JiraReadPort
 from culture_rules.store.memory import MemoryStore
 from tests.node import test_jira_action as comment_t
@@ -68,3 +68,13 @@ def test_lowercase_list_admits_scrum_1_in_webhook_and_ignores_others():
         )
         assert (status, out) == (200, {"ignored": True}) if ignored else status == 202
     assert fake.fetched == ["SCRUM-1"]
+
+
+@pytest.mark.parametrize("issue", [None, 7, "", "NOHYPHEN", "-5"])
+def test_malformed_keys_are_not_well_formed(issue):
+    assert well_formed(issue) is False
+
+
+@pytest.mark.parametrize("issue", ["SCRUM-1", "a-b-3"])
+def test_prefixed_keys_are_well_formed(issue):
+    assert well_formed(issue) is True

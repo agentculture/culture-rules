@@ -22,7 +22,12 @@ from typing import Any
 from culture_rules.actors.secrets import resolve as resolve_secret
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.extensions.jira.client import JiraClient, JiraError
-from culture_rules.extensions.jira.projects import allowed_projects, connection_of, project_allowed
+from culture_rules.extensions.jira.projects import (
+    allowed_projects,
+    connection_of,
+    project_allowed,
+    well_formed,
+)
 from culture_rules.transport import Transport
 
 __all__ = ["JiraReadPort"]
@@ -66,7 +71,7 @@ class JiraReadPort:
         if conn is None:
             return InvocationResult.failed("actor_not_found", retryable=False)
         issue = input.get("issue")
-        if not isinstance(issue, str) or not issue:
+        if not well_formed(issue):
             return InvocationResult.failed("bad_input", retryable=False)
         if not project_allowed(issue, allowed_projects(conn)):
             return InvocationResult.failed("project_not_allowed", retryable=False)

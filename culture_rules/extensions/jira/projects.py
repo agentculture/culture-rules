@@ -12,12 +12,17 @@ from typing import Any
 
 from culture_rules.node.actors import ACTORS_COLLECTION
 
-__all__ = ["allowed_projects", "connection_of", "project_allowed", "project_of"]
+__all__ = ["allowed_projects", "connection_of", "project_allowed", "project_of", "well_formed"]
 
 
 def project_of(issue: str) -> str:
     """The project key of an issue key: the prefix before the last ``-``."""
     return issue.rpartition("-")[0]
+
+
+def well_formed(issue: Any) -> bool:
+    """Whether ``issue`` is a string with a project before its last ``-``."""
+    return isinstance(issue, str) and bool(project_of(issue))
 
 
 def allowed_projects(connection: Mapping[str, Any]) -> frozenset[str]:

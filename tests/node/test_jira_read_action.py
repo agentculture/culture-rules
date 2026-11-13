@@ -181,10 +181,11 @@ def test_not_allowlisted_project_fails_before_the_secret():
     assert resolved == []
 
 
-@pytest.mark.parametrize("issue", [None, "", 7])
-def test_a_missing_issue_is_bad_input(issue):
+@pytest.mark.parametrize("issue", [None, "", 7, "NOHYPHEN", "-5"])
+@pytest.mark.parametrize("projects", [[], ["ACME"]])
+def test_a_malformed_issue_is_bad_input(issue, projects):
     fake = Fake()
-    port, resolved = setup(fake)
+    port, resolved = setup(fake, actor_doc(projects=projects))
     res = port.invoke({"actor": "jira-app", "issue": issue}, "k", DEADLINE, context=ctx())
     assert res.error == "bad_input"
     assert fake.calls == [] and resolved == []

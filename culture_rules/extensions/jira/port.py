@@ -24,7 +24,7 @@ from culture_rules.extensions.jira.projects import (
     allowed_projects,
     connection_of,
     project_allowed,
-    project_of,
+    well_formed,
 )
 from culture_rules.transport import Transport
 
@@ -62,7 +62,7 @@ class JiraCommentPort:
         if conn is None:
             return InvocationResult.failed("actor_not_found", retryable=False)
         issue = input.get("issue")
-        if not isinstance(issue, str) or not project_of(issue):
+        if not well_formed(issue):
             return InvocationResult.failed("bad_input", retryable=False)
         if not project_allowed(issue, allowed_projects(conn)):
             return InvocationResult.failed("project_not_allowed", retryable=False)
