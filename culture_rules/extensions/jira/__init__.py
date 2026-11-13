@@ -1,14 +1,16 @@
-"""The ``jira`` extension: ``jira.comment``, ``jira.read``, ``POST /hooks/jira`` and events.
+"""The ``jira`` extension: ``jira.comment``, ``jira.read``, ``POST /hooks/jira``, events, filters.
 
 The ports are :class:`culture_rules.extensions.jira.port.JiraCommentPort` and
 :class:`culture_rules.extensions.jira.read.JiraReadPort`, the client
 :class:`culture_rules.extensions.jira.client.JiraClient` and the webhook receiver
 :func:`culture_rules.extensions.jira.hooks.router` (the ``server`` extra, imported when the
-API mounts it). Registering imports nothing but the kinds' typed params.
+API mounts it). Registering imports nothing but the kinds' typed params and the stdlib
+trigger filter :mod:`culture_rules.extensions.jira.filters`.
 """
 
 from __future__ import annotations
 
+from culture_rules.extensions.jira import filters
 from culture_rules.extensions.registry import Extension, Lazy
 from culture_rules.model.action_kinds import REQ_STR, REQ_TEXT, ParamSpec, kind
 
@@ -43,7 +45,8 @@ EVENT_TYPES = ("jira.issue.created", "jira.issue.updated", "jira.comment.created
 
 def register(ext: Extension) -> None:
     """``jira.comment`` (``port.JiraCommentPort``), ``jira.read`` (``read.JiraReadPort``),
-    ``POST /hooks/jira`` (``hooks.router``) and the event types the receiver emits."""
+    ``POST /hooks/jira`` (``hooks.router``), the event types the receiver emits and the
+    ``jira.*`` trigger filter (``filters``: ``users``)."""
     for k in KINDS:
         ext.action_kind(k)
     ext.action_phrases(JIRA_COMMENT, words=(("issue", "on {}"),))
@@ -52,4 +55,7 @@ def register(ext: Extension) -> None:
     ext.action_port(JIRA_READ, Lazy(__name__ + ".read", "JiraReadPort", store=True))
     for event in EVENT_TYPES:
         ext.event_type(event)
+    ext.trigger_filter(
+        "jira", match=filters.admits, validate=filters.problems, describe=filters.words
+    )
     ext.webhook_route("/hooks/jira", Lazy(__name__ + ".hooks", "router", store=True))
