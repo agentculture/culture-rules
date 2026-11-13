@@ -74,7 +74,9 @@ class JiraCommentPort:
             return InvocationResult.failed("actor_not_found", retryable=False)
         issue = input.get("issue")
         allowed = {str(p).upper() for p in conn.get("projects") or ()}
-        if not isinstance(issue, str) or project_of(issue).upper() not in allowed:
+        if not isinstance(issue, str) or not project_of(issue):
+            return InvocationResult.failed("project_not_allowed", retryable=False)
+        if allowed and project_of(issue).upper() not in allowed:
             return InvocationResult.failed("project_not_allowed", retryable=False)
         if "body" not in input:
             return InvocationResult.failed("bad_input", retryable=False)
