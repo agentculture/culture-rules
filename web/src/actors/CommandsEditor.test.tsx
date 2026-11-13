@@ -43,6 +43,18 @@ describe("CommandsEditor", () => {
     expect(validateCommands(latest)).toEqual({});
   });
 
+  it("offers segment as a parameter type and keeps a stored one", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={[{ name: "get", argv: ["jira", "{key}"], params: [{ name: "key", type: "segment" }], timeout: "" }]} />);
+    const type = screen.getByRole("combobox", { name: "Command 1 parameter 1 type" });
+    expect(type).toHaveValue("segment");
+    await user.selectOptions(type, "string");
+    await user.selectOptions(type, "segment");
+    expect(latest[0].params).toEqual([{ name: "key", type: "segment" }]);
+    const commands = { get: { argv: ["jira", "{key}"], params: { key: "segment" } } };
+    expect(commandsParamFrom(commandsFrom({ commands }))).toEqual(commands);
+  });
+
   it("removes tokens, params and commands", async () => {
     const user = userEvent.setup();
     render(
