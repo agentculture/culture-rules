@@ -475,7 +475,12 @@ export function httpParamsFrom(draft: HttpDraft): HttpPolicy | undefined {
 /* ---------------- runner commands ---------------- */
 
 /** Declared argument types (actors/code.py `_COERCIONS`). */
-export const PARAM_TYPES = ["string", "int", "number", "bool"] as const;
+export const PARAM_TYPES = ["string", "int", "number", "bool", "segment"] as const;
+
+/** A short hint for a type that needs one. */
+export const PARAM_TYPE_HINTS: Record<string, string> = {
+  segment: "one path segment, e.g. an issue key",
+};
 
 export interface CommandDraft {
   name: string;

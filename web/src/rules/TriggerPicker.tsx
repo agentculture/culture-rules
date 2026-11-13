@@ -187,6 +187,24 @@ const commandNames = (command: string | string[] | undefined): string[] => {
   return Array.isArray(command) ? command : [command];
 };
 
+/**
+ * The one filter of a jira.* event trigger (culture_rules/extensions/jira/filters.py): users, as
+ * exact Jira accountIds. An empty field removes params.users, since the backend refuses [].
+ */
+function JiraFilters({ t, onChange }: Readonly<{ t: EventTrigger; onChange: (trigger: Trigger) => void }>) {
+  return (
+    <ListField
+      label="Users"
+      hint="Jira account ids, matched exactly, separated by commas. Empty means anyone."
+      value={t.params.users ?? []}
+      onList={(l) => {
+        const { users: _drop, ...rest } = t.params;
+        onChange({ kind: "event", params: (l.length ? { ...rest, users: l } : rest) as EventTrigger["params"] });
+      }}
+    />
+  );
+}
+
 /** A comma-separated list field; the text is kept as typed and the parsed list is what is saved. */
 function ListField({
   label,
@@ -402,6 +420,9 @@ function EventFields({ name, t, actors: apps, load, onChange }: Readonly<FieldsP
       </label>
       {eventType.startsWith("discord.") && apps.some((a) => a.id === surface) ? (
         <DiscordFilters key={surface} name={name} actorId={surface} t={t} load={load} onChange={onChange} />
+      ) : null}
+      {eventType.startsWith("jira.") && apps.some((a) => a.id === surface) ? (
+        <JiraFilters key={surface} t={t} onChange={onChange} />
       ) : null}
       {surface === ENGINE_SURFACE.id ? (
         <p className="trigger-picker__words" data-testid="run-event-hint">
