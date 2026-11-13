@@ -31,10 +31,11 @@ actor's ``params`` name a ``bridge_url``, an async cultureagent bridge session
 /bridge-invocations/{id}/events``; an ``{id}`` placeholder in it is filled instead),
 ``bridge_token`` a ``grant:`` reference for the bridge's bearer token,
 ``model``/``sandbox``/``mode`` defaults - a ``read-only`` sandbox cannot be widened by a
-step, and never takes a ``working_path``; ``operate`` (the cultureagent role with tools and
-one writable ``working_path`` a step gives per invocation) is allowed by a ``sandbox: operate``
-default or by pinning none - and an optional ``max_bound_input_chars`` that refuses bound
-inputs the bridge would cut),
+step, and ``operate`` (the cultureagent role with tools and one writable ``working_path`` a
+step gives per invocation) is actor-pinned only: it needs the actor's own ``sandbox: operate``
+default, which no step can switch, and a step of any other actor asking for it, or giving a
+``working_path`` outside it, is refused - and an optional ``max_bound_input_chars`` that
+refuses bound inputs the bridge would cut),
 ``runner`` ->
 registered commands only (:class:`~culture_rules.actors.code.CodeRunner`, inline scripts
 refused), ``human`` -> asks (:class:`~culture_rules.actors.human.HumanAdapter`, only when
