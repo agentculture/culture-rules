@@ -854,6 +854,66 @@ export const ACTION_KINDS_DATA: unknown = {
       "shown_as": null
     },
     {
+      "kind": "jira.read",
+      "label": "Read a Jira issue",
+      "summary": "Read a Jira issue: its description, comments and named fields",
+      "lenient": false,
+      "aliases": [],
+      "params": [
+        {
+          "name": "actor",
+          "type": "str",
+          "required": true,
+          "label": "",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "issue",
+          "type": "str",
+          "required": true,
+          "label": "",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "fields",
+          "type": "list",
+          "required": false,
+          "label": "",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        }
+      ],
+      "any_of": [],
+      "actors": [
+        {
+          "declares_action": true
+        }
+      ],
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
+    },
+    {
       "kind": "http.call",
       "label": "Call an HTTP endpoint",
       "summary": "Call an HTTP endpoint",
