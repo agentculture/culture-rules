@@ -73,3 +73,48 @@ def test_to_adf_groups_lists():
 def test_round_trip():
     text = "intro\n1. one\n2. two\n- x"
     assert flatten(to_adf(text)) == text
+
+
+def _item(*blocks):
+    return {"type": "listItem", "content": list(blocks)}
+
+
+def test_flatten_ordered_list_start():
+    d = doc(
+        {
+            "type": "orderedList",
+            "attrs": {"order": 3},
+            "content": [_item(para(txt("a"))), _item(para(txt("b")))],
+        }
+    )
+    assert flatten(d) == "3. a\n4. b"
+
+
+def test_flatten_bad_order_falls_back_to_one():
+    for bad in ("a", {"x": 1}, -2, 0, True, 1.5, None, [3]):
+        d = doc(
+            {"type": "orderedList", "attrs": {"order": bad}, "content": [_item(para(txt("a")))]}
+        )
+        assert flatten(d) == "1. a"
+
+
+def test_flatten_blockquote_and_panel():
+    for kind in ("blockquote", "panel"):
+        d = doc({"type": kind, "content": [para(txt("one")), para(txt("two"))]})
+        assert flatten(d) == "one\ntwo"
+
+
+def test_flatten_nested_list_does_not_raise():
+    inner = {"type": "bulletList", "content": [_item(para(txt("in")))]}
+    d = doc({"type": "bulletList", "content": [_item(para(txt("out")), inner)]})
+    assert flatten(d) == "- out\n- in"
+
+
+def test_to_adf_matches_client_add_comment_literal():
+    body = "x"
+    expected = {
+        "type": "doc",
+        "version": 1,
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": body}]}],
+    }
+    assert to_adf(body) == expected

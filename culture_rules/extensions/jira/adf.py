@@ -72,10 +72,17 @@ def _children(node: dict[str, Any], sep: str) -> str:
     return sep.join(_inline(c) for c in node.get("content") or [] if isinstance(c, dict))
 
 
+def _start(order: Any) -> int:
+    """An ordered list's first number; anything but an int >= 1 reads as 1."""
+    if isinstance(order, int) and not isinstance(order, bool) and order >= 1:
+        return order
+    return 1
+
+
 def _block(node: dict[str, Any]) -> str:
     kind = node.get("type")
     if kind in ("bulletList", "orderedList"):
-        start = int((node.get("attrs") or {}).get("order", 1) or 1)
+        start = _start((node.get("attrs") or {}).get("order"))
         lines = []
         for index, item in enumerate(node.get("content") or []):
             marker = f"{start + index}. " if kind == "orderedList" else "- "
