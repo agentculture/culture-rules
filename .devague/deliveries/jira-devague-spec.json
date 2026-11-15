@@ -2,7 +2,7 @@
   "plan_slug": "jira-devague-spec",
   "schema_version": 2,
   "created": "2026-11-13T04:58:24Z",
-  "updated": "2026-11-13T12:17:11Z",
+  "updated": "2026-11-15T22:18:40Z",
   "deviations": [
     {
       "id": "d1",
@@ -82,9 +82,434 @@
       "status": "approved",
       "classification": "risky",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "t12's wrapper keeps its snapshot and adjudication log outside the agent-writable frame dir (<root>/.jira-devague/<KEY>/), adds a role gate (JIRA_DEVAGUE_ROLE=agent allows only agent and check), checks the frame before every agent/reply/export run as well as after, lets the agent file lapses (never confirm them), and requires --title to slugify to the key",
+      "task_ref": "t12",
+      "reason": "the plan put the snapshot and log in <root>/<KEY>, which the operating agent can write, so it could rewrite its own baseline; the role gate and pre-check close the agent re-baselining itself or laundering an edit through a legitimate call",
+      "affects": [
+        "c34"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 21
+    },
+    {
+      "id": "d8",
+      "what": "Each round resolves main's current head sha (runner command git_head: GitHub's commits/{branch} with Accept application/vnd.github.sha, public agentculture repos) instead of round one pinning it for the issue (spec decision 'Repo context is pinned per issue').",
+      "task_ref": "t14",
+      "reason": "Operator approved 2026-11-13 (AskUserQuestion 'Approve d8 (per round)'). Pinning needs a stored sha read back generically: references have no list index, no builtin splits text, and a stored pin would rely on the agent or a new runner script. The repo is read-only context, so a newer main mid-conversation only refreshes what the agent reads.",
+      "affects": [
+        "t15"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 22
+    },
+    {
+      "id": "d9",
+      "what": "The repo comes from two Jira fields the operator created, Repository Organization (customfield_10175) and Repository Name (customfield_10174), read by field id, instead of one 'Repo' field; runner commands repo_url and git_head take {org} and {repo} segments instead of a hard-coded agentculture. The bridge's repo_allowlist_prefixes still admits https://github.com/agentculture/ only, so another org fails the round with a comment.",
+      "task_ref": "t14",
+      "reason": "The operator created the two fields in SCRUM's project settings; a field id survives a rename and needs no /field name lookup, and the reference path can't hold a name with a space.",
+      "affects": [
+        "t15"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 23
+    },
+    {
+      "id": "d10",
+      "what": "The agent's final message follows the bridge's result contract: {\"summary\": \"<the round object {comment, decisions, export} as a JSON string>\", \"threads_addressed\": []}; the workflow's json.parse reads agent.summary as before. The comment is capped at 6000 characters (bridge MAX_SUMMARY_CHARS is 8000), the agent step binds the issue key, and the instruction no longer tells the agent to run jira-devague check (not in its allowed tools; it reads the check field of jira-devague agent's output).",
+      "task_ref": "t14",
+      "reason": "Live probe 2026-11-14: the bridge keeps only the trailing object's summary, so {comment, decisions, export} came back with an empty summary and every round would have failed at parse; jira-devague check was refused (requires approval); the key was not bound. A real round-one run with the fixed instruction returned a summary that passes the parse shape.",
+      "affects": [
+        "t15"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 24
+    },
+    {
+      "id": "d11",
+      "what": "The round instruction (live workflows revision 6) gains the resolve move for hard questions under a claim and bold section labels in every agent comment; the bold rendering shipped as culture-rules 0.46.1 (#150, jira.comment posts **text** as an ADF strong mark), rolled out to core, orin, spark2 and thor",
+      "task_ref": "t14",
+      "reason": "Operator asked for bold section labels in the agent's Jira comments on 2026-11-15; the resolve move fixes the failed round on comment 10417 (see the lapse filed with it)",
+      "affects": [
+        "t15"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 25
     }
   ],
-  "evidence": [],
-  "deltas": [],
-  "supersessions": []
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/node/test_jira_read_action.py",
+      "behavior_text": "params, output shape, project_not_allowed and bad_input before the secret resolver, actor_not_found, GET-only",
+      "contract_text": "jira.read returns description, comments with authors, fields; refusals before the secret",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (29 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/extensions/test_jira_adf.py tests/extensions/test_jira_client_read.py",
+      "behavior_text": "N lines become N paragraphs or list items; a one-line add_comment body is byte-identical to the legacy JSON",
+      "contract_text": "multi-line comments as ADF; one-line unchanged",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (34 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/server/test_hooks_jira_author.py",
+      "behavior_text": "issue_created and comment_created deliveries store data.author; no author stores null; other fields unchanged",
+      "contract_text": "every issue/comment event carries data.author",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (3 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/extensions/test_jira_filters.py",
+      "behavior_text": "users [A] fires only for author A; self_authored never fires even if listed; validate refuses a non-list; describe words",
+      "contract_text": "the jira users filter",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (25 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/extensions/test_jira_filters.py",
+      "behavior_text": "a jira.issue.created trigger with users does not fire for an unlisted author",
+      "contract_text": "an unlisted reporter starts no run",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (25 passed, includes issue.created cases)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/actors/test_code_segment_param.py",
+      "behavior_text": "segment accepts SCRUM-12; refuses '', '.', '..', '/', backslash, NUL, control characters, leading '-', rule metacharacters, >128 chars, before any process starts",
+      "contract_text": "the segment argument type",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (31 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/actors/test_bridge_working_path.py tests/actors/test_bridge_agent.py tests/server/test_bridge_callbacks_api.py",
+      "behavior_text": "working_path forwarded only under an actor-pinned operate; relative, unnormalised or metacharacter paths refused; read-only and other actors refuse operate; output reaches later steps unchanged",
+      "contract_text": "the bridge step's working_path and operate opt-in",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (131 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "cultureagent tests/bridges/test_claude_backend.py tests/bridges/test_claude_config.py tests/bridges/test_bridge_server.py",
+      "behavior_text": "operate: Bash limited to configured patterns, one rule-safe working_path, checkout change fails the run, push denied, claude config protected, acceptEdits only, model passes through (fake claude binary)",
+      "contract_text": "the cultureagent operate role",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green, in cultureagent (446 passed); fake claude binary, no live claude -p (lapses l2, l8)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "403f4dd"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/extensions/test_jira_client_read.py -k field",
+      "behavior_text": "named custom fields resolved by id or by name through /rest/api/3/field",
+      "contract_text": "a Jira field can feed the repo input (field half only)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (2 passed); the head_sha lookup half is configuration (t13) and was not checked",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o11",
+      "test_ref": "tests/engine/test_on_failure.py",
+      "behavior_text": "a failed run executes on_failure once with run.error.code readable",
+      "contract_text": "a failed round posts one comment with the error code",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "generic engine seam ran green (20 passed); the configured jira.comment on_failure is live configuration (t14), not exercised",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o12",
+      "test_ref": "tests/node/test_concurrency_budget.py::test_budget_exhausted_then_human_push_resets",
+      "behavior_text": "after max_attempts admitted runs for a key further firings are skipped; a reset starts a new budget",
+      "contract_text": "max_attempts caps rounds per issue",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "generic engine seam ran green (70 passed in the file); the jiraconv rules are live configuration (t14)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o13",
+      "test_ref": "tests/node/test_concurrency_budget.py::test_coalescing_fires_the_latest_event_through_the_rule_that_recorded_it",
+      "behavior_text": "events during an active run on a key coalesce; the newest fires once after the run ends",
+      "contract_text": "two comments during a round give one follow-up run",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "generic coalescing ran green; that the follow-up's jira.read sees both comments needs the live flow (t15)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o14",
+      "test_ref": "tests/test_extension_boundary.py::test_no_new_file_names_the_spec_tool",
+      "behavior_text": "only the pinned repodocs files name the spec tool; a new file naming it fails; a pinned file that stops naming it fails",
+      "contract_text": "no devague literal in culture-rules code (as amended by d1)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "no behavioral marker or folder in this repo; ran the named test file(s) on the merged main commit, all green (26 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:18:34",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o4",
+      "test_ref": "web/src/rules/TriggerPicker.jira.test.tsx web/src/actors/CommandsEditor.test.tsx",
+      "behavior_text": "a jira.* trigger shows a Users field writing params.users and removes it when empty; a surface change drops the other app's filters; the command editor offers and round-trips segment",
+      "contract_text": "the users filter and segment are editable in the editor (deviation d3)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest on the merged main commit, 15 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-13T16:20:51",
+        "commit": "d3d97778"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 20
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "The boundary test pins today's nine repodocs files that name the spec tool and fails on any new one, instead of forbidding every mention",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e13"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "The editor offers the runner type segment and a Users field for jira.* triggers; changing the surface drops the other app's filters",
+      "caused_by": [
+        "d3"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": true
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "jira.comment treats an absent or empty connection.projects as every project (it refused every issue before)",
+      "caused_by": [
+        "d4"
+      ],
+      "evidence_refs": [
+        "e1"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "A malformed issue key is bad_input in both jira.comment and jira.read; project allowlists compare case-insensitively in the webhook too; a malformed projects value allows nothing",
+      "caused_by": [
+        "d5"
+      ],
+      "evidence_refs": [
+        "e1"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "added",
+      "behavior_text": "operate hardening from /code-review: working paths and roots limited to a rule-safe charset (refused, never escaped); the claude config dir protected; operate only under acceptEdits; the prompt names the real working path; segment refuses rule metacharacters",
+      "caused_by": [
+        "d6"
+      ],
+      "evidence_refs": [
+        "e6",
+        "e7",
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "added",
+      "behavior_text": "The editor offers the runner type segment and a Users field for jira.* triggers; changing the surface drops the other app's filters",
+      "caused_by": [
+        "d3"
+      ],
+      "evidence_refs": [
+        "e14"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": [
+    {
+      "id": "s1",
+      "action": "supersede",
+      "target_ref": "b2",
+      "replacement_ref": "b6",
+      "origin": "llm"
+    }
+  ]
 }

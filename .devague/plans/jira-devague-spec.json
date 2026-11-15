@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-13T04:32:21Z",
-  "updated": "2026-11-13T12:49:16Z",
+  "updated": "2026-11-13T18:50:44Z",
   "targets": [
     {
       "id": "c1",
@@ -700,8 +700,8 @@
       "text": "Ops on core unverified (frame v3): whether a Claude bridge runs on core, its claude login there, and the Fable 5.2 model id for claude -p --model; t13 cannot finish until known.",
       "kind": "unknown_nonblocking",
       "task_id": "t13",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Verified on core 2026-11-13: cultureagent-claude-bridge-jira (cultureagent 0.17.0, separate venv) runs as a systemd user unit on 127.0.0.1:8096 under core's Claude Code login; after upgrading Claude Code 2.1.319 -> 2.1.323, claude -p --model claude-fable-5-2 answers (modelUsage claude-fable-5-2); actor jira-conversation pins model claude-fable-5-2."
     },
     {
       "id": "r2",

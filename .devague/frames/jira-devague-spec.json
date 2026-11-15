@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-13T01:07:11Z",
-  "updated": "2026-11-13T12:49:16Z",
+  "updated": "2026-11-15T22:18:40Z",
   "claims": [
     {
       "id": "c1",
@@ -1093,7 +1093,7 @@
         "t8: cultureagent bridges/claude"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1104,7 +1104,7 @@
         "t2: extensions/jira/client.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l4",
@@ -1115,7 +1115,7 @@
         "assign-to-workforce: t4 merge"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l5",
@@ -1126,7 +1126,7 @@
         "t16: web/src/rules/TriggerPicker.tsx"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l6",
@@ -1137,7 +1137,7 @@
         "t18: extensions/jira/read.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l7",
@@ -1148,7 +1148,7 @@
         "t19: extensions/jira"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l8",
@@ -1159,7 +1159,29 @@
         "t20: cultureagent bridges/claude"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
+    },
+    {
+      "id": "l9",
+      "code": "assumption-for-measurement",
+      "what": "t14's agent instruction asked for a final {comment, decisions, export} object without reading the bridge's result contract (summary-only, 8000-char cap), and named jira-devague check although the bridge allows only jira-devague agent; found by a live probe before enabling, not by a test",
+      "skipped_check": "read cultureagent's RESULT_CONTRACT and _summary_and_threads before writing the output shape; a direct bridge invocation before shipping t14",
+      "refs": [
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l10",
+      "code": "assumption-for-measurement",
+      "what": "t14's agent instruction listed only question-resolve and never the resolve move that closes a hard question under a claim, although jira-devague's decisions.py supports both and the two kinds share q-numbers; the agent sent question-resolve q4 for c11's hard question and the round on comment 10417 failed (run-efe815c8, decision_failed, comment 10418); found by a failed live round, not by a test",
+      "skipped_check": "read jira-devague's build_decision move list before writing the instruction's decision objects; a round whose reply answers a hard question before enabling",
+      "refs": [
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "approved"
     }
   ],
   "obligations": [
