@@ -256,6 +256,9 @@ Project keys compare case-insensitively, in the webhook, `jira.comment` and
 A one-line `body` is posted as it is. A multi-line body becomes paragraphs
 (Atlassian Document Format), and consecutive lines starting with a dash and a space, or with a number, a dot and a space, become a bullet or numbered list
 (a numbered list starting above 1 keeps its first number).
+Text between double asterisks, such as `**Questions:**`, is bold, in a paragraph
+or a list item; asterisks with a space just inside them, or a `*` between them,
+stay as typed.
 Blank lines separate paragraphs and are dropped. An absent, empty or blank-only
 `body` fails `bad_input` before the secret is read.
 Like `jira.read`, it allows every project when `connection.projects` is absent

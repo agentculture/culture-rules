@@ -103,7 +103,7 @@ slug: `jira-devague-spec` · status: `exported` · from frame: `jira-devague-spe
 
 ### t12 — Core wrapper for devague (outside the repo, on core): proposals-only for the agent, adjudication only from the reply step, and a post-run check
 
-- instruction: Lives in ~/.local/bin (or a sibling ops repo), never in culture-rules. Registered on core's runner actor as machine.command entries with typed args (key: segment).
+- instruction: Lives in the node user's bin directory (or a sibling ops repo), never in culture-rules. Registered on core's runner actor as machine.command entries with typed args (key: segment).
 - covers: c34, h28
 - acceptance:
   - a wrapper on core's PATH takes the issue key (segment) and a JSON move list; agent-mode calls force --origin llm and refuse confirm/reject/resolve/oblige --confirm; reply-mode calls accept them only with a cited allowlisted comment id; the frame dir is `<root>/<key>`
