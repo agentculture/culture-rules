@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.2] - 2026-11-16
+
+### Added
+
+- docs/deliveries/2026-11-13-jira-devague-spec.md: the delivery summary for the Jira conversations work (0.46.0, culture-rules#148 and cultureagent#61) and its live trial. All 20 plan tasks are delivered. On SCRUM-23 the conversation ran over six reply rounds and exported a converged spec to the library as one private item of kind spec, byte-equal to the export; the trial also exercised a rejected and an amended claim, two replies in one round, two failed rounds that continued on the same frame, and a repeated reply. The devague records carry the validation evidence, deviations d1–d11 and lapses l1–l10
+
 ## [0.46.1] - 2026-11-15
 
 ### Added
