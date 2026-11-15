@@ -534,7 +534,7 @@
         "c34",
         "h28"
       ],
-      "instruction": "Lives in ~/.local/bin (or a sibling ops repo), never in culture-rules. Registered on core's runner actor as machine.command entries with typed args (key: segment)."
+      "instruction": "Lives in the node user's bin directory (or a sibling ops repo), never in culture-rules. Registered on core's runner actor as machine.command entries with typed args (key: segment)."
     },
     {
       "id": "t13",

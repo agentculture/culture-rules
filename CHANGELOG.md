@@ -11,6 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `jira.comment` posts `**text**` as bold (an ADF `strong` mark) in a paragraph or a list item (extensions/jira/adf.py); asterisks with a space just inside them or a `*` between them stay as typed, a line without bold is sent exactly as before, and `flatten` reads bold back as plain text. docs/actors/jira.md says so
 
+### Fixed
+
+- harness-smoke passes again: the jira-devague-spec plan records (`.devague/plans/jira-devague-spec.json` and its two exports under docs/plans) named a per-user path (`~/.local/bin`) in task t12's instruction, which steward doctor's portability check refuses outside the waiver list; the instruction now says "the node user's bin directory"
+
 ## [0.46.0] - 2026-11-13
 
 ### Added
