@@ -1,7 +1,7 @@
 """Atlassian Document Format helpers: ADF to plain text and plain text to ADF.
 
-Pure functions, stdlib only, no I/O. ``to_adf`` of one line is byte-identical to the
-single-paragraph document the Jira client has always sent.
+Pure functions, stdlib only, no I/O. ``to_adf`` of one line without ``**bold**`` is
+byte-identical to the single-paragraph document the Jira client has always sent.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from typing import Any
 
 _ORDERED = re.compile(r"^\d+\. (.*)$")
 _BULLET = re.compile(r"^- (.*)$")
+#: ``**text**`` is bold: no ``*`` inside and no space just inside either pair of asterisks.
+_STRONG = re.compile(r"\*\*(?=[^\s*])([^*]*[^\s*])\*\*")
 #: A longer start is not kept (and never parsed: ``int`` refuses very long digit strings).
 _MAX_ORDER_DIGITS = 9
 
@@ -19,8 +21,25 @@ def _text_node(text: str) -> dict[str, Any]:
     return {"type": "text", "text": text}
 
 
+def _inline_nodes(text: str) -> list[dict[str, Any]]:
+    """A line's text nodes: ``**text**`` gets a ``strong`` mark, the rest stays plain.
+
+    A line without bold is one text node (also an empty one), as it always was.
+    """
+    nodes: list[dict[str, Any]] = []
+    at = 0
+    for match in _STRONG.finditer(text):
+        if match.start() > at:
+            nodes.append(_text_node(text[at : match.start()]))
+        nodes.append({**_text_node(match.group(1)), "marks": [{"type": "strong"}]})
+        at = match.end()
+    if at < len(text) or not nodes:
+        nodes.append(_text_node(text[at:]))
+    return nodes
+
+
 def _paragraph(text: str) -> dict[str, Any]:
-    return {"type": "paragraph", "content": [_text_node(text)]}
+    return {"type": "paragraph", "content": _inline_nodes(text)}
 
 
 def _list_item(kind: str, text: str) -> tuple[str, str]:
@@ -38,7 +57,7 @@ def to_adf(text: str) -> dict[str, Any]:
     paragraph each; consecutive ``N. `` lines become one ``orderedList`` (``attrs.order`` is
     its first number when that is not 1) and consecutive ``- `` lines one ``bulletList``.
     Blank lines separate and are dropped; a text of blank lines only is one empty paragraph,
-    never an empty document.
+    never an empty document. ``**text**`` in a line is bold (a ``strong`` mark).
     """
     if "\n" not in text and "\r" not in text:
         return {"type": "doc", "version": 1, "content": [_paragraph(text)]}

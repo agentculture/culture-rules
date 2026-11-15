@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.1] - 2026-11-15
+
+### Added
+
+- `jira.comment` posts `**text**` as bold (an ADF `strong` mark) in a paragraph or a list item (extensions/jira/adf.py); asterisks with a space just inside them or a `*` between them stay as typed, a line without bold is sent exactly as before, and `flatten` reads bold back as plain text. docs/actors/jira.md says so
+
 ## [0.46.0] - 2026-11-13
 
 ### Added

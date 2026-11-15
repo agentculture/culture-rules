@@ -165,3 +165,40 @@ def test_to_adf_huge_ordered_start_never_raises():
     d = to_adf("9" * 5000 + ". a\nb")
     assert d["content"][0]["type"] == "orderedList"
     assert "attrs" not in d["content"][0]
+
+
+def _strong(text):
+    return {"type": "text", "text": text, "marks": [{"type": "strong"}]}
+
+
+def test_to_adf_double_asterisks_are_bold():
+    doc = to_adf("**Questions:**\nplain")
+    assert doc["content"][0] == {"type": "paragraph", "content": [_strong("Questions:")]}
+    assert doc["content"][1] == {
+        "type": "paragraph",
+        "content": [{"type": "text", "text": "plain"}],
+    }
+
+
+def test_to_adf_bold_inside_a_line_and_a_list_item():
+    doc = to_adf("a **b** c\n- **x** y")
+    assert doc["content"][0]["content"] == [
+        {"type": "text", "text": "a "},
+        _strong("b"),
+        {"type": "text", "text": " c"},
+    ]
+    item = doc["content"][1]["content"][0]["content"][0]
+    assert item["content"] == [_strong("x"), {"type": "text", "text": " y"}]
+
+
+def test_to_adf_single_line_bold():
+    assert to_adf("**Done**")["content"] == [{"type": "paragraph", "content": [_strong("Done")]}]
+
+
+def test_to_adf_unmatched_or_spaced_asterisks_stay_literal():
+    for text in ("a ** b", "**open", "** spaced **", "glob **/*.md", "2 * 3 * 4"):
+        assert to_adf(text)["content"][0]["content"] == [{"type": "text", "text": text}]
+
+
+def test_flatten_drops_the_bold_mark():
+    assert flatten(to_adf("**Questions:**\n- **x** y")) == "Questions:\n- x y"
