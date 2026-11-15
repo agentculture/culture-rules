@@ -13,7 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- harness-smoke passes again: the jira-devague-spec plan records (`.devague/plans/jira-devague-spec.json` and its two exports under docs/plans) named a per-user path (`~/.local/bin`) in task t12's instruction, which steward doctor's portability check refuses outside the waiver list; the instruction now says "the node user's bin directory"
+- harness-smoke passes again: the jira-devague-spec plan records (`.devague/plans/jira-devague-spec.json` and its two exports under docs/plans) named a per-user path (a bin directory under the home directory) in task t12's instruction, which steward doctor's portability check refuses outside the waiver list; the instruction now says "the node user's bin directory"
 
 ## [0.46.0] - 2026-11-13
 
