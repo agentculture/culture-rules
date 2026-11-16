@@ -462,6 +462,11 @@ attempt took the claim takes it back, since GitHub made only that branch.
 GitHub itself also refuses a second open PR for the same head and base. The
 claim never holds the files' contents.
 
+One case is not recovered: the answer to opening the PR is lost, and before the
+retry someone pushes another commit to the branch, closes the PR and deletes the
+branch. The closed PR's head no longer matches the claim, so the retry starts
+over and opens a new PR.
+
 The calls and the App permissions they need:
 
 | Call | Permission |

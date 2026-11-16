@@ -431,7 +431,10 @@ class GitHubPrOpenPort(GitHubCommentPort):
         self, app: GitHubApp, req: _Request, claim_id: str, owner: str, base: str, head: str
     ) -> InvocationResult:
         """Open the pull for the pushed branch; any failure keeps the claim (``pushed``), so
-        the next attempt reads before it opens again."""
+        the next attempt reads before it opens again. An attempt that no longer owns the
+        claim opens nothing: the attempt that took it over opens the pull."""
+        if not self._record(claim_id, owner, {"error": None}):
+            return InvocationResult.failed(CLAIM_LOST, retryable=True)
         try:
             pull = app.open_pull(req.repo, req.title, req.branch, base, req.body)
         except GitHubError as exc:

@@ -675,6 +675,24 @@ def test_an_overlapping_attempt_takes_the_claim_and_the_first_stops_before_its_b
     assert run(port).output["skipped"] == "opened_before"
 
 
+def test_an_attempt_that_lost_the_claim_after_its_branch_opens_no_pull(pem):
+    fake = FakeGitHub()
+    port, store, _ = setup(pem, fake)
+    real = store.update_if
+
+    def update_if(collection, doc_id, expected, changes):
+        res = real(collection, doc_id, expected, changes)
+        if changes.get("state") == "pushed":  # another attempt takes the claim right after
+            real(collection, doc_id, {"state": "pushed"}, {"owner": "another-attempt"})
+        return res
+
+    store.update_if = update_if
+    first = run(port)
+    assert (first.outcome, first.error, first.retryable) == ("failed", "claim_lost", True)
+    assert fake.pulls == []
+    assert not any(m == "POST" and path.endswith("/pulls") for m, path, _ in fake.calls)
+
+
 def test_an_attempt_that_lost_the_claim_never_releases_the_winners(pem):
     fake = FakeGitHub()
     port, store, _ = setup(pem, fake)
