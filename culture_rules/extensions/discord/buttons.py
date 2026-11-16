@@ -60,7 +60,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from culture_rules.engine.runs import ADHOC_RULE_PREFIX
+from culture_rules.extensions.discord.filters import BUTTON_CLICKED
 from culture_rules.extensions.discord.rest import MAX_CUSTOM_ID, button_components
+from culture_rules.store.port import EVENTS_COLLECTION
 
 __all__ = [
     "BUTTONS_COLLECTION",
@@ -82,6 +85,7 @@ __all__ = [
     "set_message_id",
     "release_code",
     "stored_button",
+    "stored_click",
     "use_code",
 ]
 
@@ -355,3 +359,27 @@ def release_code(store: Any, code: Any, run_id: str) -> bool:
         CODES_COLLECTION, code, {"used_by": run_id}, {"used_at": None, "used_by": None}
     )
     return bool(result.won)
+
+
+def stored_click(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The stored ``discord.button.clicked`` envelope ``run`` is its rule's firing on, or
+    ``None`` when it is not such a run."""
+    # the node layer, imported lazily
+    from culture_rules.node.firing import run_id_for  # noqa: PLC0415
+
+    trigger = run.get("trigger")
+    rule_id = run.get("rule_id")
+    if not isinstance(trigger, Mapping) or trigger.get("type") != BUTTON_CLICKED:
+        return None
+    event_id = trigger.get("id")
+    if not isinstance(rule_id, str) or not rule_id or rule_id.startswith(ADHOC_RULE_PREFIX):
+        return None
+    if not isinstance(event_id, str) or not event_id:
+        return None
+    if run.get("id") != run_id_for(rule_id, event_id):
+        return None  # started by hand (the API), not by the rule firing on the event
+    stored = store.get(EVENTS_COLLECTION, event_id)
+    envelope = (stored or {}).get("envelope")
+    if not isinstance(envelope, Mapping) or envelope.get("type") != BUTTON_CLICKED:
+        return None
+    return envelope

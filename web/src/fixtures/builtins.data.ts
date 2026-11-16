@@ -670,6 +670,34 @@ export const BUILTINS_DATA: unknown = {
       ]
     },
     {
+      "name": "button.code.use",
+      "label": "button.code.use: use up the clicked button's one-time code for this run's action",
+      "inputs": [
+        {
+          "name": "value",
+          "type": "object",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "object",
+          "required": true
+        },
+        {
+          "name": "custom_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "used",
+          "type": "boolean",
+          "required": true
+        }
+      ]
+    },
+    {
       "name": "newspaper.sections",
       "label": "newspaper.sections",
       "inputs": [],

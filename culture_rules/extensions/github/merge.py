@@ -92,9 +92,8 @@ from typing import Any
 
 from culture_rules.actors import trusted
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.engine.runs import ADHOC_RULE_PREFIX, RUNS_COLLECTION
+from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.extensions.discord import buttons as buttons_mod
-from culture_rules.extensions.discord.filters import BUTTON_CLICKED
 from culture_rules.extensions.github.client import GitHubApp, GitHubError
 from culture_rules.extensions.github.port import (
     ACTOR_NOT_FOUND,
@@ -106,7 +105,7 @@ from culture_rules.extensions.github.port import (
     source_rule_refusal,
 )
 from culture_rules.node.actors import ACTORS_COLLECTION
-from culture_rules.store.port import EVENTS_COLLECTION, DuplicateKeyError, StoreError
+from culture_rules.store.port import DuplicateKeyError, StoreError
 
 __all__ = [
     "MERGE_ONCE_COLLECTION",
@@ -151,34 +150,10 @@ def _merge_input(input: Mapping[str, Any]) -> tuple[int, str, bool] | None:
     return number, sha, delete
 
 
-def stored_click(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    """The stored ``discord.button.clicked`` envelope ``run`` is its rule's firing on, or
-    ``None`` when it is not such a run."""
-    # the node layer, imported lazily
-    from culture_rules.node.firing import run_id_for  # noqa: PLC0415
-
-    trigger = run.get("trigger")
-    rule_id = run.get("rule_id")
-    if not isinstance(trigger, Mapping) or trigger.get("type") != BUTTON_CLICKED:
-        return None
-    event_id = trigger.get("id")
-    if not isinstance(rule_id, str) or not rule_id or rule_id.startswith(ADHOC_RULE_PREFIX):
-        return None
-    if not isinstance(event_id, str) or not event_id:
-        return None
-    if run.get("id") != run_id_for(rule_id, event_id):
-        return None  # started by hand (the API), not by the rule firing on the event
-    stored = store.get(EVENTS_COLLECTION, event_id)
-    envelope = (stored or {}).get("envelope")
-    if not isinstance(envelope, Mapping) or envelope.get("type") != BUTTON_CLICKED:
-        return None
-    return envelope
-
-
 def click_refusal(store: Any, run: Mapping[str, Any]) -> str | None:
     """:data:`NOT_CLICK` unless ``run`` is its rule's firing on a stored
     ``discord.button.clicked`` event; ``None`` when it is."""
-    return None if stored_click(store, run) is not None else NOT_CLICK
+    return None if buttons_mod.stored_click(store, run) is not None else NOT_CLICK
 
 
 def code_refusal(
@@ -206,7 +181,7 @@ def fence_refusal(
     run = store.get(RUNS_COLLECTION, run_id) if run_id else None
     if not run:
         return "run_not_found"
-    envelope = stored_click(store, run)
+    envelope = buttons_mod.stored_click(store, run)
     if envelope is None:
         return NOT_CLICK
     refusal = source_rule_refusal(store, str(run_id))
@@ -304,7 +279,7 @@ class GitHubMergePort(GitHubCommentPort):
             if self._store.get(MERGE_ONCE_COLLECTION, _claim_id(repo, number, sha)) is not None:
                 return
             run = self._store.get(RUNS_COLLECTION, run_id) or {}
-            envelope = stored_click(self._store, run) or {}
+            envelope = buttons_mod.stored_click(self._store, run) or {}
             data = envelope.get("data") if isinstance(envelope.get("data"), Mapping) else {}
             if buttons_mod.release_code(self._store, data.get("code"), run_id):
                 log.info("github.merge: nothing merged, the button's code was handed back")
