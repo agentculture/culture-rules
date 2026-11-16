@@ -27,6 +27,7 @@ PORTS_BEFORE_T7 = {
     "action:github.comment",
     "action:github.pr",
     "action:github.merge",
+    "action:github.pr_open",
     "action:jira.comment",
     "action:jira.read",
     "action:email.send",

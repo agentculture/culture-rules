@@ -43,7 +43,8 @@ Keep the printed value for step 2, then clear your terminal.
    | Where can this App be installed | Only on this account |
 
    Contents write is for `github.merge`, which mints a fresh token per merge
-   scoped to the one repository. Checks and Actions read let the settle see
+   scoped to the one repository, and for `github.pr_open`, which commits to a
+   new branch. Checks and Actions read let the settle see
    check suites and workflow runs finish. Changing permissions on an existing App only takes
    effect after the installation owner accepts the update under the org's
    **Settings → GitHub Apps**.
@@ -378,6 +379,129 @@ release. The gate is the operator's click (the click rule's `users` filter) and
 the button's code: the post issued it, bound to the PR's repo, number and sha,
 and it merges once.
 
+## Opening a PR
+
+### `github.pr_open` (a new branch, never the default branch)
+
+Commits files to a new branch and opens a PR from it, as the App. Which repo,
+branch, files and text is step configuration; the files usually come from an
+earlier step's output. Params:
+
+| Param | Meaning |
+|---|---|
+| `actor` | the GitHub app actor's id |
+| `repo` | `owner/name`, in the actor's `connection.repos` |
+| `branch` | the new branch, for example `bot/update-notes` (never `refs/...`) |
+| `base` | optional: the branch the PR targets; empty means the repo's default branch |
+| `base_sha` | optional: the full (40-hex) commit of `base` the files were computed against; empty means not given |
+| `files` | a list of `{path, content}`: UTF-8 text files, written as regular files (mode `100644`) |
+| `title` | the PR's title, also the commit message (at most 256 characters) |
+| `body` | optional: the PR's description (at most 65536 characters) |
+| `labels` | optional: label names to add (at most 20, each at most 50 characters) |
+
+The actor must list `github.pr_open` in its `params.actions`, so an App writes
+code only where its configuration says it may:
+
+```json
+"actions": ["github.comment", "github.pr_open"]
+```
+
+Limits on `files`: at most 50 files and 1 MiB (1048576 bytes, UTF-8) of
+content in all. Each `path` is relative, with no empty, `.` or `..` segment, no
+`.git` segment, no control character, and nothing under `.github/workflows/`
+(the App has no Workflows permission, and a workflow is code that runs with the
+repository's secrets). Binary files are not supported.
+
+Each file is written whole, on top of the base branch's tip at the time the step
+runs. If the files were computed against an older commit (an agent worked on a
+checkout for twenty minutes), writing them would silently revert whatever landed
+on the base meanwhile. `base_sha` guards against that: when it is given and the
+base branch is no longer at that commit, the step fails `base_moved` (final)
+before any tree, commit or branch is made, and logs both commits. A caller that
+holds whole files should always pass the commit it read them from. When
+`base_sha` is absent or empty, the files go on whatever the tip is.
+
+What it does, in order:
+
+1. Refuses, before reading any secret or calling GitHub, an actor that is
+   missing or disabled (`actor_not_found`), a repo outside `connection.repos`
+   (`repo_not_allowed`), an actor that does not list the kind
+   (`action_not_declared`), a malformed input (`bad_input`), too many files
+   (`too_many_files`), too much content (`files_too_large`), a refused path
+   (`path_refused`), a `base_sha` that is not a full commit sha (`bad_input`)
+   and a `branch` equal to `base` (`branch_is_base`).
+2. Reads the repository and refuses a `branch` equal to its default branch,
+   whatever the `base` (`branch_is_default`, compared without case). It never
+   commits to the default branch.
+3. If `branch` already exists, it opens nothing and completes with `skipped:
+   branch_exists` and the `number` and `url` of the open PR whose head is that
+   branch (`null` when none is open).
+4. If `base_sha` is given and the base branch is at another commit, it fails
+   `base_moved` and writes nothing.
+5. Builds a tree of the files on top of the base tip's tree and a commit of it
+   whose one parent is the base tip, then creates the branch at that commit.
+   It only ever creates a branch, and the client has no call that moves or
+   force-updates a branch. GitHub refuses the branch (422) when it exists, and
+   also for other reasons (a branch `bot` exists and the step asks for
+   `bot/update-notes`, or a ruleset forbids it), so after a 422 the port reads
+   the branch again: if it is there, step 3; if not, the step fails
+   `branch_not_created` (final) and sends nothing more. If that read itself
+   fails, the step fails retryable and keeps its claim, so the retry reads
+   first.
+6. Opens the PR, then adds the labels. A label failure does not undo the PR;
+   it is reported in `labels_error`.
+
+Outputs: `number`, `url`, `head_sha` (the branch's commit), `branch`, `base`,
+`labels_error` (an error code, or `null`) and, on a skip or a repeat,
+`skipped`.
+
+A retried step opens no second PR. Before it writes, the port claims the step
+(the engine's idempotency key, the same on every attempt of one run's step) in
+the `github_pr_open_once` collection, and it records the commit before it
+creates the branch. A later attempt that finds the claim reads before it
+writes:
+
+- the PR was recorded: it completes with it (`skipped: opened_before`);
+- a PR from the branch exists, open, closed or merged, with its head at the
+  recorded commit (a lost answer, even if the branch was deleted since): it
+  completes with that PR (`skipped: opened_unconfirmed`; only an open one is
+  labelled). A PR at any other head is not taken, open or not: an open PR from
+  another run or a person is step 3 (no labels, its number reported), and so is
+  any open PR when the claim recorded no commit;
+- the branch is at the recorded commit (a failure after the push): it opens the
+  PR without pushing again;
+- the branch does not exist (nothing landed): it starts over;
+- the branch is at another commit: step 3.
+
+The claim is exclusive: each attempt holds it with its own owner token, a later
+attempt takes it over only by compare-and-set, and an attempt records on or
+releases the claim only while it still owns it. An attempt that lost the claim
+writes nothing more and fails `claim_lost` (retryable; the retry reads the
+claim). The one exception: an attempt whose branch GitHub created after another
+attempt took the claim takes it back, since GitHub made only that branch.
+
+GitHub itself also refuses a second open PR for the same head and base. The
+claim never holds the files' contents.
+
+One case is not recovered: the answer to opening the PR is lost, and before the
+retry someone pushes another commit to the branch, closes the PR and deletes the
+branch. The closed PR's head no longer matches the claim, so the retry starts
+over and opens a new PR.
+
+The calls and the App permissions they need:
+
+| Call | Permission |
+|---|---|
+| `GET /repos/{repo}` (the default branch) | Metadata: read |
+| `GET /repos/{repo}/git/ref/heads/{branch}`, `GET /repos/{repo}/git/commits/{sha}` | Contents: read |
+| `POST /repos/{repo}/git/trees`, `POST /repos/{repo}/git/commits`, `POST /repos/{repo}/git/refs` | Contents: write |
+| `GET /repos/{repo}/pulls?head=…&state=open` (and `state=all` on a retry), `POST /repos/{repo}/pulls` | Pull requests: read and write |
+| `POST /repos/{repo}/issues/{number}/labels` | Issues or Pull requests: write |
+
+The live App already has all of these. Listing the kind in the actor's
+`params.actions` does not change the actor's trust digest (`params.actions` is
+not one of its security fields), and the kind does not require a pinned actor.
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -393,6 +517,11 @@ and it merges once.
 | A merge fails `actor_not_app` | The merge's `actor` is not an `app` actor; use `github-app` |
 | A merge fails `actor_not_trusted` | The merge's `actor` is not a pinned App actor, or its security fields changed since the pin; use `github-app` |
 | A merge fails `head_moved` or `http_409` | The PR got a new commit after the prompt; nothing was merged |
+| Opening a PR fails `action_not_declared` | The actor's `params.actions` does not list `github.pr_open` |
+| Opening a PR fails `branch_is_default` | The step's `branch` is the repo's default branch; name a new branch |
+| Opening a PR completes `skipped: branch_exists` | The branch was there already; `number` is its open PR, if any |
+| Opening a PR fails `base_moved` | The base branch got commits after the files were computed against `base_sha`; recompute them on the new tip |
+| Opening a PR fails `branch_not_created` | GitHub refused the branch and it does not exist: a branch named as a prefix of it (`bot` for `bot/x`) or a ruleset |
 
 ## On rules.culture.dev
 

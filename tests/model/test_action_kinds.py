@@ -193,6 +193,79 @@ def test_github_pr_reads_one_pr() -> None:
     assert params["number"].type == "int"
 
 
+def _pr_open_ok() -> dict:
+    return {
+        "actor": "gh",
+        "repo": "o/r",
+        "branch": "bot/notes",
+        "base": "main",
+        "files": [{"path": "docs/notes.md", "content": "x"}],
+        "title": "Notes",
+        "body": "b",
+        "labels": ["docs"],
+    }
+
+
+def test_github_pr_open_params() -> None:
+    params = ACTION_KINDS["github.pr_open"].params
+    assert {n for n, p in params.items() if p.required} == {
+        "actor",
+        "repo",
+        "branch",
+        "files",
+        "title",
+    }
+    assert set(params) == {
+        "actor",
+        "repo",
+        "branch",
+        "base",
+        "base_sha",
+        "files",
+        "title",
+        "body",
+        "labels",
+    }
+    assert params["base_sha"].type == "str"
+    assert params["base_sha"].required is False
+    assert (params["files"].type, params["labels"].type) == ("list", "list")
+    assert ACTION_KINDS["github.pr_open"].declarable_by_apps is True
+
+
+def test_github_pr_open_validates_what_is_literal() -> None:
+    ok = _pr_open_ok()
+    assert _errs("github.pr_open", ok) == set()
+    assert _errs("github.pr_open", {**ok, "files": {"$ref": "trigger.data.files"}}) == set()
+    assert _errs("github.pr_open", {**ok, "branch": "{{ inputs.branch }}"}) == set()
+    assert ("action.params.branch", "branch_is_base") in _errs(
+        "github.pr_open", {**ok, "branch": "Main"}
+    )
+    assert ("action.params.branch", "invalid_branch") in _errs(
+        "github.pr_open", {**ok, "branch": "a..b"}
+    )
+    bad = {**ok, "files": [{"path": ".github/workflows/x.yml", "content": "x"}]}
+    assert ("action.params.files.0.path", "path_refused") in _errs("github.pr_open", bad)
+    many = {**ok, "files": [{"path": f"f{i}", "content": "x"} for i in range(51)]}
+    assert ("action.params.files", "too_many_files") in _errs("github.pr_open", many)
+    assert ("action.params.files.0", "action_param_type") in _errs(
+        "github.pr_open", {**ok, "files": [{"path": "a"}]}
+    )
+    assert ("action.params.files", "action_param_type") in _errs(
+        "github.pr_open", {**ok, "files": {"path": "a"}}
+    )
+
+
+@pytest.mark.parametrize("bad", ["abc", "g" * 40, "b" * 41])
+def test_github_pr_open_refuses_a_malformed_literal_base_sha(bad) -> None:
+    errs = _errs("github.pr_open", {**_pr_open_ok(), "base_sha": bad})
+    assert ("action.params.base_sha", "invalid_sha") in errs
+
+
+@pytest.mark.parametrize("good", ["b" * 40, "B" * 40, "", "{{ inputs.base_sha }}"])
+def test_github_pr_open_accepts_a_full_or_filled_base_sha(good) -> None:
+    assert _errs("github.pr_open", {**_pr_open_ok(), "base_sha": good}) == set()
+
+
 def test_discord_message_takes_buttons_as_a_list() -> None:
     assert ACTION_KINDS["discord.message"].params["buttons"].type == "list"
     params = {"actor": "d", "channel": "1", "text": "t", "buttons": [{"label": "x"}]}

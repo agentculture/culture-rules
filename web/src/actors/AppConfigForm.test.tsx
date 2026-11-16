@@ -29,6 +29,7 @@ const DECLARABLE = [
   "github.comment",
   "github.merge",
   "github.pr",
+  "github.pr_open",
   "jira.comment",
   "jira.read",
   "http.call",
