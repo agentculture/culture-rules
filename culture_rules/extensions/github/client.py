@@ -14,6 +14,10 @@ allowlist is enforced *before* any network call, and secrets are held only in me
   only by the ``github.merge`` port, which is fenced to a run started by a
   ``discord.button.clicked`` event carrying the clicked button's one-time code: merging stays
   a human gate. :meth:`GitHubApp.delete_ref` removes the merged PR's same-repo head branch.
+* The PR opener's calls (``github.pr_open``): a repo read for its default branch, a ref read,
+  a tree and a commit on top of the base's tip, a *new* branch at that commit
+  (:meth:`GitHubApp.create_branch`; there is no call that moves or force-updates a ref), the
+  pull and its labels.
 * Neither the key, the JWT nor the token is ever logged or put in an error message.
 
 The HTTP transport is injectable: ``transport(method, url, headers, body, timeout) ->
@@ -46,6 +50,7 @@ __all__ = [
     "GitHubApp",
     "GitHubError",
     "complete_pr_facts",
+    "is_branch_name",
     "pr_facts",
     "urllib_transport",
 ]
@@ -391,6 +396,114 @@ class GitHubApp:
             raise GitHubError("bad_response", "compare status", retryable=True)
         return status
 
+    # ------------------------------------------------------------- opening a PR (github.pr_open)
+
+    def get_repo(self, repo: str) -> dict[str, Any]:
+        """The repository document (REST ``GET /repos/{repo}``; Metadata: read): the PR opener
+        reads its ``default_branch``, which it never writes."""
+        self._require_allowed(repo, "repo read")
+        return self._call("GET", f"/repos/{repo}", None)
+
+    def branch_head(self, repo: str, branch: str) -> str | None:
+        """The commit ``refs/heads/<branch>`` of ``repo`` points at, or ``None`` when there is
+        no such branch (REST ``GET /repos/{repo}/git/ref/heads/{branch}``, an exact match;
+        Contents: read)."""
+        self._require_allowed(repo, "ref read")
+        if not is_branch_name(branch):
+            raise GitHubError("bad_input", "branch")
+        quoted = urllib.parse.quote(branch, safe="/")
+        try:
+            data = self._call("GET", f"/repos/{repo}/git/ref/heads/{quoted}", None)
+        except GitHubError as exc:
+            if exc.code == "http_404":
+                return None
+            raise
+        sha = _get(data, "object", "sha")
+        if not _is_full_sha(sha):
+            raise GitHubError("bad_response", "ref", retryable=True)
+        return sha
+
+    def commit_tree(self, repo: str, sha: str) -> str:
+        """The tree of commit ``sha`` (REST ``GET /repos/{repo}/git/commits/{sha}``)."""
+        self._require_allowed(repo, "commit read")
+        if not _is_full_sha(sha):
+            raise GitHubError("bad_input", "sha")
+        tree = _get(self._call("GET", f"/repos/{repo}/git/commits/{sha}", None), "tree", "sha")
+        if not _is_full_sha(tree):
+            raise GitHubError("bad_response", "commit tree", retryable=True)
+        return tree
+
+    def create_tree(self, repo: str, base_tree: str, files: list[tuple[str, str]]) -> str:
+        """A tree of ``files`` (``(path, text)`` pairs, regular files, mode ``100644``) on top
+        of ``base_tree`` (REST ``POST /repos/{repo}/git/trees``; Contents: write). Creates an
+        unreferenced object only: no branch moves."""
+        self._require_allowed(repo, "tree")
+        if not _is_full_sha(base_tree):
+            raise GitHubError("bad_input", "base tree")
+        entries = [
+            {"path": path, "mode": "100644", "type": "blob", "content": text}
+            for path, text in files
+        ]
+        payload = {"base_tree": base_tree, "tree": entries}
+        return self._sha_of(self._call("POST", f"/repos/{repo}/git/trees", payload), "tree")
+
+    def create_commit(self, repo: str, message: str, tree: str, parent: str) -> str:
+        """A commit of ``tree`` with the one parent ``parent`` (REST ``POST
+        /repos/{repo}/git/commits``; Contents: write), authored by the App. Creates an
+        unreferenced object only: no branch moves."""
+        self._require_allowed(repo, "commit")
+        if not (_is_full_sha(tree) and _is_full_sha(parent)):
+            raise GitHubError("bad_input", "tree or parent")
+        payload = {"message": message, "tree": tree, "parents": [parent]}
+        return self._sha_of(self._call("POST", f"/repos/{repo}/git/commits", payload), "commit")
+
+    def create_branch(self, repo: str, branch: str, sha: str) -> None:
+        """Create ``refs/heads/<branch>`` at ``sha`` (REST ``POST /repos/{repo}/git/refs``;
+        Contents: write). Only ever a new branch: GitHub refuses an existing ref
+        (``http_422``), and this client has no call that moves or force-updates a ref."""
+        self._require_allowed(repo, "branch create")
+        if not is_branch_name(branch):
+            raise GitHubError("bad_input", "branch")
+        if not _is_full_sha(sha):
+            raise GitHubError("bad_input", "sha")
+        self._call("POST", f"/repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": sha})
+
+    def open_pull(self, repo: str, title: str, head: str, base: str, body: str) -> dict[str, Any]:
+        """Open a PR from branch ``head`` into ``base`` of ``repo`` (REST ``POST
+        /repos/{repo}/pulls``; Pull requests: write); returns ``{number, url}``. GitHub
+        refuses a second open PR for the same head and base (``http_422``)."""
+        self._require_allowed(repo, "pull open")
+        if not (is_branch_name(head) and is_branch_name(base)):
+            raise GitHubError("bad_input", "head or base")
+        payload = {"title": title, "head": head, "base": base, "body": body}
+        return _pull_ref(self._call("POST", f"/repos/{repo}/pulls", payload))
+
+    def open_pull_for(self, repo: str, branch: str) -> dict[str, Any] | None:
+        """The open PR whose head is ``branch`` of ``repo`` itself, as ``{number, url}``, or
+        ``None`` (REST ``GET /repos/{repo}/pulls?head=owner:branch&state=open``; Pull
+        requests: read)."""
+        self._require_allowed(repo, "pull list")
+        if not is_branch_name(branch):
+            raise GitHubError("bad_input", "branch")
+        head = urllib.parse.quote(f"{repo.split('/', 1)[0]}:{branch}", safe="")
+        data = self._call("GET", f"/repos/{repo}/pulls?head={head}&state=open&per_page=1", None)
+        items = [p for p in data.get("items") or () if isinstance(p, dict)]
+        return _pull_ref(items[0]) if items else None
+
+    def add_labels(self, repo: str, number: int, labels: list[str]) -> None:
+        """Add ``labels`` to issue/PR ``number`` (REST ``POST
+        /repos/{repo}/issues/{n}/labels``; Issues or Pull requests: write). Adding a label
+        the PR already has changes nothing, so repeating it is harmless."""
+        self._require_allowed(repo, "labels")
+        self._call("POST", f"/repos/{repo}/issues/{int(number)}/labels", {"labels": labels})
+
+    @staticmethod
+    def _sha_of(data: dict[str, Any], what: str) -> str:
+        sha = data.get("sha")
+        if not _is_full_sha(sha):
+            raise GitHubError("bad_response", what, retryable=True)
+        return sha
+
     def list_check_suites(self, repo: str, sha: str) -> list[dict[str, Any]]:
         """Every check suite of commit ``sha`` (REST, paginated); read-only (Checks: read).
 
@@ -410,6 +523,31 @@ class GitHubApp:
             if len(suites) < 100:
                 return out
         raise GitHubError("too_many_pages", "check suites")
+
+
+_MAX_BRANCH_CHARS = 200
+
+
+def is_branch_name(name: object) -> bool:
+    """Whether ``name`` is a branch name this client writes or reads: a short name (never
+    ``refs/...``) that ``git check-ref-format --branch`` would accept, in a conservative
+    subset (ASCII letters, digits, ``._/-``; no ``..``, ``//``, trailing ``/``, ``.`` or
+    ``.lock``, no segment starting with ``.``)."""
+    if not isinstance(name, str) or not 0 < len(name) <= _MAX_BRANCH_CHARS:
+        return False
+    if not _BRANCH_RE.fullmatch(name) or name.startswith("refs/"):
+        return False
+    if ".." in name or "//" in name or name.endswith(("/", ".", ".lock")):
+        return False
+    return not any(part.startswith(".") or part.endswith(".lock") for part in name.split("/"))
+
+
+def _pull_ref(data: dict[str, Any]) -> dict[str, Any]:
+    """``{number, url}`` of a pull document; ``bad_response`` without a number."""
+    number, url = data.get("number"), data.get("html_url")
+    if not isinstance(number, int) or isinstance(number, bool):
+        raise GitHubError("bad_response", "pull", retryable=True)
+    return {"number": number, "url": url if isinstance(url, str) else None}
 
 
 def _suite_fact(suite: dict[str, Any]) -> dict[str, Any]:

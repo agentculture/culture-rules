@@ -794,6 +794,136 @@ export const ACTION_KINDS_DATA: unknown = {
       "shown_as": null
     },
     {
+      "kind": "github.pr_open",
+      "label": "Open a GitHub PR",
+      "summary": "Commit files to a new branch and open a PR as the GitHub App, never on the default branch",
+      "lenient": false,
+      "aliases": [],
+      "params": [
+        {
+          "name": "actor",
+          "type": "str",
+          "required": true,
+          "label": "",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "repo",
+          "type": "str",
+          "required": true,
+          "label": "",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "branch",
+          "type": "str",
+          "required": true,
+          "label": "New branch",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "base",
+          "type": "str",
+          "required": false,
+          "label": "Base branch (empty: the default branch)",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "files",
+          "type": "list",
+          "required": true,
+          "label": "Files (path and content)",
+          "widget": "json",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "required": true,
+          "label": "",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "body",
+          "type": "str",
+          "required": false,
+          "label": "",
+          "widget": "multiline",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
+          "name": "labels",
+          "type": "list",
+          "required": false,
+          "label": "",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        }
+      ],
+      "any_of": [],
+      "actors": [
+        {
+          "declares_action": true
+        }
+      ],
+      "actorless": false,
+      "declarable_by_apps": true,
+      "shown_as": null
+    },
+    {
       "kind": "jira.comment",
       "label": "Comment on Jira",
       "summary": "Comment on a Jira issue",

@@ -188,6 +188,13 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
             "github.merge as gh (only on a button click, with the button's one-time code)",
         ),
         (
+            {
+                "kind": "github.pr_open",
+                "params": {"actor": "gh", "repo": "o/r", "branch": "bot/x", "title": "t"},
+            },
+            "github.pr_open as gh on o/r (a new branch, never the default branch; once per step)",
+        ),
+        (
             {"kind": "machine.command", "params": {"actor": "thor", "command": "reboot"}},
             "machine.command as thor `reboot`",
         ),
