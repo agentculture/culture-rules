@@ -1,0 +1,215 @@
+# Build Plan — qodo bridge
+
+slug: `qodo-bridge` · status: `exported` · from frame: `qodo-bridge`
+
+> qodo-cli is a bridge: one app with an HTTP API, an MCP server and an embeddable web surface, built on a reusable bridge framework. culture-rules drives it through an actor, so a rule runs Qodo when a PR is opened and another has a cortex agent improve the repo's Qodo configuration when a PR is merged. No extra repo was created.
+
+## Tasks
+
+### t1 — qodo-cli: rename the installed command from qodo to qodo-cli
+
+- instruction: Repo ../qodo-cli. Merge or rebase onto the docs/readme-rewrite work first, since it rewrites the README. Change only the entry point and the self-description strings; keep the import package name qodo. Bump the version with the version-bump skill.
+- covers: c47, h29
+- acceptance:
+  - pyproject.toml \[project.scripts\] defines qodo-cli and no qodo entry; python -c 'import qodo' still works
+  - learn, explain, overview, README and CLAUDE.md name the command qodo-cli; tests/`test_cli.py` and tests/`test_contracts.py` pass with --json shapes unchanged
+
+### t2 — qodo-cli: probe Qodo's MCP server live and record its tool schemas
+
+- instruction: Needs the operator's Qodo API key in `QODO_API_KEY`; do not commit or log it. Endpoint and auth are in the spec's scope entry on Qodo's docs (Streamable HTTP, Bearer key, trailing slash). If a tool the spec names does not exist, stop and report it rather than substituting another.
+- covers: c20, h10, c26, h12
+- acceptance:
+  - docs/qodo-mcp-tools.md lists each tool the bridge will use (findings, mark-implemented, dismiss, rules search/list/get, review-history) with the input schema returned by a real tools/list call
+  - tests/fixtures/ holds one recorded response per tool, with secrets and private text removed
+  - the doc states, from a real call or Qodo's current configuration reference, whether `best_practices.md` and \[`pr_reviewer`\] `extra_instructions` are still read
+
+### t3 — qodo-cli: public Python API qodo.api over the existing logic
+
+- instruction: Move, do not rewrite: the logic in qodo/cli/`_providers.py` and qodo/cli/`_qodo_api.py` becomes importable through qodo.api. Stdlib only.
+- depends on: t1
+- covers: c21, h11
+- acceptance:
+  - qodo/api.py exposes `review_list`, `review_resolve`, `rules_get` and config show/validate/init returning plain objects, as qodo-cli issue 18 asks
+  - the CLI handlers for rules, review and config call qodo.api; a test fails if a handler imports qodo.cli.`_providers` or qodo.cli.`_qodo_api`
+  - tests/`test_contracts.py` passes unchanged
+
+### t4 — qodo-cli: the upstream gateway, a client for Qodo's MCP server and rules API behind an exposure policy
+
+- instruction: One module for the MCP transport (JSON-RPC over Streamable HTTP with urllib; the reply is an event stream whose last data line is the response; there is no session id), one for the policy, one for the qodo.api functions. Follow docs/qodo-mcp-tools.md and tests/fixtures/`qodo_mcp`/, not the spec's guesses: findings are addressed by PR URL, changes are batched by `finding_ids`, dismiss needs a reason, history needs a file path. Every upstream tool carries readOnlyHint and destructiveHint annotations; use them for the default-deny rule. The history tools were failing upstream when probed; build them against the schema and mark their tests as schema-only.
+- depends on: t2, t3
+- covers: c26
+- acceptance:
+  - one gateway module lists Qodo's tools and calls any of them by name over MCP, and wraps the rules search API; an exposure policy held in configuration names each upstream tool that is exposed, the verb name it gets and the surfaces it appears on, and anything not named is refused
+  - the gateway is stdlib only, refuses a non-HTTPS endpoint, never prints the API key, and refuses a tool whose annotation says it is not read-only unless the policy marks it as an allowed write; tested against the recorded schemas and fixtures
+  - qodo.api gains `findings_list`(`pr_url`), `findings_implement`(ids), `findings_dismiss`(ids, reason), `rules_search`, `rules_list` and `review_history`(repo, path), each a thin call through the gateway
+
+### t5 — qodo-cli: the verb registry, built from the exposure policy plus the local verbs, and the CLI verbs it yields
+
+- instruction: Cite culture-rules' registry shape (`culture_rules`/cli/registry.py and cli/verbs) with a provenance header. config propose is a separate task; register its name here and leave the handler to that task.
+- depends on: t4
+- covers: c4, h4, c35, h21, c45, h27
+- acceptance:
+  - one registry lists every bridge verb with its params schema: each upstream tool the policy exposes becomes a verb whose params come from the recorded input schema, beside the local verbs; the shipped policy exposes findings list, findings implement, findings dismiss, rules search, rules list, rules get and history show, and no tool that writes to a pull request or changes a rule
+  - each verb has a CLI command with --json, CliError failures, an explain catalog entry and a mention in learn and overview; teken cli doctor . --strict is green
+  - findings list --summary prints counts, ids, statuses and URLs only, and its JSON for a 100-finding fixture is under 64 KiB
+
+### t6 — qodo-cli: config propose validates a change and returns it
+
+- instruction: Validation follows what the probe task found about current versus legacy settings. The path allowlist and repo allowlist are configuration, not constants.
+- depends on: t2, t5
+- covers: c42, h25, c41, h24
+- acceptance:
+  - given a checkout and a base ref, config propose returns the changed files with contents only when every changed path is in the configured allowlist of Qodo configuration files and the files validate
+  - a diff touching any other path, or an invalid file, returns a refusal with a reason and no file contents
+  - the bridge's own repo allowlist refuses a repo outside it before any other work; no code path in qodo-cli pushes, merges or opens a PR
+
+### t7 — qodo-cli: cite the bridge framework parts from culture-rules
+
+- instruction: Sources: `culture_rules`/server/static.py, server/caching.py, auth/access.py, auth/resolve.py, auth/tokens.py, auth/principal.py, auth/guards.py. Replace the `CULTURE_RULES_` env prefix with a parameter so a second app can cite the same files. Rewrite the route-to-role policy; do not copy culture-rules' route matrix.
+- depends on: t1
+- covers: c14, h8, c3, h3, c30, h16
+- acceptance:
+  - qodo/bridge/ holds the cited auth (access, resolve, tokens, principal), static serving and caching modules, each with a header naming its culture-rules source path and commit
+  - no file under qodo/bridge/ contains the word qodo outside its import paths and provenance header, checked by a test
+  - pyproject.toml gains server and mcp extras; a test in an environment without them shows zero third-party packages installed and every existing verb working
+
+### t8 — qodo-cli: the HTTP API (qodo-cli serve)
+
+- instruction: FastAPI and uvicorn behind the server extra, imported lazily. Handlers call qodo.api only.
+- depends on: t5, t6, t7
+- covers: c2, h2, c49, h31
+- acceptance:
+  - serve starts loopback and LAN listeners; every registry verb is an HTTP operation, an upstream tool the policy does not expose is unreachable on every surface, and api/openapi.json is pinned by a test
+  - a request without a token to each route that reads findings, changes a finding or proposes a change returns 401; GET /health answers without a token and carries no secret
+  - serve runs from an installed wheel with no Node on the machine
+
+### t9 — qodo-cli: the MCP server (qodo-cli mcp) and the surface parity test
+
+- instruction: Cite `culture_rules`/mcp/server.py, mcp/tools.py and tests/`test_surface_parity.py` with provenance headers. The mcp SDK sits behind the mcp extra.
+- depends on: t8
+- covers: c34, h20
+- acceptance:
+  - mcp serves one tool per registry verb, so an exposed upstream tool is proxied under the name the policy gives it and an unexposed one is absent
+  - a data-driven parity test checks every registry verb has a CLI command, an MCP tool and an HTTP operation, and fails when one is missing
+
+### t10 — qodo-cli: health, key expiry and a change log
+
+- instruction: Key expiry is not readable from the key itself; take the expiry date from configuration set when the key is created, and say so in doctor's remediation text.
+- depends on: t4
+- covers: c48, h30
+- acceptance:
+  - doctor reports a failing check when the Qodo API key is missing or expires in fewer than 14 days, and passes otherwise
+  - every finding change and every proposed configuration change appends one line to a log the UI can read
+
+### t11 — qodo-cli: web shell, wheel build and CI for the UI
+
+- instruction: Cite culture-rules' `hatch_build.py`, web/src/culture-design and the API client shape, with provenance headers. The canvas <https://claude.ai/artifact/JQLGKoX2zDwQKnSUQxFyWB> is the visual reference; its data is sample content.
+- depends on: t8
+- covers: c2, h2
+- acceptance:
+  - web/ holds a React app whose header and tokens match the design canvas; `hatch_build.py` ships its build inside the wheel and serve returns it at /
+  - CI has a web job (install, typecheck, unit tests) and publish.yml builds the UI and triggers on web/\*\* as well as qodo/\*\*
+
+### t12 — qodo-cli: the three UI screens (Findings, Configuration, Rules)
+
+- instruction: Follow the canvas artboards Main, Configuration and Rules. Fields come from the schemas the probe task recorded; drop any field on the canvas that Qodo does not return and report it.
+- depends on: t11, t10
+- acceptance:
+  - Findings lists open PRs by repo and shows a PR's findings with Mark implemented and Dismiss calling the API; Configuration shows each repo's files, validation result and proposed change; Rules searches rules with a repo scope
+  - each screen works at phone width and by keyboard, with component tests against fixture data
+
+### t13 — associate: cite the bridge framework and add the server and mcp extras
+
+- instruction: Repo ../associate, source version 0.10.0 on branch spec/associate-multi-model-on-pi, which has an open plan and an uncommitted culture.yaml edit: branch from wherever the operator says and do not touch culture.yaml, associate/harness/pi.py or gate.json. Cite from qodo-cli's qodo/bridge/ as landed by the qodo-cli framework task, keeping the culture-rules provenance.
+- depends on: t7
+- covers: c14, h16
+- acceptance:
+  - associate/bridge/ holds the same cited auth and static-serving modules as qodo-cli, each with a provenance header, and no file there contains app-specific code
+  - pip install with no extras still installs zero third-party packages and every existing verb works
+
+### t14 — associate: runs API, start a run and read its result
+
+- instruction: Wrap the existing synchronous associate run as a detached process, the way .pi/extensions/associate/tools/delegate.ts does, and store state outside the checkout. associate run commits and merges into the checkout's local main when the run is ok and tests pass; report that, and never push. Update the four places a new verb needs (command module, parser, explain catalog, learn).
+- depends on: t13
+- covers: c41
+- acceptance:
+  - runs start takes a checkout, a model, an instruction and test commands and returns a run id at once; runs show returns status and, when finished, outcome, merge, tests.passed, the base commit and the changed paths, in under 64 KiB
+  - a second start for a checkout with a run in progress is refused; a run that exits 0 with a refused merge or failing tests reports failure, not success
+  - each verb is a CLI command, an HTTP operation behind a token, and has an explain catalog entry; GET /health needs no token
+
+### t15 — associate: MCP server and the surface parity test
+
+- instruction: Same cited modules as the qodo-cli MCP task.
+- depends on: t14
+- covers: c34
+- acceptance:
+  - mcp serves one tool per registry verb, and a data-driven parity test fails when a verb lacks a CLI command, an MCP tool or an HTTP operation
+
+### t16 — associate: web UI, a runs list and a run page
+
+- instruction: No design exists for associate's UI yet. Add artboards to the same canvas, in the same tokens, and get the operator's confirmation first.
+- depends on: t14, t11
+- acceptance:
+  - the operator confirmed a design artboard for the two screens before any UI code was written
+  - the UI ships in the wheel, lists runs with status and outcome, and a run page shows its statements, tests and changed paths
+
+### t17 — culture-rules: a generic GitHub action that opens a PR as the App
+
+- instruction: Inside `culture_rules`/extensions/github only: client calls for a ref, a tree or contents commit and a pull, a port, the kind with its ParamSpecs and a params validator. Follow github.comment's once-claim pattern for idempotency. Regenerate web/src/fixtures/action-kinds.data.ts. The working tree on main holds unrelated uncommitted button-code work in extensions/github/merge.py and extensions/discord: start from a clean worktree under ../.worktrees.culture-rules/.
+- covers: c53, h33, c9, h6, c31
+- acceptance:
+  - the action takes actor, repo, branch, base, files (path and content), title, body and labels; it commits the files to the new branch and opens the PR, returning number, url and head sha
+  - it refuses a repo outside connection.repos, a branch equal to the default branch and an action not listed in params.actions; when the branch already exists it opens nothing and returns skipped with the open PR's number
+  - a retried step opens no second PR; the kind is in the action catalogue fixture, docs/actors/github.md and the extension tests; grep -ri qodo `culture_rules`/ returns nothing
+
+### t18 — qodo-cli: the culture-rules bundle (actors, rules, workflows), shipped disabled
+
+- instruction: Steps are http.call to the two bridges, `retry_until` to wait for the associate run, the keyset built-ins, and the open-PR action. A fixed branch name gives the one-open-PR rule through the action's skipped result. Labels are not in GitHub event data, so the loop guard is the branch prefix in a contains condition. Test the bundle against a MemoryStore engine with recorded events.
+- depends on: t8, t14, t17
+- covers: c8, h5, c10, h7, c19, h9, c36, h22, c44, h26, c46, h28, c50, h32
+- acceptance:
+  - a bundle directory imports cleanly with culture-rules rollout import --bundle and every rule in it is disabled; it states the lowest culture-rules version it needs
+  - the findings rule fires on created Qodo review and comment events for same-repo, non-draft PRs, never on `self_authored` events, and a keyset step makes it run once per PR head commit
+  - the improvement rule fires on github.pr.closed with merged true, excludes head branches carrying the configuration prefix, runs one at a time per repo, and opens the PR with a fixed branch name and label set as literals in step configuration
+  - the agent's instruction text appears only in the bundle's step or actor configuration; with the rules disabled a PR open and a PR merge start no run
+
+### t19 — qodo-cli and associate: documentation for the three audiences
+
+- instruction: Docs describe what is on disk. Call the app a bridge and say once that this is not the cultureagent agent-session bridge.
+- depends on: t9, t15, t18
+- covers: c27, h13
+- acceptance:
+  - qodo-cli's README, CLAUDE.md and AGENTS.colleague.md describe the bridge; docs cover the operator (running the service, the bundle), agents (CLI and MCP) and integrators (qodo.api)
+  - associate's README and CLAUDE.md describe its bridge surfaces; markdownlint passes in both repos
+
+### t20 — deploy both bridges on core and configure culture-rules
+
+- instruction: Operator-run or operator-approved steps only: installing units, creating grants, changing App permissions and enabling rules all need the operator's go-ahead at the time. associate needs a route from core to the cortex model and the decider; without the decider it does no writes.
+- depends on: t12, t16, t18
+- covers: h15, c29
+- acceptance:
+  - both services run as units on core with their secrets held as grants, and their health routes answer
+  - the GitHub App has contents and pull-request write on the allowlisted repos, the App actor lists the new action, and its pinned digest is updated
+  - the bundle is imported and its rules are enabled
+
+### t21 — live verification of both flows and the evidence
+
+- instruction: File each result with devague evidence against the matching obligation.
+- depends on: t20, t19
+- covers: c1, h1, c32, h18, c33, h19, h17, c28, h14
+- acceptance:
+  - on 1 real same-repo PR one run started by Qodo's review ends succeeded with the findings count, and the App's own comments started 0 runs; run id and PR recorded
+  - after 1 merged PR exactly 1 configuration PR was opened, and merging it started 0 improvement runs; both PRs and the run list recorded
+  - grep -ril qodo `culture_rules`/ prints nothing and tests/`test_extension_boundary.py` passes; no repository was created
+
+## Risks
+
+- [unknown_nonblocking] associate's source is 0.10.0 on an unmerged branch with an open plan and an uncommitted culture.yaml edit; the installed 0.9.0 lacks --model. The associate tasks need that branch merged or a base the operator names. (task t13)
+- [unknown_nonblocking] associate run merges into the checkout's local main and exits 0 even when the merge is refused or tests fail; the checkout used by the flow must be a dedicated clone, and callers must read outcome, merge and tests. (task t14)
+- [unknown_nonblocking] associate does no writes unless the lobes decider and the cortex model are reachable with `ASSOCIATE_API_KEY`; cortex is served from spark and the services run on core. (task t20)
+- [unknown_nonblocking] Qodo's MCP tools and settings are known only from doc summaries until the probe task runs; a missing tool changes the verb list. (task t2)
+- [unknown_nonblocking] Checked during t17: the pinned digest of the github-app actor (`culture_rules`/actors/trusted.py, `_actor_projection`) does not cover params.actions or repos, so listing the new action on the live actor changes no digest and needs no release. The remaining point is that github.`pr_open` does not require a pinned actor, as github.comment does not. (task t17)
+- [unknown_nonblocking] No design exists for associate's web UI; the operator has confirmed only the qodo canvas. (task t16)
+- [unknown_nonblocking] Whether Qodo's terms allow one person's API key to back a shared service is unanswered. (task t20)
+- [unknown_nonblocking] Qodo's history tools (pull-request-review-history, similar-suggestions, stats) failed twice with MT-UPSTREAM-DOWN on 2026-11-16; no successful reply has been seen, so target c26/h12 has no evidence and the improvement flow's input from review history is unproven. (task t2)
+- [unknown_nonblocking] t2 recorded no reply for pr-review-mark-implemented or pr-review-dismiss: Qodo marks both destructive and a call changes a real finding, so only their input schemas are known; and whether Qodo still reads `best_practices.md` and \[`pr_reviewer`\] `extra_instructions` is unverified (absent from its current docs). t2's second and third acceptance criteria are therefore only partly met (task t2)
