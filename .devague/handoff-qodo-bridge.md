@@ -92,20 +92,28 @@ Notes:
 
 | Task | State |
 | --- | --- |
-| t1 to t12, t18, t19 qodo-cli half (qodo-cli) | **Merged** into `feat/bridge` (877 Python, 90 web, 37 bundle tests pass; the bundle tests need `uv run --with ../.worktrees.culture-rules/open-pr-action`). Also merged: the operator's exposure policy file (`QODO_EXPOSURE_POLICY`), added by the main agent to meet t4's "held in configuration". Deviation d2 (approved): upstream `rules-get` is `rules show`. |
-| t17 `github.pr_open` (culture-rules) | **Merged** into `rules/open-pr-action`. |
-| t13, t14, t15, `serve` and token verbs (d3, approved), t19 associate half (associate) | **Merged** into associate's `feat/bridge` (677 tests pass; version 0.11.0 with a CHANGELOG entry). |
-| t16 associate web UI | Blocked: the operator must confirm the two artboards (second row of the canvas; sources `Runs.dc.html`, `Run.dc.html` in the scratchpad's `qodo-ui/project/`). |
+| qodo-cli: t1 to t12, t18, its half of t19, the exposure policy file, and the fix flow (deviation d4, approved) | **Merged** into `feat/bridge`: 1113 Python, 109 web and 73 bundle tests pass (the bundle tests need `uv run --with ../.worktrees.culture-rules/open-pr-action`). |
+| culture-rules: t17 `github.pr_open`, the spec, plan, split and this handoff | On `rules/open-pr-action`. |
+| associate: t13 to t16, `serve` and token verbs (d3, approved), its half of t19 | **Merged** into `feat/bridge`: 754 Python and 87 web tests pass; version 0.11.0. |
 | t20, t21 | Operator-run. |
 
-Still owed: t16 (or the operator's word to ship without it), then one PR per repo
-through `cicd` (the operator's third gate; nothing is pushed). qodo-cli's
-CHANGELOG covers the bridge under 0.10.0. The built qodo UI differs from the
-confirmed canvas where Qodo returns no data (see the t12 report in the
-transcript): the operator has been asked to accept it or name fields to restore.
-Lapses l1 to l5 and deviations d1 to d3 are all adjudicated. The associate
-`serve` unit needs `ASSOCIATE_API_KEY` and `ASSOCIATE_BASE_URL` in its
-environment, because a run inherits them.
+Every buildable task is merged on the three local integration branches. Still
+owed: one PR per repo through `cicd` (the operator's third gate; nothing is
+pushed), then `/validate-delivery` and `/summarize-delivery`. Associate's PR
+sits on the unmerged `spec/associate-multi-model-on-pi`. Lapses l1 to l5 and
+deviations d1 to d4 are all adjudicated. The operator has not yet said whether
+the built qodo screens replace the confirmed canvas.
+
+The fix flow (d4): `findings fix` publishes `qodo.fix.requested` on the
+events-cli bus (the `events` extra; a broker listens on this machine at
+127.0.0.1:1883, so never run a real publish without the operator's word);
+`fix propose` gates the agent's change; the bundle's fifth rule,
+`qodo-fix-on-request`, runs associate on the PR head in its own checkout root
+(`/srv/qodo-fix-checkouts`) and opens a PR against the reviewed PR's branch.
+A real publish and culture-rules ingesting it are unexercised (t21).
+
+The operator confirmed the built qodo screens in place of the canvas. The UI
+preview that was running for the operator is stopped and its state deleted.
 
 Things later tasks must respect: `config propose` requires the checkout at
 `<root>/<owner>/<name>` under `QODO_PROPOSE_CHECKOUT_ROOTS`, with the repo in

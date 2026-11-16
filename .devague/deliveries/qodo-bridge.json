@@ -2,7 +2,7 @@
   "plan_slug": "qodo-bridge",
   "schema_version": 2,
   "created": "2026-11-16T06:06:17Z",
-  "updated": "2026-11-16T09:40:09Z",
+  "updated": "2026-11-16T10:18:15Z",
   "deviations": [
     {
       "id": "d1",
@@ -49,6 +49,22 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "New scope asked for by the operator during the run: a 'send an agent to fix' option on a finding. The qodo bridge publishes a fix-request event on the mesh's event bus; a new disabled rule in the bundle starts a workflow that runs associate on the pull request's branch and opens a new PR against that branch through github.pr_open. Adds to qodo-cli: a findings fix verb (publishes the event), a fix propose verb (returns the agent's change after checks), a button in the Findings screen, and a third flow in the bundle. culture-rules itself gets no code",
+      "task_ref": "t12",
+      "reason": "The operator asked for it and chose: the fix lands as a new PR against the reviewed PR's branch, the trigger is an event on the bus, and it is built in this delivery",
+      "affects": [
+        "t18",
+        "t19",
+        "t20",
+        "t21"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 4
     }
   ],
   "evidence": [],
