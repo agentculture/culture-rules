@@ -213,6 +213,20 @@ def pr_open_params(params: Mapping[str, Any], path: str) -> list[Problem]:
     file list and its paths and the labels. A value a reference fills is checked by the port
     when it runs (the same limits, and the default branch, which only GitHub knows)."""
     from culture_rules.extensions.github import pr_open  # noqa: PLC0415
+
+    out = _pr_open_branch_problems(params, path)
+    files = params.get("files")
+    if isinstance(files, list):
+        out.extend(_pr_open_files_problems(files, path))
+    labels = params.get("labels")
+    if isinstance(labels, list) and len(labels) > pr_open.MAX_LABELS:
+        msg = f"at most {pr_open.MAX_LABELS} labels"
+        out.append((join(path, "labels"), "too_many_labels", msg))
+    return out
+
+
+def _pr_open_branch_problems(params: Mapping[str, Any], path: str) -> list[Problem]:
+    """The literal ``branch`` and ``base``: each a branch name, and not the same branch."""
     from culture_rules.extensions.github.client import is_branch_name  # noqa: PLC0415
 
     out: list[Problem] = []
@@ -222,26 +236,35 @@ def pr_open_params(params: Mapping[str, Any], path: str) -> list[Problem]:
             out.append((join(path, name), "invalid_branch", f"{value!r} is not a branch name"))
     if branch and base and branch.casefold() == base.casefold():
         out.append((join(path, "branch"), "branch_is_base", "the new branch is the base branch"))
-    files = params.get("files")
-    if isinstance(files, list):
-        if len(files) > pr_open.MAX_FILES:
-            msg = f"at most {pr_open.MAX_FILES} files"
-            out.append((join(path, "files"), "too_many_files", msg))
-        for i, item in enumerate(files):
-            where = join(path, f"files.{i}")
-            if isinstance(item, str):
-                continue  # a reference fills it
-            if not isinstance(item, Mapping) or not {"path", "content"} <= set(item):
-                out.append((where, "action_param_type", "each file is {path, content}"))
-                continue
-            name = _literal(item.get("path"))
-            if name is not None and pr_open.path_refusal(name):
-                out.append((join(where, "path"), "path_refused", f"{name!r} is refused"))
-    labels = params.get("labels")
-    if isinstance(labels, list) and len(labels) > pr_open.MAX_LABELS:
-        msg = f"at most {pr_open.MAX_LABELS} labels"
-        out.append((join(path, "labels"), "too_many_labels", msg))
     return out
+
+
+def _pr_open_files_problems(files: list[Any], path: str) -> list[Problem]:
+    """The literal file list: its length, each item's shape and each literal path."""
+    from culture_rules.extensions.github import pr_open  # noqa: PLC0415
+
+    out: list[Problem] = []
+    if len(files) > pr_open.MAX_FILES:
+        msg = f"at most {pr_open.MAX_FILES} files"
+        out.append((join(path, "files"), "too_many_files", msg))
+    for i, item in enumerate(files):
+        out.extend(_pr_open_file_problems(item, join(path, f"files.{i}")))
+    return out
+
+
+def _pr_open_file_problems(item: Any, where: str) -> list[Problem]:
+    """One file of the list: ``{path, content}`` (a string is a reference that fills it),
+    with a literal path that is not refused."""
+    from culture_rules.extensions.github import pr_open  # noqa: PLC0415
+
+    if isinstance(item, str):
+        return []  # a reference fills it
+    if not isinstance(item, Mapping) or not {"path", "content"} <= set(item):
+        return [(where, "action_param_type", "each file is {path, content}")]
+    name = _literal(item.get("path"))
+    if name is not None and pr_open.path_refusal(name):
+        return [(join(where, "path"), "path_refused", f"{name!r} is refused")]
+    return []
 
 
 def pr_open_guard(params: Mapping[str, Any]) -> list[str]:

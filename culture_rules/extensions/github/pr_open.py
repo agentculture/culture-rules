@@ -340,27 +340,40 @@ class GitHubPrOpenPort(GitHubCommentPort):
 
     def _prior(self, app: GitHubApp, req: _Request, claim_id: str, owner: str) -> InvocationResult:
         """An earlier attempt of this step claimed it: never write blindly (module doc)."""
-        prior = self._store.get(PR_OPEN_ONCE_COLLECTION, claim_id) or {}
-        if prior.get("state") != _OPENED and not self._take_over(claim_id, prior, owner):
-            prior = self._store.get(PR_OPEN_ONCE_COLLECTION, claim_id) or {}
-            if prior.get("state") != _OPENED:
-                return self._lost()
+        prior = self._held_prior(claim_id, owner)
+        if prior is None:
+            return self._lost()
         if prior.get("state") == _OPENED:
             done = {k: prior.get(k) for k in _OUTPUTS}
             return InvocationResult.completed({**done, "skipped": "opened_before"})
+        return self._resume(app, req, claim_id, owner, prior)
+
+    def _held_prior(self, claim_id: str, owner: str) -> Mapping[str, Any] | None:
+        """The claim as read once it is ``opened`` or this attempt took it over, read again
+        when the take-over failed; ``None`` when another attempt holds it (not ``opened``)."""
+        prior = self._store.get(PR_OPEN_ONCE_COLLECTION, claim_id) or {}
+        if prior.get("state") == _OPENED or self._take_over(claim_id, prior, owner):
+            return prior
+        prior = self._store.get(PR_OPEN_ONCE_COLLECTION, claim_id) or {}
+        return prior if prior.get("state") == _OPENED else None
+
+    def _resume(
+        self,
+        app: GitHubApp,
+        req: _Request,
+        claim_id: str,
+        owner: str,
+        prior: Mapping[str, Any],
+    ) -> InvocationResult:
+        """Read first under a taken-over claim that is not ``opened`` (module doc)."""
         base = prior.get("base") if isinstance(prior.get("base"), str) else None
         commit = prior.get("commit_sha")
         pull = app.pull_for(req.repo, req.branch, commit)
         head = app.branch_head(req.repo, req.branch)
         if pull is not None:  # open, or closed/merged at this claim's commit: a lost answer
-            sha = head if pull.get("open") else commit
-            out = self._opened(app, req, claim_id, owner, pull, sha, base or req.base)
-            return InvocationResult.completed({**out, "skipped": "opened_unconfirmed"})
+            return self._lost_answer(app, req, claim_id, owner, pull, head, commit, base)
         if head is None:  # nothing of it landed: start over under the same claim
-            restart = {"state": _CLAIMED, "commit_sha": None, "base": None}
-            if not self._record(claim_id, owner, restart):
-                return self._lost()
-            return self._open(app, req, claim_id, owner, first=False)
+            return self._restart(app, req, claim_id, owner)
         if base is not None and head == commit:
             if not self._record(claim_id, owner, {"state": _PUSHED}):
                 return self._lost()
@@ -368,6 +381,31 @@ class GitHubPrOpenPort(GitHubCommentPort):
         if not self._release(claim_id, owner):
             return self._lost()
         return self._skipped(app, req, base or req.base, head)
+
+    def _lost_answer(
+        self,
+        app: GitHubApp,
+        req: _Request,
+        claim_id: str,
+        owner: str,
+        pull: Mapping[str, Any],
+        head: str | None,
+        commit: Any,
+        base: str | None,
+    ) -> InvocationResult:
+        """A PR from the branch answers an earlier attempt whose answer was lost."""
+        sha = head if pull.get("open") else commit
+        out = self._opened(app, req, claim_id, owner, pull, sha, base or req.base)
+        return InvocationResult.completed({**out, "skipped": "opened_unconfirmed"})
+
+    def _restart(
+        self, app: GitHubApp, req: _Request, claim_id: str, owner: str
+    ) -> InvocationResult:
+        """Nothing of an earlier attempt landed: start over under the same claim."""
+        restart = {"state": _CLAIMED, "commit_sha": None, "base": None}
+        if not self._record(claim_id, owner, restart):
+            return self._lost()
+        return self._open(app, req, claim_id, owner, first=False)
 
     # ------------------------------------------------------------------------- the writes
 
@@ -382,29 +420,56 @@ class GitHubPrOpenPort(GitHubCommentPort):
             self._release(claim_id, owner)  # only unreferenced objects were made
             raise
         if isinstance(prepared, InvocationResult):
-            released = self._release(claim_id, owner)
-            if not released and prepared.outcome == COMPLETED:  # the branch may be theirs
-                return self._lost()
-            return prepared
+            return self._stopped(claim_id, owner, prepared)
         if not self._record(claim_id, owner, {"commit_sha": prepared, "base": base}):
             return self._lost()  # another attempt holds it now: make no branch
         try:
             app.create_branch(req.repo, req.branch, prepared)
         except GitHubError as exc:
-            if exc.code == "http_422":  # the branch exists: someone else made it meanwhile
-                # a taken-over claim keeps it: the branch may be an earlier attempt's
-                if first and self._release(claim_id, owner):
-                    return self._skipped(app, req, base, app.branch_head(req.repo, req.branch))
-                return self._lost()
-            if _refused(exc.code):
-                self._release(claim_id, owner)
-            else:  # the branch may exist: keep the claim, the next attempt reads first
-                self._record(claim_id, owner, {"state": _UNKNOWN, "error": exc.code})
-            raise
-        if not self._record(claim_id, owner, {"state": _PUSHED}):
-            if not self._follow_branch(claim_id, owner, req, base, prepared):
-                return self._lost()
+            return self._branch_failed(app, req, claim_id, owner, base, exc, first=first)
+        if not self._claim_pushed(claim_id, owner, req, base, prepared):
+            return self._lost()
         return self._pull(app, req, claim_id, owner, base, prepared)
+
+    def _stopped(self, claim_id: str, owner: str, prepared: InvocationResult) -> InvocationResult:
+        """``_prepare`` stopped before any branch: release the claim and return its result."""
+        released = self._release(claim_id, owner)
+        if not released and prepared.outcome == COMPLETED:  # the branch may be theirs
+            return self._lost()
+        return prepared
+
+    def _branch_failed(
+        self,
+        app: GitHubApp,
+        req: _Request,
+        claim_id: str,
+        owner: str,
+        base: str,
+        exc: GitHubError,
+        *,
+        first: bool,
+    ) -> InvocationResult:
+        """GitHub did not accept the new branch: an existing branch is step 5 or a lost claim;
+        any other error is raised again, after releasing or keeping the claim."""
+        if exc.code == "http_422":  # the branch exists: someone else made it meanwhile
+            # a taken-over claim keeps it: the branch may be an earlier attempt's
+            if first and self._release(claim_id, owner):
+                return self._skipped(app, req, base, app.branch_head(req.repo, req.branch))
+            return self._lost()
+        if _refused(exc.code):
+            self._release(claim_id, owner)
+        else:  # the branch may exist: keep the claim, the next attempt reads first
+            self._record(claim_id, owner, {"state": _UNKNOWN, "error": exc.code})
+        raise exc
+
+    def _claim_pushed(
+        self, claim_id: str, owner: str, req: _Request, base: str, commit: str
+    ) -> bool:
+        """Record ``pushed`` while this attempt owns the claim, else let the claim follow the
+        branch this attempt made; whether this attempt holds it now."""
+        if self._record(claim_id, owner, {"state": _PUSHED}):
+            return True
+        return self._follow_branch(claim_id, owner, req, base, commit)
 
     def _prepare(self, app: GitHubApp, req: _Request) -> tuple[str, str | InvocationResult]:
         """``(base, commit)`` ready for the new branch, or ``(base, result)`` when it stops:

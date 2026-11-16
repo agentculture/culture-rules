@@ -304,7 +304,8 @@ def test_repo_off_the_allowlist_is_refused_before_any_secret_or_network(pem, cap
     port, _store, resolved = setup(pem, fake)
     res = run(port, params(repo="evil/repo"))
     assert (res.outcome, res.error, res.retryable) == ("failed", "repo_not_allowed", False)
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
     assert FAKE_BEARER not in caplog.text
 
 
@@ -314,7 +315,8 @@ def test_an_actor_that_does_not_list_the_kind_is_refused(pem, actions):
     port, _store, resolved = setup(pem, fake, actor_doc(actions=actions))
     res = run(port)
     assert (res.outcome, res.error, res.retryable) == ("failed", "action_not_declared", False)
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
 
 
 def test_a_missing_or_disabled_actor_is_refused(pem):
@@ -351,7 +353,8 @@ def test_a_branch_equal_to_its_base_is_refused_without_network(pem):
     port, _store, resolved = setup(pem, fake)
     res = run(port, params(branch="develop", base="develop"))
     assert (res.outcome, res.error) == ("failed", "branch_is_base")
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
 
 
 def test_an_existing_branch_opens_nothing_and_says_which_pr_is_open(pem):
@@ -377,7 +380,8 @@ def test_an_existing_branch_without_an_open_pr_is_skipped_with_no_number(pem):
     assert res.outcome == "completed"
     assert res.output["skipped"] == "branch_exists"
     assert res.output["number"] is None
-    assert fake.writes() == [] and fake.pulls == []
+    assert fake.writes() == []
+    assert fake.pulls == []
 
 
 def test_a_branch_created_meanwhile_is_skipped_too(pem):
@@ -433,7 +437,8 @@ def test_malformed_input_is_refused_before_any_secret_or_network(pem, over, code
     port, _store, resolved = setup(pem, fake)
     res = run(port, params(**over))
     assert (res.outcome, res.error, res.retryable) == ("failed", code, False)
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
 
 
 def test_too_many_files_are_refused(pem):
@@ -621,7 +626,8 @@ def test_the_claim_is_keyed_by_the_step_key(pem):
     run(port, key="idem-x")
     claim = store.find(po.PR_OPEN_ONCE_COLLECTION)[0]
     assert claim["id"] == hashlib.sha256(b"github.pr_open#idem-x").hexdigest()
-    assert claim["repo"] == REPO and claim["branch"] == "bot/update-notes"
+    assert claim["repo"] == REPO
+    assert claim["branch"] == "bot/update-notes"
     assert "content" not in json.dumps(claim)  # file contents never stored
 
 
