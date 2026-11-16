@@ -114,7 +114,7 @@ under `ASSOCIATE_RUNS_ROOTS`, and a start needs an admin token. A clean run that
 changed nothing reports `ok: true, merge: nothing_to_merge`. qodo-cli serves on
 8792/8793 (`POST /verbs/<noun>/<name>`, tokens via `qodo-cli tokens issue`);
 associate on 8794/8795 once d3 is merged. The bundle is `docs/rules/qodo/` in
-qodo-cli (four rules, all disabled; its README lists what to set). 
+qodo-cli (four rules, all disabled; its README lists what to set).
 
 Reviewer note: cortex returned nothing in three attempts (30-minute limit), so
 Codex reviews. `codex_review.sh` in the scratchpad passes the diff inline and
