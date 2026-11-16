@@ -2,7 +2,7 @@
   "plan_slug": "qodo-bridge",
   "schema_version": 2,
   "created": "2026-11-16T06:06:17Z",
-  "updated": "2026-11-16T08:50:08Z",
+  "updated": "2026-11-16T09:40:09Z",
   "deviations": [
     {
       "id": "d1",
@@ -46,7 +46,7 @@
         "t16"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 3
     }

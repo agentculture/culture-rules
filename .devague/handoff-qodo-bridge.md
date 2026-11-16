@@ -94,16 +94,18 @@ Notes:
 | --- | --- |
 | t1 to t12, t18, t19 qodo-cli half (qodo-cli) | **Merged** into `feat/bridge` (877 Python, 90 web, 37 bundle tests pass; the bundle tests need `uv run --with ../.worktrees.culture-rules/open-pr-action`). Also merged: the operator's exposure policy file (`QODO_EXPOSURE_POLICY`), added by the main agent to meet t4's "held in configuration". Deviation d2 (approved): upstream `rules-get` is `rules show`. |
 | t17 `github.pr_open` (culture-rules) | **Merged** into `rules/open-pr-action`. |
-| t13, t14, t15 (associate) | **Merged** into associate's `feat/bridge` (608 tests pass). |
-| associate `serve` and token verbs (deviation d3, **proposed**) | Built and reviewed on `bridge/serve` in `../.worktrees.associate/serve` (677 tests pass). Merge only after the operator confirms d3. Then write the associate half of t19 (README and CLAUDE.md describe its bridge surfaces). |
+| t13, t14, t15, `serve` and token verbs (d3, approved), t19 associate half (associate) | **Merged** into associate's `feat/bridge` (677 tests pass; version 0.11.0 with a CHANGELOG entry). |
 | t16 associate web UI | Blocked: the operator must confirm the two artboards (second row of the canvas; sources `Runs.dc.html`, `Run.dc.html` in the scratchpad's `qodo-ui/project/`). |
 | t20, t21 | Operator-run. |
 
-Still owed before the PRs: a CHANGELOG entry in qodo-cli for the bridge work
-(0.10.0 covers only the rename) and a version bump and CHANGELOG entry in
-associate; then one PR per repo through `cicd`. The built UI differs from the
+Still owed: t16 (or the operator's word to ship without it), then one PR per repo
+through `cicd` (the operator's third gate; nothing is pushed). qodo-cli's
+CHANGELOG covers the bridge under 0.10.0. The built qodo UI differs from the
 confirmed canvas where Qodo returns no data (see the t12 report in the
-transcript): the canvas should be updated or the operator told again.
+transcript): the operator has been asked to accept it or name fields to restore.
+Lapses l1 to l5 and deviations d1 to d3 are all adjudicated. The associate
+`serve` unit needs `ASSOCIATE_API_KEY` and `ASSOCIATE_BASE_URL` in its
+environment, because a run inherits them.
 
 Things later tasks must respect: `config propose` requires the checkout at
 `<root>/<owner>/<name>` under `QODO_PROPOSE_CHECKOUT_ROOTS`, with the repo in
@@ -112,8 +114,7 @@ under `ASSOCIATE_RUNS_ROOTS`, and a start needs an admin token. A clean run that
 changed nothing reports `ok: true, merge: nothing_to_merge`. qodo-cli serves on
 8792/8793 (`POST /verbs/<noun>/<name>`, tokens via `qodo-cli tokens issue`);
 associate on 8794/8795 once d3 is merged. The bundle is `docs/rules/qodo/` in
-qodo-cli (four rules, all disabled; its README lists what to set). Lapses l3 to
-l5 await the operator.
+qodo-cli (four rules, all disabled; its README lists what to set). 
 
 Reviewer note: cortex returned nothing in three attempts (30-minute limit), so
 Codex reviews. `codex_review.sh` in the scratchpad passes the diff inline and
