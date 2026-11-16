@@ -443,12 +443,21 @@ creates the branch. A later attempt that finds the claim reads before it
 writes:
 
 - the PR was recorded: it completes with it (`skipped: opened_before`);
-- an open PR from the branch exists (a lost answer): it completes with that PR
-  (`skipped: opened_unconfirmed`);
+- a PR from the branch exists that is open, or closed or merged with its head
+  at the recorded commit (a lost answer, even if the branch was deleted since):
+  it completes with that PR (`skipped: opened_unconfirmed`; only an open one is
+  labelled). An older PR that only reused the branch name is not taken;
 - the branch is at the recorded commit (a failure after the push): it opens the
   PR without pushing again;
 - the branch does not exist (nothing landed): it starts over;
 - the branch is at another commit: step 3.
+
+The claim is exclusive: each attempt holds it with its own owner token, a later
+attempt takes it over only by compare-and-set, and an attempt records on or
+releases the claim only while it still owns it. An attempt that lost the claim
+writes nothing more and fails `claim_lost` (retryable; the retry reads the
+claim). The one exception: an attempt whose branch GitHub created after another
+attempt took the claim takes it back, since GitHub made only that branch.
 
 GitHub itself also refuses a second open PR for the same head and base. The
 claim never holds the files' contents.
@@ -460,7 +469,7 @@ The calls and the App permissions they need:
 | `GET /repos/{repo}` (the default branch) | Metadata: read |
 | `GET /repos/{repo}/git/ref/heads/{branch}`, `GET /repos/{repo}/git/commits/{sha}` | Contents: read |
 | `POST /repos/{repo}/git/trees`, `POST /repos/{repo}/git/commits`, `POST /repos/{repo}/git/refs` | Contents: write |
-| `GET /repos/{repo}/pulls?head=…&state=open`, `POST /repos/{repo}/pulls` | Pull requests: read and write |
+| `GET /repos/{repo}/pulls?head=…&state=open` (and `state=all` on a retry), `POST /repos/{repo}/pulls` | Pull requests: read and write |
 | `POST /repos/{repo}/issues/{number}/labels` | Issues or Pull requests: write |
 
 The live App already has all of these. Listing the kind in the actor's

@@ -107,12 +107,14 @@ class FakeGitHub:
             return 201, {"ref": payload["ref"], "object": {"sha": payload["sha"]}}
         if method == "GET" and rest.startswith("/pulls?"):
             query = urllib.parse.parse_qs(rest.split("?", 1)[1])
-            assert query["state"] == ["open"]
+            assert query["state"] in (["open"], ["all"])
             owner, branch = query["head"][0].split(":", 1)
             items = [
                 p
-                for p in self.pulls
-                if p["state"] == "open" and p["head"]["ref"] == branch and owner == "acme"
+                for p in reversed(self.pulls)  # newest first, as GitHub lists them
+                if (query["state"] == ["all"] or p["state"] == "open")
+                and p["head"]["ref"] == branch
+                and owner == "acme"
             ]
             return 200, items
         if method == "POST" and rest == "/pulls":
@@ -249,6 +251,16 @@ def test_base_defaults_to_the_repos_default_branch(pem):
     p = params()
     del p["base"]
     res = run(port, p)
+    assert res.outcome == "completed", res
+    assert res.output["base"] == "trunk"
+    assert fake.pulls[0]["base"]["ref"] == "trunk"
+
+
+def test_an_empty_base_means_the_repos_default_branch(pem):
+    fake = FakeGitHub(default="trunk")
+    fake.refs["trunk"] = BASE_SHA
+    port, _store, _ = setup(pem, fake)
+    res = run(port, params(base=""))
     assert res.outcome == "completed", res
     assert res.output["base"] == "trunk"
     assert fake.pulls[0]["base"]["ref"] == "trunk"
@@ -487,6 +499,71 @@ def test_a_lost_pull_answer_is_reconciled_not_resent(pem):
     assert claim["state"] == "opened"
 
 
+def _lose_the_pull_answer(pem):
+    """A first attempt whose PR GitHub opened but whose answer was lost."""
+    fake = FakeGitHub()
+    fake.lose_answer.add(("POST", "/pulls"))
+    port, store, _ = setup(pem, fake)
+    first = run(port)
+    assert (first.outcome, first.error, first.retryable) == ("failed", "http_502", True)
+    assert len(fake.pulls) == 1
+    return fake, port, store
+
+
+def test_a_lost_pull_answer_then_a_closed_pr_is_not_opened_again(pem):
+    fake, port, store = _lose_the_pull_answer(pem)
+    pull = fake.pulls[0]
+    pull["state"] = "closed"  # closed before the retry; the branch is still there
+    before = list(store.find(po.PR_OPEN_ONCE_COLLECTION))
+    fake.calls.clear()
+    again = run(port)
+    assert again.outcome == "completed", again
+    assert again.output["skipped"] == "opened_unconfirmed"
+    assert again.output["number"] == pull["number"]
+    assert again.output["head_sha"] == pull["head"]["sha"]
+    assert len(fake.pulls) == 1
+    assert fake.writes() == []
+    assert store.find(po.PR_OPEN_ONCE_COLLECTION)[0]["commit_sha"] == before[0]["commit_sha"]
+
+
+def test_a_lost_pull_answer_then_a_merged_pr_and_deleted_branch_is_not_redone(pem):
+    fake, port, _store = _lose_the_pull_answer(pem)
+    pull = fake.pulls[0]
+    pull["state"], pull["merged_at"] = "closed", "2030-01-01T00:00:00Z"
+    del fake.refs["bot/update-notes"]  # merged, and the branch deleted
+    fake.calls.clear()
+    again = run(port)
+    assert again.outcome == "completed", again
+    assert again.output["skipped"] == "opened_unconfirmed"
+    assert again.output["number"] == pull["number"]
+    assert again.output["head_sha"] == pull["head"]["sha"]
+    assert len(fake.pulls) == 1
+    assert fake.writes() == []
+    assert "bot/update-notes" not in fake.refs
+
+
+def test_an_older_closed_pr_that_reused_the_branch_name_is_not_taken_for_this_one(pem):
+    fake = FakeGitHub()
+    fake.pulls.append(
+        {
+            "number": 7,
+            "html_url": f"https://github.com/{REPO}/pull/7",
+            "state": "closed",
+            "head": {"ref": "bot/update-notes", "sha": "f" * 40},
+            "base": {"ref": "main"},
+            "labels": [],
+        }
+    )
+    fake.lose_answer.add(("POST", "/git/refs"))  # the branch exists, the answer was lost
+    port, _store, _ = setup(pem, fake)
+    assert run(port).outcome == "failed"
+    again = run(port)
+    assert again.outcome == "completed", again
+    assert "skipped" not in again.output
+    assert again.output["number"] != 7
+    assert len(fake.pulls) == 2
+
+
 def test_a_failure_after_the_push_resumes_on_the_pushed_branch(pem):
     fake = FakeGitHub()
     fake.fail[("POST", "/pulls")] = 503  # nothing opened
@@ -557,6 +634,117 @@ def test_a_token_failure_takes_no_claim(pem):
     assert store.find(po.PR_OPEN_ONCE_COLLECTION) == []
 
 
+# --------------------------------------------------------------------------- overlapping attempts
+
+
+def _overlap(fake, method, suffix, during, *, after_route=False):
+    """Run ``during()`` (another attempt of the same step) inside the first ``method`` call
+    whose path ends with ``suffix``: before GitHub handles it, or after."""
+    real = fake._route
+    state = {"done": False}
+
+    def hooked(m, path, payload):
+        hit = not state["done"] and m == method and path.split("?")[0].endswith(suffix)
+        if hit:
+            state["done"] = True
+            if not after_route:
+                during()
+        out = real(m, path, payload)
+        if hit and after_route:
+            during()
+        return out
+
+    fake._route = hooked
+
+
+def test_an_overlapping_attempt_takes_the_claim_and_the_first_stops_before_its_branch(pem):
+    fake = FakeGitHub()
+    port, store, _ = setup(pem, fake)
+    second = {}
+    _overlap(fake, "POST", "/git/trees", lambda: second.setdefault("res", run(port)))
+    first = run(port)
+    won = second["res"]
+    assert won.outcome == "completed", won
+    assert "skipped" not in won.output
+    assert (first.outcome, first.error, first.retryable) == ("failed", "claim_lost", True)
+    assert len(fake.pulls) == 1
+    assert sum(path.endswith("/git/refs") for _m, path, _ in fake.calls) == 1
+    claim = store.find(po.PR_OPEN_ONCE_COLLECTION)[0]
+    assert claim["state"] == "opened"
+    assert claim["commit_sha"] == won.output["head_sha"] == fake.pulls[0]["head"]["sha"]
+    assert run(port).output["skipped"] == "opened_before"
+
+
+def test_an_attempt_that_lost_the_claim_never_releases_the_winners(pem):
+    fake = FakeGitHub()
+    port, store, _ = setup(pem, fake)
+    second = {}
+    # the second attempt runs to the end between the first's commit and the first's branch
+    _overlap(fake, "POST", "/git/refs", lambda: second.setdefault("res", run(port)))
+    first = run(port)  # its branch creation then answers 422
+    won = second["res"]
+    assert won.outcome == "completed", won
+    assert "skipped" not in won.output
+    assert (first.outcome, first.error, first.retryable) == ("failed", "claim_lost", True)
+    assert len(fake.pulls) == 1
+    claims = store.find(po.PR_OPEN_ONCE_COLLECTION)
+    assert len(claims) == 1  # the winner's claim survives
+    assert claims[0]["state"] == "opened"
+    assert claims[0]["commit_sha"] == won.output["head_sha"] == fake.refs["bot/update-notes"]
+    assert run(port).output["skipped"] == "opened_before"
+
+
+def test_the_attempt_whose_branch_landed_owns_the_claim(pem):
+    fake = FakeGitHub()
+    port, store, _ = setup(pem, fake)
+    second = {}
+
+    def during():  # takes the claim over, records its commit, then its branch fails
+        fake.fail[("POST", "/git/refs")] = 503
+        second["res"] = run(port)
+
+    _overlap(fake, "POST", "/git/refs", during)
+    first = run(port)  # its branch lands after the second recorded its own commit
+    assert (second["res"].outcome, second["res"].retryable) == ("failed", True)
+    assert first.outcome == "completed", first
+    assert "skipped" not in first.output
+    assert len(fake.pulls) == 1
+    claim = store.find(po.PR_OPEN_ONCE_COLLECTION)[0]
+    assert claim["state"] == "opened"
+    assert claim["commit_sha"] == first.output["head_sha"] == fake.refs["bot/update-notes"]
+    assert run(port).output["skipped"] == "opened_before"
+
+
+def test_an_attempt_that_finds_the_claim_taken_meanwhile_writes_nothing(pem):
+    fake = FakeGitHub()
+    fake.fail[("POST", "/git/trees")] = 502  # the first attempt fails before its branch
+    port, store, _ = setup(pem, fake)
+    store.insert(
+        po.PR_OPEN_ONCE_COLLECTION,
+        {
+            "id": hashlib.sha256(b"github.pr_open#idem-1").hexdigest(),
+            "repo": REPO,
+            "branch": "bot/update-notes",
+            "base": None,
+            "commit_sha": None,
+            "state": "claimed",
+            "owner": "someone-else",
+        },
+    )
+    real_update_if = store.update_if
+
+    def racing_update_if(collection, id, expected, changes, **kw):
+        if collection == po.PR_OPEN_ONCE_COLLECTION and "owner" in changes:
+            real_update_if(collection, id, {}, {"owner": "a-third-attempt"})
+        return real_update_if(collection, id, expected, changes, **kw)
+
+    store.update_if = racing_update_if
+    res = run(port)
+    assert (res.outcome, res.error, res.retryable) == ("failed", "claim_lost", True)
+    assert fake.writes() == []
+    assert store.find(po.PR_OPEN_ONCE_COLLECTION)[0]["owner"] == "a-third-attempt"
+
+
 # --------------------------------------------------------------------------- client
 
 
@@ -575,6 +763,7 @@ def test_client_writes_refuse_a_repo_off_the_allowlist(pem):
         lambda: app.create_branch(REPO, "x", BASE_SHA),
         lambda: app.open_pull(REPO, "t", "x", "main", ""),
         lambda: app.open_pull_for(REPO, "x"),
+        lambda: app.pull_for(REPO, "x", BASE_SHA),
         lambda: app.add_labels(REPO, 1, ["a"]),
     ):
         with pytest.raises(GitHubError) as err:

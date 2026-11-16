@@ -490,6 +490,29 @@ class GitHubApp:
         items = [p for p in data.get("items") or () if isinstance(p, dict)]
         return _pull_ref(items[0]) if items else None
 
+    def pull_for(self, repo: str, branch: str, sha: Any) -> dict[str, Any] | None:
+        """The PR whose head is ``branch`` of ``repo`` itself, as ``{number, url, open}``: the
+        open one, else a closed or merged one whose head commit is ``sha`` (a full sha), so an
+        older PR that only reused the branch name is never taken; ``None`` when neither (REST
+        ``GET /repos/{repo}/pulls?head=owner:branch&state=all``, newest first, one page of
+        100; Pull requests: read)."""
+        self._require_allowed(repo, "pull list")
+        if not is_branch_name(branch):
+            raise GitHubError("bad_input", "branch")
+        head = urllib.parse.quote(f"{repo.split('/', 1)[0]}:{branch}", safe="")
+        data = self._call("GET", f"/repos/{repo}/pulls?head={head}&state=all&per_page=100", None)
+        items = [p for p in data.get("items") or () if isinstance(p, dict)]
+        for pull in items:
+            if pull.get("state") == "open":
+                return {**_pull_ref(pull), "open": True}
+        if not _is_full_sha(sha):
+            return None
+        for pull in items:
+            ref = pull.get("head") if isinstance(pull.get("head"), dict) else {}
+            if ref.get("sha") == sha:
+                return {**_pull_ref(pull), "open": False}
+        return None
+
     def add_labels(self, repo: str, number: int, labels: list[str]) -> None:
         """Add ``labels`` to issue/PR ``number`` (REST ``POST
         /repos/{repo}/issues/{n}/labels``; Issues or Pull requests: write). Adding a label

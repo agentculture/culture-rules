@@ -7,7 +7,7 @@ enabled actor with ``params.surface == "github"``), its repo allowlist, its per-
 and its deadline-bounded resolve.
 
 Params: ``actor``, ``repo``, ``branch`` (the new branch), ``base`` (optional; the repo's
-default branch when absent), ``files`` (a list of ``{path, content}``, UTF-8 text, at most
+default branch when absent or empty), ``files`` (a list of ``{path, content}``, UTF-8 text, at most
 :data:`MAX_FILES` files and :data:`MAX_TOTAL_BYTES` bytes in all), ``title``, ``body``
 (optional) and ``labels`` (optional, at most :data:`MAX_LABELS` names).
 
@@ -43,14 +43,29 @@ engine's idempotency key: one run and step, the same on every attempt) by insert
 the branch, so ``supports_idempotency_key`` is True. A later attempt that finds the claim:
 
 * ``opened``: completes with the recorded outputs (``skipped: opened_before``);
-* otherwise it reads first: an open PR from the branch completes it (``skipped:
-  opened_unconfirmed``, a lost answer); the branch at the recorded commit opens the pull (a
-  failure after the push); no branch starts over (nothing of it landed); the branch at another
-  commit is step 5.
+* otherwise it takes the claim over (below), then reads first: a PR from the branch that is
+  open, or closed or merged with its head at the recorded commit (an older PR that only
+  reused the branch name is not taken), completes it (``skipped: opened_unconfirmed``, a lost
+  answer; only an open one is labelled), even when the branch was deleted since; the branch
+  at the recorded commit opens the pull (a failure after the push); no branch starts over
+  (nothing of it landed); the branch at another commit is step 5.
+
+The claim is exclusive. Each attempt holds it with its own random ``owner`` token; a later
+attempt takes it over only by compare-and-set on the owner and state it read, and every
+record and release of an attempt is conditional on that attempt still owning it (a release
+is a transaction that deletes only its own claim). An attempt that finds it no longer owns
+the claim writes nothing more, to the claim or to GitHub, and fails :data:`CLAIM_LOST`
+(retryable: the retry reads the claim), with one exception: GitHub makes one branch, so an
+attempt whose branch creation GitHub accepted after another attempt took the claim takes it
+back by compare-and-set (the claim follows the branch) unless that other attempt already
+carries the same commit on. A taken-over attempt whose branch creation meets an existing
+branch keeps the claim and fails :data:`CLAIM_LOST`, since that branch may be an earlier
+attempt's.
 
 GitHub also refuses a second open PR for the same head and base. A failure before the branch
 exists (only unreferenced git objects were made) releases the claim; any later one keeps it.
-The claim holds the repo, branch, base, commit and outputs, never the files' contents.
+The claim holds the repo, branch, base, commit, owner token and outputs, never the files'
+contents.
 Standard-library only.
 """
 
@@ -58,12 +73,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.extensions.github.client import GitHubApp, GitHubError, is_branch_name
 from culture_rules.extensions.github.port import (
     ACTOR_NOT_FOUND,
@@ -75,8 +91,10 @@ from culture_rules.extensions.github.port import (
 )
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import DuplicateKeyError
+from culture_rules.store.retry import run_transaction
 
 __all__ = [
+    "CLAIM_LOST",
     "KIND",
     "MAX_FILES",
     "MAX_LABELS",
@@ -92,6 +110,8 @@ log = logging.getLogger(__name__)
 KIND = "github.pr_open"
 PR_OPEN_ONCE_COLLECTION = "github_pr_open_once"
 """Claims of ``github.pr_open`` steps (one document per run and step)."""
+CLAIM_LOST = "claim_lost"
+"""Another attempt of the same step holds the claim now (retryable: a retry reads it)."""
 NOT_DECLARED = "action_not_declared"
 """The actor does not list ``github.pr_open`` in its ``params.actions``."""
 
@@ -173,6 +193,8 @@ def _labels(value: Any) -> list[str] | None:
 def _request(input: Mapping[str, Any]) -> tuple[_Request | None, str | None]:
     """The checked input (module doc, step 2), or the refusal."""
     branch, base = input.get("branch"), input.get("base")
+    if base == "":  # empty means not given: the repo's default branch
+        base = None
     title, body = input.get("title"), input.get("body")
     if not is_branch_name(branch) or (base is not None and not is_branch_name(base)):
         return None, BAD_INPUT
@@ -245,6 +267,7 @@ class GitHubPrOpenPort(GitHubCommentPort):
     def _open_once(self, app: GitHubApp, req: _Request, key: str) -> InvocationResult:
         app.installation_token()  # before the claim: a token failure claims nothing
         claim_id = hashlib.sha256(f"{KIND}#{key}".encode()).hexdigest()
+        owner = secrets.token_hex(16)  # this attempt's hold on the claim
         claim = {
             "id": claim_id,
             "repo": req.repo,
@@ -252,69 +275,136 @@ class GitHubPrOpenPort(GitHubCommentPort):
             "base": None,
             "commit_sha": None,
             "state": _CLAIMED,
+            "owner": owner,
         }
         try:
             self._store.insert(PR_OPEN_ONCE_COLLECTION, claim)
         except DuplicateKeyError:
-            return self._prior(app, req, claim_id)
-        return self._open(app, req, claim_id)
+            return self._prior(app, req, claim_id, owner)
+        return self._open(app, req, claim_id, owner, first=True)
 
-    def _release(self, claim_id: str) -> None:
-        self._store.delete(PR_OPEN_ONCE_COLLECTION, claim_id)
+    def _release(self, claim_id: str, owner: str) -> bool:
+        """Delete the claim iff this attempt still owns it (one transaction); whether it did."""
 
-    def _record(self, claim_id: str, changes: Mapping[str, Any]) -> None:
-        prior = self._store.get(PR_OPEN_ONCE_COLLECTION, claim_id) or {}
-        self._store.update_if(
-            PR_OPEN_ONCE_COLLECTION, claim_id, {"state": prior.get("state")}, dict(changes)
-        )
+        def drop(tx: Any) -> bool:
+            current = tx.get(PR_OPEN_ONCE_COLLECTION, claim_id)
+            if current is None or current.get("owner") != owner:
+                return False
+            tx.delete(PR_OPEN_ONCE_COLLECTION, claim_id)
+            return True
 
-    def _prior(self, app: GitHubApp, req: _Request, claim_id: str) -> InvocationResult:
+        return run_transaction(self._store, drop)
+
+    def _record(self, claim_id: str, owner: str, changes: Mapping[str, Any]) -> bool:
+        """Set ``changes`` on the claim iff this attempt still owns it; whether it did."""
+        return self._store.update_if(
+            PR_OPEN_ONCE_COLLECTION, claim_id, {"owner": owner}, dict(changes)
+        ).won
+
+    def _take_over(self, claim_id: str, prior: Mapping[str, Any], owner: str) -> bool:
+        """Take the claim from the attempt that held it when it was read (compare-and-set)."""
+        if not prior:
+            return False
+        expected = {"owner": prior.get("owner"), "state": prior.get("state")}
+        return self._store.update_if(
+            PR_OPEN_ONCE_COLLECTION, claim_id, expected, {"owner": owner}
+        ).won
+
+    def _follow_branch(
+        self, claim_id: str, owner: str, req: _Request, base: str, commit: str
+    ) -> bool:
+        """This attempt's branch landed at ``commit`` after another attempt took the claim:
+        GitHub made one branch, so the claim follows it (compare-and-set on what was read).
+        False when another attempt already carries this commit on, or the claim is opened."""
+        changes = {"owner": owner, "base": base, "commit_sha": commit, "state": _PUSHED}
+        for _ in range(3):
+            current = self._store.get(PR_OPEN_ONCE_COLLECTION, claim_id)
+            if current is None:  # released by an attempt that saw a branch not its own
+                doc = {"id": claim_id, "repo": req.repo, "branch": req.branch, **changes}
+                try:
+                    self._store.insert(PR_OPEN_ONCE_COLLECTION, doc)
+                    return True
+                except DuplicateKeyError:
+                    continue
+            if current.get("state") == _OPENED or current.get("commit_sha") == commit:
+                return False
+            expected = {k: current.get(k) for k in ("owner", "state", "commit_sha")}
+            if self._store.update_if(PR_OPEN_ONCE_COLLECTION, claim_id, expected, changes).won:
+                return True
+        return False
+
+    @staticmethod
+    def _lost() -> InvocationResult:
+        log.info("github.pr_open: another attempt of this step holds the claim")
+        return InvocationResult.failed(CLAIM_LOST, retryable=True)
+
+    def _prior(self, app: GitHubApp, req: _Request, claim_id: str, owner: str) -> InvocationResult:
         """An earlier attempt of this step claimed it: never write blindly (module doc)."""
         prior = self._store.get(PR_OPEN_ONCE_COLLECTION, claim_id) or {}
+        if prior.get("state") != _OPENED and not self._take_over(claim_id, prior, owner):
+            prior = self._store.get(PR_OPEN_ONCE_COLLECTION, claim_id) or {}
+            if prior.get("state") != _OPENED:
+                return self._lost()
         if prior.get("state") == _OPENED:
             done = {k: prior.get(k) for k in _OUTPUTS}
             return InvocationResult.completed({**done, "skipped": "opened_before"})
         base = prior.get("base") if isinstance(prior.get("base"), str) else None
-        pull = app.open_pull_for(req.repo, req.branch)
+        commit = prior.get("commit_sha")
+        pull = app.pull_for(req.repo, req.branch, commit)
         head = app.branch_head(req.repo, req.branch)
-        if pull is not None:
-            out = self._opened(app, req, claim_id, pull, head, base or req.base)
+        if pull is not None:  # open, or closed/merged at this claim's commit: a lost answer
+            sha = head if pull.get("open") else commit
+            out = self._opened(app, req, claim_id, owner, pull, sha, base or req.base)
             return InvocationResult.completed({**out, "skipped": "opened_unconfirmed"})
         if head is None:  # nothing of it landed: start over under the same claim
-            self._record(claim_id, {"state": _CLAIMED, "commit_sha": None, "base": None})
-            return self._open(app, req, claim_id)
-        if base is not None and head == prior.get("commit_sha"):
-            self._record(claim_id, {"state": _PUSHED})
-            return self._pull(app, req, claim_id, base, head)
-        self._release(claim_id)
+            restart = {"state": _CLAIMED, "commit_sha": None, "base": None}
+            if not self._record(claim_id, owner, restart):
+                return self._lost()
+            return self._open(app, req, claim_id, owner, first=False)
+        if base is not None and head == commit:
+            if not self._record(claim_id, owner, {"state": _PUSHED}):
+                return self._lost()
+            return self._pull(app, req, claim_id, owner, base, head)
+        if not self._release(claim_id, owner):
+            return self._lost()
         return self._skipped(app, req, base or req.base, head)
 
     # ------------------------------------------------------------------------- the writes
 
-    def _open(self, app: GitHubApp, req: _Request, claim_id: str) -> InvocationResult:
-        """Steps 4 to 6 of the module doc under a claim this attempt holds."""
+    def _open(
+        self, app: GitHubApp, req: _Request, claim_id: str, owner: str, *, first: bool
+    ) -> InvocationResult:
+        """Steps 4 to 6 of the module doc under a claim this attempt holds (``first``: it
+        inserted the claim, so no other attempt of this step was writing)."""
         try:
             base, prepared = self._prepare(app, req)
         except GitHubError:
-            self._release(claim_id)  # only unreferenced objects were made
+            self._release(claim_id, owner)  # only unreferenced objects were made
             raise
         if isinstance(prepared, InvocationResult):
-            self._release(claim_id)
+            released = self._release(claim_id, owner)
+            if not released and prepared.outcome == COMPLETED:  # the branch may be theirs
+                return self._lost()
             return prepared
-        self._record(claim_id, {"commit_sha": prepared, "base": base})
+        if not self._record(claim_id, owner, {"commit_sha": prepared, "base": base}):
+            return self._lost()  # another attempt holds it now: make no branch
         try:
             app.create_branch(req.repo, req.branch, prepared)
         except GitHubError as exc:
             if exc.code == "http_422":  # the branch exists: someone else made it meanwhile
-                self._release(claim_id)
-                return self._skipped(app, req, base, app.branch_head(req.repo, req.branch))
+                # a taken-over claim keeps it: the branch may be an earlier attempt's
+                if first and self._release(claim_id, owner):
+                    return self._skipped(app, req, base, app.branch_head(req.repo, req.branch))
+                return self._lost()
             if _refused(exc.code):
-                self._release(claim_id)
+                self._release(claim_id, owner)
             else:  # the branch may exist: keep the claim, the next attempt reads first
-                self._record(claim_id, {"state": _UNKNOWN, "error": exc.code})
+                self._record(claim_id, owner, {"state": _UNKNOWN, "error": exc.code})
             raise
-        self._record(claim_id, {"state": _PUSHED})
-        return self._pull(app, req, claim_id, base, prepared)
+        if not self._record(claim_id, owner, {"state": _PUSHED}):
+            if not self._follow_branch(claim_id, owner, req, base, prepared):
+                return self._lost()
+        return self._pull(app, req, claim_id, owner, base, prepared)
 
     def _prepare(self, app: GitHubApp, req: _Request) -> tuple[str, str | InvocationResult]:
         """``(base, commit)`` ready for the new branch, or ``(base, result)`` when it stops:
@@ -338,29 +428,32 @@ class GitHubPrOpenPort(GitHubCommentPort):
         return base, app.create_commit(req.repo, req.title, tree, base_sha)
 
     def _pull(
-        self, app: GitHubApp, req: _Request, claim_id: str, base: str, head: str
+        self, app: GitHubApp, req: _Request, claim_id: str, owner: str, base: str, head: str
     ) -> InvocationResult:
         """Open the pull for the pushed branch; any failure keeps the claim (``pushed``), so
         the next attempt reads before it opens again."""
         try:
             pull = app.open_pull(req.repo, req.title, req.branch, base, req.body)
         except GitHubError as exc:
-            self._record(claim_id, {"error": exc.code})
+            self._record(claim_id, owner, {"error": exc.code})
             raise
-        return InvocationResult.completed(self._opened(app, req, claim_id, pull, head, base))
+        out = self._opened(app, req, claim_id, owner, pull, head, base)
+        return InvocationResult.completed(out)
 
     def _opened(
         self,
         app: GitHubApp,
         req: _Request,
         claim_id: str,
+        owner: str,
         pull: Mapping[str, Any],
         head: str | None,
         base: str | None,
     ) -> dict[str, Any]:
-        """Label the PR, record it on the claim and return the outputs."""
+        """Label the PR (an open one only), record it on the claim while this attempt owns
+        it, and return the outputs."""
         labels_error = None
-        if req.labels:
+        if req.labels and pull.get("open", True):
             try:
                 app.add_labels(req.repo, pull["number"], req.labels)
             except GitHubError as exc:  # the PR stands
@@ -374,7 +467,7 @@ class GitHubPrOpenPort(GitHubCommentPort):
             "base": base,
             "labels_error": labels_error,
         }
-        self._record(claim_id, {"state": _OPENED, **out})
+        self._record(claim_id, owner, {"state": _OPENED, **out})
         return out
 
     @staticmethod
