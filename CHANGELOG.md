@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.0] - 2026-11-16
+
+### Added
+
+- Built-in step button.code.use (culture_rules/extensions/discord/code_use.py): a workflow whose run was started by a discord.button.clicked click places it first to use up the clicked button's one-time code (compare-and-set via use_code), so a replayed or second click gets nothing; the code and the clicked custom_id come from the run's stored click event, never from workflow inputs; the value acted on defaults to the button's stored value and may be constrained to a sub-mapping; failures not_started_by_click, code_not_found, code_mismatch, code_used and bad_params are final. Any workflow can now fence a click the way github.merge does - the fence is no longer merge-specific
+- stored_click (the check that a run is its rule's firing on a stored click event) moved from culture_rules/extensions/github/merge.py to culture_rules/extensions/discord/buttons.py, where the button and code documents live; merge.py calls it there
+
 ## [0.47.0] - 2026-11-16
 
 ### Added

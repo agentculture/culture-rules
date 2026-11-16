@@ -127,6 +127,7 @@ PHRASES = {
 ATTACHMENT_FETCH_PHRASE = (
     "attachment.fetch: pdf, epub and Markdown attachments saved as files on the node"
 )
+CODE_USE_PHRASE = "button.code.use: use up the clicked button's one-time code for this run's action"
 
 
 def _port(module: str, attr: str) -> Lazy:
@@ -189,8 +190,9 @@ def discord_targets(app: Any, ctx: ApiContext) -> None:
 
 
 def register(ext: Extension) -> None:
-    """Discord: the message/read/react/reply/sweep kinds, ``attachment.fetch``, the Gateway
-    listener and its four event types, and the targets route."""
+    """Discord: the message/read/react/reply/sweep kinds, ``attachment.fetch``,
+    ``button.code.use``, the Gateway listener and its four event types, and the targets
+    route."""
     for k in KINDS:
         ext.action_kind(k)
         ext.action_phrases(k.name, words=PHRASES[k.name])
@@ -209,6 +211,13 @@ def register(ext: Extension) -> None:
             ("retention_days", "integer", False),
         ),
         outputs=(("items", "array"), ("fetched", "integer"), ("skipped", "integer")),
+    )
+    ext.builtin(
+        "button.code.use",
+        _port("code_use", "ButtonCodeUsePort"),
+        phrase=CODE_USE_PHRASE,
+        inputs=(("value", "object", False),),
+        outputs=(("value", "object"), ("custom_id", "string"), ("used", "boolean")),
     )
     for event in EVENT_TYPES:
         ext.event_type(event)

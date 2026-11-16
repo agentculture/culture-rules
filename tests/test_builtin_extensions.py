@@ -68,7 +68,7 @@ def test_the_alias_shares_its_kinds_port():
 
 
 def _builtin_classes():
-    from culture_rules.extensions.discord import attachment_fetch
+    from culture_rules.extensions.discord import attachment_fetch, code_use
     from culture_rules.extensions.newspaper import port as newspaper
     from culture_rules.node.actions import (
         checklist,
@@ -101,6 +101,7 @@ def _builtin_classes():
         sections.SECTIONS_BUILTIN: sections.DocumentSectionsPort,
         run_read.RUN_READ_BUILTIN: run_read.RunReadPort,
         attachment_fetch.ATTACHMENT_FETCH_BUILTIN: attachment_fetch.AttachmentFetchPort,
+        code_use.BUTTON_CODE_USE_BUILTIN: code_use.ButtonCodeUsePort,
         cursor.CURSOR_ADVANCE_BUILTIN: cursor.CursorAdvancePort,
         keyset.KEYSET_FILTER_BUILTIN: keyset.KeysetFilterPort,
         keyset.KEYSET_ADD_BUILTIN: keyset.KeysetAddPort,
