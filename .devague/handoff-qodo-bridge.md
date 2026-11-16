@@ -39,7 +39,7 @@ also holds the operator's unrelated uncommitted Discord button-code work on
 `main`. Do not touch or commit that work. The agreed home for the spec, plan,
 split and this handoff is the branch `rules/open-pr-action`.
 
-`devague` commands run from `/home/ori/git/culture-rules`. `devague status`
+`devague` commands run from the culture-rules repo root. `devague status`
 and `devague plan status` give the frame and plan state; both converged at the
 time of writing.
 

@@ -1325,7 +1325,7 @@
     },
     {
       "id": "s16",
-      "surface": "associate (installed 0.9.0, /home/ori/git/associate README.md, 'associate run --help')",
+      "surface": "associate (installed 0.9.0, the sibling checkout ../associate, README.md, 'associate run --help')",
       "finding": "associate is a multi-model harness on Pi. 'associate run [prompt] --checkout DIR --timeout S --json' runs one task headless (default timeout 900 s); its cortex model may change the checkout behind a decider safety gate, and nothing is ever pushed. The repo README also lists --model and --test-command, which the installed 0.9.0 help does not show. culture-rules has a one-shot adapter for 'colleague work' (culture_rules/actors/agent.py:167) and none for associate; a registered runner command could run it with no code change.",
       "seeds": [
         "c15",
