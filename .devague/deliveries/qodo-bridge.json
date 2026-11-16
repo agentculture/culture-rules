@@ -1,0 +1,57 @@
+{
+  "plan_slug": "qodo-bridge",
+  "schema_version": 2,
+  "created": "2026-11-16T06:06:17Z",
+  "updated": "2026-11-16T08:50:08Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "qodo-cli becomes a wrapper over Qodo's MCP server and API: a gateway we control, deciding which upstream tools are exposed and how (proxied as MCP tools, converted to CLI verbs, served over HTTP). The plan had a fixed list of six hand-written verbs over a private client.",
+      "task_ref": "t4",
+      "reason": "Operator direction after the live probe showed Qodo's server offers 71 tools, including ones that write to pull requests and change rules.",
+      "affects": [
+        "t4",
+        "t5",
+        "t8",
+        "t9",
+        "t2"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "The upstream single-rule read (Qodo's rules-get tool) is the verb 'rules show', not 'rules get' as t5's acceptance criterion says; 'rules get' stays the existing local search verb. 'history file' was renamed 'history show' to match the plan",
+      "task_ref": "t5",
+      "reason": "'rules get <query>' already exists as the older search verb and is pinned by contract tests that must pass unchanged, so the name was taken",
+      "affects": [
+        "t8",
+        "t9",
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "associate needs a serve verb and token issue/list/revoke verbs, which no plan task builds: t14 built the HTTP app factory and a file token store but nothing starts a listener or issues a token, so culture-rules could not call the associate bridge. Added as extra work on associate's feat/bridge, citing qodo-cli's serve and token verbs",
+      "task_ref": "t14",
+      "reason": "t14's acceptance criterion says each verb is an HTTP operation behind a token; without serve and tokens that cannot be used, and t20 (deploy) assumes both exist",
+      "affects": [
+        "t20",
+        "t16"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
