@@ -1204,7 +1204,7 @@
     {
       "id": "s2",
       "surface": "qodo-cli verbs review and config (qodo/cli/_providers.py, qodo/cli/_commands/config.py)",
-      "finding": "review only reads and resolves Qodo's posted comments through gh; nothing triggers Qodo. config scaffolds, shows and validates .pr_agent.toml and best_practices.md; nothing improves them from merged PRs. Qodo API key comes from QODO_API_KEY or ~/.qodo/config.json; GitHub access is the caller's gh login. What 'run Qodo' and 'improve Qodo' mean is routed to q1 and q4.",
+      "finding": "review only reads and resolves Qodo's posted comments through gh; nothing triggers Qodo. config scaffolds, shows and validates .pr_agent.toml and best_practices.md; nothing improves them from merged PRs. Qodo API key comes from QODO_API_KEY or the qodo config file in the home directory; GitHub access is the caller's gh login. What 'run Qodo' and 'improve Qodo' mean is routed to q1 and q4.",
       "seeds": [
         "c5",
         "c6"
