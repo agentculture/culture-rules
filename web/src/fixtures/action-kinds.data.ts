@@ -857,6 +857,20 @@ export const ACTION_KINDS_DATA: unknown = {
           "args_for": ""
         },
         {
+          "name": "base_sha",
+          "type": "str",
+          "required": false,
+          "label": "Base commit the files were made from (refused if the base moved)",
+          "widget": "",
+          "choices": [],
+          "options_from": "",
+          "choose": "",
+          "needs_actor_param": "",
+          "needed": false,
+          "advanced": false,
+          "args_for": ""
+        },
+        {
           "name": "files",
           "type": "list",
           "required": true,

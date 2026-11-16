@@ -491,26 +491,22 @@ class GitHubApp:
         return _pull_ref(items[0]) if items else None
 
     def pull_for(self, repo: str, branch: str, sha: Any) -> dict[str, Any] | None:
-        """The PR whose head is ``branch`` of ``repo`` itself, as ``{number, url, open}``: the
-        open one, else a closed or merged one whose head commit is ``sha`` (a full sha), so an
-        older PR that only reused the branch name is never taken; ``None`` when neither (REST
-        ``GET /repos/{repo}/pulls?head=owner:branch&state=all``, newest first, one page of
-        100; Pull requests: read)."""
+        """The newest PR whose head is ``branch`` of ``repo`` itself and whose head commit is
+        ``sha`` (a full sha), open, closed or merged, as ``{number, url, open}``: a PR at any
+        other head, open or not, is never taken, nor any PR when ``sha`` is not a full sha
+        (``None``; REST ``GET /repos/{repo}/pulls?head=owner:branch&state=all``, newest first,
+        one page of 100; Pull requests: read)."""
         self._require_allowed(repo, "pull list")
         if not is_branch_name(branch):
             raise GitHubError("bad_input", "branch")
-        head = urllib.parse.quote(f"{repo.split('/', 1)[0]}:{branch}", safe="")
-        data = self._call("GET", f"/repos/{repo}/pulls?head={head}&state=all&per_page=100", None)
-        items = [p for p in data.get("items") or () if isinstance(p, dict)]
-        for pull in items:
-            if pull.get("state") == "open":
-                return {**_pull_ref(pull), "open": True}
         if not _is_full_sha(sha):
             return None
-        for pull in items:
+        head = urllib.parse.quote(f"{repo.split('/', 1)[0]}:{branch}", safe="")
+        data = self._call("GET", f"/repos/{repo}/pulls?head={head}&state=all&per_page=100", None)
+        for pull in (p for p in data.get("items") or () if isinstance(p, dict)):
             ref = pull.get("head") if isinstance(pull.get("head"), dict) else {}
             if ref.get("sha") == sha:
-                return {**_pull_ref(pull), "open": False}
+                return {**_pull_ref(pull), "open": pull.get("state") == "open"}
         return None
 
     def add_labels(self, repo: str, number: int, labels: list[str]) -> None:

@@ -9,7 +9,9 @@ and its deadline-bounded resolve.
 Params: ``actor``, ``repo``, ``branch`` (the new branch), ``base`` (optional; the repo's
 default branch when absent or empty), ``files`` (a list of ``{path, content}``, UTF-8 text, at most
 :data:`MAX_FILES` files and :data:`MAX_TOTAL_BYTES` bytes in all), ``title``, ``body``
-(optional) and ``labels`` (optional, at most :data:`MAX_LABELS` names).
+(optional), ``labels`` (optional, at most :data:`MAX_LABELS` names) and ``base_sha``
+(optional; the full commit sha of ``base`` the files were computed against, empty meaning not
+given).
 
 In order, refusing at the first failed check; every check before step 4 reads only the store
 and the input, so a refusal reads no secret and makes no network call:
@@ -20,8 +22,9 @@ and the input, so a refusal reads no secret and makes no network call:
    configuration says it may;
 2. the input: shapes (``bad_input``), the limits (``too_many_files``, ``files_too_large``),
    each path (``path_refused``: relative, no empty, ``.`` or ``..`` segment, no ``.git``
-   segment, nothing under ``.github/workflows/``, no control characters) and a ``branch``
-   equal to ``base`` (``branch_is_base``);
+   segment, nothing under ``.github/workflows/``, no control characters), a ``base_sha``
+   that is not a full commit sha (``bad_input``) and a ``branch`` equal to ``base``
+   (``branch_is_base``);
 3. the App (``secret_unavailable``; ``deadline_exceeded`` / ``lookup_busy`` retryable);
 4. the installation token, then the once claim (below), then the repo read: a ``branch``
    equal to the repo's default branch is refused whatever the base (``branch_is_default``,
@@ -29,10 +32,17 @@ and the input, so a refusal reads no secret and makes no network call:
 5. an existing ``branch`` opens nothing: the step completes with ``skipped: branch_exists``
    and the number and link of the open PR whose head is that branch (``None`` when none is
    open);
-6. a tree of the files on top of the base tip's tree, a commit of it whose one parent is the
-   base tip, then the **new** branch at that commit (GitHub refuses an existing ref with 422,
-   read as step 5; there is no call that moves or force-updates a ref), then the pull and its
-   labels. A label failure does not undo the PR: it is reported in ``labels_error``.
+6. a ``base_sha`` that is not the base tip is refused before anything is written
+   (:data:`BASE_MOVED`, the claim released): the files were computed against an older base,
+   and writing them whole would revert what landed since;
+7. a tree of the files on top of the base tip's tree, a commit of it whose one parent is the
+   base tip, then the **new** branch at that commit (there is no call that moves or
+   force-updates a ref), then the pull and its labels. A label failure does not undo the PR:
+   it is reported in ``labels_error``. GitHub refuses the branch with 422 when the ref exists
+   and for other reasons (a branch ``a`` when the step asks for ``a/b``, a ruleset), so after a
+   422 the port reads the branch again: there, it is step 5 (or a lost claim, below); absent,
+   the step fails :data:`BRANCH_NOT_CREATED` (final, the claim released, nothing more sent);
+   when that read fails, the claim is kept and the step fails retryable.
 
 Outputs: ``number``, ``url``, ``head_sha`` (the branch's commit), ``branch``, ``base`` and
 ``labels_error`` (an error code, or ``None``); a skip or a repeat adds ``skipped``.
@@ -43,9 +53,10 @@ engine's idempotency key: one run and step, the same on every attempt) by insert
 the branch, so ``supports_idempotency_key`` is True. A later attempt that finds the claim:
 
 * ``opened``: completes with the recorded outputs (``skipped: opened_before``);
-* otherwise it takes the claim over (below), then reads first: a PR from the branch that is
-  open, or closed or merged with its head at the recorded commit (an older PR that only
-  reused the branch name is not taken), completes it (``skipped: opened_unconfirmed``, a lost
+* otherwise it takes the claim over (below), then reads first: a PR from the branch whose
+  head is the recorded commit, open, closed or merged (an open PR at another head, or under a
+  claim with no recorded commit, is someone else's, and an older PR that only reused the
+  branch name is not taken either), completes it (``skipped: opened_unconfirmed``, a lost
   answer; only an open one is labelled), even when the branch was deleted since; the branch
   at the recorded commit opens the pull (a failure after the push); no branch starts over
   (nothing of it landed); the branch at another commit is step 5.
@@ -80,7 +91,12 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
-from culture_rules.extensions.github.client import GitHubApp, GitHubError, is_branch_name
+from culture_rules.extensions.github.client import (
+    GitHubApp,
+    GitHubError,
+    _is_full_sha,
+    is_branch_name,
+)
 from culture_rules.extensions.github.port import (
     ACTOR_NOT_FOUND,
     BAD_INPUT,
@@ -94,6 +110,8 @@ from culture_rules.store.port import DuplicateKeyError
 from culture_rules.store.retry import run_transaction
 
 __all__ = [
+    "BASE_MOVED",
+    "BRANCH_NOT_CREATED",
     "CLAIM_LOST",
     "KIND",
     "MAX_FILES",
@@ -114,6 +132,10 @@ CLAIM_LOST = "claim_lost"
 """Another attempt of the same step holds the claim now (retryable: a retry reads it)."""
 NOT_DECLARED = "action_not_declared"
 """The actor does not list ``github.pr_open`` in its ``params.actions``."""
+BASE_MOVED = "base_moved"
+"""The base branch is no longer at the step's ``base_sha`` (final; nothing was written)."""
+BRANCH_NOT_CREATED = "branch_not_created"
+"""GitHub refused the new branch (422) and no such branch exists (final; nothing landed)."""
 
 MAX_FILES = 50
 """The most files one step commits."""
@@ -140,6 +162,7 @@ class _Request:
     title: str
     body: str
     labels: list[str]
+    base_sha: str | None = None
 
 
 def path_refusal(path: Any) -> bool:
@@ -190,14 +213,34 @@ def _labels(value: Any) -> list[str] | None:
     return list(value)
 
 
+def _branches(input: Mapping[str, Any]) -> tuple[str, str | None] | None:
+    """``(branch, base)`` when both are branch names (``base`` ``None`` when absent or empty:
+    the repo's default branch), else ``None``."""
+    branch, base = input.get("branch"), input.get("base")
+    if base == "":
+        base = None
+    if not is_branch_name(branch) or (base is not None and not is_branch_name(base)):
+        return None
+    return branch, base
+
+
+def _base_sha(value: Any) -> tuple[str | None, bool]:
+    """``(sha, ok)``: an optional full commit sha, lower-cased; absent or empty is ``None``."""
+    if value is None or value == "":
+        return None, True
+    if not _is_full_sha(value):
+        return None, False
+    return value.lower(), True
+
+
 def _request(input: Mapping[str, Any]) -> tuple[_Request | None, str | None]:
     """The checked input (module doc, step 2), or the refusal."""
-    branch, base = input.get("branch"), input.get("base")
-    if base == "":  # empty means not given: the repo's default branch
-        base = None
-    title, body = input.get("title"), input.get("body")
-    if not is_branch_name(branch) or (base is not None and not is_branch_name(base)):
+    names = _branches(input)
+    base_sha, sha_ok = _base_sha(input.get("base_sha"))
+    if names is None or not sha_ok:
         return None, BAD_INPUT
+    branch, base = names
+    title, body = input.get("title"), input.get("body")
     if not isinstance(title, str) or not 0 < len(title.strip()) <= MAX_TITLE_CHARS:
         return None, BAD_INPUT
     if len(title) > MAX_TITLE_CHARS:
@@ -212,7 +255,8 @@ def _request(input: Mapping[str, Any]) -> tuple[_Request | None, str | None]:
         return None, refusal
     if base is not None and branch.casefold() == base.casefold():
         return None, "branch_is_base"
-    return _Request(str(input["repo"]), branch, base, files, title, body or "", labels), None
+    repo = str(input["repo"])
+    return _Request(repo, branch, base, files, title, body or "", labels, base_sha), None
 
 
 def _declares(doc: Mapping[str, Any]) -> bool:
@@ -370,7 +414,7 @@ class GitHubPrOpenPort(GitHubCommentPort):
         commit = prior.get("commit_sha")
         pull = app.pull_for(req.repo, req.branch, commit)
         head = app.branch_head(req.repo, req.branch)
-        if pull is not None:  # open, or closed/merged at this claim's commit: a lost answer
+        if pull is not None:  # a PR at this claim's commit, open or not: a lost answer
             return self._lost_answer(app, req, claim_id, owner, pull, head, commit, base)
         if head is None:  # nothing of it landed: start over under the same claim
             return self._restart(app, req, claim_id, owner)
@@ -449,18 +493,36 @@ class GitHubPrOpenPort(GitHubCommentPort):
         *,
         first: bool,
     ) -> InvocationResult:
-        """GitHub did not accept the new branch: an existing branch is step 5 or a lost claim;
-        any other error is raised again, after releasing or keeping the claim."""
-        if exc.code == "http_422":  # the branch exists: someone else made it meanwhile
-            # a taken-over claim keeps it: the branch may be an earlier attempt's
-            if first and self._release(claim_id, owner):
-                return self._skipped(app, req, base, app.branch_head(req.repo, req.branch))
-            return self._lost()
+        """GitHub did not accept the new branch: a 422 is read by :meth:`_branch_refused`; any
+        other error is raised again, after releasing or keeping the claim."""
+        if exc.code == "http_422":
+            return self._branch_refused(app, req, claim_id, owner, base, first=first)
         if _refused(exc.code):
             self._release(claim_id, owner)
         else:  # the branch may exist: keep the claim, the next attempt reads first
             self._record(claim_id, owner, {"state": _UNKNOWN, "error": exc.code})
         raise exc
+
+    def _branch_refused(
+        self, app: GitHubApp, req: _Request, claim_id: str, owner: str, base: str, *, first: bool
+    ) -> InvocationResult:
+        """GitHub refused the new branch with 422: read the branch again. There, someone else
+        made it meanwhile (step 5; a taken-over claim keeps it, since the branch may be an
+        earlier attempt's); absent, the ref could not be made (a branch named as its prefix,
+        a ruleset): :data:`BRANCH_NOT_CREATED`. A failed read keeps the claim (retryable)."""
+        try:
+            head = app.branch_head(req.repo, req.branch)
+        except GitHubError as exc:  # unknown: keep the claim, the next attempt reads first
+            self._record(claim_id, owner, {"state": _UNKNOWN, "error": exc.code})
+            return InvocationResult.failed(exc.code, retryable=True)
+        if head is None:  # nothing landed: release the claim and send nothing more
+            if not self._release(claim_id, owner):
+                return self._lost()
+            log.info("github.pr_open: GitHub refused the branch and it does not exist")
+            return InvocationResult.failed(BRANCH_NOT_CREATED, retryable=False)
+        if first and self._release(claim_id, owner):
+            return self._skipped(app, req, base, head)
+        return self._lost()
 
     def _claim_pushed(
         self, claim_id: str, owner: str, req: _Request, base: str, commit: str
@@ -473,7 +535,7 @@ class GitHubPrOpenPort(GitHubCommentPort):
 
     def _prepare(self, app: GitHubApp, req: _Request) -> tuple[str, str | InvocationResult]:
         """``(base, commit)`` ready for the new branch, or ``(base, result)`` when it stops:
-        a refusal or an existing branch."""
+        a refusal (a moved base among them) or an existing branch."""
         default = app.get_repo(req.repo).get("default_branch")
         if not isinstance(default, str) or not default:
             raise GitHubError("bad_response", "default branch", retryable=True)
@@ -489,6 +551,15 @@ class GitHubPrOpenPort(GitHubCommentPort):
         base_sha = app.branch_head(req.repo, base)
         if base_sha is None:
             return base, InvocationResult.failed("base_not_found", retryable=False)
+        if req.base_sha is not None and req.base_sha != base_sha.lower():
+            log.info(
+                "github.pr_open refused: base_moved (the files were computed against %s,"
+                " %s is at %s)",
+                req.base_sha,
+                base,
+                base_sha,
+            )
+            return base, InvocationResult.failed(BASE_MOVED, retryable=False)
         tree = app.create_tree(req.repo, app.commit_tree(req.repo, base_sha), req.files)
         return base, app.create_commit(req.repo, req.title, tree, base_sha)
 

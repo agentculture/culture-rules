@@ -220,11 +220,14 @@ def test_github_pr_open_params() -> None:
         "repo",
         "branch",
         "base",
+        "base_sha",
         "files",
         "title",
         "body",
         "labels",
     }
+    assert params["base_sha"].type == "str"
+    assert params["base_sha"].required is False
     assert (params["files"].type, params["labels"].type) == ("list", "list")
     assert ACTION_KINDS["github.pr_open"].declarable_by_apps is True
 
@@ -250,6 +253,17 @@ def test_github_pr_open_validates_what_is_literal() -> None:
     assert ("action.params.files", "action_param_type") in _errs(
         "github.pr_open", {**ok, "files": {"path": "a"}}
     )
+
+
+@pytest.mark.parametrize("bad", ["abc", "g" * 40, "b" * 41])
+def test_github_pr_open_refuses_a_malformed_literal_base_sha(bad) -> None:
+    errs = _errs("github.pr_open", {**_pr_open_ok(), "base_sha": bad})
+    assert ("action.params.base_sha", "invalid_sha") in errs
+
+
+@pytest.mark.parametrize("good", ["b" * 40, "B" * 40, "", "{{ inputs.base_sha }}"])
+def test_github_pr_open_accepts_a_full_or_filled_base_sha(good) -> None:
+    assert _errs("github.pr_open", {**_pr_open_ok(), "base_sha": good}) == set()
 
 
 def test_discord_message_takes_buttons_as_a_list() -> None:

@@ -769,6 +769,210 @@ def test_an_attempt_that_finds_the_claim_taken_meanwhile_writes_nothing(pem):
     assert store.find(po.PR_OPEN_ONCE_COLLECTION)[0]["owner"] == "a-third-attempt"
 
 
+# --------------------------------------------------------------------------- a refused branch
+
+
+def _claims(store):
+    return store.find(po.PR_OPEN_ONCE_COLLECTION)
+
+
+def _assert_nothing_after_the_ref(fake):
+    writes = fake.writes()
+    assert writes[-1] == ("POST", f"/repos/{REPO}/git/refs")
+    assert fake.pulls == []
+
+
+def test_a_422_without_the_branch_fails_branch_not_created(pem):
+    fake = FakeGitHub()
+    fake.fail[("POST", "/git/refs")] = 422  # e.g. a ruleset, or a branch "bot" exists
+    port, store, _ = setup(pem, fake)
+    res = run(port)
+    assert (res.outcome, res.error, res.retryable) == ("failed", "branch_not_created", False)
+    assert "bot/update-notes" not in fake.refs
+    _assert_nothing_after_the_ref(fake)
+    assert _claims(store) == []  # nothing landed: the claim is released
+
+
+def test_a_422_without_the_branch_on_a_restarted_attempt_fails_branch_not_created(pem):
+    fake = FakeGitHub()
+    fake.fail[("POST", "/git/refs")] = 503  # the branch may exist: the claim is kept
+    port, store, _ = setup(pem, fake)
+    first = run(port)
+    assert (first.outcome, first.retryable) == ("failed", True)
+    assert len(_claims(store)) == 1
+    fake.fail[("POST", "/git/refs")] = 422
+    fake.calls.clear()
+    again = run(port)
+    assert (again.outcome, again.error, again.retryable) == (
+        "failed",
+        "branch_not_created",
+        False,
+    )
+    assert "bot/update-notes" not in fake.refs
+    _assert_nothing_after_the_ref(fake)
+    assert _claims(store) == []
+
+
+def test_a_422_with_the_branch_there_is_skipped_with_its_head(pem):
+    fake = FakeGitHub()
+    real = fake._route
+
+    def racing(method, path, payload):
+        if method == "POST" and path.endswith("/git/refs"):
+            fake.refs.setdefault("bot/update-notes", "e" * 40)
+        return real(method, path, payload)
+
+    fake._route = racing
+    port, store, _ = setup(pem, fake)
+    res = run(port)
+    assert res.outcome == "completed", res
+    assert res.output["skipped"] == "branch_exists"
+    assert res.output["head_sha"] == "e" * 40  # a skip always names a real branch
+    assert _claims(store) == []
+
+
+def test_a_422_then_a_failed_branch_read_keeps_the_claim_and_is_retryable(pem):
+    fake = FakeGitHub()
+    fake.fail[("POST", "/git/refs")] = 422
+    seen = {"refused": False}
+
+    def transport(method, url, headers, body, timeout):
+        if method == "POST" and url.endswith("/git/refs"):
+            seen["refused"] = True
+        elif seen["refused"] and method == "GET" and "/git/ref/heads/bot/" in url:
+            return 500, b"{}"
+        return fake(method, url, headers, body, timeout)
+
+    port, store, _ = setup(pem, fake)
+    port = po.GitHubPrOpenPort(store, transport=transport, secrets=lambda ref: pem)
+    res = run(port)
+    assert (res.outcome, res.retryable) == ("failed", True)
+    assert res.error == "http_500"
+    claims = _claims(store)
+    assert len(claims) == 1
+    assert claims[0]["state"] == "unknown"
+    assert fake.pulls == []
+
+
+# --------------------------------------------------------------------------- a foreign PR on resume
+
+
+def _foreign_open_pr(fake, number=7):
+    fake.refs["bot/update-notes"] = "e" * 40
+    fake.pulls.append(
+        {
+            "number": number,
+            "html_url": f"https://github.com/{REPO}/pull/{number}",
+            "state": "open",
+            "head": {"ref": "bot/update-notes", "sha": "e" * 40},
+            "base": {"ref": "main"},
+            "labels": [],
+        }
+    )
+
+
+def test_a_foreign_open_pr_on_resume_is_not_taken_for_this_steps(pem):
+    fake = FakeGitHub()
+    fake.fail[("POST", "/git/refs")] = 503  # the first attempt's branch never landed
+    port, store, _ = setup(pem, fake)
+    assert run(port).outcome == "failed"
+    _foreign_open_pr(fake)  # another run (or a person) made the branch and its PR
+    fake.calls.clear()
+    again = run(port)
+    assert again.outcome == "completed", again
+    assert again.output["skipped"] == "branch_exists"
+    assert again.output["number"] == 7  # reported as the open PR, as a first attempt does
+    assert again.output["head_sha"] == "e" * 40
+    assert fake.pulls[0]["labels"] == []
+    assert fake.writes() == []
+    assert _claims(store) == []  # released, as a first attempt's skip
+
+
+def test_a_foreign_open_pr_under_a_claim_without_a_commit_is_not_taken(pem):
+    fake = FakeGitHub()
+    port, store, _ = setup(pem, fake)
+    store.insert(
+        po.PR_OPEN_ONCE_COLLECTION,
+        {
+            "id": hashlib.sha256(b"github.pr_open#idem-1").hexdigest(),
+            "repo": REPO,
+            "branch": "bot/update-notes",
+            "base": None,
+            "commit_sha": None,
+            "state": "claimed",
+            "owner": "a-dead-attempt",
+        },
+    )
+    _foreign_open_pr(fake)
+    res = run(port)
+    assert res.outcome == "completed", res
+    assert res.output["skipped"] == "branch_exists"
+    assert fake.pulls[0]["labels"] == []
+    assert fake.writes() == []
+    assert _claims(store) == []
+
+
+def test_this_steps_own_open_pr_is_still_recovered_on_resume(pem):
+    fake, port, store = _lose_the_pull_answer(pem)
+    again = run(port)
+    assert again.outcome == "completed", again
+    assert again.output["skipped"] == "opened_unconfirmed"
+    assert again.output["head_sha"] == fake.pulls[0]["head"]["sha"]
+    assert fake.pulls[0]["labels"] == ["automated", "docs"]
+    assert _claims(store)[0]["state"] == "opened"
+
+
+# --------------------------------------------------------------------------- base_sha
+
+
+def test_a_matching_base_sha_proceeds(pem):
+    fake = FakeGitHub()
+    port, _store, _ = setup(pem, fake)
+    res = run(port, params(base_sha=BASE_SHA))
+    assert res.outcome == "completed", res
+    assert len(fake.pulls) == 1
+
+
+def test_an_uppercase_base_sha_matches(pem):
+    fake = FakeGitHub()
+    port, _store, _ = setup(pem, fake)
+    res = run(port, params(base_sha=BASE_SHA.upper()))
+    assert res.outcome == "completed", res
+
+
+def test_an_empty_base_sha_is_absent(pem):
+    fake = FakeGitHub()
+    port, _store, _ = setup(pem, fake)
+    res = run(port, params(base_sha=""))
+    assert res.outcome == "completed", res
+
+
+def test_a_moved_base_is_refused_with_nothing_written(pem, caplog):
+    caplog.set_level(logging.INFO)
+    fake = FakeGitHub()
+    port, store, _ = setup(pem, fake)
+    res = run(port, params(base_sha="a" * 40))
+    assert (res.outcome, res.error, res.retryable) == ("failed", "base_moved", False)
+    assert fake.writes() == []
+    assert _claims(store) == []
+    assert "a" * 40 in caplog.text
+    assert BASE_SHA in caplog.text
+    again = run(port, params(base_sha="a" * 40))  # a retry of the same step
+    assert (again.outcome, again.error, again.retryable) == ("failed", "base_moved", False)
+    assert fake.writes() == []
+    assert _claims(store) == []
+
+
+@pytest.mark.parametrize("bad", ["abc", 3, "g" * 40, "b" * 41, ["b" * 40]])
+def test_a_malformed_base_sha_is_refused_before_any_secret_or_network(pem, bad):
+    fake = FakeGitHub()
+    port, _store, resolved = setup(pem, fake)
+    res = run(port, params(base_sha=bad))
+    assert (res.outcome, res.error, res.retryable) == ("failed", "bad_input", False)
+    assert fake.calls == []
+    assert resolved == []
+
+
 # --------------------------------------------------------------------------- client
 
 

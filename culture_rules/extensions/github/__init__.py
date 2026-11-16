@@ -88,6 +88,9 @@ KINDS = (
         repo=REQ_STR,
         branch=ParamSpec("str", True, label="New branch"),
         base=ParamSpec("str", label="Base branch (empty: the default branch)"),
+        base_sha=ParamSpec(
+            "str", label="Base commit the files were made from (refused if the base moved)"
+        ),
         files=ParamSpec("list", True, label="Files (path and content)", widget="json"),
         title=REQ_STR,
         body=TEXT,
@@ -210,11 +213,13 @@ def _literal(value: Any) -> str | None:
 
 def pr_open_params(params: Mapping[str, Any], path: str) -> list[Problem]:
     """``github.pr_open``'s save-time checks on what is literal: the branch, the base, the
-    file list and its paths and the labels. A value a reference fills is checked by the port
-    when it runs (the same limits, and the default branch, which only GitHub knows)."""
+    base commit, the file list and its paths and the labels. A value a reference fills is
+    checked by the port when it runs (the same limits, and the default branch, which only
+    GitHub knows)."""
     from culture_rules.extensions.github import pr_open  # noqa: PLC0415
 
     out = _pr_open_branch_problems(params, path)
+    out.extend(_pr_open_base_sha_problems(params, path))
     files = params.get("files")
     if isinstance(files, list):
         out.extend(_pr_open_files_problems(files, path))
@@ -237,6 +242,16 @@ def _pr_open_branch_problems(params: Mapping[str, Any], path: str) -> list[Probl
     if branch and base and branch.casefold() == base.casefold():
         out.append((join(path, "branch"), "branch_is_base", "the new branch is the base branch"))
     return out
+
+
+def _pr_open_base_sha_problems(params: Mapping[str, Any], path: str) -> list[Problem]:
+    """The literal ``base_sha``: empty (not given) or a full 40-hex commit sha."""
+    from culture_rules.extensions.github.client import _is_full_sha  # noqa: PLC0415
+
+    sha = _literal(params.get("base_sha"))
+    if not sha or _is_full_sha(sha):
+        return []
+    return [(join(path, "base_sha"), "invalid_sha", f"{sha!r} is not a full commit sha")]
 
 
 def _pr_open_files_problems(files: list[Any], path: str) -> list[Problem]:
